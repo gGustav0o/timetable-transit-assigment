@@ -1,0 +1,49 @@
+# =========================
+# OS / editor junk
+# =========================
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# =========================
+# Visual Studio / MSVC
+# =========================
+.vs/
+*.VC.db
+*.VC.VC.opendb
+
+# =========================
+# CMake build output
+# =========================
+out/
+build/
+cmake-build-*/
+
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CTestTestfile.cmake
+Testing/
+install_manifest.txt
+compile_commands.json
+
+# =========================
+# CMake presets: keep shared, ignore user-local
+# =========================
+CMakeUserPresets.json
+
+# =========================
+# vcpkg (manifest installs often land here depending on setup)
+# =========================
+vcpkg_installed/
+**/vcpkg_installed/
+
+# =========================
+# Tool caches
+# =========================
+.cache/

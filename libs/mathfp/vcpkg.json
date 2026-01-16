@@ -1,0 +1,44 @@
+{
+  "name": "mathfp",
+  "version-string": "0.1.0",
+  "description": "C++20 math-oriented FP utilities.",
+  "license": "MIT",
+  "dependencies": [
+    "tl-expected",
+    "fmt"
+  ],
+  "default-features": [
+    "ranges",
+    "linalg",
+    "graph",
+    "interop"
+  ],
+  "features": {
+    "ranges": {
+      "description": "Boost.Range helpers (zip/combine etc.)",
+      "dependencies": [
+        "boost-range"
+      ]
+    },
+    "linalg": {
+      "description": "Eigen-based linear algebra layer",
+      "dependencies": [
+        "eigen3"
+      ]
+    },
+    "graph": {
+      "description": "Boost.Graph layer",
+      "dependencies": [
+        "boost-graph"
+      ]
+    },
+    "interop": {
+      "description": "Graph <-> Eigen interop helpers",
+      "dependencies": [
+        "eigen3",
+        "boost-graph"
+      ]
+    }
+  },
+  "builtin-baseline": "39e7b2243343cb39d153a759239dc6a9dfa1f705"
+}
