@@ -1,0 +1,41 @@
+#pragma once
+
+#include <utility>
+
+#include "mathfp/core/expected.hpp"
+
+// Reason: C++ can't do early-return ergonomically.
+
+#define MATHFP_DETAIL_CONCAT_INNER(a, b) a##b
+#define MATHFP_DETAIL_CONCAT(a, b) MATHFP_DETAIL_CONCAT_INNER(a, b)
+#define MATHFP_DETAIL_UNIQUE_NAME(base) MATHFP_DETAIL_CONCAT(base, __COUNTER__)
+
+#define MATHFP_DETAIL_TRY_IMPL(res_name, expr)                                  \
+  do {                                                                           \
+    auto res_name = (expr);                                                      \
+    if (!res_name) {                                                             \
+      return ::mathfp::unexpected(std::move(res_name.error()));                  \
+    }                                                                            \
+  } while (0)
+
+#define MATHFP_DETAIL_TRY_ASSIGN_IMPL(res_name, lhs, expr)                       \
+  do {                                                                           \
+    auto res_name = (expr);                                                      \
+    if (!res_name) {                                                             \
+      return ::mathfp::unexpected(std::move(res_name.error()));                  \
+    }                                                                            \
+    (lhs) = std::move(*res_name);                                                \
+  } while (0)
+
+// Evaluate an Expected<...> expression; on error, return it from the current function.
+#define MATHFP_TRY(expr) MATHFP_DETAIL_TRY_IMPL(MATHFP_DETAIL_UNIQUE_NAME(_mathfp_try_), (expr))
+
+// Same, but also assign the value into lhs.
+#define MATHFP_TRY_ASSIGN(lhs, expr)                                             \
+  MATHFP_DETAIL_TRY_ASSIGN_IMPL(MATHFP_DETAIL_UNIQUE_NAME(_mathfp_try_), (lhs), (expr))
+
+#undef MATHFP_DETAIL_TRY_ASSIGN_IMPL
+#undef MATHFP_DETAIL_TRY_IMPL
+#undef MATHFP_DETAIL_UNIQUE_NAME
+#undef MATHFP_DETAIL_CONCAT
+#undef MATHFP_DETAIL_CONCAT_INNER

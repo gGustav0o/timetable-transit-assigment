@@ -49,6 +49,41 @@ endif()
 # ------------------------------------------------------------------------------
 
 set(MATHFP_INCLUDE_DIR ${CMAKE_CURRENT_LIST_DIR}/include)
+set(MATHFP_HEADERS
+  ${MATHFP_INCLUDE_DIR}/mathfp/config.hpp
+  ${MATHFP_INCLUDE_DIR}/mathfp/compiler_attributes.hpp
+  ${MATHFP_INCLUDE_DIR}/mathfp/prelude.hpp
+  ${MATHFP_INCLUDE_DIR}/mathfp/version.hpp
+  ${MATHFP_INCLUDE_DIR}/mathfp/core/expected.hpp
+  ${MATHFP_INCLUDE_DIR}/mathfp/core/numeric_tolerance.hpp
+  ${MATHFP_INCLUDE_DIR}/mathfp/core/error.hpp
+  ${MATHFP_INCLUDE_DIR}/mathfp/core/context.hpp
+  ${MATHFP_INCLUDE_DIR}/mathfp/core/try.hpp
+  ${MATHFP_INCLUDE_DIR}/mathfp/core/fp.hpp
+  ${MATHFP_INCLUDE_DIR}/mathfp/core/applicative.hpp
+  ${MATHFP_INCLUDE_DIR}/mathfp/core/traverse.hpp
+  ${MATHFP_INCLUDE_DIR}/mathfp/core/unit.hpp
+  ${MATHFP_INCLUDE_DIR}/mathfp/core/utility.hpp
+  ${MATHFP_INCLUDE_DIR}/mathfp/ranges/boost.hpp
+  ${MATHFP_INCLUDE_DIR}/mathfp/ranges/zip.hpp
+  ${MATHFP_INCLUDE_DIR}/mathfp/types/strong_type.hpp
+  ${MATHFP_INCLUDE_DIR}/mathfp/types/units.hpp
+  ${MATHFP_INCLUDE_DIR}/mathfp/types/index.hpp
+  ${MATHFP_INCLUDE_DIR}/mathfp/linalg/eigen_fwd.hpp
+  ${MATHFP_INCLUDE_DIR}/mathfp/linalg/types.hpp
+  ${MATHFP_INCLUDE_DIR}/mathfp/linalg/checks.hpp
+  ${MATHFP_INCLUDE_DIR}/mathfp/linalg/sparse_build.hpp
+  ${MATHFP_INCLUDE_DIR}/mathfp/linalg/solve.hpp
+  ${MATHFP_INCLUDE_DIR}/mathfp/graph/types.hpp
+  ${MATHFP_INCLUDE_DIR}/mathfp/graph/properties.hpp
+  ${MATHFP_INCLUDE_DIR}/mathfp/graph/build.hpp
+  ${MATHFP_INCLUDE_DIR}/mathfp/algorithms/bfs.hpp
+  ${MATHFP_INCLUDE_DIR}/mathfp/algorithms/dijkstra.hpp
+  ${MATHFP_INCLUDE_DIR}/mathfp/algorithms/toposort.hpp
+  ${MATHFP_INCLUDE_DIR}/mathfp/algorithms/connected_components.hpp
+  ${MATHFP_INCLUDE_DIR}/mathfp/interop/graph_eigen.hpp
+  ${MATHFP_INCLUDE_DIR}/mathfp/interop/boost_property_maps.hpp
+)
 
 # ------------------------------------------------------------------------------
 # Targets
@@ -56,6 +91,8 @@ set(MATHFP_INCLUDE_DIR ${CMAKE_CURRENT_LIST_DIR}/include)
 
 add_library(mathfp_core INTERFACE)
 add_library(mathfp::core ALIAS mathfp_core)
+
+target_sources(mathfp_core INTERFACE ${MATHFP_HEADERS})
 
 target_include_directories(mathfp_core
   INTERFACE
