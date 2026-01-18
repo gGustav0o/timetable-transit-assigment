@@ -1,0 +1,18 @@
+# Build artifacts
+build/
+out/
+
+# CMake files
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+
+# IDE
+.vs/
+
+# vcpkg artifacts
+vcpkg_installed/
+
+# Local presets
+CMakeUserPresets.json

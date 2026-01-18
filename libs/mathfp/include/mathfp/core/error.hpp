@@ -144,6 +144,14 @@ namespace mathfp {
 		return Error{ kind, std::move(message), where };
 	}
 
+	MATHFP_NODISCARD inline Error make_error(
+		ErrKind kind
+		, std::string_view message
+		, std::source_location where = std::source_location::current()
+	) {
+		return Error{ kind, std::string(message), where };
+	}
+
 	MATHFP_NODISCARD inline Error domain_error(
 		std::string_view msg
 		, std::source_location where = std::source_location::current()
