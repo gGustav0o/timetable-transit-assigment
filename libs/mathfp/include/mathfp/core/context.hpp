@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <initializer_list>
+#include <iterator>
 #include <span>
 #include <string>
 #include <string_view>

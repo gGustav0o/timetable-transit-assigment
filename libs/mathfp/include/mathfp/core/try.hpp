@@ -34,8 +34,3 @@
 #define MATHFP_TRY_ASSIGN(lhs, expr)                                             \
   MATHFP_DETAIL_TRY_ASSIGN_IMPL(MATHFP_DETAIL_UNIQUE_NAME(_mathfp_try_), (lhs), (expr))
 
-#undef MATHFP_DETAIL_TRY_ASSIGN_IMPL
-#undef MATHFP_DETAIL_TRY_IMPL
-#undef MATHFP_DETAIL_UNIQUE_NAME
-#undef MATHFP_DETAIL_CONCAT
-#undef MATHFP_DETAIL_CONCAT_INNER

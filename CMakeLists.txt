@@ -20,7 +20,12 @@ add_executable(timetable-transit-assigment
   src/main.cpp
   src/app/app.cpp
   src/domain/assignment.cpp
+  src/infra/data_sources.cpp
+  src/infra/file_data_source.cpp
+  src/infra/log_buffer.cpp
   src/infra/logging.cpp
+  src/infra/ui_log_sink.cpp
+  src/ui/model.cpp
   src/ui/ui.cpp
   include/timetable/timetable.hpp
 )
@@ -36,6 +41,7 @@ target_link_libraries(timetable-transit-assigment
   PRIVATE
     mathfp::all
     Boost::boost
+    fmt::fmt
     spdlog::spdlog
     ftxui::component
     ftxui::dom
