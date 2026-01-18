@@ -1,16 +1,19 @@
 #pragma once
 
-#ifndef MATHFP_HAS_BOOST_GRAPH
-#  error "mathfp/graph requires Boost.Graph. Enable the graph feature (MATHFP_HAS_BOOST_GRAPH)."
+#if !defined(MATHFP_HAS_GRAPH) && !defined(MATHFP_HAS_INTEROP) && !defined(MATHFP_HAS_ALL)
+#  error "mathfp/graph requires Boost.Graph. Enable the graph feature."
 #endif
 
 #include <cmath>
 #include <cstddef>
 #include <limits>
 #include <source_location>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 #include <vector>
+
+#include <mathfp/compiler_attributes.hpp>
 
 #include <boost/graph/dijkstra_shortest_paths.hpp>
 #include <boost/graph/graph_traits.hpp>
@@ -19,6 +22,8 @@
 
 #include <mathfp/core/expected.hpp>
 #include <mathfp/core/error.hpp>
+#include <mathfp/core/unit.hpp>
+#include <mathfp/core/try.hpp>
 #include <mathfp/graph/properties.hpp>
 #include <mathfp/graph/types.hpp>
 #include <mathfp/types/index.hpp>
@@ -36,7 +41,7 @@ namespace mathfp::graph {
         inline constexpr std::string_view kMethod = "method";
 
         template <class W>
-        [[nodiscard]] constexpr W inf_value() {
+        MATHFP_NODISCARD constexpr W inf_value() {
             if constexpr (std::numeric_limits<W>::has_infinity) {
                 return std::numeric_limits<W>::infinity();
             }
@@ -46,7 +51,7 @@ namespace mathfp::graph {
         }
 
         template <class W>
-        [[nodiscard]] constexpr bool is_negative(const W& w) {
+        MATHFP_NODISCARD constexpr bool is_negative(const W& w) {
             if constexpr (std::is_floating_point_v<W>) {
                 // NaN handled separately. Here it's a plain negative check.
                 return w < static_cast<W>(0);
@@ -60,7 +65,7 @@ namespace mathfp::graph {
         }
 
         template <class W>
-        [[nodiscard]] inline bool is_finite(const W& w) {
+        MATHFP_NODISCARD inline bool is_finite(const W& w) {
             if constexpr (std::is_floating_point_v<W>) {
                 return std::isfinite(w);
             }
@@ -70,7 +75,7 @@ namespace mathfp::graph {
         }
 
         template <class G>
-        [[nodiscard]] inline ::mathfp::Expected<::mathfp::Unit> validate_start(
+        MATHFP_NODISCARD inline ::mathfp::Expected<::mathfp::Unit> validate_start(
             const G& g
             , VertexId start, std::source_location where
         ) {
@@ -99,7 +104,7 @@ namespace mathfp::graph {
         }
 
         template <class G>
-        [[nodiscard]] inline ::mathfp::Expected<::mathfp::Unit> validate_weights_for_dijkstra(
+        MATHFP_NODISCARD inline ::mathfp::Expected<::mathfp::Unit> validate_weights_for_dijkstra(
             const G& g
             , std::source_location where
         ) {
@@ -139,7 +144,7 @@ namespace mathfp::graph {
     // - distance[v] = shortest path length (inf if unreachable)
     // - parent[v] = predecessor vertex id in shortest path tree (invalid if unreachable or start)
     template <class G>
-    [[nodiscard]] inline ::mathfp::Expected<DijkstraResult<G>> dijkstra(
+    MATHFP_NODISCARD inline ::mathfp::Expected<DijkstraResult<G>> dijkstra(
         const G& g
         , VertexId start
         , std::source_location where = std::source_location::current()
@@ -196,3 +201,5 @@ namespace mathfp::graph {
     }
 
 }  // namespace mathfp::graph
+
+

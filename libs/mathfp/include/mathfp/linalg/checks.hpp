@@ -4,6 +4,7 @@
 #include <source_location>
 #include <type_traits>
 
+#include <mathfp/compiler_attributes.hpp>
 #include <mathfp/core/expected.hpp>
 #include <mathfp/core/unit.hpp>
 #include <mathfp/core/utility.hpp>
@@ -16,7 +17,7 @@ namespace mathfp::linalg {
     using ::mathfp::ctx_key::kRows;
 
     template <class Derived>
-    [[nodiscard]] inline ::mathfp::Expected<::mathfp::Unit> ensure_nonempty(
+    MATHFP_NODISCARD inline ::mathfp::Expected<::mathfp::Unit> ensure_nonempty(
         const Eigen::MatrixBase<Derived>& a
         , std::source_location where = std::source_location::current()
     ) {
@@ -28,7 +29,7 @@ namespace mathfp::linalg {
     }
 
     template <class Derived>
-    [[nodiscard]] inline ::mathfp::Expected<::mathfp::Unit> ensure_square(
+    MATHFP_NODISCARD inline ::mathfp::Expected<::mathfp::Unit> ensure_square(
         const Eigen::MatrixBase<Derived>& a
         , std::source_location where = std::source_location::current()
     ) {
@@ -40,7 +41,7 @@ namespace mathfp::linalg {
     }
 
     template <class A, class B>
-    [[nodiscard]] inline ::mathfp::Expected<::mathfp::Unit> ensure_same_shape(
+    MATHFP_NODISCARD inline ::mathfp::Expected<::mathfp::Unit> ensure_same_shape(
         const Eigen::MatrixBase<A>& a
         , const Eigen::MatrixBase<B>& b
         , std::source_location where = std::source_location::current()
@@ -53,7 +54,7 @@ namespace mathfp::linalg {
     }
 
     template <class A, class X>
-    [[nodiscard]] inline ::mathfp::Expected<::mathfp::Unit> ensure_matvec_compatible(
+    MATHFP_NODISCARD inline ::mathfp::Expected<::mathfp::Unit> ensure_matvec_compatible(
         const Eigen::MatrixBase<A>& a
         , const Eigen::MatrixBase<X>& x
         , std::source_location where = std::source_location::current()
@@ -72,7 +73,7 @@ namespace mathfp::linalg {
     }
 
     template <class Derived>
-    [[nodiscard]] inline ::mathfp::Expected<::mathfp::Unit> ensure_finite(
+    MATHFP_NODISCARD inline ::mathfp::Expected<::mathfp::Unit> ensure_finite(
         const Eigen::MatrixBase<Derived>& a
         , std::source_location where = std::source_location::current()
     ) requires requires { a.allFinite(); } {

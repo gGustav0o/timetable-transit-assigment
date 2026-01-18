@@ -12,6 +12,8 @@
 #include <utility>
 #include <vector>
 
+#include <mathfp/compiler_attributes.hpp>
+#include <mathfp/core/context.hpp>
 #include <mathfp/core/expected.hpp>
 #include <mathfp/core/unit.hpp>
 #include <mathfp/core/utility.hpp>
@@ -30,7 +32,7 @@ namespace mathfp::linalg {
 
         inline constexpr std::string_view kPolicy = "duplicate_policy";
 
-        [[nodiscard]] inline std::string_view to_string(DuplicatePolicy p) noexcept {
+        MATHFP_NODISCARD inline std::string_view to_string(DuplicatePolicy p) noexcept {
             switch (p) {
             case DuplicatePolicy::Sum:   return "Sum";
             case DuplicatePolicy::Last:  return "Last";
@@ -48,7 +50,7 @@ namespace mathfp::linalg {
         };
 
         template <class StorageIndex>
-        [[nodiscard]] inline bool in_bounds(StorageIndex i, EigenIndex n) noexcept {
+        MATHFP_NODISCARD inline bool in_bounds(StorageIndex i, EigenIndex n) noexcept {
             if constexpr (std::is_signed_v<StorageIndex>) {
                 if (i < 0) return false;
             }
@@ -56,16 +58,16 @@ namespace mathfp::linalg {
         }
 
         template <class Trip>
-        [[nodiscard]] inline EigenIndex t_row(const Trip& t) {
+        MATHFP_NODISCARD inline EigenIndex t_row(const Trip& t) {
             return static_cast<EigenIndex>(t.row());
         }
         template <class Trip>
-        [[nodiscard]] inline EigenIndex t_col(const Trip& t) {
+        MATHFP_NODISCARD inline EigenIndex t_col(const Trip& t) {
             return static_cast<EigenIndex>(t.col());
         }
 
         template <class Scalar, class StorageIndex>
-        [[nodiscard]] inline auto overwrite_duplicates() {
+        MATHFP_NODISCARD inline auto overwrite_duplicates() {
             return [](const Scalar&, const Scalar& neu) { return neu; };
         }
 
@@ -85,7 +87,7 @@ namespace mathfp::linalg {
         , class StorageIndex = int
         , std::ranges::input_range Triplets
     >
-    [[nodiscard]] inline ::mathfp::Expected<SpMat<Scalar, Options, StorageIndex>> build_sparse(
+    MATHFP_NODISCARD inline ::mathfp::Expected<SpMat<Scalar, Options, StorageIndex>> build_sparse(
         EigenIndex rows
         , EigenIndex cols
         , Triplets&& triplets

@@ -10,6 +10,8 @@
 #include <utility>
 #include <vector>
 
+#include <mathfp/compiler_attributes.hpp>
+
 namespace mathfp {
 
 	namespace ctx_key {
@@ -38,10 +40,10 @@ namespace mathfp {
 			: entries_(init.begin(), init.end()) {
 		}
 
-		[[nodiscard]] bool empty() const noexcept { return entries_.empty(); }
-		[[nodiscard]] std::size_t size() const noexcept { return entries_.size(); }
+		MATHFP_NODISCARD bool empty() const noexcept { return entries_.empty(); }
+		MATHFP_NODISCARD std::size_t size() const noexcept { return entries_.size(); }
 
-		[[nodiscard]] std::span<const Entry> entries() const noexcept { return entries_; }
+		MATHFP_NODISCARD std::span<const Entry> entries() const noexcept { return entries_; }
 
 		void reserve(std::size_t n) { entries_.reserve(n); }
 		void clear() noexcept { entries_.clear(); }
@@ -74,7 +76,7 @@ namespace mathfp {
 			other.entries_.clear();
 		}
 
-		[[nodiscard]] std::string to_string() const {
+		MATHFP_NODISCARD std::string to_string() const {
 			if (entries_.empty()) return "{}";
 
 			fmt::memory_buffer buf;

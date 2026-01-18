@@ -8,6 +8,8 @@
 
 #include <fmt/format.h>
 
+#include <mathfp/compiler_attributes.hpp>
+
 namespace mathfp::units {
 
     template <int L, int M, int Ti, int I, int Th, int N, int J>
@@ -96,9 +98,9 @@ namespace mathfp::units {
         constexpr Quantity() = default;
         constexpr explicit Quantity(Rep v) : value_(std::move(v)) {}
 
-        [[nodiscard]] constexpr const Rep& value() const& noexcept { return value_; }
-        [[nodiscard]] constexpr Rep& value_mut() & noexcept { return value_; }
-        [[nodiscard]] constexpr Rep&& value() && noexcept { return std::move(value_); }
+        MATHFP_NODISCARD constexpr const Rep& value() const& noexcept { return value_; }
+        MATHFP_NODISCARD constexpr Rep& value_mut() & noexcept { return value_; }
+        MATHFP_NODISCARD constexpr Rep&& value() && noexcept { return std::move(value_); }
 
     private:
         Rep value_{};
@@ -113,56 +115,56 @@ namespace mathfp::units {
     using LumInt  = Dim<0, 0, 0, 0, 0, 0, 1>;
 
     template <class Rep>
-    [[nodiscard]] constexpr Quantity<Rep, Length> meters(Rep v) { return Quantity<Rep, Length>(std::move(v)); }
+    MATHFP_NODISCARD constexpr Quantity<Rep, Length> meters(Rep v) { return Quantity<Rep, Length>(std::move(v)); }
 
     template <class Rep>
-    [[nodiscard]] constexpr Quantity<Rep, Time> seconds(Rep v) { return Quantity<Rep, Time>(std::move(v)); }
+    MATHFP_NODISCARD constexpr Quantity<Rep, Time> seconds(Rep v) { return Quantity<Rep, Time>(std::move(v)); }
 
     template <class Rep>
-    [[nodiscard]] constexpr Quantity<Rep, Mass> kilograms(Rep v) { return Quantity<Rep, Mass>(std::move(v)); }
+    MATHFP_NODISCARD constexpr Quantity<Rep, Mass> kilograms(Rep v) { return Quantity<Rep, Mass>(std::move(v)); }
 
     template <class Rep>
-    [[nodiscard]] constexpr Quantity<Rep, detail::dimless> dimless(Rep v) { return Quantity<Rep, Dimless>(std::move(v)); }
+    MATHFP_NODISCARD constexpr Quantity<Rep, Dimless> dimless(Rep v) { return Quantity<Rep, Dimless>(std::move(v)); }
 
 
     template <class R1, class R2, detail::dim D>
-    [[nodiscard]] constexpr auto operator+(const Quantity<R1, D>& a, const Quantity<R2, D>& b) {
+    MATHFP_NODISCARD constexpr auto operator+(const Quantity<R1, D>& a, const Quantity<R2, D>& b) {
         using R = std::common_type_t<R1, R2>;
         return Quantity<R, D>(static_cast<R>(a.value()) + static_cast<R>(b.value()));
     }
 
     template <class R1, class R2, detail::dim D>
-    [[nodiscard]] constexpr auto operator-(const Quantity<R1, D>& a, const Quantity<R2, D>& b) {
+    MATHFP_NODISCARD constexpr auto operator-(const Quantity<R1, D>& a, const Quantity<R2, D>& b) {
         using R = std::common_type_t<R1, R2>;
         return Quantity<R, D>(static_cast<R>(a.value()) - static_cast<R>(b.value()));
     }
 
     template <class R, detail::dim D>
-    [[nodiscard]] constexpr auto operator-(const Quantity<R, D>& x) {
+    MATHFP_NODISCARD constexpr auto operator-(const Quantity<R, D>& x) {
         return Quantity<R, D>(-x.value());
     }
 
     template <class R1, class R2, detail::dim D>
-    [[nodiscard]] constexpr bool operator==(const Quantity<R1, D>& a, const Quantity<R2, D>& b) {
+    MATHFP_NODISCARD constexpr bool operator==(const Quantity<R1, D>& a, const Quantity<R2, D>& b) {
         using R = std::common_type_t<R1, R2>;
         return static_cast<R>(a.value()) == static_cast<R>(b.value());
     }
 
     template <class R1, class R2, detail::dim D>
-    [[nodiscard]] constexpr auto operator<=>(const Quantity<R1, D>& a, const Quantity<R2, D>& b) {
+    MATHFP_NODISCARD constexpr auto operator<=>(const Quantity<R1, D>& a, const Quantity<R2, D>& b) {
         using R = std::common_type_t<R1, R2>;
         return static_cast<R>(a.value()) <=> static_cast<R>(b.value());
     }
 
     template <class R1, class R2, detail::dim D1, detail::dim D2>
-    [[nodiscard]] constexpr auto operator*(const Quantity<R1, D1>& a, const Quantity<R2, D2>& b) {
+    MATHFP_NODISCARD constexpr auto operator*(const Quantity<R1, D1>& a, const Quantity<R2, D2>& b) {
         using R = std::common_type_t<R1, R2>;
         using D = detail::dim_add_t<D1, D2>;
         return Quantity<R, D>(static_cast<R>(a.value()) * static_cast<R>(b.value()));
     }
 
     template <class R1, class R2, detail::dim D1, detail::dim D2>
-    [[nodiscard]] constexpr auto operator/(const Quantity<R1, D1>& a, const Quantity<R2, D2>& b) {
+    MATHFP_NODISCARD constexpr auto operator/(const Quantity<R1, D1>& a, const Quantity<R2, D2>& b) {
         using R = std::common_type_t<R1, R2>;
         using D = detail::dim_sub_t<D1, D2>;
         return Quantity<R, D>(static_cast<R>(a.value()) / static_cast<R>(b.value()));
@@ -170,26 +172,26 @@ namespace mathfp::units {
 
     template <class S, class R, detail::dim D>
         requires std::is_arithmetic_v<std::remove_cvref_t<S>>
-    [[nodiscard]] constexpr auto operator*(S s, const Quantity<R, D>& q) {
+    MATHFP_NODISCARD constexpr auto operator*(S s, const Quantity<R, D>& q) {
         using RR = std::common_type_t<std::remove_cvref_t<S>, R>;
         return Quantity<RR, D>(static_cast<RR>(s) * static_cast<RR>(q.value()));
     }
 
     template <class S, class R, detail::dim D>
         requires std::is_arithmetic_v<std::remove_cvref_t<S>>
-    [[nodiscard]] constexpr auto operator*(const Quantity<R, D>& q, S s) {
+    MATHFP_NODISCARD constexpr auto operator*(const Quantity<R, D>& q, S s) {
         return s * q;
     }
 
     template <class S, class R, detail::dim D>
         requires std::is_arithmetic_v<std::remove_cvref_t<S>>
-    [[nodiscard]] constexpr auto operator/(const Quantity<R, D>& q, S s) {
+    MATHFP_NODISCARD constexpr auto operator/(const Quantity<R, D>& q, S s) {
         using RR = std::common_type_t<R, std::remove_cvref_t<S>>;
         return Quantity<RR, D>(static_cast<RR>(q.value()) / static_cast<RR>(s));
     }
 
     template <int P, class R, detail::dim D>
-    [[nodiscard]] constexpr auto pow(const Quantity<R, D>& q) {
+    MATHFP_NODISCARD constexpr auto pow(const Quantity<R, D>& q) {
         using DD = detail::dim_pow_t<D, P>;
         using RR = R;
         if constexpr (P == 0) {
@@ -207,18 +209,18 @@ namespace mathfp::units {
     }
 
     template <class R, detail::dim D>
-    [[nodiscard]] inline auto sqrt(const Quantity<R, D>& q) {
+    MATHFP_NODISCARD inline auto sqrt(const Quantity<R, D>& q) {
         using DD = detail::dim_half_t<D>;
         return Quantity<R, DD>(static_cast<R>(std::sqrt(q.value())));
     }
 
     template <class R, detail::dim D>
-    [[nodiscard]] constexpr bool is_dimless(const Quantity<R, D>&) noexcept {
+    MATHFP_NODISCARD constexpr bool is_dimless(const Quantity<R, D>&) noexcept {
         return detail::is_dimless_v<D>;
     }
 
     template <class R, detail::dim D>
-    [[nodiscard]] constexpr auto as_dimless(const Quantity<R, D>& q)
+    MATHFP_NODISCARD constexpr auto as_dimless(const Quantity<R, D>& q)
         requires detail::is_dimless_v<D>
     {
         return q.value();
@@ -226,15 +228,15 @@ namespace mathfp::units {
 
     namespace literals {
 
-        [[nodiscard]] constexpr Quantity<long double, Length> operator"" _m(long double v) {
+        MATHFP_NODISCARD constexpr Quantity<long double, Length> operator"" _m(long double v) {
             return Quantity<long double, Length>(v);
         }
 
-        [[nodiscard]] constexpr Quantity<long double, Time> operator"" _s(long double v) {
+        MATHFP_NODISCARD constexpr Quantity<long double, Time> operator"" _s(long double v) {
             return Quantity<long double, Time>(v);
         }
 
-        [[nodiscard]] constexpr Quantity<long double, Mass> operator"" _kg(long double v) {
+        MATHFP_NODISCARD constexpr Quantity<long double, Mass> operator"" _kg(long double v) {
             return Quantity<long double, Mass>(v);
         }
 

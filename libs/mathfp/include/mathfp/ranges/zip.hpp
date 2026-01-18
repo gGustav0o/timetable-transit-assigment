@@ -5,19 +5,20 @@
 #include <type_traits>
 #include <utility>
 
+#include <mathfp/compiler_attributes.hpp>
 #include <mathfp/ranges/boost.hpp>
 
 namespace mathfp::ranges {
     namespace detail {
 
         template <class BoostTuple, std::size_t... Is>
-        [[nodiscard]] constexpr auto boost_tuple_to_std_tuple_impl(BoostTuple&& t, std::index_sequence<Is...>) {
+        MATHFP_NODISCARD constexpr auto boost_tuple_to_std_tuple_impl(BoostTuple&& t, std::index_sequence<Is...>) {
             return std::tuple<decltype(boost::get<Is>(std::forward<BoostTuple>(t)))...>{
                 boost::get<Is>(std::forward<BoostTuple>(t))...};
         }
 
         template <std::size_t N, class BoostTuple>
-        [[nodiscard]] constexpr auto boost_tuple_to_std_tuple(BoostTuple&& t) {
+        MATHFP_NODISCARD constexpr auto boost_tuple_to_std_tuple(BoostTuple&& t) {
             return boost_tuple_to_std_tuple_impl(std::forward<BoostTuple>(t), std::make_index_sequence<N>{});
         }
 
@@ -42,14 +43,14 @@ namespace mathfp::ranges {
 
             void operator++(int) { ++(*this); }
 
-            [[nodiscard]] friend bool operator==(const iterator& a, const iterator& b) {
+            MATHFP_NODISCARD friend bool operator==(const iterator& a, const iterator& b) {
                 return a.it_ == b.it_;
             }
-            [[nodiscard]] friend bool operator!=(const iterator& a, const iterator& b) {
+            MATHFP_NODISCARD friend bool operator!=(const iterator& a, const iterator& b) {
                 return !(a == b);
             }
 
-            [[nodiscard]] auto operator*() const {
+            MATHFP_NODISCARD auto operator*() const {
                 auto&& bt = *it_;
                 return detail::boost_tuple_to_std_tuple<N>(bt);
             }
@@ -58,25 +59,25 @@ namespace mathfp::ranges {
             base_iterator it_;
         };
 
-        [[nodiscard]] iterator begin() { return iterator{ std::begin(cr_) }; }
-        [[nodiscard]] iterator end() { return iterator{ std::end(cr_) }; }
+        MATHFP_NODISCARD iterator begin() { return iterator{ std::begin(cr_) }; }
+        MATHFP_NODISCARD iterator end() { return iterator{ std::end(cr_) }; }
 
-        [[nodiscard]] iterator begin() const { return iterator{ std::begin(cr_) }; }
-        [[nodiscard]] iterator end() const { return iterator{ std::end(cr_) }; }
+        MATHFP_NODISCARD iterator begin() const { return iterator{ std::begin(cr_) }; }
+        MATHFP_NODISCARD iterator end() const { return iterator{ std::end(cr_) }; }
 
     private:
         CombinedRange cr_;
     };
 
     template <class... Rs>
-    [[nodiscard]] inline auto zip(Rs&... rs) {
+    MATHFP_NODISCARD inline auto zip(Rs&... rs) {
         auto combined = boost::combine(rs...);
         using CombinedRange = decltype(combined);
         return ZipRange<CombinedRange, sizeof...(Rs)>(std::move(combined));
     }
 
     template <class F, class... Rs>
-    [[nodiscard]] inline auto zip_with(F&& f, Rs&... rs) {
+    MATHFP_NODISCARD inline auto zip_with(F&& f, Rs&... rs) {
         struct Range final {
             using Z = decltype(zip(rs...));
             Z z;
@@ -89,10 +90,10 @@ namespace mathfp::ranges {
                 iterator& operator++() { ++it_; return *this; }
                 void operator++(int) { ++(*this); }
 
-                [[nodiscard]] friend bool operator==(const iterator& a, const iterator& b) { return a.it_ == b.it_; }
-                [[nodiscard]] friend bool operator!=(const iterator& a, const iterator& b) { return !(a == b); }
+                MATHFP_NODISCARD friend bool operator==(const iterator& a, const iterator& b) { return a.it_ == b.it_; }
+                MATHFP_NODISCARD friend bool operator!=(const iterator& a, const iterator& b) { return !(a == b); }
 
-                [[nodiscard]] decltype(auto) operator*() const {
+                MATHFP_NODISCARD decltype(auto) operator*() const {
                     auto tup = *it_;
                     return std::apply(*fn_, tup);
                 }
@@ -101,8 +102,8 @@ namespace mathfp::ranges {
                 std::decay_t<F>* fn_;
             };
 
-            [[nodiscard]] iterator begin() { return iterator{ z.begin(), &fn }; }
-            [[nodiscard]] iterator end() { return iterator{ z.end(), &fn }; }
+            MATHFP_NODISCARD iterator begin() { return iterator{ z.begin(), &fn }; }
+            MATHFP_NODISCARD iterator end() { return iterator{ z.end(), &fn }; }
         };
 
         return Range{ zip(rs...), std::forward<F>(f) };

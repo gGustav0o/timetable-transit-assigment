@@ -4,6 +4,7 @@
 
 #include <utility>
 
+#include "mathfp/compiler_attributes.hpp"
 #include "mathfp/core/error.hpp"
 #include "mathfp/core/unit.hpp"
 
@@ -14,10 +15,10 @@ namespace mathfp {
 
 	using Unexpected = tl::unexpected<Error>;
 
-	[[nodiscard]] inline Unexpected unexpected(Error e) {
+	MATHFP_NODISCARD inline Unexpected unexpected(Error e) {
 		return Unexpected{ std::move(e) };
 	}
 
-	[[nodiscard]] inline Expected<Unit> ok() { return Expected<Unit>{kUnit}; }
+	MATHFP_NODISCARD inline Expected<Unit> ok() { return Expected<Unit>{kUnit}; }
 
 } // namespace mathfp

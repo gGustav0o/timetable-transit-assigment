@@ -49,6 +49,15 @@ endif()
 # ------------------------------------------------------------------------------
 
 set(MATHFP_INCLUDE_DIR ${CMAKE_CURRENT_LIST_DIR}/include)
+set(MATHFP_GENERATED_INCLUDE_DIR ${CMAKE_CURRENT_BINARY_DIR}/include)
+
+file(MAKE_DIRECTORY ${MATHFP_GENERATED_INCLUDE_DIR}/mathfp)
+
+configure_file(
+  ${MATHFP_INCLUDE_DIR}/mathfp/version.hpp
+  ${MATHFP_GENERATED_INCLUDE_DIR}/mathfp/version.hpp
+  @ONLY
+)
 set(MATHFP_HEADERS
   ${MATHFP_INCLUDE_DIR}/mathfp/config.hpp
   ${MATHFP_INCLUDE_DIR}/mathfp/compiler_attributes.hpp
@@ -96,6 +105,7 @@ target_sources(mathfp_core INTERFACE ${MATHFP_HEADERS})
 
 target_include_directories(mathfp_core
   INTERFACE
+    $<BUILD_INTERFACE:${MATHFP_GENERATED_INCLUDE_DIR}>
     $<BUILD_INTERFACE:${MATHFP_INCLUDE_DIR}>
     $<INSTALL_INTERFACE:include>
 )
@@ -124,6 +134,7 @@ if(MATHFP_ENABLE_RANGES)
 
   target_include_directories(mathfp_ranges
     INTERFACE
+      $<BUILD_INTERFACE:${MATHFP_GENERATED_INCLUDE_DIR}>
       $<BUILD_INTERFACE:${MATHFP_INCLUDE_DIR}>
       $<INSTALL_INTERFACE:include>
   )
@@ -149,6 +160,7 @@ if(MATHFP_ENABLE_LINALG)
 
   target_include_directories(mathfp_linalg
     INTERFACE
+      $<BUILD_INTERFACE:${MATHFP_GENERATED_INCLUDE_DIR}>
       $<BUILD_INTERFACE:${MATHFP_INCLUDE_DIR}>
       $<INSTALL_INTERFACE:include>
   )
@@ -178,6 +190,7 @@ if(MATHFP_ENABLE_GRAPH)
 
   target_include_directories(mathfp_graph
     INTERFACE
+      $<BUILD_INTERFACE:${MATHFP_GENERATED_INCLUDE_DIR}>
       $<BUILD_INTERFACE:${MATHFP_INCLUDE_DIR}>
       $<INSTALL_INTERFACE:include>
   )
@@ -203,6 +216,7 @@ if(MATHFP_ENABLE_INTEROP)
 
   target_include_directories(mathfp_interop
     INTERFACE
+      $<BUILD_INTERFACE:${MATHFP_GENERATED_INCLUDE_DIR}>
       $<BUILD_INTERFACE:${MATHFP_INCLUDE_DIR}>
       $<INSTALL_INTERFACE:include>
   )
@@ -235,6 +249,7 @@ add_library(mathfp::all ALIAS mathfp_all)
 
 target_include_directories(mathfp_all
   INTERFACE
+    $<BUILD_INTERFACE:${MATHFP_GENERATED_INCLUDE_DIR}>
     $<BUILD_INTERFACE:${MATHFP_INCLUDE_DIR}>
     $<INSTALL_INTERFACE:include>
 )

@@ -109,9 +109,7 @@
 
 // --- Standard-ish attributes -------------------------------------------------
 // [[nodiscard]] / warn_unused_result
-#if (MATHFP_HASCPPATTR_nodiscard) // helper to allow nice preprocessor use
-#  define MATHFP_NODISCARD [[nodiscard]]
-#elif MATHFP_HAS_CPP_ATTR(nodiscard) || (MATHFP_CPLUSPLUS >= 201703L)
+#if MATHFP_HAS_CPP_ATTR(nodiscard) || (MATHFP_CPLUSPLUS >= 201703L)
 #  define MATHFP_NODISCARD [[nodiscard]]
 #elif (MATHFP_COMPILER_GCC || MATHFP_COMPILER_CLANG)
 #  define MATHFP_NODISCARD __attribute__((warn_unused_result))

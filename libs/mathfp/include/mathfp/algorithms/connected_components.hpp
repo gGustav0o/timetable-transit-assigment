@@ -1,7 +1,7 @@
 #pragma once
 
-#ifndef MATHFP_HAS_BOOST_GRAPH
-#  error "mathfp/graph requires Boost.Graph. Enable the graph feature (MATHFP_HAS_BOOST_GRAPH)."
+#if !defined(MATHFP_HAS_GRAPH) && !defined(MATHFP_HAS_INTEROP) && !defined(MATHFP_HAS_ALL)
+#  error "mathfp/graph requires Boost.Graph. Enable the graph feature."
 #endif
 
 #include <cstddef>
@@ -10,12 +10,15 @@
 #include <utility>
 #include <vector>
 
+#include <mathfp/compiler_attributes.hpp>
+
 #include <boost/graph/connected_components.hpp>
 #include <boost/graph/graph_traits.hpp>
 #include <boost/property_map/property_map.hpp>
 
 #include <mathfp/core/expected.hpp>
 #include <mathfp/core/error.hpp>
+#include <mathfp/core/unit.hpp>
 #include <mathfp/graph/properties.hpp>
 #include <mathfp/graph/types.hpp>
 
@@ -36,7 +39,7 @@ namespace mathfp::graph {
     }  // namespace detail
 
     template <class G>
-    [[nodiscard]] inline ::mathfp::Expected<ConnectedComponentsResult> connected_components(
+    MATHFP_NODISCARD inline ::mathfp::Expected<ConnectedComponentsResult> connected_components(
         const G& g
         ,std::source_location where = std::source_location::current()
     ) {
@@ -64,3 +67,5 @@ namespace mathfp::graph {
     }
 
 }  // namespace mathfp::graph
+
+

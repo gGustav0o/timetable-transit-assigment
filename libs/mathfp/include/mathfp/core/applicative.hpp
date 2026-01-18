@@ -7,6 +7,7 @@
 #include <type_traits>
 #include <utility>
 
+#include <mathfp/compiler_attributes.hpp>
 #include <mathfp/core/expected.hpp>
 #include <mathfp/core/fp.hpp>
 
@@ -18,7 +19,7 @@ namespace mathfp::app {
     }  // namespace detail
 
     template <class A, class B>
-    [[nodiscard]] ::mathfp::Expected<std::pair<A, B>> product(
+    MATHFP_NODISCARD ::mathfp::Expected<std::pair<A, B>> product(
         ::mathfp::Expected<A> a
         , ::mathfp::Expected<B> b
     ) {
@@ -28,7 +29,7 @@ namespace mathfp::app {
     }
 
     template <class F, class A>
-    [[nodiscard]] auto ap(
+    MATHFP_NODISCARD auto ap(
         ::mathfp::Expected<F> ef
         , ::mathfp::Expected<A> ea
     ) -> ::mathfp::Expected<detail::invoke_result_t<F, A>> {
@@ -39,7 +40,7 @@ namespace mathfp::app {
     }
 
     template <class F, class A, class B>
-    [[nodiscard]] auto lift2(
+    MATHFP_NODISCARD auto lift2(
         F&& f
         , ::mathfp::Expected<A> a
         , ::mathfp::Expected<B> b
@@ -51,7 +52,7 @@ namespace mathfp::app {
     }
 
     template <class F, class A, class B, class C>
-    [[nodiscard]] auto lift3(
+    MATHFP_NODISCARD auto lift3(
         F&& f
         , ::mathfp::Expected<A> a
         , ::mathfp::Expected<B> b

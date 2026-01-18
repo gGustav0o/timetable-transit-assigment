@@ -1,7 +1,7 @@
 #pragma once
 
-#ifndef MATHFP_HAS_BOOST_GRAPH
-#  error "mathfp/graph requires Boost.Graph. Enable the graph feature (MATHFP_HAS_BOOST_GRAPH)."
+#if !defined(MATHFP_HAS_GRAPH) && !defined(MATHFP_HAS_INTEROP) && !defined(MATHFP_HAS_ALL)
+#  error "mathfp/graph requires Boost.Graph. Enable the graph feature."
 #endif
 
 #include <cstddef>
@@ -9,6 +9,8 @@
 #include <string_view>
 #include <type_traits>
 #include <utility>
+
+#include <mathfp/compiler_attributes.hpp>
 
 #include <boost/graph/graph_traits.hpp>
 #include <boost/graph/properties.hpp>
@@ -27,14 +29,14 @@ namespace mathfp::graph {
     // -------------------- vertex id <-> descriptor -------------------------------
 
     template <class G>
-    [[nodiscard]] inline VertexId vertex_id(const G& g, Vertex<G> v) {
+    MATHFP_NODISCARD inline VertexId vertex_id(const G& g, Vertex<G> v) {
         // vertex_index map гарантирован для adjacency_list(vecS,vecS,...) и почти всех sane графов.
         const auto idx = static_cast<std::size_t>(boost::get(boost::vertex_index, g, v));
         return VertexId(idx);
     }
 
     template <class G>
-    [[nodiscard]] inline ::mathfp::Expected<Vertex<G>> vertex_from_id(
+    MATHFP_NODISCARD inline ::mathfp::Expected<Vertex<G>> vertex_from_id(
         const G& g,
         VertexId id,
         std::source_location where = std::source_location::current()) {
@@ -59,53 +61,53 @@ namespace mathfp::graph {
     // -------------------- edges, endpoints --------------------------------------
 
     template <class G>
-    [[nodiscard]] inline Vertex<G> source(const G& g, Edge<G> e) {
+    MATHFP_NODISCARD inline Vertex<G> source(const G& g, Edge<G> e) {
         return boost::source(e, g);
     }
 
     template <class G>
-    [[nodiscard]] inline Vertex<G> target(const G& g, Edge<G> e) {
+    MATHFP_NODISCARD inline Vertex<G> target(const G& g, Edge<G> e) {
         return boost::target(e, g);
     }
 
     template <class G>
-    [[nodiscard]] inline VertexId source_id(const G& g, Edge<G> e) {
+    MATHFP_NODISCARD inline VertexId source_id(const G& g, Edge<G> e) {
         return vertex_id(g, source(g, e));
     }
 
     template <class G>
-    [[nodiscard]] inline VertexId target_id(const G& g, Edge<G> e) {
+    MATHFP_NODISCARD inline VertexId target_id(const G& g, Edge<G> e) {
         return vertex_id(g, target(g, e));
     }
 
     // -------------------- weight access (hide property maps) ---------------------
 
     template <class G>
-    [[nodiscard]] inline decltype(auto) weight(G& g, Edge<G> e) {
+    MATHFP_NODISCARD inline decltype(auto) weight(G& g, Edge<G> e) {
         return boost::get(boost::edge_weight, g, e);
     }
 
     template <class G>
-    [[nodiscard]] inline decltype(auto) weight(const G& g, Edge<G> e) {
+    MATHFP_NODISCARD inline decltype(auto) weight(const G& g, Edge<G> e) {
         return boost::get(boost::edge_weight, g, e);
     }
 
     // -------------------- size helpers ------------------------------------------
 
     template <class G>
-    [[nodiscard]] inline std::size_t vertex_count(const G& g) {
+    MATHFP_NODISCARD inline std::size_t vertex_count(const G& g) {
         return static_cast<std::size_t>(boost::num_vertices(g));
     }
 
     template <class G>
-    [[nodiscard]] inline std::size_t edge_count(const G& g) {
+    MATHFP_NODISCARD inline std::size_t edge_count(const G& g) {
         return static_cast<std::size_t>(boost::num_edges(g));
     }
 
     // -------------------- common checks ------------------------------------------
 
     template <class G>
-    [[nodiscard]] inline ::mathfp::Expected<::mathfp::Unit> ensure_nonempty_graph(
+    MATHFP_NODISCARD inline ::mathfp::Expected<::mathfp::Unit> ensure_nonempty_graph(
         const G& g
         , std::source_location where = std::source_location::current()
     ) {
@@ -119,3 +121,4 @@ namespace mathfp::graph {
     }
 
 }  // namespace mathfp::graph
+

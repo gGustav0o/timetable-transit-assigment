@@ -1,6 +1,6 @@
 #pragma once
 
-#ifndef MATHFP_HAS_EIGEN
+#if !defined(MATHFP_HAS_LINALG) && !defined(MATHFP_HAS_INTEROP) && !defined(MATHFP_HAS_ALL)
 #  error "mathfp/linalg requires Eigen. Enable linalg/interop features or provide eigen3."
 #endif
 

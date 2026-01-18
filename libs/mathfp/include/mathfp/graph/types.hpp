@@ -1,7 +1,7 @@
 #pragma once
 
-#ifndef MATHFP_HAS_BOOST_GRAPH
-#  error "mathfp/graph requires Boost.Graph. Enable the graph feature (MATHFP_HAS_BOOST_GRAPH)."
+#if !defined(MATHFP_HAS_GRAPH) && !defined(MATHFP_HAS_INTEROP) && !defined(MATHFP_HAS_ALL)
+#  error "mathfp/graph requires Boost.Graph. Enable the graph feature."
 #endif
 
 #include <cstddef>
@@ -60,3 +60,4 @@ namespace mathfp::graph {
     >::value_type;
 
 }  // namespace mathfp::graph
+

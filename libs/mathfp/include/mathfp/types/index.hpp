@@ -3,9 +3,11 @@
 #include <concepts>
 #include <cstddef>
 #include <limits>
+#include <source_location>
 #include <type_traits>
 #include <utility>
 
+#include <mathfp/compiler_attributes.hpp>
 #include <mathfp/core/expected.hpp>
 #include <mathfp/core/error.hpp>
 #include <mathfp/types/strong_type.hpp>
@@ -25,22 +27,22 @@ namespace mathfp {
     inline constexpr std::size_t kInvalidIndexValue = std::numeric_limits<std::size_t>::max();
 
     template <class Tag>
-    [[nodiscard]] constexpr Index<Tag> invalid_index() noexcept {
+    MATHFP_NODISCARD constexpr Index<Tag> invalid_index() noexcept {
         return Index<Tag>(kInvalidIndexValue<Tag>);
     }
 
     template <class Tag>
-    [[nodiscard]] constexpr bool is_valid(Index<Tag> i) noexcept {
+    MATHFP_NODISCARD constexpr bool is_valid(Index<Tag> i) noexcept {
         return i.get() != kInvalidIndexValue<Tag>;
     }
 
     template <class Tag>
-    [[nodiscard]] constexpr std::size_t to_usize(Index<Tag> i) noexcept {
+    MATHFP_NODISCARD constexpr std::size_t to_usize(Index<Tag> i) noexcept {
         return i.get();
     }
 
     template <class Tag, std::integral I>
-    [[nodiscard]] inline Expected<Index<Tag>> make_index(
+    MATHFP_NODISCARD inline Expected<Index<Tag>> make_index(
         I i
         , std::source_location where = std::source_location::current()
     ) {
@@ -61,7 +63,7 @@ namespace mathfp {
     }
 
     template <class Tag>
-    [[nodiscard]] inline Expected<Index<Tag>> next_index(
+    MATHFP_NODISCARD inline Expected<Index<Tag>> next_index(
         Index<Tag> i,
         std::source_location where = std::source_location::current()) {
         if (!is_valid<Tag>(i)) {
@@ -75,7 +77,7 @@ namespace mathfp {
     }
 
     template <class Tag>
-    [[nodiscard]] inline Expected<Index<Tag>> prev_index(
+    MATHFP_NODISCARD inline Expected<Index<Tag>> prev_index(
         Index<Tag> i,
         std::source_location where = std::source_location::current()) {
         if (!is_valid<Tag>(i)) {

@@ -1,7 +1,7 @@
 #pragma once
 
-#ifndef MATHFP_HAS_BOOST_GRAPH
-#  error "mathfp/graph requires Boost.Graph. Enable the graph feature (MATHFP_HAS_BOOST_GRAPH)."
+#if !defined(MATHFP_HAS_GRAPH) && !defined(MATHFP_HAS_INTEROP) && !defined(MATHFP_HAS_ALL)
+#  error "mathfp/graph requires Boost.Graph. Enable the graph feature."
 #endif
 
 #include <cstddef>
@@ -10,6 +10,8 @@
 #include <source_location>
 #include <utility>
 #include <vector>
+
+#include <mathfp/compiler_attributes.hpp>
 
 #include <boost/graph/graph_traits.hpp>
 #include <boost/graph/adjacency_iterator.hpp>
@@ -27,7 +29,7 @@ namespace mathfp::graph {
         std::vector<VertexId> parent{};
         std::vector<std::size_t> distance{};
 
-        [[nodiscard]] std::size_t size() const noexcept { return order.size(); }
+        MATHFP_NODISCARD std::size_t size() const noexcept { return order.size(); }
     };
 
     namespace detail {
@@ -37,7 +39,7 @@ namespace mathfp::graph {
     }  // namespace detail
 
     template <class G>
-    [[nodiscard]] inline ::mathfp::Expected<BfsResult> bfs(
+    MATHFP_NODISCARD inline ::mathfp::Expected<BfsResult> bfs(
         const G& g
         , VertexId start
         , std::source_location where = std::source_location::current()
@@ -104,3 +106,4 @@ namespace mathfp::graph {
     }
 
 }  // namespace mathfp::graph
+

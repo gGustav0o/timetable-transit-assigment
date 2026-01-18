@@ -9,6 +9,8 @@
 
 #include <fmt/format.h>
 
+#include <mathfp/compiler_attributes.hpp>
+
 namespace mathfp {
 
     namespace strong_detail {
@@ -117,12 +119,12 @@ namespace mathfp {
             : value_(std::move(v)) {
         }
 
-        [[nodiscard]] constexpr const T& get() const& noexcept { return value_; }
-        [[nodiscard]] constexpr T& get_mut() & noexcept { return value_; }
-        [[nodiscard]] constexpr T&& get() && noexcept { return std::move(value_); }
+        MATHFP_NODISCARD constexpr const T& get() const& noexcept { return value_; }
+        MATHFP_NODISCARD constexpr T& get_mut() & noexcept { return value_; }
+        MATHFP_NODISCARD constexpr T&& get() && noexcept { return std::move(value_); }
 
-        [[nodiscard]] constexpr const T& unwrap() const& noexcept { return value_; }
-        [[nodiscard]] constexpr T unwrap() && noexcept(std::is_nothrow_move_constructible_v<T>) {
+        MATHFP_NODISCARD constexpr const T& unwrap() const& noexcept { return value_; }
+        MATHFP_NODISCARD constexpr T unwrap() && noexcept(std::is_nothrow_move_constructible_v<T>) {
             return std::move(value_);
         }
 
@@ -141,7 +143,7 @@ namespace mathfp {
     inline constexpr bool is_strong_type_v = is_strong_type<std::remove_cvref_t<T>>::value;
 
     template <class T, class Tag, template <class> class... Skills, class F>
-    [[nodiscard]] constexpr auto map_strong(const StrongType<T, Tag, Skills...>& x, F&& f)
+    MATHFP_NODISCARD constexpr auto map_strong(const StrongType<T, Tag, Skills...>& x, F&& f)
         -> StrongType<std::invoke_result_t<F, const T&>, Tag, Skills...>
         requires requires { std::invoke(std::forward<F>(f), x.get()); }
     {

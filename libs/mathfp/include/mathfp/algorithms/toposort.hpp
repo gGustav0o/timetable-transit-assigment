@@ -1,7 +1,7 @@
 #pragma once
 
-#ifndef MATHFP_HAS_BOOST_GRAPH
-#  error "mathfp/graph requires Boost.Graph. Enable the graph feature (MATHFP_HAS_BOOST_GRAPH)."
+#if !defined(MATHFP_HAS_GRAPH) && !defined(MATHFP_HAS_INTEROP) && !defined(MATHFP_HAS_ALL)
+#  error "mathfp/graph requires Boost.Graph. Enable the graph feature."
 #endif
 
 #include <algorithm>
@@ -11,12 +11,15 @@
 #include <utility>
 #include <vector>
 
+#include <mathfp/compiler_attributes.hpp>
+
 #include <boost/graph/graph_traits.hpp>
 #include <boost/graph/is_directed_acyclic_graph.hpp>
 #include <boost/graph/topological_sort.hpp>
 
 #include <mathfp/core/expected.hpp>
 #include <mathfp/core/error.hpp>
+#include <mathfp/core/unit.hpp>
 #include <mathfp/graph/properties.hpp>
 #include <mathfp/graph/types.hpp>
 
@@ -31,7 +34,7 @@ namespace mathfp::graph {
     }  // namespace detail
 
     template <class G>
-    [[nodiscard]] inline ::mathfp::Expected<std::vector<VertexId>> toposort(
+    MATHFP_NODISCARD inline ::mathfp::Expected<std::vector<VertexId>> toposort(
         const G& g,
         std::source_location where = std::source_location::current()) {
         static_assert(!detail::is_undirected_v<G>,
@@ -68,3 +71,5 @@ namespace mathfp::graph {
     }
 
 }  // namespace mathfp::graph
+
+

@@ -1,8 +1,8 @@
 // include/mathfp/graph/build.hpp
 #pragma once
 
-#ifndef MATHFP_HAS_BOOST_GRAPH
-#  error "mathfp/graph requires Boost.Graph. Enable the graph feature (MATHFP_HAS_BOOST_GRAPH)."
+#if !defined(MATHFP_HAS_GRAPH) && !defined(MATHFP_HAS_INTEROP) && !defined(MATHFP_HAS_ALL)
+#  error "mathfp/graph requires Boost.Graph. Enable the graph feature."
 #endif
 
 #include <algorithm>
@@ -13,6 +13,8 @@
 #include <type_traits>
 #include <utility>
 #include <vector>
+
+#include <mathfp/compiler_attributes.hpp>
 
 #include <boost/graph/graph_traits.hpp>
 #include <boost/graph/adjacency_list.hpp>
@@ -46,7 +48,7 @@ namespace mathfp::graph {
 
         inline constexpr std::string_view kPolicy = "policy";
 
-        [[nodiscard]] inline std::string_view to_string(BuildPolicy p) noexcept {
+        MATHFP_NODISCARD inline std::string_view to_string(BuildPolicy p) noexcept {
             switch (p) {
             case BuildPolicy::Strict: return "Strict";
             case BuildPolicy::Grow:   return "Grow";
@@ -55,7 +57,7 @@ namespace mathfp::graph {
         }
 
         template <class G>
-        [[nodiscard]] inline ::mathfp::Expected<::mathfp::Unit> ensure_vertex_count(
+        MATHFP_NODISCARD inline ::mathfp::Expected<::mathfp::Unit> ensure_vertex_count(
             G& g
             , std::size_t n
             , std::source_location = std::source_location::current()
@@ -71,7 +73,7 @@ namespace mathfp::graph {
         }
 
         template <class Weight>
-        [[nodiscard]] inline std::size_t max_vertex_id_in_edges(
+        MATHFP_NODISCARD inline std::size_t max_vertex_id_in_edges(
             const std::vector<WeightedEdge<Weight>>& edges
         ) {
             std::size_t m = 0;
@@ -82,7 +84,7 @@ namespace mathfp::graph {
         }
 
         template <class Weight>
-        [[nodiscard]] inline ::mathfp::Expected<::mathfp::Unit> validate_edge_ids(
+        MATHFP_NODISCARD inline ::mathfp::Expected<::mathfp::Unit> validate_edge_ids(
             const WeightedEdge<Weight>& e
             , BuildPolicy policy
             , std::size_t num_vertices
@@ -114,7 +116,7 @@ namespace mathfp::graph {
     }  // namespace detail
 
     template <class G, class Weight, std::ranges::input_range R>
-    [[nodiscard]] inline ::mathfp::Expected<G> build_from_edges(
+    MATHFP_NODISCARD inline ::mathfp::Expected<G> build_from_edges(
         std::size_t num_vertices_hint
         , R&& edges
         , BuildPolicy policy = BuildPolicy::Strict
@@ -211,7 +213,7 @@ namespace mathfp::graph {
     }
 
     template <class G, class Weight, std::ranges::input_range R>
-    [[nodiscard]] inline ::mathfp::Expected<G> build_from_edges_infer_vertices(
+    MATHFP_NODISCARD inline ::mathfp::Expected<G> build_from_edges_infer_vertices(
         R&& edges
         , std::source_location where = std::source_location::current()
     ) requires std::same_as<std::remove_cvref_t<std::ranges::range_value_t<R>>, WeightedEdge<Weight>> {
@@ -219,3 +221,4 @@ namespace mathfp::graph {
     }
 
 }  // namespace mathfp::graph
+

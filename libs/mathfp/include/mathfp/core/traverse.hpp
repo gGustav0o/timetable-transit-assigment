@@ -7,6 +7,7 @@
 #include <utility>
 #include <vector>
 
+#include <mathfp/compiler_attributes.hpp>
 #include <mathfp/core/expected.hpp>
 
 namespace mathfp::trv {
@@ -30,7 +31,7 @@ namespace mathfp::trv {
     }  // namespace detail
 
     template <std::ranges::input_range R, class F>
-    [[nodiscard]] auto traverse(R&& r, F&& f)
+    MATHFP_NODISCARD auto traverse(R&& r, F&& f)
         -> ::mathfp::Expected<std::vector<detail::expected_value_t<std::invoke_result_t<F, std::ranges::range_reference_t<R>>>>> {
         using XRef = std::ranges::range_reference_t<R>;
         using ERet = std::invoke_result_t<F, XRef>;
@@ -59,7 +60,7 @@ namespace mathfp::trv {
     }
 
     template <std::ranges::input_range R>
-    [[nodiscard]] auto sequence(R&& r)
+    MATHFP_NODISCARD auto sequence(R&& r)
         -> ::mathfp::Expected<std::vector<detail::expected_value_t<std::ranges::range_value_t<R>>>> {
         using E = std::ranges::range_value_t<R>;
         static_assert(detail::expected<E>, "sequence expects a range of Expected<T>");

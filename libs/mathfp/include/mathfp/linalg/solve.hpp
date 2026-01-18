@@ -5,6 +5,7 @@
 #include <type_traits>
 #include <utility>
 
+#include <mathfp/compiler_attributes.hpp>
 #include <mathfp/core/expected.hpp>
 #include <mathfp/core/unit.hpp>
 #include <mathfp/core/try.hpp>
@@ -32,7 +33,7 @@ namespace mathfp::linalg {
         inline constexpr std::string_view kMethod    = "method";
         inline constexpr std::string_view kEigenInfo = "eigen_info";
 
-        [[nodiscard]] inline std::string_view eigen_info_to_string(Eigen::ComputationInfo info) noexcept {
+        MATHFP_NODISCARD inline std::string_view eigen_info_to_string(Eigen::ComputationInfo info) noexcept {
             switch (info) {
             case Eigen::Success:        return "Success";
             case Eigen::NumericalIssue: return "NumericalIssue";
@@ -42,7 +43,7 @@ namespace mathfp::linalg {
             return "Unknown";
         }
 
-        [[nodiscard]] inline ::mathfp::Error map_eigen_info(
+        MATHFP_NODISCARD inline ::mathfp::Error map_eigen_info(
             Eigen::ComputationInfo info
             , std::string_view msg
             , std::source_location where
@@ -70,7 +71,7 @@ namespace mathfp::linalg {
     // -------------------- Dense: SPD solve via LLT -------------------------------
     // Assumes A is symmetric positive definite (SPD). If not, NumericalIssue.
     template <class Scalar>
-    [[nodiscard]] inline ::mathfp::Expected<Vec<Scalar>> solve_spd(
+    MATHFP_NODISCARD inline ::mathfp::Expected<Vec<Scalar>> solve_spd(
         MatRef<Scalar> A
         , VecRef<Scalar> b
         , std::source_location where = std::source_location::current()
@@ -95,7 +96,7 @@ namespace mathfp::linalg {
     // -------------------- Dense: general solve via FullPivLU ---------------------
     // Robust singularity detection; slower but stable contract.
     template <class Scalar>
-    [[nodiscard]] inline ::mathfp::Expected<Vec<Scalar>> solve_lu(
+    MATHFP_NODISCARD inline ::mathfp::Expected<Vec<Scalar>> solve_lu(
         MatRef<Scalar> A
         , VecRef<Scalar> b
         , std::source_location where = std::source_location::current()
@@ -121,7 +122,7 @@ namespace mathfp::linalg {
     // -------------------- Dense: least-squares / rank-revealing QR ---------------
     // Useful when A is near-singular; still returns solution but can be ill-conditioned.
     template <class Scalar>
-    [[nodiscard]] inline ::mathfp::Expected<Vec<Scalar>> solve_qr(
+    MATHFP_NODISCARD inline ::mathfp::Expected<Vec<Scalar>> solve_qr(
         MatRef<Scalar> A
         , VecRef<Scalar> b
         , std::source_location where = std::source_location::current()
@@ -147,7 +148,7 @@ namespace mathfp::linalg {
 
     // -------------------- Sparse: SPD solve via SimplicialLLT --------------------
     template <class Scalar, int Options = Eigen::ColMajor, class StorageIndex = int>
-    [[nodiscard]] inline ::mathfp::Expected<Vec<Scalar>> solve_sparse_spd(
+    MATHFP_NODISCARD inline ::mathfp::Expected<Vec<Scalar>> solve_sparse_spd(
         const SpMat<Scalar, Options, StorageIndex>& A
         , VecRef<Scalar> b
         , std::source_location where = std::source_location::current()
@@ -195,7 +196,7 @@ namespace mathfp::linalg {
 
     // -------------------- Sparse: general direct solve via SparseLU --------------
     template <class Scalar, int Options = Eigen::ColMajor, class StorageIndex = int>
-    [[nodiscard]] inline ::mathfp::Expected<Vec<Scalar>> solve_sparse_lu(
+    MATHFP_NODISCARD inline ::mathfp::Expected<Vec<Scalar>> solve_sparse_lu(
         const SpMat<Scalar, Options, StorageIndex>& A
         , VecRef<Scalar> b
         , std::source_location where = std::source_location::current()
@@ -248,7 +249,7 @@ namespace mathfp::linalg {
     // -------------------- Sparse: iterative solve via ConjugateGradient ----------
     // For SPD matrices. NonConvergence with iter/tol/residual context.
     template <class Scalar, int Options = Eigen::ColMajor, class StorageIndex = int>
-    [[nodiscard]] inline ::mathfp::Expected<Vec<Scalar>> solve_sparse_cg(
+    MATHFP_NODISCARD inline ::mathfp::Expected<Vec<Scalar>> solve_sparse_cg(
         const SpMat<Scalar, Options, StorageIndex>& A
         , VecRef<Scalar> b
         , IterativeOptions opt = {}
@@ -324,7 +325,7 @@ namespace mathfp::linalg {
     // -------------------- Sparse: iterative solve via BiCGSTAB -------------------
     // For general matrices.
     template <class Scalar, int Options = Eigen::ColMajor, class StorageIndex = int>
-    [[nodiscard]] inline ::mathfp::Expected<Vec<Scalar>> solve_sparse_bicgstab(
+    MATHFP_NODISCARD inline ::mathfp::Expected<Vec<Scalar>> solve_sparse_bicgstab(
         const SpMat<Scalar, Options, StorageIndex>& A
         , VecRef<Scalar> b
         , IterativeOptions opt = {}

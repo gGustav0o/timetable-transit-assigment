@@ -1,11 +1,11 @@
 // include/mathfp/interop/graph_eigen.hpp
 #pragma once
 
-#ifndef MATHFP_HAS_BOOST_GRAPH
+#if !defined(MATHFP_HAS_GRAPH) && !defined(MATHFP_HAS_INTEROP) && !defined(MATHFP_HAS_ALL)
 #  error "mathfp/interop/graph_eigen requires Boost.Graph (graph feature)."
 #endif
 
-#ifndef MATHFP_HAS_EIGEN
+#if !defined(MATHFP_HAS_LINALG) && !defined(MATHFP_HAS_INTEROP) && !defined(MATHFP_HAS_ALL)
 #  error "mathfp/interop/graph_eigen requires Eigen (linalg feature)."
 #endif
 
@@ -15,6 +15,8 @@
 #include <type_traits>
 #include <utility>
 #include <vector>
+
+#include <mathfp/compiler_attributes.hpp>
 
 #include <boost/graph/graph_traits.hpp>
 #include <boost/graph/properties.hpp>
@@ -35,7 +37,7 @@ namespace mathfp::interop {
         inline constexpr const char* kMethod = "method";
 
         template <class W>
-        [[nodiscard]] inline bool is_finite(const W& w) {
+        MATHFP_NODISCARD inline bool is_finite(const W& w) {
             if constexpr (std::is_floating_point_v<W>) {
                 return std::isfinite(w);
             }
@@ -45,7 +47,7 @@ namespace mathfp::interop {
         }
 
         template <class W>
-        [[nodiscard]] constexpr bool is_negative(const W& w) {
+        MATHFP_NODISCARD constexpr bool is_negative(const W& w) {
             if constexpr (std::is_floating_point_v<W>) {
                 // NaN checked separately
                 return w < static_cast<W>(0);
@@ -59,12 +61,12 @@ namespace mathfp::interop {
         }
 
         template <class G>
-        [[nodiscard]] inline Eigen::Index n_vertices_eigen(const G& g) {
+        MATHFP_NODISCARD inline Eigen::Index n_vertices_eigen(const G& g) {
             return static_cast<Eigen::Index>(::mathfp::graph::vertex_count(g));
         }
 
         template <class G>
-        [[nodiscard]] inline ::mathfp::Expected<::mathfp::Unit> ensure_graph_nonempty_or_allow_empty(
+        MATHFP_NODISCARD inline ::mathfp::Expected<::mathfp::Unit> ensure_graph_nonempty_or_allow_empty(
             const G&
             , bool
             , std::source_location
@@ -80,7 +82,7 @@ namespace mathfp::interop {
 
     // -------------------- Adjacency (sparse) -------------------------------------
     template <class Scalar = double, class G>
-    [[nodiscard]] inline ::mathfp::Expected<::mathfp::linalg::SpMat<Scalar>> adjacency_sparse(
+    MATHFP_NODISCARD inline ::mathfp::Expected<::mathfp::linalg::SpMat<Scalar>> adjacency_sparse(
         const G& g
         , bool symmetrize_undirected = true
         , std::source_location where = std::source_location::current()
@@ -129,7 +131,7 @@ namespace mathfp::interop {
 
     // -------------------- Laplacian (combinatorial, undirected) ------------------
     template <class Scalar = double, class G>
-    [[nodiscard]] inline ::mathfp::Expected<::mathfp::linalg::SpMat<Scalar>> laplacian_sparse(
+    MATHFP_NODISCARD inline ::mathfp::Expected<::mathfp::linalg::SpMat<Scalar>> laplacian_sparse(
         const G& g
         , std::source_location where = std::source_location::current()
     ) {
