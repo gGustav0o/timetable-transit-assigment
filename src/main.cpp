@@ -42,9 +42,9 @@ namespace {
 #ifndef NDEBUG
 		return find_default_data_dir() |
 			mathfp::fp::pipe::map([&](std::filesystem::path path) {
-			spec.file.root = std::move(path);
-			return spec;
-				});
+				spec.file.root = std::move(path);
+				return spec;
+			});
 #else
 		return mathfp::unexpected(
 			mathfp::invalid_arg("missing required data_dir argument"));
@@ -52,21 +52,22 @@ namespace {
 	}
 
 	mathfp::Expected<mathfp::Unit> run_app(int argc, char** argv) {
+		using mathfp::fp::pipe::and_then;
+
 		timetable::app::AppConfig config;
-		return build_data_source_spec(argc, argv) |
-			mathfp::fp::pipe::and_then(
-				[&](const timetable::io::DataSourceSpec& spec)
-				-> mathfp::Expected<mathfp::Unit> {
-					return timetable::infra::make_data_source(spec) |
-						mathfp::fp::pipe::and_then(
-							[&](std::unique_ptr<timetable::io::DataSource> ds)
-							-> mathfp::Expected<mathfp::Unit> {
-								return timetable::app::run(config, *ds);
-							});
-				});
+
+		auto run_with_data_source = [&](std::unique_ptr<timetable::io::DataSource> ds) {
+			return timetable::app::run(config, *ds);
+		};
+
+		return
+			build_data_source_spec(argc, argv)
+			| and_then(timetable::infra::make_data_source)
+			| and_then(run_with_data_source);
 	}
 
 }  // namespace
+
 int main(int argc, char** argv) {
 	auto result = run_app(argc, argv);
 	if (!result) {

@@ -20,16 +20,16 @@ namespace timetable::app {
 	) {
 		(void)config;
 		(void)data_source;
-		auto logging =
-			timetable::infra::init_logging(config.log_capacity, config.log_dir);
+
+		auto logging = timetable::infra::init_logging(config.log_capacity, config.log_dir);
 		auto logger = logging.logger;
+
 		auto load_result = data_source.load() |
 			mathfp::fp::pipe::inspect_error([&](const auto& err) {
-			if (logger) {
-				logger->error("input load failed:\n{}",
-					timetable::app::format_error(err));
-			}
-		});
+				if (logger)
+					logger->error("input load failed:\n{}" , timetable::app::format_error(err));
+			});
+
 		MATHFP_TRY(load_result);
 		ui::UiModel model;
 		model.set_status_lines({ "ready" });

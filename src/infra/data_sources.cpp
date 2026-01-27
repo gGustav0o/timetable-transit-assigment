@@ -13,8 +13,7 @@ namespace timetable::infra {
 		case io::DataSourceKind::File:
 			return make_file_data_source(spec.file);
 		}
-		return mathfp::unexpected(
-			mathfp::invalid_arg("unknown data source kind"));
+		return mathfp::unexpected(mathfp::invalid_arg("unknown data source kind"));
 	}
 
 }  // namespace timetable::infra
