@@ -5,6 +5,7 @@
 #include <thread>
 
 #include "timetable/app/error_format.hpp"
+#include "timetable/domain/assignment/run.hpp"
 #include "timetable/infra/logging.hpp"
 #include "timetable/ui/ui.hpp"
 
@@ -31,8 +32,22 @@ namespace timetable::app {
 			});
 
 		MATHFP_TRY(load_result);
+		const auto assignment_result
+			= timetable::domain::assignment::run_timetable_assignment(load_result.value())
+			| mathfp::fp::pipe::inspect_error([&](const auto& err) {
+				if (logger)
+					logger->error("assignment failed:\n{}" , timetable::app::format_error(err));
+			});
+
 		ui::UiModel model;
-		model.set_status_lines({ "ready" });
+		if (!assignment_result) {
+			model.set_status_lines({
+				"assignment failed"
+				, timetable::app::format_error(assignment_result.error())
+			});
+		} else {
+			model.set_status_lines({ "ready" });
+		}
 		model.set_log_lines(logging.log_buffer->snapshot());
 
 		std::atomic_bool running = true;

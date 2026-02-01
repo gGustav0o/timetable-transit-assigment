@@ -13,6 +13,7 @@ namespace timetable::domain {
     // --- Scalar types -----------------------------------------------------------
     using Time   = mathfp::units::Quantity<double, mathfp::units::Time>;
     using Length = mathfp::units::Quantity<double, mathfp::units::Length>;
+    using Speed  = mathfp::units::Quantity<double, mathfp::units::Dim<1, 0, -1, 0, 0, 0, 0>>;
 
     // --- Strong domain identifiers ---------------------------------------------
     struct StopIdTag {};
@@ -21,6 +22,7 @@ namespace timetable::domain {
     struct RouteIdTag {};
     struct TripIdTag {};
     struct IntervalIdTag {};
+    struct WalkLinkIdTag {};
 
     using StopId = mathfp::StrongType<
         std::int64_t
@@ -64,9 +66,16 @@ namespace timetable::domain {
         , mathfp::strong_detail::Ordered
     >;
 
+    using WalkLinkId = mathfp::StrongType<
+        std::int64_t
+        , WalkLinkIdTag
+        , mathfp::strong_detail::EqualityComparable
+        , mathfp::strong_detail::Ordered
+    >;
+
     // --- Base entities ----------------------------------------------------------
     struct Stop final {
-        StopId id{};
+        StopId                id{};
         std::optional<ZoneId> zone{};
     };
 
@@ -79,55 +88,56 @@ namespace timetable::domain {
     };
 
     struct Route final {
-        RouteId id{};
-        LineId line{};
+        RouteId             id{};
+        LineId              line{};
         std::vector<StopId> stops{};
     };
 
     struct StopTime final {
         StopId stop{};
-        Time arrival{};
-        Time departure{};
+        Time   arrival{};
+        Time   departure{};
     };
 
     struct Trip final {
-        TripId id{};
-        RouteId route{};
+        TripId                id{};
+        RouteId               route{};
         std::vector<StopTime> times{};
     };
 
     struct TimeInterval final {
         IntervalId id{};
-        Time start{};
-        Time end{};
+        Time       start{};
+        Time       end{};
     };
 
     using WalkEndpoint = std::variant<StopId, ZoneId>;
 
     struct WalkLink final {
+        WalkLinkId   id{};
         WalkEndpoint from{};
         WalkEndpoint to{};
-        Time walk_time{};
-        Length length{};
+        Time         walk_time{};
+        Length       length{};
     };
 
     struct DemandEntry final {
-        ZoneId origin{};
-        ZoneId destination{};
+        ZoneId     origin{};
+        ZoneId     destination{};
         IntervalId interval{};
-        double passengers{};
+        double     passengers{};
     };
 
     // --- Input model ------------------------------------------------------------
     struct InputModel final {
-        std::vector<Stop> stops{};
-        std::vector<Zone> zones{};
-        std::vector<Line> lines{};
-        std::vector<Route> routes{};
-        std::vector<Trip> trips{};
-        std::vector<WalkLink> walk_links{};
+        std::vector<Stop>         stops{};
+        std::vector<Zone>         zones{};
+        std::vector<Line>         lines{};
+        std::vector<Route>        routes{};
+        std::vector<Trip>         trips{};
+        std::vector<WalkLink>     walk_links{};
         std::vector<TimeInterval> intervals{};
-        std::vector<DemandEntry> demand{};
+        std::vector<DemandEntry>  demand{};
     };
 
 }  // namespace timetable::domain

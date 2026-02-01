@@ -34,3 +34,9 @@
 #define MATHFP_TRY_ASSIGN(lhs, expr)                                             \
   MATHFP_DETAIL_TRY_ASSIGN_IMPL(MATHFP_DETAIL_UNIQUE_NAME(_mathfp_try_), (lhs), (expr))
 
+// Declare a variable and assign it from an Expected<...> expression.
+// Usage: MATHFP_TRY_LET(Type, name, expr)
+#define MATHFP_TRY_LET(type, name, expr)                                         \
+  type name;                                                                     \
+  MATHFP_TRY_ASSIGN(name, expr)
+

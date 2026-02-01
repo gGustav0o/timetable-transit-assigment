@@ -20,6 +20,12 @@ add_executable(timetable-transit-assigment
   src/main.cpp
   src/app/app.cpp
   src/domain/assignment.cpp
+  src/domain/assignment/output.cpp
+  src/domain/assignment/run.cpp
+  src/domain/assignment/steps.cpp
+  src/domain/preprocessing/segments_index.cpp
+  src/domain/preprocessing/connection_segments.cpp
+  src/domain/preprocessing/route_segments.cpp
   src/infra/data_sources.cpp
   src/infra/file_data_source.cpp
   src/infra/log_buffer.cpp
@@ -28,6 +34,15 @@ add_executable(timetable-transit-assigment
   src/ui/model.cpp
   src/ui/ui.cpp
   include/timetable/timetable.hpp
+)
+
+file(GLOB_RECURSE TIMETABLE_HEADERS
+  CONFIGURE_DEPENDS
+  ${CMAKE_CURRENT_LIST_DIR}/include/*.hpp
+)
+
+target_sources(timetable-transit-assigment PRIVATE
+  ${TIMETABLE_HEADERS}
 )
 
 target_include_directories(timetable-transit-assigment

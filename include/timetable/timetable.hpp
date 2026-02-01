@@ -2,7 +2,13 @@
 
 #include "timetable/app/app.hpp"
 #include "timetable/domain/assignment.hpp"
+#include "timetable/domain/assignment/output.hpp"
+#include "timetable/domain/assignment/pipeline.hpp"
+#include "timetable/domain/assignment/run.hpp"
+#include "timetable/domain/assignment/steps.hpp"
 #include "timetable/domain/model.hpp"
+#include "timetable/domain/segments.hpp"
+#include "timetable/domain/preprocessing/segments_index.hpp"
 #include "timetable/domain/params.hpp"
 #include "timetable/infra/file_data_source.hpp"
 #include "timetable/infra/log_buffer.hpp"
