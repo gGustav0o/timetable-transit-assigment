@@ -1,18 +1,41 @@
 #include "timetable/domain/assignment/steps.hpp"
 
 #include <algorithm>
-
 #include <mathfp/core/error.hpp>
 #include <mathfp/core/fp.hpp>
 #include <mathfp/core/try.hpp>
 
+#include <fmt/format.h>
+
 #include "timetable/domain/segments_order.hpp"
+#include "timetable/infra/progress_bus.hpp"
 
 namespace timetable::domain::assignment {
     mathfp::Expected<PreprocessedNetwork> build_preprocessed_network(
         const InputModel& input
         , const PreprocessParams& params
     ) {
+        using timetable::infra::LogLevel;
+        using timetable::infra::progress::log;
+        using timetable::infra::progress::both;
+
+        both("preprocessing: building route segments");
+        log(
+            fmt::format(
+                "input sizes: stops = {:>6}  zones = {:>6}  lines = {:>6}  routes = {:>6}\n"
+                "             trips = {:>6}  walk_links = {:>6}  intervals = {:>6}  demand = {:>6}"
+                , input.stops.size()
+                , input.zones.size()
+                , input.lines.size()
+                , input.routes.size()
+                , input.trips.size()
+                , input.walk_links.size()
+                , input.intervals.size()
+                , input.demand.size()
+            ),
+            LogLevel::Info
+        );
+
         MATHFP_TRY_LET(
             std::vector<RouteSegment>
             , line_segments
@@ -20,12 +43,22 @@ namespace timetable::domain::assignment {
                 input.routes, input.trips, input.stops, params
             )
         );
+        both("preprocessing: building walk segments");
         MATHFP_TRY_LET(
             std::vector<RouteSegment>
             , walk_segments
             , preprocessing::build_walk_route_segments(
                 input.walk_links, params
             )
+        );
+        log(
+            fmt::format(
+                "route segments: line = {:>8}  walk = {:>8}  total = {:>8}"
+                , line_segments.size()
+                , walk_segments.size()
+                , line_segments.size() + walk_segments.size()
+            ),
+            LogLevel::Info
         );
 
         std::vector<RouteSegment> route_segments;
@@ -43,10 +76,18 @@ namespace timetable::domain::assignment {
         if (params.stable_ordering) {
             std::sort(route_segments.begin(), route_segments.end(), route_segment_less);
         }
+        log(
+            fmt::format(
+                "route segments: stable_ordering = {}"
+                , params.stable_ordering ? "true" : "false"
+            ),
+            LogLevel::Info
+        );
         MATHFP_TRY(validate_route_segments(route_segments, true));
 
         reindex_route_segments(route_segments);
 
+        both("preprocessing: building connection segments");
         MATHFP_TRY_LET(
             std::vector<ConnectionSegment>
             , connection_segments
@@ -54,6 +95,14 @@ namespace timetable::domain::assignment {
                 route_segments, input.routes, input.trips, params
             )
         );
+        log(
+            fmt::format(
+                "connection segments: total = {:>8}"
+                , connection_segments.size()
+            ),
+            LogLevel::Info
+        );
+        both("preprocessing: building indices");
         MATHFP_TRY_LET(
             preprocessing::RouteSegmentIndex
             , route_index
@@ -66,6 +115,21 @@ namespace timetable::domain::assignment {
                 connection_segments, route_segments
             )
         );
+        log(
+            fmt::format(
+                "indices: route_order = {:>8}  route_buckets = {:>6}\n"
+                "         timed_order = {:>8}  timed_buckets = {:>6}\n"
+                "         walk_order  = {:>8}  walk_buckets  = {:>6}"
+                , route_index.order.size()
+                , route_index.buckets.size()
+                , connection_index.timed_order.size()
+                , connection_index.timed_buckets.size()
+                , connection_index.walk_order.size()
+                , connection_index.walk_buckets.size()
+            ),
+            LogLevel::Info
+        );
+        both("preprocessing: done");
 
         return PreprocessedNetwork{
             .route_segments        = std::move(route_segments)
@@ -141,6 +205,10 @@ namespace timetable::domain::assignment {
     ) {
         (void)network;
         (void)params;
+        timetable::infra::progress::both(
+            "search: branch-and-bound (not implemented)"
+            , timetable::infra::LogLevel::Warning
+        );
         return mathfp::unexpected(
             mathfp::not_implemented("connection search step not implemented yet")
         );
@@ -152,6 +220,10 @@ namespace timetable::domain::assignment {
     ) {
         (void)search_result;
         (void)params;
+        timetable::infra::progress::both(
+            "choice: pruning connections (not implemented)"
+            , timetable::infra::LogLevel::Warning
+        );
         return mathfp::unexpected(
             mathfp::not_implemented("connection choice step not implemented yet")
         );
@@ -165,6 +237,10 @@ namespace timetable::domain::assignment {
         (void)choice_result;
         (void)input;
         (void)params;
+        timetable::infra::progress::both(
+            "split: demand assignment (not implemented)"
+            , timetable::infra::LogLevel::Warning
+        );
         return mathfp::unexpected(
             mathfp::not_implemented("demand split step not implemented yet")
         );

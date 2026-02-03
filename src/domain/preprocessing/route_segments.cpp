@@ -13,6 +13,10 @@
 #include <mathfp/algorithms/dijkstra.hpp>
 #include <mathfp/types/index.hpp>
 
+#include <fmt/format.h>
+
+#include "timetable/infra/progress_bus.hpp"
+
 namespace timetable::domain::preprocessing {
 
     namespace {
@@ -465,6 +469,20 @@ namespace timetable::domain::preprocessing {
         , const PreprocessParams& params
     ) {
         (void)stops;
+        using timetable::infra::LogLevel;
+        using timetable::infra::progress::both;
+        using timetable::infra::progress::log;
+
+        both("preprocessing: line route segments");
+        log(
+            fmt::format(
+                "line segments input: routes = {:>6}  trips = {:>6}  stops = {:>6}"
+                , routes.size()
+                , trips.size()
+                , stops.size()
+            )
+            , LogLevel::Info
+        );
 
         auto trips_by_route = group_trips_by_route(trips);
         sort_trips_by_id(trips_by_route, params.stable_ordering);
@@ -473,19 +491,37 @@ namespace timetable::domain::preprocessing {
         std::int64_t next_id = 0;
 
         const auto route_order = make_route_order(routes, params.stable_ordering);
+        log(
+            fmt::format(
+                "line segments params: stable_ordering = {}  strict_stop_times = {}  time_aggregation = {}"
+                , params.stable_ordering   ? "true" : "false"
+                , params.strict_stop_times ? "true" : "false"
+                , static_cast<int>(params.time_aggregation)
+            ),
+            LogLevel::Info
+        );
+
+        std::size_t skipped_short_routes = 0;
+        std::size_t skipped_missing_trip = 0;
+        std::size_t skipped_stop_times   = 0;
 
         for (const auto* route_ptr : route_order) {
             const auto& route   = *route_ptr;
             const auto& r_stops = route.stops;
-            if (r_stops.size() < 2)
+            if (r_stops.size() < 2) {
+                ++skipped_short_routes;
                 continue;
+            }
 
             const auto it_trips = trips_by_route.find(route.id);
             if (it_trips == trips_by_route.end())
+            {
+                ++skipped_missing_trip;
                 return mathfp::unexpected(
                     mathfp::invalid_arg("route has no trips")
                     .ctx("route_id", route.id.get())
                 );
+            }
             auto durations = collect_durations(route, it_trips->second);
             if (!durations)
                 return mathfp::unexpected(durations.error());
@@ -494,6 +530,7 @@ namespace timetable::domain::preprocessing {
             if (!edge_metrics) {
                 if (params.strict_stop_times)
                     return mathfp::unexpected(edge_metrics.error());
+                ++skipped_stop_times;
                 continue;
             }
 
@@ -517,6 +554,18 @@ namespace timetable::domain::preprocessing {
             }
         }
 
+        log(
+            fmt::format(
+                "line segments: total = {:>8}  skipped_short_routes = {:>6}  skipped_missing_trips = {:>6}  skipped_stop_times = {:>6}"
+                , out.size()
+                , skipped_short_routes
+                , skipped_missing_trip
+                , skipped_stop_times
+            ),
+            LogLevel::Info
+        );
+        both("preprocessing: line route segments done");
+
         return out;
     }
 
@@ -524,6 +573,11 @@ namespace timetable::domain::preprocessing {
         const std::vector<WalkLink>& walk_links
         , const PreprocessParams& params
     ) {
+        using timetable::infra::LogLevel;
+        using timetable::infra::progress::both;
+        using timetable::infra::progress::log;
+
+        both("preprocessing: walk route segments");
         if (walk_links.empty())
             return std::vector<RouteSegment>{};
 
@@ -532,6 +586,24 @@ namespace timetable::domain::preprocessing {
         auto data = build_walk_graph_data(walk_links, params);
         if (!data)
             return mathfp::unexpected(data.error());
+        log(
+            fmt::format(
+                "walk segments input: walk_links = {:>6}  endpoints = {:>6}  edges = {:>6}"
+                , walk_links.size()
+                , data->endpoints.size()
+                , data->best_edges.size()
+            ),
+            LogLevel::Info
+        );
+        log(
+            fmt::format(
+                "walk segments params: stable_ordering = {}  deduplicate = {}  cost_kind = {}"
+                , params.stable_ordering           ? "true" : "false"
+                , params.deduplicate_walk_segments ? "true" : "false"
+                , static_cast<int>(params.walk_cost_kind)
+            ),
+            LogLevel::Info
+        );
 
         mathfp::graph::DiGraph<double> g(data->endpoints.size());
         for (const auto& [pair, edge] : data->best_edges) {
@@ -544,21 +616,26 @@ namespace timetable::domain::preprocessing {
             seen_keys.reserve(data->endpoints.size() * data->endpoints.size());
         }
 
+        std::size_t skipped_unreachable = 0;
+        std::size_t skipped_duplicate   = 0;
+
         for (std::size_t s = 0; s < data->endpoints.size(); ++s) {
             const auto start = mathfp::Index<mathfp::graph::VertexIdTag>(s);
             const auto res = mathfp::graph::dijkstra(g, start);
             if (!res)
                 return mathfp::unexpected(res.error());
 
-            const auto& dist = res->distance;
+            const auto& dist   = res->distance;
             const auto& parent = res->parent;
 
             for (std::size_t t = 0; t < data->endpoints.size(); ++t) {
                 if (t == s)
                     continue;
                 const auto d = dist[t];
-                if (!std::isfinite(d))
+                if (!std::isfinite(d)) {
+                    ++skipped_unreachable;
                     continue;
+                }
                 const auto path = recover_path(*data, s, t, parent);
                 if (!path)
                     return mathfp::unexpected(path.error());
@@ -575,8 +652,10 @@ namespace timetable::domain::preprocessing {
 
                 if (params.deduplicate_walk_segments) {
                     auto it = std::lower_bound(seen_keys.begin(), seen_keys.end(), key);
-                    if (it != seen_keys.end() && *it == key)
+                    if (it != seen_keys.end() && *it == key) {
+                        ++skipped_duplicate;
                         continue;
+                    }
                     seen_keys.insert(it, std::move(key));
                 }
 
@@ -590,6 +669,17 @@ namespace timetable::domain::preprocessing {
                 });
             }
         }
+
+        log(
+            fmt::format(
+                "walk segments: total = {:>8}  skipped_unreachable = {:>8}  skipped_duplicate = {:>8}"
+                , out.size()
+                , skipped_unreachable
+                , skipped_duplicate
+            ),
+            LogLevel::Info
+        );
+        both("preprocessing: walk route segments done");
 
         return out;
     }

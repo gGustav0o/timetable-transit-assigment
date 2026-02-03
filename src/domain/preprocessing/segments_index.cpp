@@ -6,7 +6,10 @@
 
 #include <mathfp/core/error.hpp>
 
+#include <fmt/format.h>
+
 #include "timetable/domain/segments_order.hpp"
+#include "timetable/infra/progress_bus.hpp"
 
 namespace timetable::domain::preprocessing {
 
@@ -126,6 +129,19 @@ namespace timetable::domain::preprocessing {
     mathfp::Expected<RouteSegmentIndex> build_route_segment_index(
         std::span<const RouteSegment> segments
     ) {
+        using timetable::infra::LogLevel;
+        using timetable::infra::progress::both;
+        using timetable::infra::progress::log;
+
+        both("preprocessing: route segment index");
+        log(
+            fmt::format(
+                "route index input: route_segments = {:>8}"
+                , segments.size()
+            )
+            , LogLevel::Info
+        );
+
         auto refs = route_seg_refs(segments);
         std::sort(refs.begin(), refs.end(), route_seg_order_less);
 
@@ -144,6 +160,16 @@ namespace timetable::domain::preprocessing {
             , [](const RouteSegRef& ref) { return to_endpoint_key(ref.ptr->from); }
         );
 
+        log(
+            fmt::format(
+                "route index: order = {:>8}  buckets = {:>6}"
+                , index.order.size()
+                , index.buckets.size()
+            )
+            , LogLevel::Info
+        );
+        both("preprocessing: route segment index done");
+
         return index;
     }
 
@@ -151,6 +177,20 @@ namespace timetable::domain::preprocessing {
         std::span<const ConnectionSegment> segments
         , std::span<const RouteSegment> route_segments
     ) {
+        using timetable::infra::LogLevel;
+        using timetable::infra::progress::both;
+        using timetable::infra::progress::log;
+
+        both("preprocessing: connection segment index");
+        log(
+            fmt::format(
+                "connection index input: connection_segments = {:>8}  route_segments = {:>8}"
+                , segments.size()
+                , route_segments.size()
+            )
+            , LogLevel::Info
+        );
+
         const auto route_refs = route_seg_refs(route_segments);
 
         std::vector<ConnectionSegRef> timed_refs;
@@ -223,6 +263,19 @@ namespace timetable::domain::preprocessing {
             , walk_refs
             , [](const ConnectionSegRef& ref) { return to_endpoint_key(ref.route->from); }
         );
+
+        log(
+            fmt::format(
+                "connection index: timed_order = {:>8}  walk_order = {:>8}\n"
+                "                 timed_buckets = {:>6}  walk_buckets = {:>6}"
+                , index.timed_order.size()
+                , index.walk_order.size()
+                , index.timed_buckets.size()
+                , index.walk_buckets.size()
+            ),
+            LogLevel::Info
+        );
+        both("preprocessing: connection segment index done");
 
         return index;
     }

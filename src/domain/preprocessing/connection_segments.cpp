@@ -8,7 +8,10 @@
 
 #include <mathfp/core/error.hpp>
 
+#include <fmt/format.h>
+
 #include "timetable/domain/segments_order.hpp"
+#include "timetable/infra/progress_bus.hpp"
 
 namespace timetable::domain::preprocessing {
 
@@ -158,27 +161,59 @@ namespace timetable::domain::preprocessing {
         , const std::vector<Trip>& trips
         , const PreprocessParams& params
     ) {
+        using timetable::infra::LogLevel;
+        using timetable::infra::progress::both;
+        using timetable::infra::progress::log;
+
+        both("preprocessing: connection segments (timed + walk)");
+        log(
+            fmt::format(
+                "connection segments input: route_segments = {:>8}  routes = {:>6}  trips = {:>6}"
+                , route_segments.size()
+                , routes.size()
+                , trips.size()
+            )
+            , LogLevel::Info
+        );
+
         std::vector<ConnectionSegment> out;
         std::int64_t next_id = 0;
 
         auto trips_by_line = group_trips_by_line(routes, trips);
         sort_trips_by_id(trips_by_line, params.stable_ordering);
         const auto route_order = make_route_order(route_segments, params.stable_ordering);
+        log(
+            fmt::format(
+                "connection segments params: stable_ordering = {}  strict_trips = {}  allow_overnight = {}  add_24h = {}"
+                , params.stable_ordering   ? "true" : "false"
+                , params.strict_trips      ? "true" : "false"
+                , params.allow_overnight   ? "true" : "false"
+                , params.overnight_add_24h ? "true" : "false"
+            )
+            , LogLevel::Info
+        );
+
+        std::size_t walk_segments             = 0;
+        std::size_t timed_segments            = 0;
+        std::size_t skipped_missing_trips     = 0;
+        std::size_t skipped_invalid_endpoints = 0;
 
         for (const auto* rs_ptr : route_order) {
             const auto& rs = *rs_ptr;
             if (is_walk(rs.carrier)) {
+                ++walk_segments;
                 out.push_back(ConnectionSegment{
-                    .id = ConnectionSegmentId{ next_id++ },
-                    .route_segment = rs.id,
-                    .departure = std::nullopt,
-                    .arrival = std::nullopt
+                    .id              = ConnectionSegmentId{ next_id++ }
+                    , .route_segment = rs.id
+                    , .departure     = std::nullopt
+                    , .arrival       = std::nullopt
                 });
                 continue;
             }
 
             const auto line = std::get<LineId>(rs.carrier);
             if (!std::holds_alternative<StopId>(rs.from) || !std::holds_alternative<StopId>(rs.to)) {
+                ++skipped_invalid_endpoints;
                 if (params.strict_trips) {
                     return mathfp::unexpected(
                         mathfp::invalid_arg("line route segment endpoints must be stops")
@@ -189,6 +224,7 @@ namespace timetable::domain::preprocessing {
             }
             const auto it_trips = trips_by_line.find(line);
             if (it_trips == trips_by_line.end()) {
+                ++skipped_missing_trips;
                 if (params.strict_trips) {
                     return mathfp::unexpected(
                         mathfp::invalid_arg("line has no trips")
@@ -199,7 +235,7 @@ namespace timetable::domain::preprocessing {
             }
 
             const auto from_stop = std::get<StopId>(rs.from);
-            const auto to_stop = std::get<StopId>(rs.to);
+            const auto to_stop   = std::get<StopId>(rs.to);
             for (const auto* trip : it_trips->second) {
                 const auto times = extract_trip_times(*trip, from_stop, to_stop, params);
                 if (!times)
@@ -207,14 +243,34 @@ namespace timetable::domain::preprocessing {
                 if (!times.value())
                     continue;
 
+                ++timed_segments;
                 out.push_back(ConnectionSegment{
-                    .id = ConnectionSegmentId{ next_id++ },
-                    .route_segment = rs.id,
-                    .departure = times->value().first,
-                    .arrival = times->value().second
+                    .id              = ConnectionSegmentId{ next_id++ }
+                    , .route_segment = rs.id
+                    , .departure     = times->value().first
+                    , .arrival       = times->value().second
                 });
             }
         }
+
+        log(
+            fmt::format(
+                "connection segments: walk = {:>8}  timed = {:>8}  total = {:>8}"
+                , walk_segments
+                , timed_segments
+                , out.size()
+            ),
+            LogLevel::Info
+        );
+        log(
+            fmt::format(
+                "connection segments: skipped_invalid_endpoints = {:>6}  skipped_missing_trips = {:>6}"
+                , skipped_invalid_endpoints
+                , skipped_missing_trips
+            ),
+            LogLevel::Info
+        );
+        both("preprocessing: connection segments done");
 
         return out;
     }
