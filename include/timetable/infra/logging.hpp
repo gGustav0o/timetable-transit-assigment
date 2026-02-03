@@ -19,6 +19,7 @@ namespace timetable::infra {
 	LoggingContext init_logging(
 		std::size_t log_capacity
 		, const std::filesystem::path& log_dir
+		, bool enable_console_sink = true
 	);
 
 	bool logging_started() noexcept;

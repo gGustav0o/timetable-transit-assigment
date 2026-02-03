@@ -4,6 +4,7 @@
 #include <chrono>
 #include <filesystem>
 #include <ctime>
+#include <vector>
 
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
@@ -21,9 +22,9 @@ namespace timetable::infra {
 	LoggingContext init_logging(
 		std::size_t log_capacity
 		, const std::filesystem::path& log_dir
+		, bool enable_console_sink
 	) {
 		auto log_buffer   = std::make_shared<LogBuffer>(log_capacity);
-		auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
 
 		std::filesystem::create_directories(log_dir);
 		const auto now      = std::chrono::system_clock::now();
@@ -48,10 +49,15 @@ namespace timetable::infra {
 		auto file_sink
 			= std::make_shared<spdlog::sinks::basic_file_sink_mt>(log_path.string(), true);
 		auto ui_sink = std::make_shared<UiLogSink>(log_buffer);
-		auto logger  = std::make_shared<spdlog::logger>(
-			"timetable"
-			, spdlog::sinks_init_list{ console_sink, file_sink, ui_sink }
-		);
+		std::vector<spdlog::sink_ptr> sinks;
+		sinks.reserve(enable_console_sink ? 3u : 2u);
+		sinks.push_back(file_sink);
+		sinks.push_back(ui_sink);
+		if (enable_console_sink) {
+			sinks.push_back(std::make_shared<spdlog::sinks::stdout_color_sink_mt>());
+		}
+
+		auto logger = std::make_shared<spdlog::logger>("timetable", sinks.begin(), sinks.end());
 
 		spdlog::set_default_logger(logger);
 		spdlog::set_pattern("[%H:%M:%S.%e] [%^%l%$] %v");

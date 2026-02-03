@@ -15,6 +15,7 @@ namespace timetable::app {
 		std::size_t               log_capacity         = 5'000;
 		std::chrono::milliseconds log_refresh_interval { 150 };
 		std::filesystem::path     log_dir              = "logs";
+		bool                      enable_console_sink  = false;
 	};
 
 	mathfp::Expected<mathfp::Unit> run(
