@@ -6,12 +6,12 @@ namespace timetable::infra {
 		: capacity_(capacity), buffer_(capacity) {
 	}
 
-	void LogBuffer::push(std::string line) {
+	void LogBuffer::push(LogEntry entry) {
 		std::lock_guard lock(mutex_);
-		buffer_.push_back(std::move(line));
+		buffer_.push_back(std::move(entry));
 	}
 
-	std::vector<std::string> LogBuffer::snapshot() const {
+	std::vector<LogEntry> LogBuffer::snapshot() const {
 		std::lock_guard lock(mutex_);
 		return { buffer_.begin(), buffer_.end() };
 	}

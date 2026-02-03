@@ -13,11 +13,28 @@
 namespace timetable::ui {
 	namespace {
 
-		std::vector<ftxui::Element> to_elements(const std::vector<std::string>& lines) {
+		ftxui::Color color_for_level(infra::LogLevel level) {
+			switch (level) {
+				case infra::LogLevel::Error:
+					return ftxui::Color::Red;
+				case infra::LogLevel::Warning:
+					return ftxui::Color::Yellow;
+				case infra::LogLevel::Debug:
+					return ftxui::Color::GrayLight;
+				case infra::LogLevel::Info:
+					return ftxui::Color::Default;
+			}
+			return ftxui::Color::Default;
+		}
+
+		std::vector<ftxui::Element> to_elements(
+			const std::vector<infra::LogEntry>& lines
+		) {
 			std::vector<ftxui::Element> out;
 			out.reserve(lines.size());
 			for (const auto& line : lines) {
-				out.push_back(ftxui::text(line));
+				auto color = color_for_level(line.level);
+				out.push_back(ftxui::text(line.message) | ftxui::color(color));
 			}
 			if (out.empty()) {
 				out.push_back(ftxui::text("-"));

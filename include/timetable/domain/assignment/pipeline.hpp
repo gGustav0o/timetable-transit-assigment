@@ -5,6 +5,7 @@
 
 #include "timetable/domain/assignment.hpp"
 #include "timetable/domain/assignment/steps.hpp"
+#include "timetable/infra/progress_bus.hpp"
 
 namespace timetable::domain::assignment {
 
@@ -17,6 +18,10 @@ namespace timetable::domain::assignment {
         const AssignmentInput& input
     ) {
         using mathfp::fp::pipe::and_then;
+        timetable::infra::progress::both(
+            "assignment pipeline started"
+            , timetable::infra::LogLevel::Info
+        );
         return
             build_preprocessed_network(input.input, input.params.preprocess)
             | and_then([&](PreprocessedNetwork net) {

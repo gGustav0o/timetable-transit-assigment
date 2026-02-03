@@ -7,19 +7,21 @@
 
 #include <boost/circular_buffer.hpp>
 
+#include "timetable/infra/log_entry.hpp"
+
 namespace timetable::infra {
 
 	class LogBuffer {
 	public:
 		explicit LogBuffer(std::size_t capacity);
 
-		void push(std::string line);
-		std::vector<std::string> snapshot() const;
+		void push(LogEntry entry);
+		std::vector<LogEntry> snapshot() const;
 
 	private:
-		const std::size_t                   capacity_;
-		mutable std::mutex                  mutex_;
-		boost::circular_buffer<std::string> buffer_;
+		const std::size_t                capacity_;
+		mutable std::mutex               mutex_;
+		boost::circular_buffer<LogEntry> buffer_;
 	};
 
 }  // namespace timetable::infra
