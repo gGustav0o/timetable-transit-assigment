@@ -207,6 +207,7 @@ namespace timetable::domain::preprocessing {
                     , .route_segment = rs.id
                     , .departure     = std::nullopt
                     , .arrival       = std::nullopt
+                    , .fare          = std::nullopt
                 });
                 continue;
             }
@@ -249,6 +250,7 @@ namespace timetable::domain::preprocessing {
                     , .route_segment = rs.id
                     , .departure     = times->value().first
                     , .arrival       = times->value().second
+                    , .fare          = std::nullopt
                 });
             }
         }

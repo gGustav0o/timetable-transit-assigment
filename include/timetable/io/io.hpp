@@ -9,20 +9,27 @@
 
 namespace timetable::io {
 
-	// Data dir is provided via CLI argument; in Debug, missing arg uses default data dir.
+	// Data dir is provided via CLI argument; i
 	// Required files in data dir: stops.csv, trips.csv, stop_times.csv, walk_links.csv,
 	// od.csv, params.json.
 	struct DataDirSpec {
 		std::filesystem::path root;
 	};
 
+	// Single input text file (new format).
+	struct DataFileSpec {
+		std::filesystem::path path;
+	};
+
 	enum class DataSourceKind {
-		File
+		DataDir
+		, SingleFile
 	};
 
 	struct DataSourceSpec {
-		DataSourceKind kind = DataSourceKind::File;
-		DataDirSpec    file;
+		DataSourceKind kind = DataSourceKind::DataDir;
+		DataDirSpec    dir;
+		DataFileSpec   file;
 	};
 
 	class DataSource {

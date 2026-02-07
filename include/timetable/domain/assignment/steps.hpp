@@ -1,5 +1,6 @@
 #pragma once
 
+#include <span>
 #include <vector>
 
 #include <mathfp/core/expected.hpp>
@@ -18,6 +19,7 @@ namespace timetable::domain::assignment {
         std::vector<ConnectionSegment>        connection_segments{};
         preprocessing::RouteSegmentIndex      route_index{};
         preprocessing::ConnectionSegmentIndex connection_index{};
+        double                               fare_scale{ 1.0 };
     };
 
     struct ConnectionSearchResult final {};
@@ -32,6 +34,26 @@ namespace timetable::domain::assignment {
     mathfp::Expected<PreprocessedNetwork> build_preprocessed_network(
         const InputModel& input
         , const PreprocessParams& params
+    );
+
+    /**
+     * @brief Build indices from presegmented route/connection data.
+     *
+     * Assumes route/connection segments are already constructed.
+     */
+    mathfp::Expected<PreprocessedNetwork> build_preprocessed_network_from_segments(
+        std::vector<RouteSegment> route_segments
+        , std::vector<ConnectionSegment> connection_segments
+    );
+
+    /**
+     * @brief Compute fare normalization scale from connection segments.
+     *
+     * Missing fares are ignored. If no fares are present, scale is 1.0.
+     */
+    double compute_fare_scale(
+        std::span<const ConnectionSegment> segments
+        , const FareNormalization& normalization
     );
 
     /**

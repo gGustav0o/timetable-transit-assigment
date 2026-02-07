@@ -72,9 +72,9 @@ namespace timetable::domain::preprocessing {
             std::vector<RouteSegRef> refs;
             refs.reserve(segments.size());
             std::transform(
-                segments.begin(), segments.end(),
-                std::back_inserter(refs),
-                [](const RouteSegment& s) {
+                segments.begin(), segments.end()
+                , std::back_inserter(refs)
+                , [](const RouteSegment& s) {
                     return RouteSegRef{ s.id, &s };
                 }
             );

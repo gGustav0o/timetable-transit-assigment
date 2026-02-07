@@ -96,6 +96,7 @@ namespace timetable::domain {
         RouteSegmentId      route_segment{};
         std::optional<Time> departure{};
         std::optional<Time> arrival{};
+        std::optional<double> fare{};
     };
 
 }  // namespace timetable::domain

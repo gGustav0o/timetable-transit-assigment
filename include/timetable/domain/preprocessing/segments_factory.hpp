@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cmath>
 #include <utility>
 
 #include <mathfp/core/expected.hpp>
@@ -86,6 +87,24 @@ namespace timetable::domain::preprocessing {
             return mathfp::kUnit;
         }
 
+        inline mathfp::Expected<mathfp::Unit> ensure_fare_consistent(
+            const std::optional<double>& fare
+        ) {
+            if (!fare)
+                return mathfp::kUnit;
+            if (!std::isfinite(*fare))
+                return validation::fail(
+                    "fare is not finite"
+                    , mathfp::invalid_arg("fare is not finite")
+                );
+            if (*fare < 0.0)
+                return validation::fail(
+                    "fare must be non-negative"
+                    , mathfp::invalid_arg("fare must be non-negative").ctx("fare", *fare)
+                );
+            return mathfp::kUnit;
+        }
+
     }  // namespace detail
 
     inline mathfp::Expected<RouteSegment> make_route_segment(
@@ -129,8 +148,11 @@ namespace timetable::domain::preprocessing {
         , const RouteSegment& route_segment
         , std::optional<Time> departure
         , std::optional<Time> arrival
+        , std::optional<double> fare
     ) {
         if (auto r = detail::ensure_time_pair_consistent(departure, arrival); !r)
+            return mathfp::unexpected(r.error());
+        if (auto r = detail::ensure_fare_consistent(fare); !r)
             return mathfp::unexpected(r.error());
 
         const auto is_line = std::holds_alternative<LineId>(route_segment.carrier);
@@ -150,7 +172,8 @@ namespace timetable::domain::preprocessing {
             .id = id,
             .route_segment = route_segment.id,
             .departure = std::move(departure),
-            .arrival = std::move(arrival)
+            .arrival = std::move(arrival),
+            .fare = std::move(fare)
         };
     }
 

@@ -12,7 +12,7 @@ namespace timetable::domain::assignment {
      * @brief Run the full assignment pipeline and map it to AssignmentOutput.
      */
     mathfp::Expected<AssignmentOutput> run_timetable_assignment(
-        const AssignmentInput& input
+        AssignmentInput input
     );
 
 }  // namespace timetable::domain::assignment

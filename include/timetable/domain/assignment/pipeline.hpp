@@ -1,5 +1,7 @@
 #pragma once
 
+#include <utility>
+
 #include <mathfp/core/expected.hpp>
 #include <mathfp/core/fp.hpp>
 
@@ -15,16 +17,30 @@ namespace timetable::domain::assignment {
      * Order: preprocessing -> connection search -> connection choice -> demand split.
      */
     inline mathfp::Expected<DemandSplitResult> run_timetable_assignment_pipeline(
-        const AssignmentInput& input
+        AssignmentInput input
     ) {
         using mathfp::fp::pipe::and_then;
         timetable::infra::progress::both(
             "assignment pipeline started"
             , timetable::infra::LogLevel::Info
         );
+        auto preprocessed = [&]() -> mathfp::Expected<PreprocessedNetwork> {
+            if (input.presegmented) {
+                return build_preprocessed_network_from_segments(
+                    std::move(input.presegmented->route_segments)
+                    , std::move(input.presegmented->connection_segments)
+                );
+            }
+            return build_preprocessed_network(input.input, input.params.preprocess);
+        };
+
         return
-            build_preprocessed_network(input.input, input.params.preprocess)
+            preprocessed()
             | and_then([&](PreprocessedNetwork net) {
+                net.fare_scale = compute_fare_scale(
+                    net.connection_segments
+                    , input.params.impedance.fare_normalization
+                );
                 return search_connections_branch_and_bound(net, input.params);
             })
             | and_then([&](ConnectionSearchResult search_result) {

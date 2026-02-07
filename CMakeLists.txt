@@ -19,6 +19,7 @@ include(${CMAKE_CURRENT_LIST_DIR}/cmake/Dependencies.cmake)
 add_executable(timetable-transit-assigment
   src/main.cpp
   src/app/app.cpp
+  src/app/cli.cpp
   src/domain/assignment.cpp
   src/domain/assignment/output.cpp
   src/domain/assignment/run.cpp
@@ -31,6 +32,8 @@ add_executable(timetable-transit-assigment
   src/infra/log_buffer.cpp
   src/infra/logging.cpp
   src/infra/progress_bus.cpp
+  src/infra/single_file_data_source.cpp
+  src/infra/txt_segments.cpp
   src/infra/ui_log_sink.cpp
   src/ui/model.cpp
   src/ui/ui.cpp

@@ -15,6 +15,7 @@ namespace timetable::domain {
         , Dimless a_transfers
         , Dimless a_fare
         , Time transfer_penalty
+        , FareNormalization fare_normalization = {}
     ) {
         using validation::ensure_nonneg;
         if (auto r = ensure_nonneg(a_journey_time  , "a_journey_time"  ); !r) return mathfp::unexpected(r.error());
@@ -26,6 +27,7 @@ namespace timetable::domain {
             , .a_transfers      = a_transfers
             , .a_fare           = a_fare
             , .transfer_penalty = transfer_penalty
+            , .fare_normalization = fare_normalization
         };
     }
 

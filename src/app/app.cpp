@@ -4,6 +4,7 @@
 #include <chrono>
 #include <string>
 #include <thread>
+#include <utility>
 
 #include "timetable/app/error_format.hpp"
 #include "timetable/domain/assignment/run.hpp"
@@ -107,7 +108,7 @@ namespace timetable::app {
 				}
 
 				const auto assignment_result
-					= timetable::domain::assignment::run_timetable_assignment(load_result.value())
+					= timetable::domain::assignment::run_timetable_assignment(std::move(load_result.value()))
 					| mathfp::fp::pipe::inspect_error([&](const auto& err) {
 						if (logger)
 							logger->error("assignment failed:\n{}" , timetable::app::format_error(err));

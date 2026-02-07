@@ -1,12 +1,14 @@
 #include "timetable/domain/assignment/steps.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <mathfp/core/error.hpp>
 #include <mathfp/core/fp.hpp>
 #include <mathfp/core/try.hpp>
 
 #include <fmt/format.h>
 
+#include "timetable/domain/impedance.hpp"
 #include "timetable/domain/segments_order.hpp"
 #include "timetable/infra/progress_bus.hpp"
 
@@ -136,6 +138,55 @@ namespace timetable::domain::assignment {
             , .connection_segments = std::move(connection_segments)
             , .route_index         = std::move(route_index)
             , .connection_index    = std::move(connection_index)
+            , .fare_scale          = 1.0
+        };
+    }
+
+    mathfp::Expected<PreprocessedNetwork> build_preprocessed_network_from_segments(
+        std::vector<RouteSegment> route_segments
+        , std::vector<ConnectionSegment> connection_segments
+    ) {
+        using timetable::infra::LogLevel;
+        using timetable::infra::progress::both;
+        using timetable::infra::progress::log;
+
+        both("preprocessing: using presegmented data");
+        log(
+            fmt::format(
+                "presegmented sizes: route_segments = {:>8}  connection_segments = {:>8}"
+                , route_segments.size()
+                , connection_segments.size()
+            ),
+            LogLevel::Info
+        );
+
+        if (route_segments.empty()) {
+            return mathfp::unexpected(
+                mathfp::invalid_arg("route segments collection is empty")
+            );
+        }
+
+        MATHFP_TRY_LET(
+            preprocessing::RouteSegmentIndex
+            , route_index
+            , preprocessing::build_route_segment_index(route_segments)
+        );
+        MATHFP_TRY_LET(
+            preprocessing::ConnectionSegmentIndex
+            , connection_index
+            , preprocessing::build_connection_segment_index(
+                connection_segments, route_segments
+            )
+        );
+
+        both("preprocessing: presegmented indexing done");
+
+        return PreprocessedNetwork{
+            .route_segments        = std::move(route_segments)
+            , .connection_segments = std::move(connection_segments)
+            , .route_index         = std::move(route_index)
+            , .connection_index    = std::move(connection_index)
+            , .fare_scale          = 1.0
         };
     }
 
@@ -203,8 +254,22 @@ namespace timetable::domain::assignment {
         const PreprocessedNetwork& network
         , const SearchParams& params
     ) {
-        (void)network;
-        (void)params;
+        [[maybe_unused]] const auto& impedance = params.impedance;
+        [[maybe_unused]] const auto fare_scale = network.fare_scale;
+
+        // Placeholder: ensure impedance computation is wired in the search step.
+        [[maybe_unused]] const auto branch_impedance = [&](Time journey_time,
+            TransferCount transfers,
+            const ConnectionSegment& segment) {
+            return connection_impedance(
+                journey_time,
+                transfers,
+                segment,
+                impedance,
+                fare_scale
+            );
+        };
+
         timetable::infra::progress::both(
             "search: branch-and-bound (not implemented)"
             , timetable::infra::LogLevel::Warning
@@ -244,6 +309,72 @@ namespace timetable::domain::assignment {
         return mathfp::unexpected(
             mathfp::not_implemented("demand split step not implemented yet")
         );
+    }
+
+    double compute_fare_scale(
+        std::span<const ConnectionSegment> segments
+        , const FareNormalization& normalization
+    ) {
+        using Kind = FareNormalization::Kind;
+        using timetable::infra::LogLevel;
+        using timetable::infra::progress::log;
+
+        if (normalization.kind == Kind::None) {
+            log("fare normalization: disabled", LogLevel::Info);
+            return 1.0;
+        }
+        if (normalization.kind == Kind::FixedScale) {
+            log("fare normalization: fixed scale", LogLevel::Info);
+            return normalization.fixed_scale > 0.0 ? normalization.fixed_scale : 1.0;
+        }
+
+        std::vector<double> fares;
+        fares.reserve(segments.size());
+        for (const auto& s : segments) {
+            if (s.fare && std::isfinite(*s.fare)) {
+                fares.push_back(*s.fare);
+            }
+        }
+        if (fares.empty()) {
+            log("fare normalization: no fares present; scale = 1", LogLevel::Info);
+            return 1.0;
+        }
+
+        if (normalization.kind == Kind::Mean) {
+            double sum = 0.0;
+            for (const auto v : fares) sum += v;
+            const auto scale = sum / static_cast<double>(fares.size());
+            log(fmt::format("fare normalization: mean scale = {:.6f}", scale), LogLevel::Info);
+            return scale;
+        }
+
+        auto nth = [&](std::size_t idx) {
+            std::nth_element(fares.begin(), fares.begin() + static_cast<std::ptrdiff_t>(idx), fares.end());
+            return fares[idx];
+        };
+
+        if (normalization.kind == Kind::Median) {
+            const auto mid = fares.size() / 2;
+            if (fares.size() % 2 == 1) {
+                const auto scale = nth(mid);
+                log(fmt::format("fare normalization: median scale = {:.6f}", scale), LogLevel::Info);
+                return scale;
+            }
+            const auto upper = nth(mid);
+            const auto lower = nth(mid - 1);
+            const auto scale = 0.5 * (lower + upper);
+            log(fmt::format("fare normalization: median scale = {:.6f}", scale), LogLevel::Info);
+            return scale;
+        }
+
+        if (normalization.kind == Kind::P95) {
+            const auto idx = static_cast<std::size_t>(std::floor(0.95 * (fares.size() - 1)));
+            const auto scale = nth(idx);
+            log(fmt::format("fare normalization: p95 scale = {:.6f}", scale), LogLevel::Info);
+            return scale;
+        }
+
+        return 1.0;
     }
 
 }  // namespace timetable::domain::assignment

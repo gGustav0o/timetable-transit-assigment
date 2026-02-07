@@ -1,14 +1,16 @@
 #include "timetable/domain/assignment/run.hpp"
 
+#include <utility>
+
 #include <mathfp/core/fp.hpp>
 
 namespace timetable::domain::assignment {
 
     mathfp::Expected<AssignmentOutput> run_timetable_assignment(
-        const AssignmentInput& input
+        AssignmentInput input
     ) {
         return
-            run_timetable_assignment_pipeline(input)
+            run_timetable_assignment_pipeline(std::move(input))
             | mathfp::fp::pipe::and_then(build_assignment_output);
     }
 

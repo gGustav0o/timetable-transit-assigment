@@ -26,11 +26,25 @@ namespace timetable::domain {
      * IMP(c) = a_journey_time * JT(c) + a_transfers * NT(c) + a_fare * FARE(c).
      * transfer_penalty is a fixed additive time penalty per transfer used during search.
      */
+    struct FareNormalization final {
+        enum class Kind : std::uint8_t {
+            None
+            , Mean
+            , Median
+            , P95
+            , FixedScale
+        };
+
+        Kind   kind{ Kind::Median };
+        double fixed_scale{ 1.0 };
+    };
+
     struct SearchImpedance final {
         Dimless a_journey_time{};
         Dimless a_transfers{};
         Dimless a_fare{};
         Time    transfer_penalty{};
+        FareNormalization fare_normalization{};
     };
 
     /**
