@@ -13,133 +13,207 @@
 #include "timetable/infra/progress_bus.hpp"
 
 namespace timetable::domain::assignment {
+    namespace {
+
+        void log_input_sizes(const InputModel& input) {
+            using timetable::infra::LogLevel;
+            using timetable::infra::progress::log;
+            log(
+                fmt::format(
+                    "input sizes: stops = {:>6}  zones = {:>6}  lines = {:>6}  routes = {:>6}\n"
+                    "             trips = {:>6}  walk_links = {:>6}  intervals = {:>6}  demand = {:>6}"
+                    , input.stops.size()
+                    , input.zones.size()
+                    , input.lines.size()
+                    , input.routes.size()
+                    , input.trips.size()
+                    , input.walk_links.size()
+                    , input.intervals.size()
+                    , input.demand.size()
+                ),
+                LogLevel::Info
+            );
+        }
+
+        mathfp::Expected<std::vector<RouteSegment>> build_route_segments(
+            const InputModel& input
+            , const PreprocessParams& params
+        ) {
+            using timetable::infra::LogLevel;
+            using timetable::infra::progress::both;
+            using timetable::infra::progress::log;
+
+            both("preprocessing: building route segments");
+            log_input_sizes(input);
+
+            MATHFP_TRY_LET(
+                std::vector<RouteSegment>
+                , line_segments
+                , preprocessing::build_line_route_segments(
+                    input.routes, input.trips, input.stops, params
+                )
+            );
+            both("preprocessing: building walk segments");
+            MATHFP_TRY_LET(
+                std::vector<RouteSegment>
+                , walk_segments
+                , preprocessing::build_walk_route_segments(
+                    input.walk_links, params
+                )
+            );
+            log(
+                fmt::format(
+                    "route segments: line = {:>8}  walk = {:>8}  total = {:>8}"
+                    , line_segments.size()
+                    , walk_segments.size()
+                    , line_segments.size() + walk_segments.size()
+                ),
+                LogLevel::Info
+            );
+
+            std::vector<RouteSegment> route_segments;
+            route_segments.reserve(line_segments.size() + walk_segments.size());
+            route_segments.insert(
+                route_segments.end()
+                , std::make_move_iterator(line_segments.begin())
+                , std::make_move_iterator(line_segments.end())
+            );
+            route_segments.insert(
+                route_segments.end()
+                , std::make_move_iterator(walk_segments.begin())
+                , std::make_move_iterator(walk_segments.end())
+            );
+            if (params.stable_ordering) {
+                std::sort(route_segments.begin(), route_segments.end(), route_segment_less);
+            }
+            log(
+                fmt::format(
+                    "route segments: stable_ordering = {}"
+                    , params.stable_ordering ? "true" : "false"
+                ),
+                LogLevel::Info
+            );
+            MATHFP_TRY(validate_route_segments(route_segments, true));
+
+            reindex_route_segments(route_segments);
+            return route_segments;
+        }
+
+        mathfp::Expected<std::vector<ConnectionSegment>> build_connection_segments(
+            const std::vector<RouteSegment>& route_segments
+            , const InputModel& input
+            , const PreprocessParams& params
+        ) {
+            using timetable::infra::LogLevel;
+            using timetable::infra::progress::both;
+            using timetable::infra::progress::log;
+
+            both("preprocessing: building connection segments");
+            MATHFP_TRY_LET(
+                std::vector<ConnectionSegment>
+                , connection_segments
+                , preprocessing::build_connection_segments(
+                    route_segments, input.routes, input.trips, params
+                )
+            );
+            log(
+                fmt::format(
+                    "connection segments: total = {:>8}"
+                    , connection_segments.size()
+                ),
+                LogLevel::Info
+            );
+            return connection_segments;
+        }
+
+        mathfp::Expected<std::pair<preprocessing::RouteSegmentIndex, preprocessing::ConnectionSegmentIndex>>
+        build_indices(
+            const std::vector<RouteSegment>& route_segments
+            , const std::vector<ConnectionSegment>& connection_segments
+        ) {
+            using timetable::infra::LogLevel;
+            using timetable::infra::progress::both;
+            using timetable::infra::progress::log;
+
+            both("preprocessing: building indices");
+            MATHFP_TRY_LET(
+                preprocessing::RouteSegmentIndex
+                , route_index
+                , preprocessing::build_route_segment_index(route_segments)
+            );
+            MATHFP_TRY_LET(
+                preprocessing::ConnectionSegmentIndex
+                , connection_index
+                , preprocessing::build_connection_segment_index(
+                    connection_segments, route_segments
+                )
+            );
+            log(
+                fmt::format(
+                    "indices: route_order = {:>8}  route_buckets = {:>6}\n"
+                    "         timed_order = {:>8}  timed_buckets = {:>6}\n"
+                    "         walk_order  = {:>8}  walk_buckets  = {:>6}"
+                    , route_index.order.size()
+                    , route_index.buckets.size()
+                    , connection_index.timed_order.size()
+                    , connection_index.timed_buckets.size()
+                    , connection_index.walk_order.size()
+                    , connection_index.walk_buckets.size()
+                ),
+                LogLevel::Info
+            );
+            return std::pair<preprocessing::RouteSegmentIndex, preprocessing::ConnectionSegmentIndex>{
+                std::move(route_index), std::move(connection_index)
+            };
+        }
+
+        mathfp::Expected<PreprocessedNetwork> finalize_preprocessed_network(
+            std::vector<RouteSegment> route_segments
+            , std::vector<ConnectionSegment> connection_segments
+            , bool allow_empty
+        ) {
+            if (route_segments.empty() && !allow_empty) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("route segments collection is empty")
+                );
+            }
+            if (connection_segments.empty() && !allow_empty) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("connection segments collection is empty")
+                );
+            }
+
+            auto indices = build_indices(route_segments, connection_segments);
+            if (!indices) return mathfp::unexpected(indices.error());
+
+            timetable::infra::progress::both("preprocessing: done");
+
+            return PreprocessedNetwork{
+                .route_segments        = std::move(route_segments)
+                , .connection_segments = std::move(connection_segments)
+                , .route_index         = std::move(indices.value().first)
+                , .connection_index    = std::move(indices.value().second)
+                , .fare_scale          = 1.0
+            };
+        }
+
+    }  // namespace
+
     mathfp::Expected<PreprocessedNetwork> build_preprocessed_network(
         const InputModel& input
         , const PreprocessParams& params
     ) {
-        using timetable::infra::LogLevel;
-        using timetable::infra::progress::log;
-        using timetable::infra::progress::both;
+        auto route_segments = build_route_segments(input, params);
+        if (!route_segments) return mathfp::unexpected(route_segments.error());
 
-        both("preprocessing: building route segments");
-        log(
-            fmt::format(
-                "input sizes: stops = {:>6}  zones = {:>6}  lines = {:>6}  routes = {:>6}\n"
-                "             trips = {:>6}  walk_links = {:>6}  intervals = {:>6}  demand = {:>6}"
-                , input.stops.size()
-                , input.zones.size()
-                , input.lines.size()
-                , input.routes.size()
-                , input.trips.size()
-                , input.walk_links.size()
-                , input.intervals.size()
-                , input.demand.size()
-            ),
-            LogLevel::Info
-        );
+        auto connection_segments = build_connection_segments(route_segments.value(), input, params);
+        if (!connection_segments) return mathfp::unexpected(connection_segments.error());
 
-        MATHFP_TRY_LET(
-            std::vector<RouteSegment>
-            , line_segments
-            , preprocessing::build_line_route_segments(
-                input.routes, input.trips, input.stops, params
-            )
+        return finalize_preprocessed_network(
+            std::move(route_segments.value()),
+            std::move(connection_segments.value()),
+            true
         );
-        both("preprocessing: building walk segments");
-        MATHFP_TRY_LET(
-            std::vector<RouteSegment>
-            , walk_segments
-            , preprocessing::build_walk_route_segments(
-                input.walk_links, params
-            )
-        );
-        log(
-            fmt::format(
-                "route segments: line = {:>8}  walk = {:>8}  total = {:>8}"
-                , line_segments.size()
-                , walk_segments.size()
-                , line_segments.size() + walk_segments.size()
-            ),
-            LogLevel::Info
-        );
-
-        std::vector<RouteSegment> route_segments;
-        route_segments.reserve(line_segments.size() + walk_segments.size());
-        route_segments.insert(
-            route_segments.end()
-            , std::make_move_iterator(line_segments.begin())
-            , std::make_move_iterator(line_segments.end())
-        );
-        route_segments.insert(
-            route_segments.end()
-            , std::make_move_iterator(walk_segments.begin())
-            , std::make_move_iterator(walk_segments.end())
-        );
-        if (params.stable_ordering) {
-            std::sort(route_segments.begin(), route_segments.end(), route_segment_less);
-        }
-        log(
-            fmt::format(
-                "route segments: stable_ordering = {}"
-                , params.stable_ordering ? "true" : "false"
-            ),
-            LogLevel::Info
-        );
-        MATHFP_TRY(validate_route_segments(route_segments, true));
-
-        reindex_route_segments(route_segments);
-
-        both("preprocessing: building connection segments");
-        MATHFP_TRY_LET(
-            std::vector<ConnectionSegment>
-            , connection_segments
-            , preprocessing::build_connection_segments(
-                route_segments, input.routes, input.trips, params
-            )
-        );
-        log(
-            fmt::format(
-                "connection segments: total = {:>8}"
-                , connection_segments.size()
-            ),
-            LogLevel::Info
-        );
-        both("preprocessing: building indices");
-        MATHFP_TRY_LET(
-            preprocessing::RouteSegmentIndex
-            , route_index
-            , preprocessing::build_route_segment_index(route_segments)
-        );
-        MATHFP_TRY_LET(
-            preprocessing::ConnectionSegmentIndex
-            , connection_index
-            , preprocessing::build_connection_segment_index(
-                connection_segments, route_segments
-            )
-        );
-        log(
-            fmt::format(
-                "indices: route_order = {:>8}  route_buckets = {:>6}\n"
-                "         timed_order = {:>8}  timed_buckets = {:>6}\n"
-                "         walk_order  = {:>8}  walk_buckets  = {:>6}"
-                , route_index.order.size()
-                , route_index.buckets.size()
-                , connection_index.timed_order.size()
-                , connection_index.timed_buckets.size()
-                , connection_index.walk_order.size()
-                , connection_index.walk_buckets.size()
-            ),
-            LogLevel::Info
-        );
-        both("preprocessing: done");
-
-        return PreprocessedNetwork{
-            .route_segments        = std::move(route_segments)
-            , .connection_segments = std::move(connection_segments)
-            , .route_index         = std::move(route_index)
-            , .connection_index    = std::move(connection_index)
-            , .fare_scale          = 1.0
-        };
     }
 
     mathfp::Expected<PreprocessedNetwork> build_preprocessed_network_from_segments(
@@ -150,44 +224,21 @@ namespace timetable::domain::assignment {
         using timetable::infra::progress::both;
         using timetable::infra::progress::log;
 
-        both("preprocessing: using presegmented data");
+        both("preprocessing: building indices");
         log(
             fmt::format(
-                "presegmented sizes: route_segments = {:>8}  connection_segments = {:>8}"
+                "preprocessing input: route_segments = {:>8}  connection_segments = {:>8}"
                 , route_segments.size()
                 , connection_segments.size()
             ),
             LogLevel::Info
         );
 
-        if (route_segments.empty()) {
-            return mathfp::unexpected(
-                mathfp::invalid_arg("route segments collection is empty")
-            );
-        }
-
-        MATHFP_TRY_LET(
-            preprocessing::RouteSegmentIndex
-            , route_index
-            , preprocessing::build_route_segment_index(route_segments)
+        return finalize_preprocessed_network(
+            std::move(route_segments),
+            std::move(connection_segments),
+            false
         );
-        MATHFP_TRY_LET(
-            preprocessing::ConnectionSegmentIndex
-            , connection_index
-            , preprocessing::build_connection_segment_index(
-                connection_segments, route_segments
-            )
-        );
-
-        both("preprocessing: presegmented indexing done");
-
-        return PreprocessedNetwork{
-            .route_segments        = std::move(route_segments)
-            , .connection_segments = std::move(connection_segments)
-            , .route_index         = std::move(route_index)
-            , .connection_index    = std::move(connection_index)
-            , .fare_scale          = 1.0
-        };
     }
 
     void reindex_route_segments(std::vector<RouteSegment>& segments) {

@@ -24,12 +24,17 @@ namespace timetable::infra::txt {
 		std::vector<std::int64_t> zone_ids{};
 	};
 
+	struct ParseParams final {
+		bool allow_unknown_zones{ false };
+	};
+
 	mathfp::Expected<SegmentColumns> parse_segments_file(
 		const std::filesystem::path& path
 	);
 
 	mathfp::Expected<timetable::domain::AssignmentInput> build_assignment_input(
 		SegmentColumns columns
+		, const ParseParams& params = {}
 	);
 
 }  // namespace timetable::infra::txt

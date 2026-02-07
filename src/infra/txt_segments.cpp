@@ -26,6 +26,11 @@ namespace timetable::infra::txt {
 
 		constexpr std::size_t kExpectedLines = 11;
 		constexpr std::int64_t kMissingId = -1;
+		constexpr std::size_t kStopReserveDiv = 2;
+		constexpr std::size_t kLineReserveDiv = 4;
+		constexpr std::size_t kExtraZoneReserveDiv = 16;
+		constexpr std::size_t kReservePadding = 1;
+		constexpr std::size_t kProgressStep = 100'000;
 
 		std::string_view trim_cr(std::string_view line) {
 			if (!line.empty() && line.back() == '\r') {
@@ -144,14 +149,6 @@ namespace timetable::infra::txt {
 						.ctx("zone_id", zone_id)
 					);
 				}
-				if (!zones.contains(zone_id)) {
-					return mathfp::unexpected(
-						mathfp::invalid_arg("zone_id is not listed in zone_ids")
-						.ctx("field", std::string(field))
-						.ctx("index", static_cast<std::int64_t>(index))
-						.ctx("zone_id", zone_id)
-					);
-				}
 				return timetable::domain::WalkEndpoint{ ZoneId{ zone_id } };
 			}
 
@@ -165,6 +162,17 @@ namespace timetable::infra::txt {
 			}
 
 			return timetable::domain::WalkEndpoint{ StopId{ stop_id } };
+		}
+
+		bool same_endpoint(
+			const timetable::domain::WalkEndpoint& a
+			, const timetable::domain::WalkEndpoint& b
+		) {
+			if (a.index() != b.index())
+				return false;
+			if (std::holds_alternative<timetable::domain::StopId>(a))
+				return std::get<timetable::domain::StopId>(a) == std::get<timetable::domain::StopId>(b);
+			return std::get<timetable::domain::ZoneId>(a) == std::get<timetable::domain::ZoneId>(b);
 		}
 
 	}  // namespace
@@ -295,6 +303,7 @@ namespace timetable::infra::txt {
 
 	mathfp::Expected<timetable::domain::AssignmentInput> build_assignment_input(
 		SegmentColumns columns
+		, const ParseParams& params
 	) {
 		using timetable::infra::LogLevel;
 		using timetable::infra::progress::status;
@@ -392,9 +401,11 @@ namespace timetable::infra::txt {
 		}
 
 		std::unordered_set<std::int64_t> stop_ids;
-		stop_ids.reserve(n / 2 + 1);
+		stop_ids.reserve(n / kStopReserveDiv + kReservePadding);
 		std::unordered_set<std::int64_t> line_ids;
-		line_ids.reserve(n / 4 + 1);
+		line_ids.reserve(n / kLineReserveDiv + kReservePadding);
+		std::unordered_set<std::int64_t> extra_zone_ids;
+		extra_zone_ids.reserve(n / kExtraZoneReserveDiv + kReservePadding);
 
 		std::vector<RouteSegment> route_segments;
 		std::vector<ConnectionSegment> connection_segments;
@@ -411,7 +422,27 @@ namespace timetable::infra::txt {
 			LogLevel::Info
 		);
 		log("parsing: building segments", LogLevel::Info);
+		status("parsing: building segments (0%)");
+		std::size_t walk_segments = 0;
+		std::size_t line_segments = 0;
+		std::size_t timed_segments = 0;
+		std::size_t untimed_segments = 0;
 		for (std::size_t i = 0; i < n; ++i) {
+			if (i != 0 && (i % kProgressStep == 0)) {
+				const auto pct = static_cast<int>(100.0 * static_cast<double>(i) / static_cast<double>(n));
+				status(fmt::format("parsing: building segments ({}%)", pct));
+				log(
+					fmt::format(
+						"parsing: progress i={}  walk={}  line={}  timed={}  untimed={}"
+						, i
+						, walk_segments
+						, line_segments
+						, timed_segments
+						, untimed_segments
+					),
+					LogLevel::Debug
+				);
+			}
 			const auto from_zone = columns.from_zone_id[i];
 			const auto from_stop = columns.from_stop_id[i];
 			const auto to_zone = columns.to_zone_id[i];
@@ -428,6 +459,36 @@ namespace timetable::infra::txt {
 				, to_endpoint
 				, parse_endpoint(to_zone, to_stop, "to", i, zones_set)
 			);
+
+			if (same_endpoint(from_endpoint, to_endpoint)) {
+				return mathfp::unexpected(
+					mathfp::invalid_arg("segment endpoints must be distinct")
+					.ctx("index", static_cast<std::int64_t>(i))
+					.ctx("from_zone_id", from_zone)
+					.ctx("from_stop_id", from_stop)
+					.ctx("to_zone_id", to_zone)
+					.ctx("to_stop_id", to_stop)
+					.ctx("profile_id", profile)
+					.ctx("length", columns.length_km[i])
+					.ctx("time", columns.time_sec[i])
+					.ctx("dep", columns.dep_sec[i])
+					.ctx("arr", columns.arr_sec[i])
+					.ctx("fare", columns.fare[i])
+				);
+			}
+
+			if (std::holds_alternative<ZoneId>(from_endpoint)) {
+				const auto zid = std::get<ZoneId>(from_endpoint).get();
+				if (!zones_set.contains(zid)) {
+					extra_zone_ids.insert(zid);
+				}
+			}
+			if (std::holds_alternative<ZoneId>(to_endpoint)) {
+				const auto zid = std::get<ZoneId>(to_endpoint).get();
+				if (!zones_set.contains(zid)) {
+					extra_zone_ids.insert(zid);
+				}
+			}
 
 			if (std::holds_alternative<StopId>(from_endpoint))
 				stop_ids.insert(std::get<StopId>(from_endpoint).get());
@@ -448,8 +509,10 @@ namespace timetable::infra::txt {
 
 			timetable::domain::SegmentCarrier carrier;
 			if (is_walk_segment) {
+				++walk_segments;
 				carrier = WalkPath{ WalkLinkId{ next_walk_id++ } };
 			} else {
+				++line_segments;
 				if (!std::holds_alternative<StopId>(from_endpoint)
 					|| !std::holds_alternative<StopId>(to_endpoint)) {
 					return mathfp::unexpected(
@@ -490,6 +553,9 @@ namespace timetable::infra::txt {
 				}
 				dep = Time{ dep_val };
 				arr = Time{ arr_val };
+				++timed_segments;
+			} else {
+				++untimed_segments;
 			}
 
 			std::optional<double> fare{};
@@ -512,19 +578,56 @@ namespace timetable::infra::txt {
 			connection_segments.push_back(std::move(conn));
 		}
 
+		status("parsing: building segments (100%)");
 		log(
 			fmt::format(
 				"parsing: segments built; route_segments = {}  connection_segments = {}"
+				"  walk = {}  line = {}  timed = {}  untimed = {}"
 				, route_segments.size()
 				, connection_segments.size()
+				, walk_segments
+				, line_segments
+				, timed_segments
+				, untimed_segments
 			),
 			LogLevel::Info
 		);
+		if (!extra_zone_ids.empty()) {
+			if (!params.allow_unknown_zones) {
+				std::vector<std::int64_t> extra_list(extra_zone_ids.begin(), extra_zone_ids.end());
+				std::sort(extra_list.begin(), extra_list.end());
+				const auto sample = std::min<std::size_t>(extra_list.size(), 10);
+				std::string sample_str;
+				for (std::size_t i = 0; i < sample; ++i) {
+					if (i > 0) sample_str += ", ";
+					sample_str += std::to_string(extra_list[i]);
+				}
+				return mathfp::unexpected(
+					mathfp::invalid_arg("segment zones not listed in zone_ids")
+					.ctx("count", static_cast<std::int64_t>(extra_list.size()))
+					.ctx("sample", sample_str)
+				);
+			}
+			log(
+				fmt::format(
+					"parsing: zone_ids extended by {} extra zones from segments"
+					, extra_zone_ids.size()
+				),
+				LogLevel::Warning
+			);
+		}
 
 		InputModel input;
-		input.zones.reserve(columns.zone_ids.size());
+		input.zones.reserve(columns.zone_ids.size() + extra_zone_ids.size());
 		for (const auto id : columns.zone_ids) {
 			input.zones.push_back(Zone{ ZoneId{ id } });
+		}
+		if (!extra_zone_ids.empty()) {
+			std::vector<std::int64_t> extra_list(extra_zone_ids.begin(), extra_zone_ids.end());
+			std::sort(extra_list.begin(), extra_list.end());
+			for (const auto id : extra_list) {
+				input.zones.push_back(Zone{ ZoneId{ id } });
+			}
 		}
 
 		input.stops.reserve(stop_ids.size());

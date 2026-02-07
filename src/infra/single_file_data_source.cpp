@@ -21,7 +21,9 @@ namespace timetable::infra {
 				timetable::infra::progress::status("parsing: start");
 				return
 					txt::parse_segments_file(spec_.path)
-					| and_then(txt::build_assignment_input);
+					| and_then([](txt::SegmentColumns columns) {
+						return txt::build_assignment_input(std::move(columns));
+					});
 			}
 
 		private:
