@@ -101,13 +101,15 @@ namespace timetable::domain {
 
 }  // namespace timetable::domain
 
+// use boost::hash_combine instead??
 namespace std {
     template <>
     struct hash<timetable::domain::EndpointKey> {
         size_t operator()(const timetable::domain::EndpointKey& k) const noexcept {
+            constexpr auto kGoldenRatioReciprocal = 0x9e3779b97f4a7c15ULL;
             const auto h1 = std::hash<std::uint8_t>{}(static_cast<std::uint8_t>(k.kind));
             const auto h2 = std::hash<std::int64_t>{}(k.id);
-            return h1 ^ (h2 + 0x9e3779b97f4a7c15ULL + (h1 << 6) + (h1 >> 2));
+            return h1 ^ (h2 + kGoldenRatioReciprocal + (h1 << 6) + (h1 >> 2));
         }
     };
 }

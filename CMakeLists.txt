@@ -31,7 +31,10 @@ add_executable(timetable-transit-assigment
   src/infra/file_data_source.cpp
   src/infra/log_buffer.cpp
   src/infra/logging.cpp
+  src/infra/pair_file_data_source.cpp
+  src/infra/params_txt.cpp
   src/infra/progress_bus.cpp
+  src/infra/segments_csv.cpp
   src/infra/single_file_data_source.cpp
   src/infra/txt_segments.cpp
   src/infra/ui_log_sink.cpp

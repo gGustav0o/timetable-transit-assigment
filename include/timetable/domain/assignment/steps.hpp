@@ -19,7 +19,7 @@ namespace timetable::domain::assignment {
         std::vector<ConnectionSegment>        connection_segments{};
         preprocessing::RouteSegmentIndex      route_index{};
         preprocessing::ConnectionSegmentIndex connection_index{};
-        double                               fare_scale{ 1.0 };
+        double                                fare_scale{ 1.0 };
     };
 
     struct ConnectionSearchResult final {};

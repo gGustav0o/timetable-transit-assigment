@@ -7,6 +7,7 @@
 
 namespace timetable::domain {
 
+    // ”же было в model???
     using Time    = mathfp::units::Quantity<double, mathfp::units::Time>;
     using Dimless = mathfp::units::Quantity<double, mathfp::units::Dimless>;
     using Speed   = mathfp::units::Quantity<double, mathfp::units::Dim<1, 0, -1, 0, 0, 0, 0>>;
