@@ -30,6 +30,8 @@ namespace timetable::infra::params_txt {
 			std::variant<std::nullptr_t, bool, double, std::string, Object, Array> data{};
 		};
 
+		// TODO(pegtl): replace this hand-written parser with a PEGTL grammar and
+		// remove legacy Parser
 		class Parser final {
 		public:
 			explicit Parser(std::string text) : text_(std::move(text)) {}

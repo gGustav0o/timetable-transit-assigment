@@ -1,5 +1,6 @@
 #include "timetable/app/cli.hpp"
 
+#include <cstdint>
 #include <filesystem>
 #include <string_view>
 
@@ -9,6 +10,11 @@
 namespace timetable::app {
 
 	namespace {
+		enum class CliSourceFlag : std::uint8_t {
+			DataDir
+			, PairDataDir
+			, DataFile
+		};
 
 		constexpr std::string_view kFlagDirLong = "--data-dir";
 		constexpr std::string_view kFlagDirShort = "-d";
@@ -31,6 +37,82 @@ namespace timetable::app {
 				"  -f  --data-file\n";
 		}
 
+		mathfp::Unexpected make_single_source_error() {
+			return mathfp::unexpected(
+				mathfp::invalid_arg("exactly one input source flag is required")
+				.ctx("usage", usage())
+			);
+		}
+
+		mathfp::Expected<CliSourceFlag> classify_source_flag(std::string_view arg) {
+			if (arg == kFlagDirLong || arg == kFlagDirShort) {
+				return CliSourceFlag::DataDir;
+			}
+			if (arg == kFlagPairDirLong || arg == kFlagPairDirShort) {
+				return CliSourceFlag::PairDataDir;
+			}
+			if (arg == kFlagFileLong || arg == kFlagFileShort) {
+				return CliSourceFlag::DataFile;
+			}
+			return mathfp::unexpected(
+				mathfp::invalid_arg("unknown command line argument")
+				.ctx("arg", std::string(arg))
+				.ctx("usage", usage())
+			);
+		}
+
+		mathfp::Expected<std::filesystem::path> parse_flag_value(
+			int argc
+			, char** argv
+			, int flag_index
+			, std::string_view flag
+		) {
+			if (flag_index + 1 >= argc) {
+				return mathfp::unexpected(
+					mathfp::invalid_arg("missing value for command line argument")
+					.ctx("arg", std::string(flag))
+					.ctx("usage", usage())
+				);
+			}
+			return std::filesystem::path(argv[flag_index + 1]);
+		}
+
+		mathfp::Expected<mathfp::Unit> apply_source_selection(
+			CliInput& out
+			, bool& has_source
+			, CliSourceFlag flag
+			, std::filesystem::path path
+		) {
+			if (has_source) {
+				return make_single_source_error();
+			}
+
+			switch (flag) {
+			case CliSourceFlag::DataDir:
+				out.source.kind = io::DataSourceKind::DataDir;
+				out.source.dir.root = std::move(path);
+				break;
+			case CliSourceFlag::PairDataDir:
+				out.source.kind = io::DataSourceKind::PairDataDir;
+				out.source.pair_dir.root = std::move(path);
+				break;
+			case CliSourceFlag::DataFile:
+				out.source.kind = io::DataSourceKind::SingleFile;
+				out.source.file.path = std::move(path);
+				break;
+			}
+
+			has_source = true;
+			return mathfp::ok();
+		}
+
+		mathfp::Expected<mathfp::Unit> ensure_single_source_selected(bool has_source) {
+			if (!has_source) {
+				return make_single_source_error();
+			}
+			return mathfp::ok();
+		}
+
 		mathfp::Expected<std::filesystem::path> find_default_pair_data_dir() {
 			auto cursor = std::filesystem::current_path();
 			while (true) {
@@ -42,7 +124,7 @@ namespace timetable::app {
 					&& std::filesystem::is_directory(candidate)
 					&& std::filesystem::exists(segments)
 					&& std::filesystem::exists(params)
-				) {
+					) {
 					return candidate;
 				}
 				if (!cursor.has_parent_path() || cursor.parent_path() == cursor) {
@@ -58,80 +140,36 @@ namespace timetable::app {
 
 		mathfp::Expected<CliInput> parse_args(int argc, char** argv) {
 			CliInput out;
-			bool has_dir = false;
-			bool has_pair_dir = false;
-			bool has_file = false;
+			bool has_source = false;
 
 			for (int i = 1; i < argc; ++i) {
 				const std::string_view arg(argv[i]);
-				const bool is_dir_flag = (arg == kFlagDirLong) || (arg == kFlagDirShort);
-				const bool is_pair_dir_flag = (arg == kFlagPairDirLong) || (arg == kFlagPairDirShort);
-				const bool is_file_flag = (arg == kFlagFileLong) || (arg == kFlagFileShort);
-
-				if (!is_dir_flag && !is_pair_dir_flag && !is_file_flag) {
-					return mathfp::unexpected(
-						mathfp::invalid_arg("unknown command line argument")
-						.ctx("arg", std::string(arg))
-						.ctx("usage", usage())
-					);
+				const auto flag = classify_source_flag(arg);
+				if (!flag) {
+					return mathfp::unexpected(flag.error());
 				}
 
-				if (i + 1 >= argc) {
-					return mathfp::unexpected(
-						mathfp::invalid_arg("missing value for command line argument")
-						.ctx("arg", std::string(arg))
-						.ctx("usage", usage())
-					);
+				auto path = parse_flag_value(argc, argv, i, arg);
+				if (!path) {
+					return mathfp::unexpected(path.error());
 				}
 
-				const std::filesystem::path path(argv[i + 1]);
 				i += 1;
 
-				if (is_dir_flag) {
-					if (has_dir || has_pair_dir || has_file) {
-						return mathfp::unexpected(
-							mathfp::invalid_arg("exactly one input source flag is required")
-							.ctx("usage", usage())
-						);
-					}
-					out.source.kind = io::DataSourceKind::DataDir;
-					out.source.dir.root = path;
-					has_dir = true;
-					continue;
-				}
-
-				if (is_pair_dir_flag) {
-					if (has_dir || has_pair_dir || has_file) {
-						return mathfp::unexpected(
-							mathfp::invalid_arg("exactly one input source flag is required")
-							.ctx("usage", usage())
-						);
-					}
-					out.source.kind = io::DataSourceKind::PairDataDir;
-					out.source.pair_dir.root = path;
-					has_pair_dir = true;
-					continue;
-				}
-
-				if (is_file_flag) {
-					if (has_dir || has_pair_dir || has_file) {
-						return mathfp::unexpected(
-							mathfp::invalid_arg("exactly one input source flag is required")
-							.ctx("usage", usage())
-						);
-					}
-					out.source.kind = io::DataSourceKind::SingleFile;
-					out.source.file.path = path;
-					has_file = true;
-					continue;
+				auto selected = apply_source_selection(
+					out
+					, has_source
+					, *flag
+					, std::move(*path)
+				);
+				if (!selected) {
+					return mathfp::unexpected(selected.error());
 				}
 			}
 
-			if ((has_dir ? 1 : 0) + (has_pair_dir ? 1 : 0) + (has_file ? 1 : 0) != 1) {
-				return mathfp::unexpected(
-					mathfp::invalid_arg("exactly one input source flag is required")
-					.ctx("usage", usage())
-				);
+			auto ensured = ensure_single_source_selected(has_source);
+			if (!ensured) {
+				return mathfp::unexpected(ensured.error());
 			}
 
 			return out;

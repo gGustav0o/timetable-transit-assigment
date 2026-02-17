@@ -3,10 +3,14 @@
 #include <utility>
 
 #include <mathfp/core/expected.hpp>
+#include <mathfp/core/try.hpp>
 #include <mathfp/core/unit.hpp>
 
 #include "timetable/domain/params.hpp"
 #include "timetable/domain/validation.hpp"
+
+#define TIMETABLE_TRY_ENSURE_NONNEG(x) MATHFP_TRY(validation::ensure_nonneg((x), #x))
+#define TIMETABLE_TRY_ENSURE_POSITIVE(x) MATHFP_TRY(validation::ensure_positive((x), #x))
 
 namespace timetable::domain {
 
@@ -17,11 +21,10 @@ namespace timetable::domain {
         , Time transfer_penalty
         , FareNormalization fare_normalization = {}
     ) {
-        using validation::ensure_nonneg;
-        if (auto r = ensure_nonneg(a_journey_time  , "a_journey_time"  ); !r) return mathfp::unexpected(r.error());
-        if (auto r = ensure_nonneg(a_transfers     , "a_transfers"     ); !r) return mathfp::unexpected(r.error());
-        if (auto r = ensure_nonneg(a_fare          , "a_fare"          ); !r) return mathfp::unexpected(r.error());
-        if (auto r = ensure_nonneg(transfer_penalty, "transfer_penalty"); !r) return mathfp::unexpected(r.error());
+        TIMETABLE_TRY_ENSURE_NONNEG(a_journey_time);
+        TIMETABLE_TRY_ENSURE_NONNEG(a_transfers);
+        TIMETABLE_TRY_ENSURE_NONNEG(a_fare);
+        TIMETABLE_TRY_ENSURE_NONNEG(transfer_penalty);
         return SearchImpedance{
             .a_journey_time     = a_journey_time
             , .a_transfers      = a_transfers
@@ -45,11 +48,8 @@ namespace timetable::domain {
                     .ctx("max_transfers", max_transfers.get())
             );
 
-        if (auto r = validation::ensure_nonneg(min_transfer_wait, "min_transfer_wait"); !r)
-            return mathfp::unexpected(r.error());
-
-        if (auto r = validation::ensure_nonneg(max_transfer_wait, "max_transfer_wait"); !r)
-            return mathfp::unexpected(r.error());
+        TIMETABLE_TRY_ENSURE_NONNEG(min_transfer_wait);
+        TIMETABLE_TRY_ENSURE_NONNEG(max_transfer_wait);
 
         if (min_transfer_wait.value() > max_transfer_wait.value())
             return validation::fail(
@@ -76,13 +76,12 @@ namespace timetable::domain {
         , Dimless nt_mult
         , Dimless nt_add
     ) {
-        using validation::ensure_nonneg;
-        if (auto r = ensure_nonneg(imp_mult, "imp_mult"); !r) return mathfp::unexpected(r.error());
-        if (auto r = ensure_nonneg(imp_add , "imp_add" ); !r) return mathfp::unexpected(r.error());
-        if (auto r = ensure_nonneg(jt_mult , "jt_mult" ); !r) return mathfp::unexpected(r.error());
-        if (auto r = ensure_nonneg(jt_add  , "jt_add"  ); !r) return mathfp::unexpected(r.error());
-        if (auto r = ensure_nonneg(nt_mult , "nt_mult" ); !r) return mathfp::unexpected(r.error());
-        if (auto r = ensure_nonneg(nt_add  , "nt_add"  ); !r) return mathfp::unexpected(r.error());
+        TIMETABLE_TRY_ENSURE_NONNEG(imp_mult);
+        TIMETABLE_TRY_ENSURE_NONNEG(imp_add);
+        TIMETABLE_TRY_ENSURE_NONNEG(jt_mult);
+        TIMETABLE_TRY_ENSURE_NONNEG(jt_add);
+        TIMETABLE_TRY_ENSURE_NONNEG(nt_mult);
+        TIMETABLE_TRY_ENSURE_NONNEG(nt_add);
         return SearchTolerances{
             .imp_mult  = imp_mult
             , .imp_add = imp_add
@@ -101,13 +100,12 @@ namespace timetable::domain {
         , Dimless nt_mult
         , Dimless nt_add
     ) {
-        using validation::ensure_nonneg;
-        if (auto r = ensure_nonneg(imp_mult, "imp_mult"); !r) return mathfp::unexpected(r.error());
-        if (auto r = ensure_nonneg(imp_add , "imp_add" ); !r) return mathfp::unexpected(r.error());
-        if (auto r = ensure_nonneg(jt_mult , "jt_mult" ); !r) return mathfp::unexpected(r.error());
-        if (auto r = ensure_nonneg(jt_add  , "jt_add"  ); !r) return mathfp::unexpected(r.error());
-        if (auto r = ensure_nonneg(nt_mult , "nt_mult" ); !r) return mathfp::unexpected(r.error());
-        if (auto r = ensure_nonneg(nt_add  , "nt_add"  ); !r) return mathfp::unexpected(r.error());
+        TIMETABLE_TRY_ENSURE_NONNEG(imp_mult);
+        TIMETABLE_TRY_ENSURE_NONNEG(imp_add);
+        TIMETABLE_TRY_ENSURE_NONNEG(jt_mult);
+        TIMETABLE_TRY_ENSURE_NONNEG(jt_add);
+        TIMETABLE_TRY_ENSURE_NONNEG(nt_mult);
+        TIMETABLE_TRY_ENSURE_NONNEG(nt_add);
         return ChoiceTolerances{
             .imp_mult  = imp_mult
             , .imp_add = imp_add
@@ -129,19 +127,16 @@ namespace timetable::domain {
         , Dimless y_scale
         , Dimless z_scale
     ) {
-        using validation::ensure_nonneg;
-        using validation::ensure_positive;
+        TIMETABLE_TRY_ENSURE_NONNEG(q_time);
+        TIMETABLE_TRY_ENSURE_NONNEG(q_departure);
+        TIMETABLE_TRY_ENSURE_NONNEG(q_fare);
+        TIMETABLE_TRY_ENSURE_NONNEG(boxcox_t);
+        TIMETABLE_TRY_ENSURE_NONNEG(gamma);
 
-        if (auto r = ensure_nonneg(q_time     , "q_time"     ); !r) return mathfp::unexpected(r.error());
-        if (auto r = ensure_nonneg(q_departure, "q_departure"); !r) return mathfp::unexpected(r.error());
-        if (auto r = ensure_nonneg(q_fare     , "q_fare"     ); !r) return mathfp::unexpected(r.error());
-        if (auto r = ensure_nonneg(boxcox_t   , "boxcox_t"   ); !r) return mathfp::unexpected(r.error());
-        if (auto r = ensure_nonneg(gamma      , "gamma"      ); !r) return mathfp::unexpected(r.error());
-
-        if (auto r = ensure_positive(beta   , "beta"   ); !r) return mathfp::unexpected(r.error());
-        if (auto r = ensure_positive(x_scale, "x_scale"); !r) return mathfp::unexpected(r.error());
-        if (auto r = ensure_positive(y_scale, "y_scale"); !r) return mathfp::unexpected(r.error());
-        if (auto r = ensure_positive(z_scale, "z_scale"); !r) return mathfp::unexpected(r.error());
+        TIMETABLE_TRY_ENSURE_POSITIVE(beta);
+        TIMETABLE_TRY_ENSURE_POSITIVE(x_scale);
+        TIMETABLE_TRY_ENSURE_POSITIVE(y_scale);
+        TIMETABLE_TRY_ENSURE_POSITIVE(z_scale);
 
         return SplitParams{
             .q_time        = q_time
@@ -168,13 +163,8 @@ namespace timetable::domain {
         , bool deduplicate_walk_segments
         , bool stable_ordering
     ) {
-        using validation::ensure_nonneg;
-        using validation::ensure_positive;
-
-        if (auto r = ensure_nonneg(walk_cost.w_time, "walk_cost.w_time"); !r)
-            return mathfp::unexpected(r.error());
-        if (auto r = ensure_nonneg(walk_cost.w_length, "walk_cost.w_length"); !r)
-            return mathfp::unexpected(r.error());
+        TIMETABLE_TRY_ENSURE_NONNEG(walk_cost.w_time);
+        TIMETABLE_TRY_ENSURE_NONNEG(walk_cost.w_length);
 
         if (walk_cost_kind == WalkCostKind::Weighted) {
             const auto wt = mathfp::units::as_dimless(walk_cost.w_time);
@@ -188,8 +178,7 @@ namespace timetable::domain {
         }
 
         if (line_speed) {
-            if (auto r = ensure_positive(*line_speed, "line_speed"); !r)
-                return mathfp::unexpected(r.error());
+            MATHFP_TRY(validation::ensure_positive(*line_speed, "line_speed"));
         }
 
         return PreprocessParams{
@@ -225,3 +214,6 @@ namespace timetable::domain {
     }
 
 }  // namespace timetable::domain
+
+#undef TIMETABLE_TRY_ENSURE_NONNEG
+#undef TIMETABLE_TRY_ENSURE_POSITIVE

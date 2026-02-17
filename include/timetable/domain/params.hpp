@@ -2,15 +2,12 @@
 
 #include <cstdint>
 #include <optional>
-#include <mathfp/types/units.hpp>
+
 #include <mathfp/types/strong_type.hpp>
 
-namespace timetable::domain {
+#include "timetable/domain/scalars.hpp"
 
-    // ”же было в model???
-    using Time    = mathfp::units::Quantity<double, mathfp::units::Time>;
-    using Dimless = mathfp::units::Quantity<double, mathfp::units::Dimless>;
-    using Speed   = mathfp::units::Quantity<double, mathfp::units::Dim<1, 0, -1, 0, 0, 0, 0>>;
+namespace timetable::domain {
 
     struct TransferCountTag {};
 
@@ -36,7 +33,7 @@ namespace timetable::domain {
             , FixedScale
         };
 
-        Kind   kind{ Kind::Median };
+        Kind kind{ Kind::Median };
         double fixed_scale{ 1.0 };
     };
 
@@ -44,7 +41,7 @@ namespace timetable::domain {
         Dimless a_journey_time{};
         Dimless a_transfers{};
         Dimless a_fare{};
-        Time    transfer_penalty{};
+        Time transfer_penalty{};
         FareNormalization fare_normalization{};
     };
 
@@ -53,10 +50,10 @@ namespace timetable::domain {
      */
     struct TransferLimits final {
         TransferCount max_transfers{};
-        Time          min_transfer_wait{};
-        Time          max_transfer_wait{};
-        bool          allow_start_wait{};
-        bool          allow_end_wait{};
+        Time min_transfer_wait{};
+        Time max_transfer_wait{};
+        bool allow_start_wait{};
+        bool allow_end_wait{};
     };
 
     /**
@@ -134,16 +131,16 @@ namespace timetable::domain {
     };
 
     struct PreprocessParams final {
-        WalkCostKind         walk_cost_kind            { WalkCostKind::Time };
-        WalkCostWeights      walk_cost                 {};
-        std::optional<Speed> line_speed                {};
-        bool                 strict_trips              { true };
-        bool                 allow_overnight           { false };
-        bool                 overnight_add_24h         { true };
-        bool                 strict_stop_times         { true };
-        TimeAggregationKind  time_aggregation          { TimeAggregationKind::Mean };
-        bool                 deduplicate_walk_segments { true };
-        bool                 stable_ordering           { true };
+        WalkCostKind walk_cost_kind{ WalkCostKind::Time };
+        WalkCostWeights walk_cost{};
+        std::optional<Speed> line_speed{};
+        bool strict_trips{ true };
+        bool allow_overnight{ false };
+        bool overnight_add_24h{ true };
+        bool strict_stop_times{ true };
+        TimeAggregationKind time_aggregation{ TimeAggregationKind::Mean };
+        bool deduplicate_walk_segments{ true };
+        bool stable_ordering{ true };
     };
 
     /**
@@ -151,11 +148,11 @@ namespace timetable::domain {
      */
     struct SearchParams final {
         PreprocessParams preprocess{};
-        SearchImpedance  impedance{};
-        TransferLimits   transfers{};
+        SearchImpedance impedance{};
+        TransferLimits transfers{};
         SearchTolerances search_tolerances{};
         ChoiceTolerances choice_tolerances{};
-        SplitParams      split{};
+        SplitParams split{};
     };
 
 }  // namespace timetable::domain

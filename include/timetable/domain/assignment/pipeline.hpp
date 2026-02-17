@@ -10,6 +10,33 @@
 #include "timetable/infra/progress_bus.hpp"
 
 namespace timetable::domain::assignment {
+    namespace detail {
+
+        inline mathfp::Expected<PreprocessedNetwork> build_preprocessed_step(
+            AssignmentInput& input
+        ) {
+            // Explicitly consume pre-segmented payload to avoid copying large vectors.
+            if (input.presegmented) {
+                return build_preprocessed_network_from_segments(
+                    std::move(input.presegmented->route_segments)
+                    , std::move(input.presegmented->connection_segments)
+                );
+            }
+            return build_preprocessed_network(input.input, input.params.preprocess);
+        }
+
+        inline mathfp::Expected<ConnectionSearchResult> run_search_step(
+            PreprocessedNetwork net
+            , const SearchParams& params
+        ) {
+            net.fare_scale = compute_fare_scale(
+                net.connection_segments
+                , params.impedance.fare_normalization
+            );
+            return search_connections_branch_and_bound(net, params);
+        }
+
+    }  // namespace detail
 
     /**
      * @brief Run the full timetable assignment pipeline.
@@ -24,24 +51,10 @@ namespace timetable::domain::assignment {
             "assignment pipeline started"
             , timetable::infra::LogLevel::Info
         );
-        auto preprocessed = [&]() -> mathfp::Expected<PreprocessedNetwork> {
-            if (input.presegmented) {
-                return build_preprocessed_network_from_segments(
-                    std::move(input.presegmented->route_segments)
-                    , std::move(input.presegmented->connection_segments)
-                );
-            }
-            return build_preprocessed_network(input.input, input.params.preprocess);
-        };
-
         return
-            preprocessed()
+            detail::build_preprocessed_step(input)
             | and_then([&](PreprocessedNetwork net) {
-                net.fare_scale = compute_fare_scale(
-                    net.connection_segments
-                    , input.params.impedance.fare_normalization
-                );
-                return search_connections_branch_and_bound(net, input.params);
+                return detail::run_search_step(std::move(net), input.params);
             })
             | and_then([&](ConnectionSearchResult search_result) {
                 return choose_connections(search_result, input.params);

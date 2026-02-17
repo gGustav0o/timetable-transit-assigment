@@ -6,14 +6,10 @@
 #include <vector>
 
 #include <mathfp/types/strong_type.hpp>
-#include <mathfp/types/units.hpp>
+
+#include "timetable/domain/scalars.hpp"
 
 namespace timetable::domain {
-
-    // --- Scalar types -----------------------------------------------------------
-    using Time   = mathfp::units::Quantity<double, mathfp::units::Time>;
-    using Length = mathfp::units::Quantity<double, mathfp::units::Length>;
-    using Speed  = mathfp::units::Quantity<double, mathfp::units::Dim<1, 0, -1, 0, 0, 0, 0>>;
 
     // --- Strong domain identifiers ---------------------------------------------
     struct StopIdTag {};

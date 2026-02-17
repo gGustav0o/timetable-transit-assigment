@@ -35,34 +35,28 @@ namespace timetable::domain::preprocessing {
         }
 
         bool timed_ref_less(const ConnectionSegRef& a, const ConnectionSegRef& b) {
-            const auto a_from = to_endpoint_key(a.route->from);
-            const auto b_from = to_endpoint_key(b.route->from);
-            if (a_from != b_from) return a_from < b_from;
+            if (const auto a_from = to_endpoint_key(a.route->from), b_from = to_endpoint_key(b.route->from); a_from != b_from)
+                return a_from < b_from;
 
-            const auto a_dep = a.ptr->departure->value();
-            const auto b_dep = b.ptr->departure->value();
-            if (a_dep != b_dep) return a_dep < b_dep;
+            if (const auto a_dep = a.ptr->departure->value(), b_dep = b.ptr->departure->value(); a_dep != b_dep)
+                return a_dep < b_dep;
 
-            const auto a_arr = a.ptr->arrival->value();
-            const auto b_arr = b.ptr->arrival->value();
-            if (a_arr != b_arr) return a_arr < b_arr;
+            if (const auto a_arr = a.ptr->arrival->value(), b_arr = b.ptr->arrival->value(); a_arr != b_arr)
+                return a_arr < b_arr;
 
-            const auto a_to = to_endpoint_key(a.route->to);
-            const auto b_to = to_endpoint_key(b.route->to);
-            if (a_to != b_to) return a_to < b_to;
+            if (const auto a_to = to_endpoint_key(a.route->to), b_to = to_endpoint_key(b.route->to); a_to != b_to)
+                return a_to < b_to;
 
             if (a.route->id != b.route->id) return a.route->id.get() < b.route->id.get();
             return a.id.get() < b.id.get();
         }
 
         bool walk_ref_less(const ConnectionSegRef& a, const ConnectionSegRef& b) {
-            const auto a_from = to_endpoint_key(a.route->from);
-            const auto b_from = to_endpoint_key(b.route->from);
-            if (a_from != b_from) return a_from < b_from;
+            if (const auto a_from = to_endpoint_key(a.route->from), b_from = to_endpoint_key(b.route->from); a_from != b_from)
+                return a_from < b_from;
 
-            const auto a_to = to_endpoint_key(a.route->to);
-            const auto b_to = to_endpoint_key(b.route->to);
-            if (a_to != b_to) return a_to < b_to;
+            if (const auto a_to = to_endpoint_key(a.route->to), b_to = to_endpoint_key(b.route->to); a_to != b_to)
+                return a_to < b_to;
 
             if (a.route->id != b.route->id) return a.route->id.get() < b.route->id.get();
             return a.id.get() < b.id.get();

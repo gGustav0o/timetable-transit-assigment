@@ -9,7 +9,7 @@
 #include <mathfp/core/unit.hpp>
 #include <mathfp/types/units.hpp>
 
-#include "timetable/domain/model.hpp"
+#include "timetable/domain/scalars.hpp"
 
 namespace timetable::domain::validation {
 

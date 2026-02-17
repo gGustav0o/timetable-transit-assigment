@@ -8,7 +8,10 @@
 #include <unordered_map>
 #include <utility>
 
+#include <boost/container_hash/hash.hpp>
+
 #include <mathfp/core/error.hpp>
+#include <mathfp/core/try.hpp>
 #include <mathfp/graph/types.hpp>
 #include <mathfp/algorithms/dijkstra.hpp>
 #include <mathfp/types/index.hpp>
@@ -22,11 +25,15 @@ namespace timetable::domain::preprocessing {
     namespace {
 
         using Pair = std::pair<std::size_t, std::size_t>;
+        using StopPairDurations = std::map<std::pair<StopId, StopId>, std::vector<double>>;
+        using EdgeMetrics = std::pair<std::vector<Time>, std::vector<Length>>;
 
         struct PairHash final {
             std::size_t operator()(const Pair& p) const noexcept {
-                constexpr std::size_t kPairHashSeed = 1315423911u;
-                return (p.first * kPairHashSeed) ^ p.second;
+                std::size_t seed = 0;
+                boost::hash_combine(seed, p.first);
+                boost::hash_combine(seed, p.second);
+                return seed;
             }
         };
 
@@ -167,11 +174,11 @@ namespace timetable::domain::preprocessing {
             return route_order;
         }
 
-        mathfp::Expected<std::map<std::pair<StopId, StopId>, std::vector<double>>> collect_durations(
+        mathfp::Expected<StopPairDurations> collect_durations(
             const Route& route
             , const std::vector<const Trip*>& trips
         ) {
-            std::map<std::pair<StopId, StopId>, std::vector<double>> durations;
+            StopPairDurations durations;
             const auto& r_stops = route.stops;
 
             for (const auto* trip : trips) {
@@ -208,9 +215,9 @@ namespace timetable::domain::preprocessing {
             return durations;
         }
 
-        mathfp::Expected<std::pair<std::vector<Time>, std::vector<Length>>> build_edge_metrics(
+        mathfp::Expected<EdgeMetrics> build_edge_metrics(
             const Route& route
-            , const std::map<std::pair<StopId, StopId>, std::vector<double>>& durations
+            , const StopPairDurations& durations
             , const PreprocessParams& params
         ) {
             const auto& r_stops = route.stops;
@@ -233,11 +240,12 @@ namespace timetable::domain::preprocessing {
                     return mathfp::unexpected(mathfp::invalid_arg("skip"));
                 }
 
-                const auto m = aggregate_time(it->second, params.time_aggregation);
-                if (!m)
-                    return mathfp::unexpected(m.error());
-
-                edge_time[k] = m.value();
+                MATHFP_TRY_LET(
+                    Time
+                    , m
+                    , aggregate_time(it->second, params.time_aggregation)
+                );
+                edge_time[k] = m;
                 if (params.line_speed) {
                     const auto len = (*params.line_speed) * edge_time[k];
                     edge_len[k] = Length{ len.value() };
@@ -246,7 +254,7 @@ namespace timetable::domain::preprocessing {
                 }
             }
 
-            return std::pair<std::vector<Time>, std::vector<Length>>{
+            return EdgeMetrics{
                 std::move(edge_time), std::move(edge_len)
             };
         }
@@ -370,17 +378,19 @@ namespace timetable::domain::preprocessing {
                 const auto& link = *link_ptr;
                 data.link_by_id.emplace(link.id, &link);
 
-                const auto w = compute_walk_weight(link, params);
-                if (!w)
-                    return mathfp::unexpected(w.error());
+                MATHFP_TRY_LET(
+                    double
+                    , w
+                    , compute_walk_weight(link, params)
+                );
 
                 const auto u = get_or_add_endpoint(data, link.from);
                 const auto v = get_or_add_endpoint(data, link.to);
 
                 const Pair key{ u, v };
                 const auto it = data.best_edges.find(key);
-                if (it == data.best_edges.end() || w.value() < it->second.weight) {
-                    data.best_edges[key] = BestEdge{ w.value(), link.id };
+                if (it == data.best_edges.end() || w < it->second.weight) {
+                    data.best_edges[key] = BestEdge{ w, link.id };
                 }
             }
 
@@ -398,17 +408,19 @@ namespace timetable::domain::preprocessing {
                 data.best_edges.reserve(walk_links.size());
                 for (const auto* link_ptr : link_order) {
                     const auto& link = *link_ptr;
-                    const auto w = compute_walk_weight(link, params);
-                    if (!w)
-                        return mathfp::unexpected(w.error());
+                    MATHFP_TRY_LET(
+                        double
+                        , w
+                        , compute_walk_weight(link, params)
+                    );
 
                     const auto u = data.index_by_key.at(to_endpoint_key(link.from));
                     const auto v = data.index_by_key.at(to_endpoint_key(link.to));
 
                     const Pair key{ u, v };
                     const auto it = data.best_edges.find(key);
-                    if (it == data.best_edges.end() || w.value() < it->second.weight) {
-                        data.best_edges[key] = BestEdge{ w.value(), link.id };
+                    if (it == data.best_edges.end() || w < it->second.weight) {
+                        data.best_edges[key] = BestEdge{ w, link.id };
                     }
                 }
             }
@@ -522,11 +534,13 @@ namespace timetable::domain::preprocessing {
                     .ctx("route_id", route.id.get())
                 );
             }
-            auto durations = collect_durations(route, it_trips->second);
-            if (!durations)
-                return mathfp::unexpected(durations.error());
+            MATHFP_TRY_LET(
+                StopPairDurations
+                , durations
+                , collect_durations(route, it_trips->second)
+            );
 
-            auto edge_metrics = build_edge_metrics(route, durations.value(), params);
+            auto edge_metrics = build_edge_metrics(route, durations, params);
             if (!edge_metrics) {
                 if (params.strict_stop_times)
                     return mathfp::unexpected(edge_metrics.error());
@@ -583,15 +597,17 @@ namespace timetable::domain::preprocessing {
 
         std::vector<WalkKey> seen_keys;
 
-        auto data = build_walk_graph_data(walk_links, params);
-        if (!data)
-            return mathfp::unexpected(data.error());
+        MATHFP_TRY_LET(
+            WalkGraphData
+            , data
+            , build_walk_graph_data(walk_links, params)
+        );
         log(
             fmt::format(
                 "walk segments input: walk_links = {:>6}  endpoints = {:>6}  edges = {:>6}"
                 , walk_links.size()
-                , data->endpoints.size()
-                , data->best_edges.size()
+                , data.endpoints.size()
+                , data.best_edges.size()
             ),
             LogLevel::Info
         );
@@ -605,30 +621,35 @@ namespace timetable::domain::preprocessing {
             LogLevel::Info
         );
 
-        mathfp::graph::DiGraph<double> g(data->endpoints.size());
-        for (const auto& [pair, edge] : data->best_edges) {
+        mathfp::graph::DiGraph<double> g(data.endpoints.size());
+        for (const auto& [pair, edge] : data.best_edges) {
             boost::add_edge(pair.first, pair.second, edge.weight, g);
         }
 
         std::vector<RouteSegment> out;
         std::int64_t next_id = 0;
         if (params.deduplicate_walk_segments) {
-            seen_keys.reserve(data->endpoints.size() * data->endpoints.size());
+            seen_keys.reserve(data.endpoints.size() * data.endpoints.size());
         }
 
         std::size_t skipped_unreachable = 0;
         std::size_t skipped_duplicate   = 0;
 
-        for (std::size_t s = 0; s < data->endpoints.size(); ++s) {
+        using WalkGraph = mathfp::graph::DiGraph<double>;
+        using DijkstraResult = mathfp::graph::DijkstraResult<WalkGraph>;
+
+        for (std::size_t s = 0; s < data.endpoints.size(); ++s) {
             const auto start = mathfp::Index<mathfp::graph::VertexIdTag>(s);
-            const auto res = mathfp::graph::dijkstra(g, start);
-            if (!res)
-                return mathfp::unexpected(res.error());
+            MATHFP_TRY_LET(
+                DijkstraResult
+                , res
+                , mathfp::graph::dijkstra(g, start)
+            );
 
-            const auto& dist   = res->distance;
-            const auto& parent = res->parent;
+            const auto& dist   = res.distance;
+            const auto& parent = res.parent;
 
-            for (std::size_t t = 0; t < data->endpoints.size(); ++t) {
+            for (std::size_t t = 0; t < data.endpoints.size(); ++t) {
                 if (t == s)
                     continue;
                 const auto d = dist[t];
@@ -636,17 +657,19 @@ namespace timetable::domain::preprocessing {
                     ++skipped_unreachable;
                     continue;
                 }
-                const auto path = recover_path(*data, s, t, parent);
-                if (!path)
-                    return mathfp::unexpected(path.error());
-                if (!path.value().has_value())
+                MATHFP_TRY_LET(
+                    std::optional<std::vector<WalkLinkId>>
+                    , maybe_path
+                    , recover_path(data, s, t, parent)
+                );
+                if (!maybe_path.has_value())
                     continue;
 
-                auto path_vec = std::move(path.value().value());
-                const auto [total_len, total_time] = accumulate_walk_metrics(*data, path_vec);
+                auto path_vec = std::move(*maybe_path);
+                const auto [total_len, total_time] = accumulate_walk_metrics(data, path_vec);
                 WalkKey key{
-                    to_endpoint_key(data->endpoints[s])
-                    , to_endpoint_key(data->endpoints[t])
+                    to_endpoint_key(data.endpoints[s])
+                    , to_endpoint_key(data.endpoints[t])
                     , path_vec
                 };
 
@@ -661,8 +684,8 @@ namespace timetable::domain::preprocessing {
 
                 out.push_back(RouteSegment{
                     .id         = RouteSegmentId{ next_id++ }
-                    , .from     = data->endpoints[s]
-                    , .to       = data->endpoints[t]
+                    , .from     = data.endpoints[s]
+                    , .to       = data.endpoints[t]
                     , .length   = total_len
                     , .run_time = total_time
                     , .carrier  = SegmentCarrier{ std::move(path_vec) }

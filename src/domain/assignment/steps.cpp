@@ -183,16 +183,23 @@ namespace timetable::domain::assignment {
                 );
             }
 
-            auto indices = build_indices(route_segments, connection_segments);
-            if (!indices) return mathfp::unexpected(indices.error());
+            using SegmentIndices = std::pair<
+                preprocessing::RouteSegmentIndex
+                , preprocessing::ConnectionSegmentIndex
+            >;
+            MATHFP_TRY_LET(
+                SegmentIndices
+                , indices
+                , build_indices(route_segments, connection_segments)
+            );
 
             timetable::infra::progress::both("preprocessing: done");
 
             return PreprocessedNetwork{
                 .route_segments        = std::move(route_segments)
                 , .connection_segments = std::move(connection_segments)
-                , .route_index         = std::move(indices.value().first)
-                , .connection_index    = std::move(indices.value().second)
+                , .route_index         = std::move(indices.first)
+                , .connection_index    = std::move(indices.second)
                 , .fare_scale          = 1.0
             };
         }
@@ -203,15 +210,20 @@ namespace timetable::domain::assignment {
         const InputModel& input
         , const PreprocessParams& params
     ) {
-        auto route_segments = build_route_segments(input, params);
-        if (!route_segments) return mathfp::unexpected(route_segments.error());
-
-        auto connection_segments = build_connection_segments(route_segments.value(), input, params);
-        if (!connection_segments) return mathfp::unexpected(connection_segments.error());
+        MATHFP_TRY_LET(
+            std::vector<RouteSegment>
+            , route_segments
+            , build_route_segments(input, params)
+        );
+        MATHFP_TRY_LET(
+            std::vector<ConnectionSegment>
+            , connection_segments
+            , build_connection_segments(route_segments, input, params)
+        );
 
         return finalize_preprocessed_network(
-            std::move(route_segments.value()),
-            std::move(connection_segments.value()),
+            std::move(route_segments),
+            std::move(connection_segments),
             true
         );
     }
@@ -313,11 +325,11 @@ namespace timetable::domain::assignment {
             TransferCount transfers,
             const ConnectionSegment& segment) {
             return connection_impedance(
-                journey_time,
-                transfers,
-                segment,
-                impedance,
-                fare_scale
+                journey_time
+                , transfers
+                , segment
+                , impedance
+                , fare_scale
             );
         };
 

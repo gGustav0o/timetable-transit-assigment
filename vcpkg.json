@@ -10,6 +10,7 @@
     "boost-graph",
     "eigen3",
     "boost-circular-buffer",
+    "pegtl",
     "ftxui",
     "spdlog"
   ],
