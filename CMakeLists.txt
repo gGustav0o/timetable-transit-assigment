@@ -20,7 +20,6 @@ add_executable(timetable-transit-assigment
   src/main.cpp
   src/app/app.cpp
   src/app/cli.cpp
-  src/domain/assignment.cpp
   src/domain/assignment/output.cpp
   src/domain/assignment/run.cpp
   src/domain/assignment/steps.cpp
@@ -65,7 +64,7 @@ target_link_libraries(timetable-transit-assigment
     Boost::boost
     fmt::fmt
     spdlog::spdlog
-    unofficial::vincentlaucsb-csv-parser::csv-parser
+    unofficial::vincentlaucsb-csv-parser::csv
     ftxui::component
     ftxui::dom
     ftxui::screen
