@@ -37,6 +37,66 @@ namespace timetable::ui {
 			int last_log_lines = 0;
 		};
 
+		void flush_wrapped_line(
+			std::vector<std::string>& lines
+			, std::string& current
+		) {
+			lines.push_back(std::move(current));
+			current.clear();
+		}
+
+		std::size_t skip_spaces(
+			std::string_view text
+			, std::size_t index
+		) {
+			while (index < text.size() && text[index] == ' ') {
+				++index;
+			}
+			return index;
+		}
+
+		std::size_t scan_token_end(
+			std::string_view text
+			, std::size_t index
+		) {
+			while (index < text.size() && text[index] != '\n' && text[index] != ' ') {
+				++index;
+			}
+			return index;
+		}
+
+		void append_wrapped_token(
+			std::vector<std::string>& lines
+			, std::string& current
+			, std::string_view token
+			, int width
+		) {
+			if (!current.empty() && static_cast<int>(current.size() + 1 + token.size()) > width) {
+				flush_wrapped_line(lines, current);
+			}
+
+			if (static_cast<int>(token.size()) > width) {
+				std::size_t offset = 0;
+				while (offset < token.size()) {
+					const auto chunk = std::min<std::size_t>(
+						static_cast<std::size_t>(width),
+						token.size() - offset
+					);
+					if (!current.empty()) {
+						flush_wrapped_line(lines, current);
+					}
+					lines.emplace_back(token.substr(offset, chunk));
+					offset += chunk;
+				}
+				return;
+			}
+
+			if (!current.empty()) {
+				current.push_back(' ');
+			}
+			current.append(token);
+		}
+
 		std::vector<std::string> wrap_text(std::string_view text, int width) {
 			std::vector<std::string> lines;
 			if (width <= 0) {
@@ -50,50 +110,17 @@ namespace timetable::ui {
 			std::size_t i = 0;
 			while (i < text.size()) {
 				if (text[i] == '\n') {
-					lines.push_back(std::move(current));
-					current.clear();
+					flush_wrapped_line(lines, current);
 					++i;
 					continue;
 				}
 
-				const auto start = i;
-				while (i < text.size() && text[i] != '\n' && text[i] != ' ') {
-					++i;
-				}
-				const auto token = text.substr(start, i - start);
-
-				if (!current.empty() && static_cast<int>(current.size() + 1 + token.size()) > width) {
-					lines.push_back(std::move(current));
-					current.clear();
-				}
-
-				if (static_cast<int>(token.size()) > width) {
-					std::size_t offset = 0;
-					while (offset < token.size()) {
-						const auto chunk = std::min<std::size_t>(
-							static_cast<std::size_t>(width),
-							token.size() - offset
-						);
-						if (!current.empty()) {
-							lines.push_back(std::move(current));
-							current.clear();
-						}
-						lines.emplace_back(token.substr(offset, chunk));
-						offset += chunk;
-					}
-				} else {
-					if (!current.empty()) {
-						current.push_back(' ');
-					}
-					current.append(token);
-				}
-
-				while (i < text.size() && text[i] == ' ') {
-					++i;
-				}
+				const auto token_end = scan_token_end(text, i);
+				append_wrapped_token(lines, current, text.substr(i, token_end - i), width);
+				i = skip_spaces(text, token_end);
 			}
 
-			lines.push_back(std::move(current));
+			flush_wrapped_line(lines, current);
 			return lines;
 		}
 
@@ -178,6 +205,172 @@ namespace timetable::ui {
 			last_total = total;
 		}
 
+		struct PanelViewport final {
+			std::vector<ftxui::Element> visible_lines{};
+			int content_height{};
+		};
+
+		struct WrappedPanelContent final {
+			std::vector<ftxui::Element> lines{};
+		};
+
+		WrappedPanelContent prepare_wrapped_panel_content(
+			const std::vector<infra::LogEntry>& lines
+			, int wrap_width
+		) {
+			return WrappedPanelContent{
+				.lines = wrap_elements(lines, wrap_width)
+			};
+		}
+
+		PanelViewport prepare_panel_viewport(
+			WrappedPanelContent content
+			, int panel_height
+			, int& scroll
+			, int& last_total
+		) {
+			const auto content_height = std::max(1, panel_height - kPanelBorderHeight);
+			auto_scroll(scroll, static_cast<int>(content.lines.size()), content_height, last_total);
+			clamp_scroll(scroll, static_cast<int>(content.lines.size()), content_height);
+
+			return PanelViewport{
+				.visible_lines = slice_elements(content.lines, scroll, content_height),
+				.content_height = content_height
+			};
+		}
+
+		ftxui::Element make_panel_title(
+			const char* title
+			, bool focused
+		) {
+			return focused
+				? ftxui::text(std::string("> ") + title) | ftxui::bold
+				: ftxui::text(title);
+		}
+
+		ftxui::Element render_panel_window(
+			ftxui::Element title
+			, std::vector<ftxui::Element> visible_lines
+		) {
+			return ftxui::window(
+				std::move(title)
+				, ftxui::vbox(std::move(visible_lines)) | ftxui::flex
+			);
+		}
+
+		bool is_exit_event(const ftxui::Event& event) {
+			return event == ftxui::Event::Character('q')
+				|| event == ftxui::Event::Escape
+				|| event == ftxui::Event::CtrlC;
+		}
+
+		bool is_focus_switch_event(const ftxui::Event& event) {
+			return event == ftxui::Event::Tab;
+		}
+
+		void toggle_focus(UiState& state) {
+			state.focus = (state.focus == FocusPanel::Logs)
+				? FocusPanel::Status
+				: FocusPanel::Logs;
+		}
+
+		int scroll_delta(const ftxui::Event& event) {
+			if (event == ftxui::Event::ArrowUp) {
+				return -1;
+			}
+			if (event == ftxui::Event::ArrowDown) {
+				return 1;
+			}
+			if (event == ftxui::Event::PageUp) {
+				return -10;
+			}
+			if (event == ftxui::Event::PageDown) {
+				return 10;
+			}
+			return 0;
+		}
+
+		void apply_scroll_delta(
+			UiState& state
+			, int delta
+		) {
+			if (delta == 0) {
+				return;
+			}
+
+			if (state.focus == FocusPanel::Logs) {
+				state.logs_scroll += delta;
+				return;
+			}
+
+			state.status_scroll += delta;
+		}
+
+		bool handle_exit_event(
+			const ftxui::Event& event
+			, ftxui::ScreenInteractive& screen
+		) {
+			if (!is_exit_event(event)) {
+				return false;
+			}
+
+			screen.Exit();
+			return true;
+		}
+
+		bool handle_focus_event(
+			const ftxui::Event& event
+			, UiState& state
+		) {
+			if (!is_focus_switch_event(event)) {
+				return false;
+			}
+
+			toggle_focus(state);
+			return true;
+		}
+
+		bool handle_scroll_event(
+			const ftxui::Event& event
+			, UiState& state
+		) {
+			const auto delta = scroll_delta(event);
+			if (delta == 0) {
+				return false;
+			}
+
+			apply_scroll_delta(state, delta);
+			return true;
+		}
+
+		class ScopedRefreshLoop final {
+		public:
+			explicit ScopedRefreshLoop(ftxui::ScreenInteractive& screen)
+				: screen_(screen)
+				, refresh_thread_([this] {
+					while (running_.load(std::memory_order_relaxed)) {
+						std::this_thread::sleep_for(kUiRefreshInterval);
+						screen_.PostEvent(ftxui::Event::Custom);
+					}
+				}) {
+			}
+
+			ScopedRefreshLoop(const ScopedRefreshLoop&) = delete;
+			ScopedRefreshLoop& operator=(const ScopedRefreshLoop&) = delete;
+
+			~ScopedRefreshLoop() {
+				running_.store(false, std::memory_order_relaxed);
+				if (refresh_thread_.joinable()) {
+					refresh_thread_.join();
+				}
+			}
+
+		private:
+			ftxui::ScreenInteractive& screen_;
+			std::atomic_bool running_{ true };
+			std::thread refresh_thread_;
+		};
+
 		ftxui::Element build_panel(
 			const char* title
 			, const std::vector<infra::LogEntry>& lines
@@ -187,18 +380,16 @@ namespace timetable::ui {
 			, bool focused
 			, int& last_total
 		) {
-			const auto content_height = std::max(1, panel_height - kPanelBorderHeight);
-			auto wrapped = wrap_elements(lines, wrap_width);
-			auto_scroll(scroll, static_cast<int>(wrapped.size()), content_height, last_total);
-			clamp_scroll(scroll, static_cast<int>(wrapped.size()), content_height);
-			auto visible = slice_elements(wrapped, scroll, content_height);
-			auto content = ftxui::vbox(std::move(visible));
-			auto title_text = focused
-				? ftxui::text(std::string("> ") + title) | ftxui::bold
-				: ftxui::text(title);
-			return ftxui::window(
-				title_text
-				, content | ftxui::flex
+			auto content = prepare_wrapped_panel_content(lines, wrap_width);
+			auto viewport = prepare_panel_viewport(
+				std::move(content)
+				, panel_height
+				, scroll
+				, last_total
+			);
+			return render_panel_window(
+				make_panel_title(title, focused)
+				, std::move(viewport.visible_lines)
 			);
 		}
 
@@ -242,28 +433,9 @@ namespace timetable::ui {
 			, UiState& state
 		) {
 			return CatchEvent(renderer, [&](const ftxui::Event& event) {
-				if (event == ftxui::Event::Character('q') ||
-					event == ftxui::Event::Escape || event == ftxui::Event::CtrlC) {
-					screen.Exit();
-					return true;
-				}
-				if (event == ftxui::Event::Tab) {
-					state.focus = (state.focus == FocusPanel::Logs)
-						? FocusPanel::Status
-						: FocusPanel::Logs;
-					return true;
-				}
-				const auto delta = [&](int d) {
-					if (state.focus == FocusPanel::Logs)
-						state.logs_scroll += d;
-					else
-						state.status_scroll += d;
-				};
-				if (event == ftxui::Event::ArrowUp) { delta(-1); return true; }
-				if (event == ftxui::Event::ArrowDown) { delta(1); return true; }
-				if (event == ftxui::Event::PageUp) { delta(-10); return true; }
-				if (event == ftxui::Event::PageDown) { delta(10); return true; }
-				return false;
+				return handle_exit_event(event, screen)
+					|| handle_focus_event(event, state)
+					|| handle_scroll_event(event, state);
 			});
 		}
 
@@ -282,21 +454,10 @@ namespace timetable::ui {
 
 		auto screen = ftxui::ScreenInteractive::TerminalOutput();
 		renderer = with_exit_handler(renderer, screen, state);
-
-		std::atomic_bool running = true;
-		auto refresh_thread = std::thread([&] {
-			while (running.load(std::memory_order_relaxed)) {
-				std::this_thread::sleep_for(kUiRefreshInterval);
-				screen.PostEvent(ftxui::Event::Custom);
-			}
-		});
+		ScopedRefreshLoop refresh_loop(screen);
 
 		screen.PostEvent(ftxui::Event::Custom);
 		screen.Loop(renderer);
-		running.store(false, std::memory_order_relaxed);
-		if (refresh_thread.joinable()) {
-			refresh_thread.join();
-		}
 		return mathfp::ok();
 	}
 

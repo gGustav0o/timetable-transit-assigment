@@ -2,6 +2,9 @@
 
 #include <atomic>
 #include <chrono>
+#include <mutex>
+#include <memory>
+#include <optional>
 #include <string>
 #include <thread>
 #include <utility>
@@ -16,9 +19,117 @@
 #include <mathfp/core/fp.hpp>
 #include <mathfp/core/try.hpp>
 #include <spdlog/spdlog.h>
+#include <mathfp/core/error.hpp>
 
 namespace timetable::app {
 	namespace {
+
+		spdlog::level::level_enum to_spdlog_level(
+			timetable::infra::LogLevel level
+		) noexcept;
+
+		class ScopedProgressSinks final {
+		public:
+			ScopedProgressSinks(
+				ui::UiModel& model
+				, const std::shared_ptr<spdlog::logger>& logger
+			) {
+				timetable::infra::progress::set_log_sink(
+					[logger](timetable::infra::LogLevel level, std::string_view message) {
+						if (logger) {
+							logger->log(to_spdlog_level(level), "{}", message);
+						}
+					});
+				timetable::infra::progress::set_status_sink(
+					[&model](timetable::infra::LogLevel level, std::string_view message) {
+						model.set_status_lines({
+							timetable::infra::LogEntry{ level, std::string(message) }
+						});
+					});
+			}
+
+			ScopedProgressSinks(const ScopedProgressSinks&) = delete;
+			ScopedProgressSinks& operator=(const ScopedProgressSinks&) = delete;
+
+			ScopedProgressSinks(ScopedProgressSinks&&) = delete;
+			ScopedProgressSinks& operator=(ScopedProgressSinks&&) = delete;
+
+			~ScopedProgressSinks() {
+				timetable::infra::progress::clear_sinks();
+			}
+		};
+
+		class WorkerResultBox final {
+		public:
+			void set(mathfp::Expected<mathfp::Unit> result) {
+				std::lock_guard lock(mutex_);
+				result_ = std::move(result);
+			}
+
+			mathfp::Expected<mathfp::Unit> take() {
+				std::lock_guard lock(mutex_);
+				if (!result_.has_value()) {
+					return mathfp::unexpected(
+						mathfp::internal_error("worker result missing")
+					);
+				}
+				auto result = std::move(*result_);
+				result_.reset();
+				return result;
+			}
+
+		private:
+			std::mutex                                   mutex_;
+			std::optional<mathfp::Expected<mathfp::Unit>> result_;
+		};
+
+		class BackgroundThreads final {
+		public:
+			BackgroundThreads(
+				ui::UiModel& model
+				, const timetable::app::AppConfig& config
+				, const std::shared_ptr<timetable::infra::LogBuffer>& log_buffer
+				, const io::DataSource& data_source
+				, const std::shared_ptr<spdlog::logger>& logger
+				, WorkerResultBox& worker_result
+			) {
+				log_thread_ = start_log_refresh_thread(
+					running_, model, config, log_buffer
+				);
+				try {
+					worker_thread_ = start_worker_thread(
+						data_source, logger, worker_result
+					);
+				} catch (...) {
+					running_.store(false, std::memory_order_relaxed);
+					if (log_thread_.joinable()) {
+						log_thread_.join();
+					}
+					throw;
+				}
+			}
+
+			BackgroundThreads(const BackgroundThreads&) = delete;
+			BackgroundThreads& operator=(const BackgroundThreads&) = delete;
+
+			BackgroundThreads(BackgroundThreads&&) = delete;
+			BackgroundThreads& operator=(BackgroundThreads&&) = delete;
+
+			~BackgroundThreads() {
+				running_.store(false, std::memory_order_relaxed);
+				if (worker_thread_.joinable()) {
+					worker_thread_.join();
+				}
+				if (log_thread_.joinable()) {
+					log_thread_.join();
+				}
+			}
+
+		private:
+			std::atomic_bool running_ = true;
+			std::thread      log_thread_;
+			std::thread      worker_thread_;
+		};
 
 		spdlog::level::level_enum to_spdlog_level(
 			timetable::infra::LogLevel level
@@ -37,24 +148,6 @@ namespace timetable::app {
 			return spdlog::level::info;
 		}
 
-		void setup_progress_sinks(
-			ui::UiModel& model
-			, const std::shared_ptr<spdlog::logger>& logger
-		) {
-			timetable::infra::progress::set_log_sink(
-				[logger](timetable::infra::LogLevel level, std::string_view message) {
-					if (logger) {
-						logger->log(to_spdlog_level(level), "{}", message);
-					}
-				});
-			timetable::infra::progress::set_status_sink(
-				[&model](timetable::infra::LogLevel level, std::string_view message) {
-					model.set_status_lines({
-						timetable::infra::LogEntry{ level, std::string(message) }
-					});
-				});
-		}
-
 		std::thread start_log_refresh_thread(
 			std::atomic_bool& running
 			, ui::UiModel& model
@@ -69,9 +162,9 @@ namespace timetable::app {
 			});
 		}
 
-		void report_load_failure(const mathfp::Error& err) {
+		void report_failure(std::string_view header, const mathfp::Error& err) {
 			timetable::infra::progress::status(
-				"input load failed"
+				header
 				, timetable::infra::LogLevel::Error
 			);
 			timetable::infra::progress::status(
@@ -80,45 +173,60 @@ namespace timetable::app {
 			);
 		}
 
-		void report_assignment_failure(const mathfp::Error& err) {
-			timetable::infra::progress::status(
-				"assignment failed"
-				, timetable::infra::LogLevel::Error
-			);
-			timetable::infra::progress::status(
-				timetable::app::format_error(err)
-				, timetable::infra::LogLevel::Error
-			);
+		auto log_error(
+			const std::shared_ptr<spdlog::logger>& logger
+			, std::string_view header
+		) {
+			return mathfp::fp::pipe::inspect_error([logger, header](const auto& err) {
+				if (logger) {
+					logger->error("{}:\n{}", header, timetable::app::format_error(err));
+				}
+			});
+		}
+
+		auto load_assignment_input(
+			const io::DataSource& data_source
+			, const std::shared_ptr<spdlog::logger>& logger
+		) {
+			return data_source.load() | log_error(logger, "input load failed");
+		}
+
+		auto run_assignment(
+			timetable::domain::AssignmentInput input
+			, const std::shared_ptr<spdlog::logger>& logger
+		) {
+			return
+				timetable::domain::assignment::run_timetable_assignment(std::move(input))
+				| log_error(logger, "assignment failed");
+		}
+
+		mathfp::Expected<mathfp::Unit> run_worker(
+			const io::DataSource& data_source
+			, const std::shared_ptr<spdlog::logger>& logger
+		) {
+			auto load_result = load_assignment_input(data_source, logger);
+			if (!load_result) {
+				report_failure("input load failed", load_result.error());
+				return mathfp::unexpected(load_result.error());
+			}
+
+			auto assignment_result = run_assignment(std::move(load_result.value()), logger);
+			if (!assignment_result) {
+				report_failure("assignment failed", assignment_result.error());
+				return mathfp::unexpected(assignment_result.error());
+			}
+
+			timetable::infra::progress::status("ready");
+			return mathfp::ok();
 		}
 
 		std::thread start_worker_thread(
 			const io::DataSource& data_source
 			, const std::shared_ptr<spdlog::logger>& logger
+			, WorkerResultBox& worker_result
 		) {
 			return std::thread([&] {
-				auto load_result = data_source.load() |
-					mathfp::fp::pipe::inspect_error([&](const auto& err) {
-						if (logger)
-							logger->error("input load failed:\n{}" , timetable::app::format_error(err));
-					});
-
-				if (!load_result) {
-					report_load_failure(load_result.error());
-					return;
-				}
-
-				const auto assignment_result
-					= timetable::domain::assignment::run_timetable_assignment(std::move(load_result.value()))
-					| mathfp::fp::pipe::inspect_error([&](const auto& err) {
-						if (logger)
-							logger->error("assignment failed:\n{}" , timetable::app::format_error(err));
-					});
-
-				if (!assignment_result) {
-					report_assignment_failure(assignment_result.error());
-				} else {
-					timetable::infra::progress::status("ready");
-				}
+				worker_result.set(run_worker(data_source, logger));
 			});
 		}
 
@@ -128,37 +236,35 @@ namespace timetable::app {
 		const AppConfig& config
 		, const io::DataSource& data_source
 	) {
-		(void)config;
-		(void)data_source;
-
-		auto logging = timetable::infra::init_logging(
-			config.log_capacity
-			, config.log_dir
-			, config.enable_console_sink
+		MATHFP_TRY_LET(
+			timetable::infra::LoggingContext
+			, logging
+			, timetable::infra::init_logging(
+				config.log_capacity
+				, config.log_dir
+				, config.enable_console_sink
+			)
 		);
 		auto logger = logging.logger;
 
 		ui::UiModel model;
-		setup_progress_sinks(model, logger);
+		ScopedProgressSinks progress_sinks(model, logger);
+		WorkerResultBox worker_result;
 
 		timetable::infra::progress::status("waiting to start");
 		model.set_log_lines(logging.log_buffer->snapshot());
 
-		std::atomic_bool running = true;
-		auto log_thread = start_log_refresh_thread(
-			running, model, config, logging.log_buffer
-		);
-		auto worker_thread = start_worker_thread(data_source, logger);
+		auto ui_result = [&] {
+			BackgroundThreads background_threads(
+				model, config, logging.log_buffer, data_source, logger, worker_result
+			);
+			return ui::run(model, logger);
+		}();
 
-		auto ui_result = ui::run(model, logger);
-		running.store(false, std::memory_order_relaxed);
-		if (log_thread.joinable()) {
-			log_thread.join();
+		auto worker_run_result = worker_result.take();
+		if (!worker_run_result) {
+			return mathfp::unexpected(worker_run_result.error());
 		}
-		if (worker_thread.joinable()) {
-			worker_thread.join();
-		}
-		timetable::infra::progress::clear_sinks();
 		return ui_result;
 	}
 

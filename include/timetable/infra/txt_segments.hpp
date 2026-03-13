@@ -16,6 +16,9 @@ namespace timetable::infra::txt {
 		std::vector<std::int64_t> to_zone_id{};
 		std::vector<std::int64_t> to_stop_id{};
 		std::vector<std::int64_t> profile_id{};
+		std::vector<std::int64_t> trip_id{};
+		std::vector<std::int64_t> from_index{};
+		std::vector<std::int64_t> to_index{};
 		std::vector<double>       length_km{};
 		std::vector<double>       time_sec{};
 		std::vector<double>       dep_sec{};

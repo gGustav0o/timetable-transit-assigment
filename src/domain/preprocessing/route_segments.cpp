@@ -18,15 +18,17 @@
 
 #include <fmt/format.h>
 
+#include "timetable/domain/preprocessing/segments_factory.hpp"
 #include "timetable/infra/progress_bus.hpp"
 
 namespace timetable::domain::preprocessing {
 
     namespace {
 
-        using Pair = std::pair<std::size_t, std::size_t>;
+        using Pair              = std::pair<std::size_t, std::size_t>;
         using StopPairDurations = std::map<std::pair<StopId, StopId>, std::vector<double>>;
-        using EdgeMetrics = std::pair<std::vector<Time>, std::vector<Length>>;
+        using EdgeMetrics       = std::pair<std::vector<Time>, std::vector<Length>>;
+        using TripsByRoute      = std::map<RouteId, std::vector<const Trip*>>;
 
         struct PairHash final {
             std::size_t operator()(const Pair& p) const noexcept {
@@ -132,30 +134,31 @@ namespace timetable::domain::preprocessing {
             );
         }
 
-        std::map<RouteId, std::vector<const Trip*>> group_trips_by_route(
+        TripsByRoute group_trips_by_route(
             const std::vector<Trip>& trips
         ) {
-            std::map<RouteId, std::vector<const Trip*>> trips_by_route;
+            TripsByRoute trips_by_route;
             for (const auto& trip : trips) {
                 trips_by_route[trip.route].push_back(&trip);
             }
             return trips_by_route;
         }
 
-        void sort_trips_by_id(
-            std::map<RouteId, std::vector<const Trip*>>& trips_by_route
+        TripsByRoute ordered_route_trips(
+            TripsByRoute trips_by_route
             , bool stable_ordering
         ) {
             if (!stable_ordering)
-                return;
+                return trips_by_route;
             for (auto& [route_id, list] : trips_by_route) {
                 std::sort(list.begin(), list.end(), [](const Trip* a, const Trip* b) {
                     return a->id.get() < b->id.get();
                 });
             }
+            return trips_by_route;
         }
 
-        std::vector<const Route*> make_route_order(
+        std::vector<const Route*> ordered_routes(
             const std::vector<Route>& routes
             , bool stable_ordering
         ) {
@@ -174,42 +177,84 @@ namespace timetable::domain::preprocessing {
             return route_order;
         }
 
+        using TripStopIndex = std::map<StopId, std::size_t>;
+
+        TripStopIndex index_trip_stop_times(const Trip& trip) {
+            TripStopIndex index_by_stop;
+            for (std::size_t i = 0; i < trip.times.size(); ++i) {
+                index_by_stop.emplace(trip.times[i].stop, i);
+            }
+            return index_by_stop;
+        }
+
+        mathfp::Expected<std::optional<Time>> consecutive_stop_duration(
+            const Trip& trip
+            , const TripStopIndex& index_by_stop
+            , StopId from
+            , StopId to
+            , RouteId route_id
+        ) {
+            const auto it_from = index_by_stop.find(from);
+            const auto it_to = index_by_stop.find(to);
+            if (it_from == index_by_stop.end() || it_to == index_by_stop.end()) {
+                return std::optional<Time>{};
+            }
+            if (it_to->second <= it_from->second) {
+                return std::optional<Time>{};
+            }
+
+            const auto& dep = trip.times[it_from->second].departure;
+            const auto& arr = trip.times[it_to->second].arrival;
+            const auto duration = Time{ arr.value() - dep.value() };
+            if (!ensure_nonneg_duration(duration, from, to)) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("invalid trip timing for consecutive stops")
+                    .ctx("route_id", route_id.get())
+                    .ctx("from", from.get())
+                    .ctx("to", to.get())
+                );
+            }
+
+            return std::optional<Time>{ duration };
+        }
+
+        mathfp::Expected<mathfp::Unit> append_trip_durations(
+            StopPairDurations& durations
+            , const Route& route
+            , const Trip& trip
+        ) {
+            const auto index_by_stop = index_trip_stop_times(trip);
+            const auto& route_stops = route.stops;
+            for (std::size_t k = 0; k + 1 < route_stops.size(); ++k) {
+                const auto from = route_stops[k];
+                const auto to = route_stops[k + 1];
+                MATHFP_TRY_LET(
+                    std::optional<Time>
+                    , duration
+                    , consecutive_stop_duration(
+                        trip
+                        , index_by_stop
+                        , from
+                        , to
+                        , route.id
+                    )
+                );
+                if (!duration.has_value()) {
+                    continue;
+                }
+                durations[{ from, to }].push_back(duration->value());
+            }
+            return mathfp::kUnit;
+        }
+
         mathfp::Expected<StopPairDurations> collect_durations(
             const Route& route
             , const std::vector<const Trip*>& trips
         ) {
             StopPairDurations durations;
-            const auto& r_stops = route.stops;
 
             for (const auto* trip : trips) {
-                std::map<StopId, std::size_t> index_by_stop;
-                for (std::size_t i = 0; i < trip->times.size(); ++i) {
-                    index_by_stop.emplace(trip->times[i].stop, i);
-                }
-
-                for (std::size_t k = 0; k + 1 < r_stops.size(); ++k) {
-                    const auto from = r_stops[k];
-                    const auto to = r_stops[k + 1];
-
-                    const auto it_from = index_by_stop.find(from);
-                    const auto it_to = index_by_stop.find(to);
-                    if (it_from == index_by_stop.end() || it_to == index_by_stop.end())
-                        continue;
-                    if (it_to->second <= it_from->second)
-                        continue;
-
-                    const auto& dep = trip->times[it_from->second].departure;
-                    const auto& arr = trip->times[it_to->second].arrival;
-                    const auto duration = Time{ arr.value() - dep.value() };
-                    if (!ensure_nonneg_duration(duration, from, to))
-                        return mathfp::unexpected(
-                            mathfp::invalid_arg("invalid trip timing for consecutive stops")
-                            .ctx("route_id", route.id.get())
-                            .ctx("from", from.get())
-                            .ctx("to", to.get())
-                        );
-                    durations[{ from, to }].push_back(duration.value());
-                }
+                MATHFP_TRY(append_trip_durations(durations, route, *trip));
             }
 
             return durations;
@@ -395,6 +440,8 @@ namespace timetable::domain::preprocessing {
             }
 
             if (params.stable_ordering) {
+                // TODO: Avoid rebuilding best_edges from scratch after endpoint sorting.
+                // The current implementation favors determinism over efficiency.
                 std::sort(data.endpoints.begin(), data.endpoints.end(), [](const WalkEndpoint& a, const WalkEndpoint& b) {
                     return to_endpoint_key(a) < to_endpoint_key(b);
                 });
@@ -472,6 +519,148 @@ namespace timetable::domain::preprocessing {
             return { total_len, total_time };
         }
 
+        struct LineRouteBuildStats final {
+            std::size_t skipped_short_routes{};
+            std::size_t skipped_missing_trips{};
+            std::size_t skipped_stop_times{};
+        };
+
+        struct OrderedLineGenerationInputs final {
+            std::vector<const Route*> route_order{};
+            TripsByRoute              trips_by_route{};
+        };
+
+        OrderedLineGenerationInputs ordered_line_generation_inputs(
+            const std::vector<Route>& routes
+            , const std::vector<Trip>& trips
+            , bool stable_ordering
+        ) {
+            // Deterministic RouteSegmentId assignment is defined here:
+            // routes are generated in ordered_routes(...) order,
+            // and route-local trip data is aggregated from ordered_route_trips(...).
+            return OrderedLineGenerationInputs{
+                .route_order = ordered_routes(routes, stable_ordering),
+                .trips_by_route = ordered_route_trips(
+                    group_trips_by_route(trips),
+                    stable_ordering
+                )
+            };
+        }
+
+        mathfp::Expected<const std::vector<const Trip*>*> find_route_trips(
+            const Route& route
+            , const TripsByRoute& trips_by_route
+            , LineRouteBuildStats& stats
+        ) {
+            const auto it = trips_by_route.find(route.id);
+            if (it != trips_by_route.end()) {
+                return &it->second;
+            }
+
+            ++stats.skipped_missing_trips;
+            return mathfp::unexpected(
+                mathfp::invalid_arg("route has no trips")
+                .ctx("route_id", route.id.get())
+            );
+        }
+
+        mathfp::Expected<std::vector<RouteSegment>> build_pairwise_line_route_segments(
+            const Route& route
+            , const std::vector<Time>& cumulative_time
+            , const std::vector<Length>& cumulative_length
+            , std::int64_t& next_id
+        ) {
+            const auto& route_stops = route.stops;
+            std::vector<RouteSegment> segments;
+            segments.reserve(route_stops.size() * (route_stops.size() - 1) / 2);
+
+            for (std::size_t i = 0; i < route_stops.size(); ++i) {
+                for (std::size_t j = i + 1; j < route_stops.size(); ++j) {
+                    const auto run_time = Time{
+                        cumulative_time[j].value() - cumulative_time[i].value()
+                    };
+                    const auto length = Length{
+                        cumulative_length[j].value() - cumulative_length[i].value()
+                    };
+                    MATHFP_TRY_LET(
+                        RouteSegment
+                        , segment
+                        , make_route_segment(
+                            RouteSegmentId{ next_id++ }
+                            , WalkEndpoint{ route_stops[i] }
+                            , WalkEndpoint{ route_stops[j] }
+                            , length
+                            , run_time
+                            , SegmentCarrier{ route.line }
+                        )
+                    );
+                    segments.push_back(std::move(segment));
+                }
+            }
+
+            return segments;
+        }
+
+        mathfp::Expected<std::vector<RouteSegment>> build_line_route_segments_for_route(
+            const Route& route
+            , const TripsByRoute& trips_by_route
+            , const PreprocessParams& params
+            , std::int64_t& next_id
+            , LineRouteBuildStats& stats
+        ) {
+            if (route.stops.size() < 2) {
+                ++stats.skipped_short_routes;
+                return std::vector<RouteSegment>{};
+            }
+
+            MATHFP_TRY_LET(
+                const std::vector<const Trip*>*
+                , route_trips
+                , find_route_trips(route, trips_by_route, stats)
+            );
+            MATHFP_TRY_LET(
+                StopPairDurations
+                , durations
+                , collect_durations(route, *route_trips)
+            );
+
+            auto edge_metrics = build_edge_metrics(route, durations, params);
+            if (!edge_metrics) {
+                if (params.strict_stop_times) {
+                    return mathfp::unexpected(edge_metrics.error());
+                }
+                ++stats.skipped_stop_times;
+                return std::vector<RouteSegment>{};
+            }
+
+            const auto& edge_time = edge_metrics->first;
+            const auto& edge_len = edge_metrics->second;
+            const auto [cum_time, cum_len] = build_cumulative_metrics(edge_time, edge_len);
+
+            return build_pairwise_line_route_segments(
+                route, cum_time, cum_len, next_id
+            );
+        }
+
+        void log_line_route_segment_stats(
+            const std::vector<RouteSegment>& segments
+            , const LineRouteBuildStats& stats
+        ) {
+            using timetable::infra::LogLevel;
+            using timetable::infra::progress::log;
+
+            log(
+                fmt::format(
+                    "line segments: total = {:>8}  skipped_short_routes = {:>6}  skipped_missing_trips = {:>6}  skipped_stop_times = {:>6}"
+                    , segments.size()
+                    , stats.skipped_short_routes
+                    , stats.skipped_missing_trips
+                    , stats.skipped_stop_times
+                ),
+                LogLevel::Info
+            );
+        }
+
     }  // namespace
 
     mathfp::Expected<std::vector<RouteSegment>> build_line_route_segments(
@@ -480,6 +669,8 @@ namespace timetable::domain::preprocessing {
         , const std::vector<Stop>& stops
         , const PreprocessParams& params
     ) {
+        // TODO: Either use stops for explicit route/stop validation here or drop the
+        // parameter from this path once the intended contract is finalized.
         (void)stops;
         using timetable::infra::LogLevel;
         using timetable::infra::progress::both;
@@ -496,13 +687,13 @@ namespace timetable::domain::preprocessing {
             , LogLevel::Info
         );
 
-        auto trips_by_route = group_trips_by_route(trips);
-        sort_trips_by_id(trips_by_route, params.stable_ordering);
-
         std::vector<RouteSegment> out;
         std::int64_t next_id = 0;
-
-        const auto route_order = make_route_order(routes, params.stable_ordering);
+        const auto ordered_inputs = ordered_line_generation_inputs(
+            routes, trips, params.stable_ordering
+        );
+        // TODO: Derive a better reserve estimate for out from route stop counts if
+        // line-segment preprocessing becomes a hotspot on large inputs.
         log(
             fmt::format(
                 "line segments params: stable_ordering = {}  strict_stop_times = {}  time_aggregation = {}"
@@ -513,71 +704,28 @@ namespace timetable::domain::preprocessing {
             LogLevel::Info
         );
 
-        std::size_t skipped_short_routes = 0;
-        std::size_t skipped_missing_trip = 0;
-        std::size_t skipped_stop_times   = 0;
+        LineRouteBuildStats stats;
 
-        for (const auto* route_ptr : route_order) {
-            const auto& route   = *route_ptr;
-            const auto& r_stops = route.stops;
-            if (r_stops.size() < 2) {
-                ++skipped_short_routes;
-                continue;
-            }
-
-            const auto it_trips = trips_by_route.find(route.id);
-            if (it_trips == trips_by_route.end())
-            {
-                ++skipped_missing_trip;
-                return mathfp::unexpected(
-                    mathfp::invalid_arg("route has no trips")
-                    .ctx("route_id", route.id.get())
-                );
-            }
+        for (const auto* route : ordered_inputs.route_order) {
             MATHFP_TRY_LET(
-                StopPairDurations
-                , durations
-                , collect_durations(route, it_trips->second)
+                std::vector<RouteSegment>
+                , route_segments
+                , build_line_route_segments_for_route(
+                    *route
+                    , ordered_inputs.trips_by_route
+                    , params
+                    , next_id
+                    , stats
+                )
             );
-
-            auto edge_metrics = build_edge_metrics(route, durations, params);
-            if (!edge_metrics) {
-                if (params.strict_stop_times)
-                    return mathfp::unexpected(edge_metrics.error());
-                ++skipped_stop_times;
-                continue;
-            }
-
-            const auto& edge_time = edge_metrics->first;
-            const auto& edge_len = edge_metrics->second;
-            const auto [cum_time, cum_len] = build_cumulative_metrics(edge_time, edge_len);
-
-            for (std::size_t i = 0; i < r_stops.size(); ++i) {
-                for (std::size_t j = i + 1; j < r_stops.size(); ++j) {
-                    const auto run_time = Time{ cum_time[j].value() - cum_time[i].value() };
-                    const auto length = Length{ cum_len[j].value() - cum_len[i].value() };
-                    out.push_back(RouteSegment{
-                        .id         = RouteSegmentId{ next_id++ }
-                        , .from     = WalkEndpoint{ r_stops[i] }
-                        , .to       = WalkEndpoint{ r_stops[j] }
-                        , .length   = length
-                        , .run_time = run_time
-                        , .carrier  = SegmentCarrier{ route.line }
-                    });
-                }
-            }
+            out.insert(
+                out.end()
+                , std::make_move_iterator(route_segments.begin())
+                , std::make_move_iterator(route_segments.end())
+            );
         }
 
-        log(
-            fmt::format(
-                "line segments: total = {:>8}  skipped_short_routes = {:>6}  skipped_missing_trips = {:>6}  skipped_stop_times = {:>6}"
-                , out.size()
-                , skipped_short_routes
-                , skipped_missing_trip
-                , skipped_stop_times
-            ),
-            LogLevel::Info
-        );
+        log_line_route_segment_stats(out, stats);
         both("preprocessing: line route segments done");
 
         return out;
@@ -682,14 +830,19 @@ namespace timetable::domain::preprocessing {
                     seen_keys.insert(it, std::move(key));
                 }
 
-                out.push_back(RouteSegment{
-                    .id         = RouteSegmentId{ next_id++ }
-                    , .from     = data.endpoints[s]
-                    , .to       = data.endpoints[t]
-                    , .length   = total_len
-                    , .run_time = total_time
-                    , .carrier  = SegmentCarrier{ std::move(path_vec) }
-                });
+                MATHFP_TRY_LET(
+                    RouteSegment
+                    , segment
+                    , make_route_segment(
+                        RouteSegmentId{ next_id++ }
+                        , data.endpoints[s]
+                        , data.endpoints[t]
+                        , total_len
+                        , total_time
+                        , SegmentCarrier{ std::move(path_vec) }
+                    )
+                );
+                out.push_back(std::move(segment));
             }
         }
 

@@ -65,6 +65,7 @@ target_link_libraries(timetable-transit-assigment
     Boost::boost
     fmt::fmt
     spdlog::spdlog
+    unofficial::vincentlaucsb-csv-parser::csv-parser
     ftxui::component
     ftxui::dom
     ftxui::screen

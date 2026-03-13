@@ -96,10 +96,61 @@ namespace timetable::domain {
     struct ConnectionSegment final {
         ConnectionSegmentId id{};
         RouteSegmentId      route_segment{};
+        // Present for transit segments and absent for walk segments.
+        std::optional<TripId> trip{};
+        // Positions of from/to stops inside the referenced trip.
+        std::optional<std::int64_t> from_index{};
+        std::optional<std::int64_t> to_index{};
         std::optional<Time> departure{};
         std::optional<Time> arrival{};
         std::optional<double> fare{};
     };
+
+    [[nodiscard]] inline bool has_trip(const ConnectionSegment& segment) noexcept {
+        return segment.trip.has_value();
+    }
+
+    [[nodiscard]] inline bool has_times(const ConnectionSegment& segment) noexcept {
+        return segment.departure.has_value();
+    }
+
+    [[nodiscard]] inline bool is_timed_connection_segment(
+        const ConnectionSegment& segment
+    ) noexcept {
+        return has_times(segment);
+    }
+
+    [[nodiscard]] inline bool is_walk_connection_segment(
+        const ConnectionSegment& segment
+    ) noexcept {
+        return !is_timed_connection_segment(segment);
+    }
+
+    [[nodiscard]] inline bool route_and_connection_kinds_match(
+        const RouteSegment& route_segment
+        , const ConnectionSegment& connection_segment
+    ) noexcept {
+        return is_line(route_segment.carrier) == is_timed_connection_segment(connection_segment);
+    }
+
+    [[nodiscard]] inline bool same_trip(
+        const ConnectionSegment& lhs
+        , const ConnectionSegment& rhs
+    ) noexcept {
+        return lhs.trip.has_value()
+            && rhs.trip.has_value()
+            && lhs.trip.value() == rhs.trip.value();
+    }
+
+    /**
+     * @brief Domain rule: a transfer is forbidden if both segments belong to the same trip.
+     */
+    [[nodiscard]] inline bool forbids_transfer_to_same_trip(
+        const ConnectionSegment& current
+        , const ConnectionSegment& successor
+    ) noexcept {
+        return same_trip(current, successor);
+    }
 
 }  // namespace timetable::domain
 

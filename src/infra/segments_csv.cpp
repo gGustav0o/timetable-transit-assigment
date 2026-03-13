@@ -1,22 +1,113 @@
 #include "timetable/infra/segments_csv.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cerrno>
 #include <cctype>
 #include <cstdint>
 #include <cstdlib>
-#include <fstream>
+#include <exception>
 #include <string>
 #include <string_view>
-#include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
+#include <csv.hpp>
 #include <mathfp/core/error.hpp>
+#include <mathfp/core/try.hpp>
+
+#include <fmt/format.h>
+
+#include "timetable/infra/progress_bus.hpp"
 
 namespace timetable::infra::csv {
 
 	namespace {
+		constexpr std::size_t kRowProgressStep = 100'000;
+
+		struct SegmentCsvColumns final {
+			std::size_t from_stop{};
+			std::size_t to_stop{};
+			std::size_t time{};
+			std::size_t length{};
+			std::size_t from_zone{};
+			std::size_t to_zone{};
+			std::size_t fare{};
+			std::size_t trip{};
+			std::size_t line{};
+			std::size_t from_index{};
+			std::size_t dep{};
+			std::size_t to_index{};
+			std::size_t arr{};
+		};
+
+		struct ParsedSegmentRow final {
+			std::int64_t from_zone{};
+			std::int64_t from_stop{};
+			std::int64_t to_zone{};
+			std::int64_t to_stop{};
+			std::int64_t trip_id{};
+			std::int64_t line_id{};
+			std::int64_t from_index{};
+			std::int64_t to_index{};
+			double length{};
+			double time{};
+			double dep{};
+			double arr{};
+			double fare{};
+		};
+
+		struct ParsedCsvHeader final {
+			SegmentCsvColumns columns{};
+			std::size_t header_column_count{};
+		};
+
+		struct ParsedCsvData final {
+			txt::SegmentColumns columns{};
+			std::unordered_set<std::int64_t> zone_set{};
+		};
+
+		using SegmentCsvColumnDef = std::pair<std::string_view, std::size_t SegmentCsvColumns::*>;
+
+		constexpr auto segment_csv_column_defs() {
+			return std::array<SegmentCsvColumnDef, 13>{
+				SegmentCsvColumnDef{ "FROM_STOP_ID", &SegmentCsvColumns::from_stop },
+				SegmentCsvColumnDef{ "TO_STOP_ID", &SegmentCsvColumns::to_stop },
+				SegmentCsvColumnDef{ "TIME", &SegmentCsvColumns::time },
+				SegmentCsvColumnDef{ "LENGTH", &SegmentCsvColumns::length },
+				SegmentCsvColumnDef{ "FROM_ZONE_ID", &SegmentCsvColumns::from_zone },
+				SegmentCsvColumnDef{ "TO_ZONE_ID", &SegmentCsvColumns::to_zone },
+				SegmentCsvColumnDef{ "FARE", &SegmentCsvColumns::fare },
+				SegmentCsvColumnDef{ "TRIP_ID", &SegmentCsvColumns::trip },
+				SegmentCsvColumnDef{ "LINE_ID", &SegmentCsvColumns::line },
+				SegmentCsvColumnDef{ "FROM_INDEX", &SegmentCsvColumns::from_index },
+				SegmentCsvColumnDef{ "DEP", &SegmentCsvColumns::dep },
+				SegmentCsvColumnDef{ "TO_INDEX", &SegmentCsvColumns::to_index },
+				SegmentCsvColumnDef{ "ARR", &SegmentCsvColumns::arr }
+			};
+		}
+
+		template <typename Columns, typename Visitor>
+		void for_each_segment_csv_column(
+			Columns& cols
+			, Visitor&& visit
+		) {
+			for (const auto& [name, member] : segment_csv_column_defs()) {
+				visit(name, cols.*member);
+			}
+		}
+
+		template <typename Visitor>
+		mathfp::Expected<mathfp::Unit> try_for_each_segment_csv_column(
+			SegmentCsvColumns& cols
+			, Visitor&& visit
+		) {
+			for (const auto& [name, member] : segment_csv_column_defs()) {
+				MATHFP_TRY(visit(name, cols.*member));
+			}
+			return mathfp::ok();
+		}
 
 		std::string trim(std::string_view in) {
 			std::size_t b = 0;
@@ -38,43 +129,32 @@ namespace timetable::infra::csv {
 			);
 		}
 
-		std::vector<std::string> parse_csv_row(
-			const std::string& line
+		template <typename T, typename ParseFn>
+		mathfp::Expected<T> parse_numeric_cell(
+			std::string_view text
+			, std::size_t row
+			, std::string_view column
+			, const char* empty_message
+			, const char* invalid_message
+			, const char* range_message
+			, ParseFn&& parse
 		) {
-			std::vector<std::string> out;
-			std::string field;
-			bool in_quotes = false;
-
-			for (std::size_t i = 0; i < line.size(); ++i) {
-				const char c = line[i];
-				if (in_quotes) {
-					if (c == '"') {
-						if (i + 1 < line.size() && line[i + 1] == '"') {
-							field.push_back('"');
-							++i;
-						} else {
-							in_quotes = false;
-						}
-					} else {
-						field.push_back(c);
-					}
-					continue;
-				}
-
-				if (c == '"') {
-					in_quotes = true;
-					continue;
-				}
-				if (c == ',') {
-					out.push_back(trim(field));
-					field.clear();
-					continue;
-				}
-				field.push_back(c);
+			const auto t = trim(text);
+			if (t.empty()) {
+				return parse_error(empty_message, row, column);
 			}
 
-			out.push_back(trim(field));
-			return out;
+			errno = 0;
+			char* end = nullptr;
+			const auto value = parse(t.c_str(), &end);
+			if (end == t.c_str() || *end != '\0') {
+				return parse_error(invalid_message, row, column);
+			}
+			if (errno == ERANGE) {
+				return parse_error(range_message, row, column);
+			}
+
+			return static_cast<T>(value);
 		}
 
 		mathfp::Expected<std::int64_t> parse_int64_cell(
@@ -82,22 +162,17 @@ namespace timetable::infra::csv {
 			, std::size_t row
 			, std::string_view column
 		) {
-			const auto t = trim(text);
-			if (t.empty()) {
-				return parse_error("empty integer field", row, column);
-			}
-
-			errno = 0;
-			char* end = nullptr;
-			const auto value = std::strtoll(t.c_str(), &end, 10);
-			if (end == t.c_str() || *end != '\0') {
-				return parse_error("failed to parse integer", row, column);
-			}
-			if (errno == ERANGE) {
-				return parse_error("integer out of range", row, column);
-			}
-
-			return static_cast<std::int64_t>(value);
+			return parse_numeric_cell<std::int64_t>(
+				text,
+				row,
+				column,
+				"empty integer field",
+				"failed to parse integer",
+				"integer out of range",
+				[](const char* begin, char** end) {
+					return std::strtoll(begin, end, 10);
+				}
+			);
 		}
 
 		mathfp::Expected<double> parse_double_cell(
@@ -105,36 +180,231 @@ namespace timetable::infra::csv {
 			, std::size_t row
 			, std::string_view column
 		) {
-			const auto t = trim(text);
-			if (t.empty()) {
-				return parse_error("empty floating point field", row, column);
-			}
-
-			errno = 0;
-			char* end = nullptr;
-			const auto value = std::strtod(t.c_str(), &end);
-			if (end == t.c_str() || *end != '\0') {
-				return parse_error("failed to parse floating point", row, column);
-			}
-			if (errno == ERANGE) {
-				return parse_error("floating point out of range", row, column);
-			}
-
-			return value;
+			return parse_numeric_cell<double>(
+				text,
+				row,
+				column,
+				"empty floating point field",
+				"failed to parse floating point",
+				"floating point out of range",
+				[](const char* begin, char** end) {
+					return std::strtod(begin, end);
+				}
+			);
 		}
 
-		mathfp::Expected<std::size_t> find_col(
-			const std::unordered_map<std::string, std::size_t>& cols
-			, std::string_view name
+		mathfp::Expected<csv::CSVReader> open_connection_segments_csv(
+			const std::filesystem::path& path
 		) {
-			const auto it = cols.find(std::string(name));
-			if (it == cols.end()) {
+			try {
+				auto format = csv::CSVFormat{};
+				format.delimiter(',')
+					.quote('"')
+					.header_row(0)
+					.trim({ ' ', '\t' })
+					.variable_columns(csv::VariableColumnPolicy::THROW);
+
+				return csv::CSVReader(path.string(), format);
+			} catch (const std::exception& e) {
 				return mathfp::unexpected(
-					mathfp::invalid_arg("missing required csv column")
-					.ctx("column", std::string(name))
+					mathfp::invalid_arg("failed to open or initialize connection segments csv")
+						.ctx("path", path.string())
+						.ctx("reason", std::string(e.what()))
 				);
 			}
-			return it->second;
+		}
+
+		mathfp::Expected<SegmentCsvColumns> resolve_segment_csv_columns(
+			const csv::CSVReader& reader
+		) {
+			SegmentCsvColumns resolved;
+			MATHFP_TRY(try_for_each_segment_csv_column(
+				resolved,
+				[&reader](std::string_view name, std::size_t& column) {
+					const auto resolved_column = reader.index_of(std::string(name));
+					if (resolved_column == csv::CSV_NOT_FOUND) {
+						return mathfp::unexpected(
+							mathfp::invalid_arg("missing required csv column")
+								.ctx("column", std::string(name))
+						);
+					}
+					column = static_cast<std::size_t>(resolved_column);
+					return mathfp::ok();
+				}
+			));
+			return resolved;
+		}
+
+		mathfp::Expected<ParsedCsvHeader> parse_csv_header(
+			const csv::CSVReader& reader
+			, const std::filesystem::path& path
+		) {
+			const auto header = reader.get_col_names();
+			if (header.empty()) {
+				return mathfp::unexpected(
+					mathfp::invalid_arg("connection segments csv is empty or has no header")
+						.ctx("path", path.string())
+				);
+			}
+
+			MATHFP_TRY_LET(SegmentCsvColumns, columns, resolve_segment_csv_columns(reader));
+
+			return ParsedCsvHeader{
+				.columns = columns,
+				.header_column_count = header.size()
+			};
+		}
+
+		std::string_view field_text(const csv::CSVField& field) {
+			const auto sv = field.get_sv();
+			return std::string_view(sv.data(), sv.size());
+		}
+
+		mathfp::Expected<ParsedSegmentRow> parse_segment_row(
+			const csv::CSVRow& row_data
+			, const SegmentCsvColumns& cols
+			, std::size_t row
+		) {
+			MATHFP_TRY_LET(std::int64_t, from_zone, parse_int64_cell(field_text(row_data[cols.from_zone]), row, "FROM_ZONE_ID"));
+			MATHFP_TRY_LET(std::int64_t, from_stop, parse_int64_cell(field_text(row_data[cols.from_stop]), row, "FROM_STOP_ID"));
+			MATHFP_TRY_LET(std::int64_t, to_zone, parse_int64_cell(field_text(row_data[cols.to_zone]), row, "TO_ZONE_ID"));
+			MATHFP_TRY_LET(std::int64_t, to_stop, parse_int64_cell(field_text(row_data[cols.to_stop]), row, "TO_STOP_ID"));
+			MATHFP_TRY_LET(std::int64_t, trip_id, parse_int64_cell(field_text(row_data[cols.trip]), row, "TRIP_ID"));
+			MATHFP_TRY_LET(std::int64_t, line_id, parse_int64_cell(field_text(row_data[cols.line]), row, "LINE_ID"));
+			MATHFP_TRY_LET(std::int64_t, from_index, parse_int64_cell(field_text(row_data[cols.from_index]), row, "FROM_INDEX"));
+			MATHFP_TRY_LET(std::int64_t, to_index, parse_int64_cell(field_text(row_data[cols.to_index]), row, "TO_INDEX"));
+			MATHFP_TRY_LET(double, length, parse_double_cell(field_text(row_data[cols.length]), row, "LENGTH"));
+			MATHFP_TRY_LET(double, time, parse_double_cell(field_text(row_data[cols.time]), row, "TIME"));
+			MATHFP_TRY_LET(double, dep, parse_double_cell(field_text(row_data[cols.dep]), row, "DEP"));
+			MATHFP_TRY_LET(double, arr, parse_double_cell(field_text(row_data[cols.arr]), row, "ARR"));
+			MATHFP_TRY_LET(double, fare, parse_double_cell(field_text(row_data[cols.fare]), row, "FARE"));
+
+			return ParsedSegmentRow{
+				.from_zone = from_zone,
+				.from_stop = from_stop,
+				.to_zone = to_zone,
+				.to_stop = to_stop,
+				.trip_id = trip_id,
+				.line_id = line_id,
+				.from_index = from_index,
+				.to_index = to_index,
+				.length = length,
+				.time = time,
+				.dep = dep,
+				.arr = arr,
+				.fare = fare
+			};
+		}
+
+		void append_segment_row(
+			txt::SegmentColumns& out
+			, const ParsedSegmentRow& row
+		) {
+			out.from_zone_id.push_back(row.from_zone);
+			out.from_stop_id.push_back(row.from_stop);
+			out.to_zone_id.push_back(row.to_zone);
+			out.to_stop_id.push_back(row.to_stop);
+			out.profile_id.push_back(row.line_id);
+			out.trip_id.push_back(row.trip_id);
+			out.from_index.push_back(row.from_index);
+			out.to_index.push_back(row.to_index);
+			out.length_km.push_back(row.length);
+			out.time_sec.push_back(row.time);
+			out.dep_sec.push_back(row.dep);
+			out.arr_sec.push_back(row.arr);
+			out.fare.push_back(row.fare);
+		}
+
+		void collect_row_zones(
+			std::unordered_set<std::int64_t>& zone_set
+			, const ParsedSegmentRow& row
+		) {
+			if (row.from_zone >= 0) zone_set.insert(row.from_zone);
+			if (row.to_zone >= 0) zone_set.insert(row.to_zone);
+		}
+
+		void finalize_zone_ids(
+			txt::SegmentColumns& out
+			, const std::unordered_set<std::int64_t>& zone_set
+		) {
+			out.zone_ids.assign(zone_set.begin(), zone_set.end());
+			std::sort(out.zone_ids.begin(), out.zone_ids.end());
+		}
+
+		void report_csv_row_progress(
+			std::size_t row
+			, std::size_t segment_count
+			, std::size_t zone_count
+		) {
+			using timetable::infra::LogLevel;
+			using timetable::infra::progress::log;
+			using timetable::infra::progress::status;
+
+			if ((row % kRowProgressStep) != 0) {
+				return;
+			}
+
+			status(fmt::format("parsing: reading connection segments csv (row {})", row));
+			log(
+				fmt::format(
+					"parsing: csv progress row={}  segments={}  zones={}"
+					, row
+					, segment_count
+					, zone_count
+				)
+				, LogLevel::Debug
+			);
+		}
+
+		mathfp::Expected<ParsedCsvData> parse_csv_data_rows(
+			csv::CSVReader& reader
+			, const SegmentCsvColumns& cols
+		) {
+			ParsedCsvData data;
+			data.zone_set.reserve(256);
+
+			std::size_t row = 1;
+			csv::CSVRow row_data;
+			timetable::infra::progress::status("parsing: reading connection segments csv (0 rows)");
+
+			try {
+				while (reader.read_row(row_data)) {
+					++row;
+					report_csv_row_progress(
+						row
+						, data.columns.from_zone_id.size()
+						, data.zone_set.size()
+					);
+
+					MATHFP_TRY_LET(ParsedSegmentRow, parsed_row, parse_segment_row(row_data, cols, row));
+					append_segment_row(data.columns, parsed_row);
+					collect_row_zones(data.zone_set, parsed_row);
+				}
+			} catch (const std::exception& e) {
+				return mathfp::unexpected(
+					mathfp::invalid_arg("failed while reading connection segments csv rows")
+						.ctx("row", static_cast<std::int64_t>(row))
+						.ctx("reason", std::string(e.what()))
+				);
+			}
+
+			return data;
+		}
+
+		mathfp::Expected<txt::SegmentColumns> finalize_parsed_csv_data(
+			ParsedCsvData data
+			, const std::filesystem::path& path
+		) {
+			finalize_zone_ids(data.columns, data.zone_set);
+
+			if (data.columns.from_zone_id.empty()) {
+				return mathfp::unexpected(
+					mathfp::invalid_arg("connection segments csv contains no data rows")
+					.ctx("path", path.string())
+				);
+			}
+
+			return data.columns;
 		}
 
 	}  // namespace
@@ -142,127 +412,38 @@ namespace timetable::infra::csv {
 	mathfp::Expected<txt::SegmentColumns> parse_connection_segments_csv(
 		const std::filesystem::path& path
 	) {
-		std::ifstream input(path);
-		if (!input.is_open()) {
-			return mathfp::unexpected(
-				mathfp::invalid_arg("failed to open connection segments csv")
-				.ctx("path", path.string())
-			);
-		}
+		using timetable::infra::LogLevel;
+		using timetable::infra::progress::log;
+		using timetable::infra::progress::status;
 
-		std::string header_line;
-		if (!std::getline(input, header_line)) {
-			return mathfp::unexpected(
-				mathfp::invalid_arg("connection segments csv is empty")
-				.ctx("path", path.string())
-			);
-		}
+		status("parsing: opening connection segments csv");
+		MATHFP_TRY_LET(csv::CSVReader, input, open_connection_segments_csv(path));
+		status("parsing: reading connection segments csv header");
+		MATHFP_TRY_LET(ParsedCsvHeader, header, parse_csv_header(input, path));
+		log(
+			fmt::format("parsing: csv header loaded from {}", path.string())
+			, LogLevel::Info
+		);
 
-		auto header = parse_csv_row(header_line);
-		for (auto& cell : header) {
-			cell = trim(cell);
-		}
+		log(
+			fmt::format(
+				"parsing: csv columns resolved; header_columns = {}"
+				, header.header_column_count
+			)
+			, LogLevel::Info
+		);
 
-		std::unordered_map<std::string, std::size_t> cols;
-		cols.reserve(header.size());
-		for (std::size_t i = 0; i < header.size(); ++i) {
-			if (!header[i].empty()) {
-				cols.emplace(header[i], i);
-			}
-		}
-
-		const auto from_stop_col = find_col(cols, "FROM_STOP_ID");
-		if (!from_stop_col) return mathfp::unexpected(from_stop_col.error());
-		const auto to_stop_col = find_col(cols, "TO_STOP_ID");
-		if (!to_stop_col) return mathfp::unexpected(to_stop_col.error());
-		const auto time_col = find_col(cols, "TIME");
-		if (!time_col) return mathfp::unexpected(time_col.error());
-		const auto length_col = find_col(cols, "LENGTH");
-		if (!length_col) return mathfp::unexpected(length_col.error());
-		const auto from_zone_col = find_col(cols, "FROM_ZONE_ID");
-		if (!from_zone_col) return mathfp::unexpected(from_zone_col.error());
-		const auto to_zone_col = find_col(cols, "TO_ZONE_ID");
-		if (!to_zone_col) return mathfp::unexpected(to_zone_col.error());
-		const auto fare_col = find_col(cols, "FARE");
-		if (!fare_col) return mathfp::unexpected(fare_col.error());
-		const auto line_col = find_col(cols, "LINE_ID");
-		if (!line_col) return mathfp::unexpected(line_col.error());
-		const auto dep_col = find_col(cols, "DEP");
-		if (!dep_col) return mathfp::unexpected(dep_col.error());
-		const auto arr_col = find_col(cols, "ARR");
-		if (!arr_col) return mathfp::unexpected(arr_col.error());
-
-		txt::SegmentColumns out;
-		std::unordered_set<std::int64_t> zone_set;
-		zone_set.reserve(256);
-
-		std::string line;
-		std::size_t row = 1;
-		while (std::getline(input, line)) {
-			++row;
-			if (line.empty()) {
-				continue;
-			}
-
-			const auto cells = parse_csv_row(line);
-			const auto max_col = std::max({
-				*from_stop_col, *to_stop_col, *time_col, *length_col, *from_zone_col,
-				*to_zone_col, *fare_col, *line_col, *dep_col, *arr_col
-			});
-			if (cells.size() <= max_col) {
-				return mathfp::unexpected(
-					mathfp::invalid_arg("csv row has fewer columns than required")
-					.ctx("row", static_cast<std::int64_t>(row))
-					.ctx("columns", static_cast<std::int64_t>(cells.size()))
-					.ctx("required_min", static_cast<std::int64_t>(max_col + 1))
-				);
-			}
-
-			const auto from_zone = parse_int64_cell(cells[*from_zone_col], row, "FROM_ZONE_ID");
-			if (!from_zone) return mathfp::unexpected(from_zone.error());
-			const auto from_stop = parse_int64_cell(cells[*from_stop_col], row, "FROM_STOP_ID");
-			if (!from_stop) return mathfp::unexpected(from_stop.error());
-			const auto to_zone = parse_int64_cell(cells[*to_zone_col], row, "TO_ZONE_ID");
-			if (!to_zone) return mathfp::unexpected(to_zone.error());
-			const auto to_stop = parse_int64_cell(cells[*to_stop_col], row, "TO_STOP_ID");
-			if (!to_stop) return mathfp::unexpected(to_stop.error());
-			const auto profile = parse_int64_cell(cells[*line_col], row, "LINE_ID");
-			if (!profile) return mathfp::unexpected(profile.error());
-			const auto length = parse_double_cell(cells[*length_col], row, "LENGTH");
-			if (!length) return mathfp::unexpected(length.error());
-			const auto time = parse_double_cell(cells[*time_col], row, "TIME");
-			if (!time) return mathfp::unexpected(time.error());
-			const auto dep = parse_double_cell(cells[*dep_col], row, "DEP");
-			if (!dep) return mathfp::unexpected(dep.error());
-			const auto arr = parse_double_cell(cells[*arr_col], row, "ARR");
-			if (!arr) return mathfp::unexpected(arr.error());
-			const auto fare = parse_double_cell(cells[*fare_col], row, "FARE");
-			if (!fare) return mathfp::unexpected(fare.error());
-
-			out.from_zone_id.push_back(*from_zone);
-			out.from_stop_id.push_back(*from_stop);
-			out.to_zone_id.push_back(*to_zone);
-			out.to_stop_id.push_back(*to_stop);
-			out.profile_id.push_back(*profile);
-			out.length_km.push_back(*length);
-			out.time_sec.push_back(*time);
-			out.dep_sec.push_back(*dep);
-			out.arr_sec.push_back(*arr);
-			out.fare.push_back(*fare);
-
-			if (*from_zone >= 0) zone_set.insert(*from_zone);
-			if (*to_zone >= 0) zone_set.insert(*to_zone);
-		}
-
-		out.zone_ids.assign(zone_set.begin(), zone_set.end());
-		std::sort(out.zone_ids.begin(), out.zone_ids.end());
-
-		if (out.from_zone_id.empty()) {
-			return mathfp::unexpected(
-				mathfp::invalid_arg("connection segments csv contains no data rows")
-				.ctx("path", path.string())
-			);
-		}
+		MATHFP_TRY_LET(ParsedCsvData, parsed_data, parse_csv_data_rows(input, header.columns));
+		MATHFP_TRY_LET(txt::SegmentColumns, out, finalize_parsed_csv_data(std::move(parsed_data), path));
+		log(
+			fmt::format(
+				"parsing: csv parsed; segments = {}  zones = {}"
+				, out.from_zone_id.size()
+				, out.zone_ids.size()
+			)
+			, LogLevel::Info
+		);
+		status("parsing: connection segments csv parsed");
 
 		return out;
 	}

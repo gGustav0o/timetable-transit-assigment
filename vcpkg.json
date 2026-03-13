@@ -10,6 +10,7 @@
     "boost-graph",
     "eigen3",
     "boost-circular-buffer",
+    "vincentlaucsb-csv-parser",
     "pegtl",
     "ftxui",
     "spdlog"

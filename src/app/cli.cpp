@@ -6,6 +6,7 @@
 
 #include <mathfp/core/error.hpp>
 #include <mathfp/core/fp.hpp>
+#include <mathfp/core/try.hpp>
 
 namespace timetable::app {
 
@@ -31,6 +32,8 @@ namespace timetable::app {
 				"  timetable-transit-assigment --data-dir <path>\n"
 				"  timetable-transit-assigment --pair-data-dir <path>\n"
 				"  timetable-transit-assigment --data-file <path>\n"
+				"Default:\n"
+				"  without arguments the app searches upward for data/test/connection_segments_input.csv\n"
 				"Aliases:\n"
 				"  -d  --data-dir\n"
 				"  -p  --pair-data-dir\n"
@@ -77,31 +80,46 @@ namespace timetable::app {
 			return std::filesystem::path(argv[flag_index + 1]);
 		}
 
-		mathfp::Expected<mathfp::Unit> apply_source_selection(
-			CliInput& out
-			, bool& has_source
-			, CliSourceFlag flag
+		CliInput make_cli_input(
+			CliSourceFlag flag
 			, std::filesystem::path path
 		) {
+			CliInput out;
+			switch (flag) {
+				case CliSourceFlag::DataDir:
+					out.source.kind = io::DataSourceKind::DataDir;
+					out.source.dir.root = std::move(path);
+					break;
+				case CliSourceFlag::PairDataDir:
+					out.source.kind = io::DataSourceKind::PairDataDir;
+					out.source.pair_dir.root = std::move(path);
+					break;
+				case CliSourceFlag::DataFile:
+					out.source.kind = io::DataSourceKind::SingleFile;
+					out.source.file.path = std::move(path);
+					break;
+			}
+			return out;
+		}
+
+		CliInput make_pair_cli_input(std::filesystem::path path) {
+			return make_cli_input(CliSourceFlag::PairDataDir, std::move(path));
+		}
+
+		mathfp::Expected<mathfp::Unit> ensure_no_source_selected(bool has_source) {
 			if (has_source) {
 				return make_single_source_error();
 			}
+			return mathfp::ok();
+		}
 
-			switch (flag) {
-			case CliSourceFlag::DataDir:
-				out.source.kind = io::DataSourceKind::DataDir;
-				out.source.dir.root = std::move(path);
-				break;
-			case CliSourceFlag::PairDataDir:
-				out.source.kind = io::DataSourceKind::PairDataDir;
-				out.source.pair_dir.root = std::move(path);
-				break;
-			case CliSourceFlag::DataFile:
-				out.source.kind = io::DataSourceKind::SingleFile;
-				out.source.file.path = std::move(path);
-				break;
-			}
-
+		mathfp::Expected<mathfp::Unit> apply_selected_source(
+			CliInput& out
+			, bool& has_source
+			, CliInput selected
+		) {
+			MATHFP_TRY(ensure_no_source_selected(has_source));
+			out = std::move(selected);
 			has_source = true;
 			return mathfp::ok();
 		}
@@ -113,18 +131,19 @@ namespace timetable::app {
 			return mathfp::ok();
 		}
 
+		bool is_pair_data_dir(const std::filesystem::path& path) {
+			const auto segments = path / "connection_segments_input.csv";
+			return
+				std::filesystem::exists(path)
+				&& std::filesystem::is_directory(path)
+				&& std::filesystem::exists(segments);
+		}
+
 		mathfp::Expected<std::filesystem::path> find_default_pair_data_dir() {
 			auto cursor = std::filesystem::current_path();
 			while (true) {
 				auto candidate = cursor / kDefaultPairDataDir;
-				const auto segments = candidate / "connection_segments_input.csv";
-				const auto params = candidate / "params.txt";
-				if (
-					std::filesystem::exists(candidate)
-					&& std::filesystem::is_directory(candidate)
-					&& std::filesystem::exists(segments)
-					&& std::filesystem::exists(params)
-					) {
+				if (is_pair_data_dir(candidate)) {
 					return candidate;
 				}
 				if (!cursor.has_parent_path() || cursor.parent_path() == cursor) {
@@ -135,7 +154,7 @@ namespace timetable::app {
 			return mathfp::unexpected(
 				mathfp::invalid_arg("default pair data dir not found")
 				.ctx("path", std::string(kDefaultPairDataDir))
-				.ctx("required", "connection_segments_input.csv + params.txt"));
+				.ctx("required", "connection_segments_input.csv"));
 		}
 
 		mathfp::Expected<CliInput> parse_args(int argc, char** argv) {
@@ -156,14 +175,18 @@ namespace timetable::app {
 
 				i += 1;
 
-				auto selected = apply_source_selection(
-					out
-					, has_source
-					, *flag
+				auto selected = make_cli_input(
+					*flag
 					, std::move(*path)
 				);
-				if (!selected) {
-					return mathfp::unexpected(selected.error());
+
+				auto applied = apply_selected_source(
+					out
+					, has_source
+					, std::move(selected)
+				);
+				if (!applied) {
+					return mathfp::unexpected(applied.error());
 				}
 			}
 
@@ -182,12 +205,7 @@ namespace timetable::app {
 
 		if (argc <= 1) {
 			return find_default_pair_data_dir()
-				| map([](std::filesystem::path path) {
-					CliInput out;
-					out.source.kind = io::DataSourceKind::PairDataDir;
-					out.source.pair_dir.root = std::move(path);
-					return out;
-				});
+				| map(make_pair_cli_input);
 		}
 
 		return parse_args(argc, argv);

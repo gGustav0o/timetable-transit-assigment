@@ -9,10 +9,155 @@
 #include "timetable/domain/params.hpp"
 #include "timetable/domain/validation.hpp"
 
-#define TIMETABLE_TRY_ENSURE_NONNEG(x) MATHFP_TRY(validation::ensure_nonneg((x), #x))
-#define TIMETABLE_TRY_ENSURE_POSITIVE(x) MATHFP_TRY(validation::ensure_positive((x), #x))
-
 namespace timetable::domain {
+
+    namespace detail {
+
+        inline mathfp::Expected<mathfp::Unit> ensure_nonnegative_search_impedance_inputs(
+            Dimless a_journey_time
+            , Dimless a_transfers
+            , Dimless a_fare
+            , Time transfer_penalty
+        ) {
+            MATHFP_TRY(validation::ensure_nonneg(a_journey_time, "a_journey_time"));
+            MATHFP_TRY(validation::ensure_nonneg(a_transfers, "a_transfers"));
+            MATHFP_TRY(validation::ensure_nonneg(a_fare, "a_fare"));
+            MATHFP_TRY(validation::ensure_nonneg(transfer_penalty, "transfer_penalty"));
+            return mathfp::kUnit;
+        }
+
+        inline mathfp::Expected<mathfp::Unit> ensure_nonnegative_tolerance_inputs(
+            Dimless imp_mult
+            , Dimless imp_add
+            , Dimless jt_mult
+            , Dimless jt_add
+            , Dimless nt_mult
+            , Dimless nt_add
+        ) {
+            MATHFP_TRY(validation::ensure_nonneg(imp_mult, "imp_mult"));
+            MATHFP_TRY(validation::ensure_nonneg(imp_add, "imp_add"));
+            MATHFP_TRY(validation::ensure_nonneg(jt_mult, "jt_mult"));
+            MATHFP_TRY(validation::ensure_nonneg(jt_add, "jt_add"));
+            MATHFP_TRY(validation::ensure_nonneg(nt_mult, "nt_mult"));
+            MATHFP_TRY(validation::ensure_nonneg(nt_add, "nt_add"));
+            return mathfp::kUnit;
+        }
+
+        inline mathfp::Expected<mathfp::Unit> ensure_nonnegative_split_weights(
+            Dimless q_time
+            , Dimless q_departure
+            , Dimless q_fare
+            , Dimless boxcox_t
+            , Dimless gamma
+        ) {
+            MATHFP_TRY(validation::ensure_nonneg(q_time, "q_time"));
+            MATHFP_TRY(validation::ensure_nonneg(q_departure, "q_departure"));
+            MATHFP_TRY(validation::ensure_nonneg(q_fare, "q_fare"));
+            MATHFP_TRY(validation::ensure_nonneg(boxcox_t, "boxcox_t"));
+            MATHFP_TRY(validation::ensure_nonneg(gamma, "gamma"));
+            return mathfp::kUnit;
+        }
+
+        inline mathfp::Expected<mathfp::Unit> ensure_positive_split_scales(
+            Dimless beta
+            , Dimless x_scale
+            , Dimless y_scale
+            , Dimless z_scale
+        ) {
+            MATHFP_TRY(validation::ensure_positive(beta, "beta"));
+            MATHFP_TRY(validation::ensure_positive(x_scale, "x_scale"));
+            MATHFP_TRY(validation::ensure_positive(y_scale, "y_scale"));
+            MATHFP_TRY(validation::ensure_positive(z_scale, "z_scale"));
+            return mathfp::kUnit;
+        }
+
+        inline mathfp::Expected<mathfp::Unit> ensure_walk_cost_weights_nonnegative(
+            WalkCostWeights walk_cost
+        ) {
+            MATHFP_TRY(validation::ensure_nonneg(walk_cost.w_time, "walk_cost.w_time"));
+            MATHFP_TRY(validation::ensure_nonneg(walk_cost.w_length, "walk_cost.w_length"));
+            return mathfp::kUnit;
+        }
+
+        inline mathfp::Expected<mathfp::Unit> ensure_weighted_walk_cost_has_positive_weight(
+            WalkCostKind walk_cost_kind
+            , WalkCostWeights walk_cost
+        ) {
+            if (walk_cost_kind != WalkCostKind::Weighted) {
+                return mathfp::kUnit;
+            }
+
+            const auto wt = mathfp::units::as_dimless(walk_cost.w_time);
+            const auto wl = mathfp::units::as_dimless(walk_cost.w_length);
+            if (!(wt > 0.0 || wl > 0.0)) {
+                const char* message = "weighted walk cost requires at least one positive weight";
+                return validation::fail(message, mathfp::invalid_arg(message));
+            }
+            return mathfp::kUnit;
+        }
+
+        inline mathfp::Expected<mathfp::Unit> ensure_optional_line_speed_positive(
+            const std::optional<Speed>& line_speed
+        ) {
+            if (line_speed) {
+                MATHFP_TRY(validation::ensure_positive(*line_speed, "line_speed"));
+            }
+            return mathfp::kUnit;
+        }
+
+        inline mathfp::Expected<mathfp::Unit> ensure_max_transfers_nonnegative(
+            TransferCount max_transfers
+        ) {
+            if (max_transfers.get() < 0) {
+                const char* message = "max_transfers must be non-negative";
+                return validation::fail(
+                    message
+                    , mathfp::invalid_arg(message)
+                        .ctx("max_transfers", max_transfers.get())
+                );
+            }
+            return mathfp::kUnit;
+        }
+
+        inline mathfp::Expected<mathfp::Unit> ensure_transfer_waits_ordered(
+            Time min_transfer_wait
+            , Time max_transfer_wait
+        ) {
+            if (min_transfer_wait.value() > max_transfer_wait.value()) {
+                const char* message = "min_transfer_wait must be <= max_transfer_wait";
+                return validation::fail(
+                    message
+                    , mathfp::invalid_arg(message)
+                        .ctx("min_transfer_wait", min_transfer_wait.value())
+                        .ctx("max_transfer_wait", max_transfer_wait.value())
+                );
+            }
+            return mathfp::kUnit;
+        }
+
+        template <class Tolerance>
+        inline mathfp::Expected<Tolerance> make_tolerance_bundle(
+            Dimless imp_mult
+            , Dimless imp_add
+            , Dimless jt_mult
+            , Dimless jt_add
+            , Dimless nt_mult
+            , Dimless nt_add
+        ) {
+            MATHFP_TRY(ensure_nonnegative_tolerance_inputs(
+                imp_mult, imp_add, jt_mult, jt_add, nt_mult, nt_add
+            ));
+            return Tolerance{
+                .imp_mult  = imp_mult
+                , .imp_add = imp_add
+                , .jt_mult = jt_mult
+                , .jt_add  = jt_add
+                , .nt_mult = nt_mult
+                , .nt_add  = nt_add
+            };
+        }
+
+    }  // namespace detail
 
     inline mathfp::Expected<SearchImpedance> make_search_impedance(
         Dimless a_journey_time
@@ -21,15 +166,14 @@ namespace timetable::domain {
         , Time transfer_penalty
         , FareNormalization fare_normalization = {}
     ) {
-        TIMETABLE_TRY_ENSURE_NONNEG(a_journey_time);
-        TIMETABLE_TRY_ENSURE_NONNEG(a_transfers);
-        TIMETABLE_TRY_ENSURE_NONNEG(a_fare);
-        TIMETABLE_TRY_ENSURE_NONNEG(transfer_penalty);
+        MATHFP_TRY(detail::ensure_nonnegative_search_impedance_inputs(
+            a_journey_time, a_transfers, a_fare, transfer_penalty
+        ));
         return SearchImpedance{
-            .a_journey_time     = a_journey_time
-            , .a_transfers      = a_transfers
-            , .a_fare           = a_fare
-            , .transfer_penalty = transfer_penalty
+            .a_journey_time       = a_journey_time
+            , .a_transfers        = a_transfers
+            , .a_fare             = a_fare
+            , .transfer_penalty   = transfer_penalty
             , .fare_normalization = fare_normalization
         };
     }
@@ -41,23 +185,12 @@ namespace timetable::domain {
         , bool allow_start_wait
         , bool allow_end_wait
     ) {
-        if (max_transfers.get() < 0)
-            return validation::fail(
-                "max_transfers must be non-negative"
-                , mathfp::invalid_arg("max_transfers must be non-negative")
-                    .ctx("max_transfers", max_transfers.get())
-            );
-
-        TIMETABLE_TRY_ENSURE_NONNEG(min_transfer_wait);
-        TIMETABLE_TRY_ENSURE_NONNEG(max_transfer_wait);
-
-        if (min_transfer_wait.value() > max_transfer_wait.value())
-            return validation::fail(
-                "min_transfer_wait must be <= max_transfer_wait"
-                , mathfp::invalid_arg("min_transfer_wait must be <= max_transfer_wait")
-                    .ctx("min_transfer_wait", min_transfer_wait.value())
-                    .ctx("max_transfer_wait", max_transfer_wait.value())
-            );
+        MATHFP_TRY(detail::ensure_max_transfers_nonnegative(max_transfers));
+        MATHFP_TRY(validation::ensure_nonneg(min_transfer_wait, "min_transfer_wait"));
+        MATHFP_TRY(validation::ensure_nonneg(max_transfer_wait, "max_transfer_wait"));
+        MATHFP_TRY(detail::ensure_transfer_waits_ordered(
+            min_transfer_wait, max_transfer_wait
+        ));
 
         return TransferLimits{
             .max_transfers       = max_transfers
@@ -76,20 +209,9 @@ namespace timetable::domain {
         , Dimless nt_mult
         , Dimless nt_add
     ) {
-        TIMETABLE_TRY_ENSURE_NONNEG(imp_mult);
-        TIMETABLE_TRY_ENSURE_NONNEG(imp_add);
-        TIMETABLE_TRY_ENSURE_NONNEG(jt_mult);
-        TIMETABLE_TRY_ENSURE_NONNEG(jt_add);
-        TIMETABLE_TRY_ENSURE_NONNEG(nt_mult);
-        TIMETABLE_TRY_ENSURE_NONNEG(nt_add);
-        return SearchTolerances{
-            .imp_mult  = imp_mult
-            , .imp_add = imp_add
-            , .jt_mult = jt_mult
-            , .jt_add  = jt_add
-            , .nt_mult = nt_mult
-            , .nt_add  = nt_add
-        };
+        return detail::make_tolerance_bundle<SearchTolerances>(
+            imp_mult, imp_add, jt_mult, jt_add, nt_mult, nt_add
+        );
     }
 
     inline mathfp::Expected<ChoiceTolerances> make_choice_tolerances(
@@ -100,20 +222,9 @@ namespace timetable::domain {
         , Dimless nt_mult
         , Dimless nt_add
     ) {
-        TIMETABLE_TRY_ENSURE_NONNEG(imp_mult);
-        TIMETABLE_TRY_ENSURE_NONNEG(imp_add);
-        TIMETABLE_TRY_ENSURE_NONNEG(jt_mult);
-        TIMETABLE_TRY_ENSURE_NONNEG(jt_add);
-        TIMETABLE_TRY_ENSURE_NONNEG(nt_mult);
-        TIMETABLE_TRY_ENSURE_NONNEG(nt_add);
-        return ChoiceTolerances{
-            .imp_mult  = imp_mult
-            , .imp_add = imp_add
-            , .jt_mult = jt_mult
-            , .jt_add  = jt_add
-            , .nt_mult = nt_mult
-            , .nt_add  = nt_add
-        };
+        return detail::make_tolerance_bundle<ChoiceTolerances>(
+            imp_mult, imp_add, jt_mult, jt_add, nt_mult, nt_add
+        );
     }
 
     inline mathfp::Expected<SplitParams> make_split_params(
@@ -127,16 +238,12 @@ namespace timetable::domain {
         , Dimless y_scale
         , Dimless z_scale
     ) {
-        TIMETABLE_TRY_ENSURE_NONNEG(q_time);
-        TIMETABLE_TRY_ENSURE_NONNEG(q_departure);
-        TIMETABLE_TRY_ENSURE_NONNEG(q_fare);
-        TIMETABLE_TRY_ENSURE_NONNEG(boxcox_t);
-        TIMETABLE_TRY_ENSURE_NONNEG(gamma);
-
-        TIMETABLE_TRY_ENSURE_POSITIVE(beta);
-        TIMETABLE_TRY_ENSURE_POSITIVE(x_scale);
-        TIMETABLE_TRY_ENSURE_POSITIVE(y_scale);
-        TIMETABLE_TRY_ENSURE_POSITIVE(z_scale);
+        MATHFP_TRY(detail::ensure_nonnegative_split_weights(
+            q_time, q_departure, q_fare, boxcox_t, gamma
+        ));
+        MATHFP_TRY(detail::ensure_positive_split_scales(
+            beta, x_scale, y_scale, z_scale
+        ));
 
         return SplitParams{
             .q_time        = q_time
@@ -163,23 +270,11 @@ namespace timetable::domain {
         , bool deduplicate_walk_segments
         , bool stable_ordering
     ) {
-        TIMETABLE_TRY_ENSURE_NONNEG(walk_cost.w_time);
-        TIMETABLE_TRY_ENSURE_NONNEG(walk_cost.w_length);
-
-        if (walk_cost_kind == WalkCostKind::Weighted) {
-            const auto wt = mathfp::units::as_dimless(walk_cost.w_time);
-            const auto wl = mathfp::units::as_dimless(walk_cost.w_length);
-            if (!(wt > 0.0 || wl > 0.0)) {
-                return validation::fail(
-                    "weighted walk cost requires at least one positive weight"
-                    , mathfp::invalid_arg("weighted walk cost requires at least one positive weight")
-                );
-            }
-        }
-
-        if (line_speed) {
-            MATHFP_TRY(validation::ensure_positive(*line_speed, "line_speed"));
-        }
+        MATHFP_TRY(detail::ensure_walk_cost_weights_nonnegative(walk_cost));
+        MATHFP_TRY(detail::ensure_weighted_walk_cost_has_positive_weight(
+            walk_cost_kind, walk_cost
+        ));
+        MATHFP_TRY(detail::ensure_optional_line_speed_positive(line_speed));
 
         return PreprocessParams{
             .walk_cost_kind              = walk_cost_kind
@@ -214,6 +309,3 @@ namespace timetable::domain {
     }
 
 }  // namespace timetable::domain
-
-#undef TIMETABLE_TRY_ENSURE_NONNEG
-#undef TIMETABLE_TRY_ENSURE_POSITIVE

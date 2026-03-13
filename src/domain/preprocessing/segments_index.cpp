@@ -26,6 +26,11 @@ namespace timetable::domain::preprocessing {
             const RouteSegment*      route{};
         };
 
+        struct PartitionedConnectionRefs final {
+            std::vector<ConnectionSegRef> timed{};
+            std::vector<ConnectionSegRef> walk{};
+        };
+
         bool route_seg_ref_less(const RouteSegRef& a, const RouteSegRef& b) {
             return a.id.get() < b.id.get();
         }
@@ -47,6 +52,25 @@ namespace timetable::domain::preprocessing {
             if (const auto a_to = to_endpoint_key(a.route->to), b_to = to_endpoint_key(b.route->to); a_to != b_to)
                 return a_to < b_to;
 
+            if (a.ptr->trip != b.ptr->trip) {
+                if (!a.ptr->trip) return true;
+                if (!b.ptr->trip) return false;
+                if (a.ptr->trip->get() != b.ptr->trip->get())
+                    return a.ptr->trip->get() < b.ptr->trip->get();
+            }
+
+            if (a.ptr->from_index != b.ptr->from_index) {
+                if (!a.ptr->from_index) return true;
+                if (!b.ptr->from_index) return false;
+                return a.ptr->from_index.value() < b.ptr->from_index.value();
+            }
+
+            if (a.ptr->to_index != b.ptr->to_index) {
+                if (!a.ptr->to_index) return true;
+                if (!b.ptr->to_index) return false;
+                return a.ptr->to_index.value() < b.ptr->to_index.value();
+            }
+
             if (a.route->id != b.route->id) return a.route->id.get() < b.route->id.get();
             return a.id.get() < b.id.get();
         }
@@ -62,7 +86,9 @@ namespace timetable::domain::preprocessing {
             return a.id.get() < b.id.get();
         }
 
-        auto route_seg_refs(std::span<const RouteSegment> segments) {
+        std::vector<RouteSegRef> route_seg_refs_by_id(
+            std::span<const RouteSegment> segments
+        ) {
             std::vector<RouteSegRef> refs;
             refs.reserve(segments.size());
             std::transform(
@@ -73,6 +99,14 @@ namespace timetable::domain::preprocessing {
                 }
             );
             std::sort(refs.begin(), refs.end(), route_seg_ref_less);
+            return refs;
+        }
+
+        std::vector<RouteSegRef> route_seg_refs_in_route_order(
+            std::span<const RouteSegment> segments
+        ) {
+            auto refs = route_seg_refs_by_id(segments);
+            std::sort(refs.begin(), refs.end(), route_seg_order_less);
             return refs;
         }
 
@@ -91,6 +125,100 @@ namespace timetable::domain::preprocessing {
             return it->ptr;
         }
 
+        mathfp::Expected<ConnectionSegRef> make_connection_ref(
+            const ConnectionSegment& segment
+            , const std::vector<RouteSegRef>& route_refs
+        ) {
+            const auto* route = find_route_segment(route_refs, segment.route_segment);
+            if (!route) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("connection segment references unknown route segment")
+                    .ctx("route_segment_id", segment.route_segment.get())
+                );
+            }
+
+            if (!route_and_connection_kinds_match(*route, segment)) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("connection segment kind does not match route segment kind")
+                    .ctx("connection_segment_id", segment.id.get())
+                    .ctx("route_segment_id", route->id.get())
+                );
+            }
+
+            return ConnectionSegRef{ segment.id, &segment, route };
+        }
+
+        mathfp::Expected<PartitionedConnectionRefs> partition_connection_refs(
+            std::span<const ConnectionSegment> segments
+            , const std::vector<RouteSegRef>& route_refs
+        ) {
+            PartitionedConnectionRefs out;
+            out.timed.reserve(segments.size());
+            out.walk.reserve(segments.size());
+
+            for (const auto& segment : segments) {
+                MATHFP_TRY_LET(
+                    ConnectionSegRef
+                    , ref
+                    , make_connection_ref(segment, route_refs)
+                );
+                if (is_timed_connection_segment(segment)) {
+                    out.timed.push_back(ref);
+                } else {
+                    out.walk.push_back(ref);
+                }
+            }
+
+            return out;
+        }
+
+        void sort_connection_refs(PartitionedConnectionRefs& refs) {
+            std::sort(refs.timed.begin(), refs.timed.end(), timed_ref_less);
+            std::sort(refs.walk.begin(), refs.walk.end(), walk_ref_less);
+        }
+
+        void fill_timed_connection_index(
+            ConnectionSegmentIndex& index
+            , const std::vector<ConnectionSegRef>& timed_refs
+        ) {
+            index.timed_order.reserve(timed_refs.size());
+            index.timed_departures.reserve(timed_refs.size());
+            std::transform(
+                timed_refs.begin(), timed_refs.end(),
+                std::back_inserter(index.timed_order),
+                [](const ConnectionSegRef& ref) { return ref.id; }
+            );
+            std::transform(
+                timed_refs.begin(), timed_refs.end(),
+                std::back_inserter(index.timed_departures),
+                [](const ConnectionSegRef& ref) { return *ref.ptr->departure; }
+            );
+            build_buckets(
+                index.timed_buckets
+                , index.timed_offsets
+                , timed_refs
+                , [](const ConnectionSegRef& ref) { return to_endpoint_key(ref.route->from); }
+            );
+        }
+
+        void fill_walk_connection_index(
+            ConnectionSegmentIndex& index
+            , const std::vector<ConnectionSegRef>& walk_refs
+        ) {
+            index.walk_order.reserve(walk_refs.size());
+            std::transform(
+                walk_refs.begin(), walk_refs.end(),
+                std::back_inserter(index.walk_order),
+                [](const ConnectionSegRef& ref) { return ref.id; }
+            );
+            build_buckets(
+                index.walk_buckets
+                , index.walk_offsets
+                , walk_refs
+                , [](const ConnectionSegRef& ref) { return to_endpoint_key(ref.route->from); }
+            );
+        }
+
         void build_buckets(
             std::vector<EndpointKey>& buckets
             , std::vector<std::size_t>& offsets
@@ -100,22 +228,14 @@ namespace timetable::domain::preprocessing {
             buckets.clear();
             offsets.clear();
             offsets.reserve(sorted_refs.size() + 1);
-            offsets.push_back(0);
-
-            EndpointKey last{};
-            bool has_last = false;
             for (std::size_t i = 0; i < sorted_refs.size(); ++i) {
                 const auto key = from_key(sorted_refs[i]);
-                if (!has_last || key != last) {
+                if (buckets.empty() || key != buckets.back()) {
                     buckets.push_back(key);
                     offsets.push_back(i);
-                    last = key;
-                    has_last = true;
                 }
             }
             offsets.push_back(sorted_refs.size());
-            if (!buckets.empty())
-                offsets.erase(offsets.begin());
         }
 
     }  // namespace
@@ -136,8 +256,7 @@ namespace timetable::domain::preprocessing {
             , LogLevel::Info
         );
 
-        auto refs = route_seg_refs(segments);
-        std::sort(refs.begin(), refs.end(), route_seg_order_less);
+        auto refs = route_seg_refs_in_route_order(segments);
 
         RouteSegmentIndex index;
         index.order.reserve(refs.size());
@@ -185,83 +304,22 @@ namespace timetable::domain::preprocessing {
             , LogLevel::Info
         );
 
-        const auto route_refs = route_seg_refs(route_segments);
-
-        std::vector<ConnectionSegRef> timed_refs;
-        std::vector<ConnectionSegRef> walk_refs;
-        timed_refs.reserve(segments.size());
-        walk_refs.reserve(segments.size());
-
-        for (const auto& s : segments) {
-            const auto* route = find_route_segment(route_refs, s.route_segment);
-            if (!route)
-                return mathfp::unexpected(
-                    mathfp::invalid_arg("connection segment references unknown route segment")
-                    .ctx("route_segment_id", s.route_segment.get())
-                );
-
-            const auto line = is_line(route->carrier);
-            const auto has_times = s.departure.has_value();
-            if (line && !has_times)
-                return mathfp::unexpected(
-                    mathfp::invalid_arg("timed connection segment must have times")
-                    .ctx("connection_segment_id", s.id.get())
-                );
-            if (!line && has_times)
-                return mathfp::unexpected(
-                    mathfp::invalid_arg("walk connection segment must not have times")
-                    .ctx("connection_segment_id", s.id.get())
-                );
-
-            ConnectionSegRef ref{ s.id, &s, route };
-            if (line)
-                timed_refs.push_back(ref);
-            else
-                walk_refs.push_back(ref);
-        }
-
-        std::sort(timed_refs.begin(), timed_refs.end(), timed_ref_less);
-
-        std::sort(walk_refs.begin(), walk_refs.end(), walk_ref_less);
+        const auto route_refs = route_seg_refs_by_id(route_segments);
+        MATHFP_TRY_LET(
+            PartitionedConnectionRefs
+            , refs
+            , partition_connection_refs(segments, route_refs)
+        );
+        sort_connection_refs(refs);
 
         ConnectionSegmentIndex index;
-        index.timed_order.reserve(timed_refs.size());
-        index.timed_departures.reserve(timed_refs.size());
-        std::transform(
-            timed_refs.begin(), timed_refs.end(),
-            std::back_inserter(index.timed_order),
-            [](const ConnectionSegRef& ref) { return ref.id; }
-        );
-        std::transform(
-            timed_refs.begin(), timed_refs.end(),
-            std::back_inserter(index.timed_departures),
-            [](const ConnectionSegRef& ref) { return *ref.ptr->departure; }
-        );
-        index.walk_order.reserve(walk_refs.size());
-        std::transform(
-            walk_refs.begin(), walk_refs.end(),
-            std::back_inserter(index.walk_order),
-            [](const ConnectionSegRef& ref) { return ref.id; }
-        );
-
-        build_buckets(
-            index.timed_buckets
-            , index.timed_offsets
-            , timed_refs
-            , [](const ConnectionSegRef& ref) { return to_endpoint_key(ref.route->from); }
-        );
-
-        build_buckets(
-            index.walk_buckets
-            , index.walk_offsets
-            , walk_refs
-            , [](const ConnectionSegRef& ref) { return to_endpoint_key(ref.route->from); }
-        );
+        fill_timed_connection_index(index, refs.timed);
+        fill_walk_connection_index(index, refs.walk);
 
         log(
             fmt::format(
                 "connection index: timed_order = {:>8}  walk_order = {:>8}\n"
-                "                 timed_buckets = {:>6}  walk_buckets = {:>6}"
+                 "                 timed_buckets = {:>6}  walk_buckets = {:>6}"
                 , index.timed_order.size()
                 , index.walk_order.size()
                 , index.timed_buckets.size()

@@ -29,11 +29,11 @@ namespace timetable::domain::assignment {
             PreprocessedNetwork net
             , const SearchParams& params
         ) {
-            net.fare_scale = compute_fare_scale(
+            const auto fare_scale = compute_fare_scale(
                 net.connection_segments
                 , params.impedance.fare_normalization
             );
-            return search_connections_branch_and_bound(net, params);
+            return search_connections_branch_and_bound(net, fare_scale, params);
         }
 
     }  // namespace detail

@@ -16,7 +16,7 @@ namespace timetable::infra {
 		std::shared_ptr<LogBuffer>      log_buffer;
 	};
 
-	LoggingContext init_logging(
+	mathfp::Expected<LoggingContext> init_logging(
 		std::size_t log_capacity
 		, const std::filesystem::path& log_dir
 		, bool enable_console_sink = true

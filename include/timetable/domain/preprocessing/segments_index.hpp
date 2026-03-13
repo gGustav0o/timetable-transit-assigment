@@ -39,8 +39,11 @@ namespace timetable::domain::preprocessing {
      *  2) departure time
      *  3) arrival time
      *  4) to EndpointKey
-     *  5) RouteSegmentId
-     *  6) ConnectionSegmentId
+     *  5) TripId (empty < present)
+     *  6) from_index (empty < present)
+     *  7) to_index (empty < present)
+     *  8) RouteSegmentId
+     *  9) ConnectionSegmentId
      *
      * Walk sorting key (lexicographic):
      *  1) from EndpointKey

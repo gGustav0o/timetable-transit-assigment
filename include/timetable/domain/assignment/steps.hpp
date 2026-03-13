@@ -1,5 +1,6 @@
 #pragma once
 
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -19,7 +20,6 @@ namespace timetable::domain::assignment {
         std::vector<ConnectionSegment>        connection_segments{};
         preprocessing::RouteSegmentIndex      route_index{};
         preprocessing::ConnectionSegmentIndex connection_index{};
-        double                                fare_scale{ 1.0 };
     };
 
     struct ConnectionSearchResult final {};
@@ -27,6 +27,13 @@ namespace timetable::domain::assignment {
     struct ConnectionChoiceResult final {};
 
     struct DemandSplitResult final {};
+
+    struct BranchState final {
+        std::optional<Time>             start_time{};
+        std::optional<Time>             current_arrival_time{};
+        const ConnectionSegment*        last_segment{};
+        std::optional<TransferCount>    transfer_count{};
+    };
 
     /**
      * @brief Build route/connection segments and their indices from the input model.
@@ -72,10 +79,24 @@ namespace timetable::domain::assignment {
     );
 
     /**
+     * @brief Search-level feasibility predicate for extending a connection branch.
+     *
+     * Enforces temporal suitability, start-wait policy, and forbids transfers
+     * to the same TRIP_ID. The candidate is interpreted relative to the full
+     * current branch state, not only to one predecessor segment.
+     */
+    bool is_branch_extension_feasible(
+        const BranchState& state
+        , const ConnectionSegment& candidate
+        , const TransferLimits& limits
+    ) noexcept;
+
+    /**
      * @brief Enumerate feasible connections using timetable-based branch & bound.
      */
     mathfp::Expected<ConnectionSearchResult> search_connections_branch_and_bound(
         const PreprocessedNetwork& network
+        , double fare_scale
         , const SearchParams& params
     );
 

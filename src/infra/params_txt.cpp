@@ -1,6 +1,5 @@
 #include "timetable/infra/params_txt.hpp"
 
-#include <cctype>
 #include <cerrno>
 #include <cstdint>
 #include <cstdlib>
@@ -10,226 +9,321 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <variant>
 #include <vector>
+
+#include <tao/pegtl.hpp>
 
 #include <mathfp/core/error.hpp>
 #include <mathfp/core/try.hpp>
 
+#include <fmt/format.h>
+
 #include "timetable/domain/params_factory.hpp"
+#include "timetable/infra/progress_bus.hpp"
 
 namespace timetable::infra::params_txt {
 
 	namespace {
 
-		struct Value final;
+		struct Value;
 		using Object = std::map<std::string, Value>;
-		using Array = std::vector<Value>;
+		using Array  = std::vector<Value>;
 
 		struct Value final {
 			std::variant<std::nullptr_t, bool, double, std::string, Object, Array> data{};
 		};
 
-		// TODO(pegtl): replace this hand-written parser with a PEGTL grammar and
-		// remove legacy Parser
-		class Parser final {
-		public:
-			explicit Parser(std::string text) : text_(std::move(text)) {}
+		namespace pegtl = tao::pegtl;
 
-			mathfp::Expected<Value> parse() {
-				skip_ws();
-				const auto value = parse_value();
-				if (!value) return mathfp::unexpected(value.error());
-				skip_ws();
-				if (!eof()) {
-					return error("unexpected trailing characters");
+		struct ContainerState final {
+			enum class Kind : std::uint8_t {
+				Object
+				, Array
+			};
+
+			Kind   kind{};
+			Object object{};
+			Array  array{};
+			std::optional<std::string> pending_key{};
+		};
+
+		struct ParserState final {
+			std::vector<ContainerState> stack{};
+			std::optional<Value> root{};
+
+			template <typename Input>
+			void set_object_key(std::string key, const Input& in) {
+				if (stack.empty() || stack.back().kind != ContainerState::Kind::Object) {
+					throw pegtl::parse_error("object key outside object", in);
 				}
-				return *value;
-			}
-
-		private:
-			mathfp::Unexpected error(const char* msg) const {
-				return mathfp::unexpected(
-					mathfp::invalid_arg(msg)
-					.ctx("offset", static_cast<std::int64_t>(pos_))
-				);
-			}
-
-			bool eof() const noexcept { return pos_ >= text_.size(); }
-
-			char peek() const noexcept {
-				if (eof()) return '\0';
-				return text_[pos_];
-			}
-
-			char get() noexcept {
-				if (eof()) return '\0';
-				return text_[pos_++];
-			}
-
-			void skip_ws() noexcept {
-				while (!eof() && std::isspace(static_cast<unsigned char>(text_[pos_]))) {
-					++pos_;
+				auto& top = stack.back();
+				if (top.pending_key.has_value()) {
+					throw pegtl::parse_error("dangling object key before value", in);
 				}
+				top.pending_key = std::move(key);
 			}
 
-			bool match_literal(std::string_view lit) {
-				if (text_.substr(pos_, lit.size()) == lit) {
-					pos_ += lit.size();
-					return true;
-				}
-				return false;
-			}
-
-			mathfp::Expected<Value> parse_value() {
-				skip_ws();
-				if (eof()) return error("unexpected end of input");
-
-				const auto c = peek();
-				if (c == '{') return parse_object();
-				if (c == '[') return parse_array();
-				if (c == '\'') return parse_string();
-				if (c == '-' || std::isdigit(static_cast<unsigned char>(c))) return parse_number();
-				if (match_literal("True")) return Value{ true };
-				if (match_literal("False")) return Value{ false };
-				if (match_literal("None")) return Value{ nullptr };
-
-				return error("unexpected token");
-			}
-
-			mathfp::Expected<Value> parse_string() {
-				if (get() != '\'') return error("expected quote");
-				std::string out;
-
-				while (!eof()) {
-					const auto c = get();
-					if (c == '\'') {
-						return Value{ std::move(out) };
+			template <typename Input>
+			void push_value(Value value, const Input& in) {
+				if (stack.empty()) {
+					if (root.has_value()) {
+						throw pegtl::parse_error("multiple root values", in);
 					}
-					if (c == '\\') {
-						if (eof()) return error("unterminated escape sequence");
-						const auto e = get();
-						switch (e) {
-							case '\\': out.push_back('\\'); break;
-							case '\'': out.push_back('\''); break;
-							case 'n': out.push_back('\n'); break;
-							case 'r': out.push_back('\r'); break;
-							case 't': out.push_back('\t'); break;
-							default: out.push_back(e); break;
-						}
-						continue;
-					}
+					root = std::move(value);
+					return;
+				}
+
+				auto& top = stack.back();
+				if (top.kind == ContainerState::Kind::Array) {
+					top.array.push_back(std::move(value));
+					return;
+				}
+
+				if (!top.pending_key.has_value()) {
+					throw pegtl::parse_error("object value without key", in);
+				}
+
+				top.object.emplace(std::move(*top.pending_key), std::move(value));
+				top.pending_key.reset();
+			}
+
+			template <typename Input>
+			void begin_object(const Input&) {
+				stack.push_back(ContainerState{ .kind = ContainerState::Kind::Object });
+			}
+
+			template <typename Input>
+			void end_object(const Input& in) {
+				if (stack.empty() || stack.back().kind != ContainerState::Kind::Object) {
+					throw pegtl::parse_error("unexpected object end", in);
+				}
+				auto ctx = std::move(stack.back());
+				stack.pop_back();
+				if (ctx.pending_key.has_value()) {
+					throw pegtl::parse_error("dangling object key at object end", in);
+				}
+				push_value(Value{ std::move(ctx.object) }, in);
+			}
+
+			template <typename Input>
+			void begin_array(const Input&) {
+				stack.push_back(ContainerState{ .kind = ContainerState::Kind::Array });
+			}
+
+			template <typename Input>
+			void end_array(const Input& in) {
+				if (stack.empty() || stack.back().kind != ContainerState::Kind::Array) {
+					throw pegtl::parse_error("unexpected array end", in);
+				}
+				auto ctx = std::move(stack.back());
+				stack.pop_back();
+				push_value(Value{ std::move(ctx.array) }, in);
+			}
+		};
+
+		std::string decode_quoted_string(std::string_view token) {
+			std::string out;
+			if (token.size() < 2) return out;
+			out.reserve(token.size() - 2);
+
+			for (std::size_t i = 1; i + 1 < token.size(); ++i) {
+				const auto c = token[i];
+				if (c != '\\') {
 					out.push_back(c);
+					continue;
 				}
-				return error("unterminated string");
+
+				if (i + 2 >= token.size()) {
+					break;
+				}
+
+				const auto e = token[++i];
+				switch (e) {
+					case '\\': out.push_back('\\'); break;
+					case '\'': out.push_back('\''); break;
+					case 'n':  out.push_back('\n'); break;
+					case 'r':  out.push_back('\r'); break;
+					case 't':  out.push_back('\t'); break;
+					default:   out.push_back(e);    break;
+				}
 			}
+			return out;
+		}
 
-			mathfp::Expected<Value> parse_number() {
-				const auto start = pos_;
-				if (peek() == '-') {
-					++pos_;
-				}
+		namespace grammar {
 
-				bool has_digits = false;
-				while (!eof() && std::isdigit(static_cast<unsigned char>(peek()))) {
-					++pos_;
-					has_digits = true;
-				}
-				if (!eof() && peek() == '.') {
-					++pos_;
-					while (!eof() && std::isdigit(static_cast<unsigned char>(peek()))) {
-						++pos_;
-						has_digits = true;
-					}
-				}
-				if (!eof() && (peek() == 'e' || peek() == 'E')) {
-					++pos_;
-					if (!eof() && (peek() == '+' || peek() == '-')) ++pos_;
-					while (!eof() && std::isdigit(static_cast<unsigned char>(peek()))) {
-						++pos_;
-						has_digits = true;
-					}
-				}
+			struct ws : pegtl::star<pegtl::space> {};
 
-				if (!has_digits) return error("invalid number");
+			struct object_begin : pegtl::one<'{'> {};
+			struct object_end   : pegtl::one<'}'> {};
+			struct array_begin  : pegtl::one<'['> {};
+			struct array_end    : pegtl::one<']'> {};
+			struct comma        : pegtl::one<','> {};
+			struct colon        : pegtl::one<':'> {};
 
-				const auto token = text_.substr(start, pos_ - start);
+			struct escaped_char  : pegtl::seq<pegtl::one<'\\'>, pegtl::any> {};
+			struct plain_char    : pegtl::not_one<'\\', '\''> {};
+			struct string_body   : pegtl::star<pegtl::sor<escaped_char, plain_char>> {};
+			struct quoted_string : pegtl::if_must<pegtl::one<'\''>, string_body, pegtl::one<'\''>> {};
+
+			struct key_string   : quoted_string {};
+			struct value_string : quoted_string {};
+
+			struct int_part       : pegtl::plus<pegtl::digit> {};
+			struct frac_part      : pegtl::seq<pegtl::one<'.'>, pegtl::star<pegtl::digit>> {};
+			struct dot_frac_only  : pegtl::seq<pegtl::one<'.'>, pegtl::plus<pegtl::digit>> {};
+
+			struct number_mantissa : pegtl::sor<
+				pegtl::seq<int_part, pegtl::opt<frac_part>>
+				, dot_frac_only
+			> {};
+			struct number_exponent : pegtl::seq<
+				pegtl::one<'e', 'E'>
+				, pegtl::opt<pegtl::one<'+', '-'>>
+				, pegtl::plus<pegtl::digit>
+			> {};
+			struct number : pegtl::seq<
+				pegtl::opt<pegtl::one<'-'>>
+				, number_mantissa
+				, pegtl::opt<number_exponent>
+			> {};
+
+			struct kw_true  : TAO_PEGTL_STRING("True") {};
+			struct kw_false : TAO_PEGTL_STRING("False") {};
+			struct kw_none  : TAO_PEGTL_STRING("None") {};
+
+			struct value;
+			struct member : pegtl::seq<ws, key_string, ws, colon, ws, value> {};
+			struct member_tail : pegtl::seq<ws, comma, ws> {};
+			struct members : pegtl::list_must<member, member_tail> {};
+			struct object : pegtl::seq<object_begin, ws, pegtl::opt<members>, ws, object_end> {};
+
+			struct elements : pegtl::list_must<value, member_tail> {};
+			struct array : pegtl::seq<array_begin, ws, pegtl::opt<elements>, ws, array_end> {};
+
+			struct value : pegtl::sor<object, array, value_string, number, kw_true, kw_false, kw_none> {};
+			struct start : pegtl::must<ws, value, ws, pegtl::eof> {};
+
+		}  // namespace grammar
+
+		template <typename Rule>
+		struct action final : pegtl::nothing<Rule> {};
+
+		template <>
+		struct action<grammar::object_begin> final {
+			template <typename Input>
+			static void apply(const Input& in, ParserState& state) {
+				state.begin_object(in);
+			}
+		};
+
+		template <>
+		struct action<grammar::object_end> final {
+			template <typename Input>
+			static void apply(const Input& in, ParserState& state) {
+				state.end_object(in);
+			}
+		};
+
+		template <>
+		struct action<grammar::array_begin> final {
+			template <typename Input>
+			static void apply(const Input& in, ParserState& state) {
+				state.begin_array(in);
+			}
+		};
+
+		template <>
+		struct action<grammar::array_end> final {
+			template <typename Input>
+			static void apply(const Input& in, ParserState& state) {
+				state.end_array(in);
+			}
+		};
+
+		template <>
+		struct action<grammar::key_string> final {
+			template <typename Input>
+			static void apply(const Input& in, ParserState& state) {
+				state.set_object_key(decode_quoted_string(in.string_view()), in);
+			}
+		};
+
+		template <>
+		struct action<grammar::value_string> final {
+			template <typename Input>
+			static void apply(const Input& in, ParserState& state) {
+				state.push_value(Value{ decode_quoted_string(in.string_view()) }, in);
+			}
+		};
+
+		template <>
+		struct action<grammar::kw_true> final {
+			template <typename Input>
+			static void apply(const Input& in, ParserState& state) {
+				state.push_value(Value{ true }, in);
+			}
+		};
+
+		template <>
+		struct action<grammar::kw_false> final {
+			template <typename Input>
+			static void apply(const Input& in, ParserState& state) {
+				state.push_value(Value{ false }, in);
+			}
+		};
+
+		template <>
+		struct action<grammar::kw_none> final {
+			template <typename Input>
+			static void apply(const Input& in, ParserState& state) {
+				state.push_value(Value{ nullptr }, in);
+			}
+		};
+
+		template <>
+		struct action<grammar::number> final {
+			template <typename Input>
+			static void apply(const Input& in, ParserState& state) {
+				const auto token = std::string(in.string_view());
 				errno = 0;
 				char* end = nullptr;
 				const auto value = std::strtod(token.c_str(), &end);
 				if (end == token.c_str() || *end != '\0') {
-					return error("failed to parse number");
+					throw pegtl::parse_error("failed to parse number", in);
 				}
 				if (errno == ERANGE) {
-					return error("number out of range");
+					throw pegtl::parse_error("number out of range", in);
 				}
-				return Value{ value };
+				state.push_value(Value{ value }, in);
 			}
-
-			mathfp::Expected<Value> parse_array() {
-				if (get() != '[') return error("expected '['");
-				Array arr;
-				skip_ws();
-				if (peek() == ']') {
-					get();
-					return Value{ std::move(arr) };
-				}
-
-				while (true) {
-					const auto value = parse_value();
-					if (!value) return mathfp::unexpected(value.error());
-					arr.push_back(*value);
-
-					skip_ws();
-					const auto c = get();
-					if (c == ']') break;
-					if (c != ',') return error("expected ',' or ']'");
-					skip_ws();
-				}
-
-				return Value{ std::move(arr) };
-			}
-
-			mathfp::Expected<Value> parse_object() {
-				if (get() != '{') return error("expected '{'");
-				Object obj;
-				skip_ws();
-				if (peek() == '}') {
-					get();
-					return Value{ std::move(obj) };
-				}
-
-				while (true) {
-					skip_ws();
-					const auto key = parse_string();
-					if (!key) return mathfp::unexpected(key.error());
-					if (!std::holds_alternative<std::string>(key->data)) {
-						return error("object key must be string");
-					}
-					const auto& key_str = std::get<std::string>(key->data);
-
-					skip_ws();
-					if (get() != ':') return error("expected ':'");
-					skip_ws();
-
-					const auto value = parse_value();
-					if (!value) return mathfp::unexpected(value.error());
-					obj.emplace(key_str, *value);
-
-					skip_ws();
-					const auto c = get();
-					if (c == '}') break;
-					if (c != ',') return error("expected ',' or '}'");
-					skip_ws();
-				}
-
-				return Value{ std::move(obj) };
-			}
-
-		private:
-			std::string text_{};
-			std::size_t pos_{ 0 };
 		};
+
+		mathfp::Expected<Value> parse_value_text(std::string text, std::string source_name) {
+			pegtl::memory_input in(text, source_name);
+			ParserState state;
+			try {
+				pegtl::parse<grammar::start, action>(in, state);
+				if (!state.stack.empty() || !state.root.has_value()) {
+					return mathfp::unexpected(
+						mathfp::invalid_arg("incomplete parse state")
+						.ctx("source", source_name)
+					);
+				}
+				return std::move(*state.root);
+			} catch (const pegtl::parse_error& e) {
+				auto err = mathfp::invalid_arg(e.what());
+				err.ctx("source", source_name);
+				if (!e.positions().empty()) {
+					const auto& pos = e.positions().front();
+					err.ctx("line", static_cast<std::int64_t>(pos.line));
+					err.ctx("column", static_cast<std::int64_t>(pos.column));
+				}
+				return mathfp::unexpected(std::move(err));
+			}
+		}
 
 		mathfp::Expected<const Object*> as_object(
 			const Value& v
@@ -486,6 +580,11 @@ namespace timetable::infra::params_txt {
 	mathfp::Expected<timetable::domain::SearchParams> parse_search_params_file(
 		const std::filesystem::path& path
 	) {
+		using timetable::infra::LogLevel;
+		using timetable::infra::progress::log;
+		using timetable::infra::progress::status;
+
+		status("parsing: opening params.txt");
 		std::ifstream input(path);
 		if (!input.is_open()) {
 			return mathfp::unexpected(
@@ -498,15 +597,41 @@ namespace timetable::infra::params_txt {
 			(std::istreambuf_iterator<char>(input))
 			, std::istreambuf_iterator<char>()
 		);
+		log(
+			fmt::format(
+				"parsing: params.txt loaded; bytes = {}"
+				, text.size()
+			),
+			LogLevel::Info
+		);
 
-		Parser parser(std::move(text));
-		const auto root = parser.parse();
+		status("parsing: parsing params.txt syntax");
+		const auto root = parse_value_text(text, path.string());
 		if (!root) return mathfp::unexpected(root.error());
+		log("parsing: params.txt syntax parsed", LogLevel::Info);
 
+		status("parsing: validating params.txt root");
 		const auto root_obj = as_object(*root, "root");
 		if (!root_obj) return mathfp::unexpected(root_obj.error());
+		log("parsing: params.txt root object validated", LogLevel::Info);
 
-		return map_params(**root_obj);
+		status("parsing: mapping params");
+		MATHFP_TRY_LET(
+			timetable::domain::SearchParams
+			, params
+			, map_params(**root_obj)
+		);
+		log(
+			fmt::format(
+				"parsing: params mapped; max_transfers = {}  allow_start_wait = {}  allow_end_wait = {}"
+				, params.transfers.max_transfers.get()
+				, params.transfers.allow_start_wait ? "true" : "false"
+				, params.transfers.allow_end_wait ? "true" : "false"
+			),
+			LogLevel::Info
+		);
+		status("parsing: params.txt parsed");
+		return params;
 	}
 
 }  // namespace timetable::infra::params_txt

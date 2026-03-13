@@ -30,17 +30,15 @@ namespace timetable::domain::validation {
         , const char* name
     ) {
         const auto x = v.value();
-        if (!is_finite(x))
-            return fail(
-                "time is not finite"
-                , mathfp::invalid_arg("time is not finite").ctx("name", name)
-            );
+        if (!is_finite(x)) {
+            const char* message = "time is not finite";
+            return fail(message, mathfp::invalid_arg(message).ctx("name", name));
+        }
 
-        if (x < 0.0)
-            return fail(
-                "time must be non-negative"
-                , mathfp::invalid_arg("time must be non-negative").ctx("name", name)
-            );
+        if (x < 0.0) {
+			const char* message = "time must be non-negative";
+            return fail(message, mathfp::invalid_arg("time must be non-negative").ctx("name", name));
+        }
         return mathfp::kUnit;
     }
 
@@ -49,17 +47,16 @@ namespace timetable::domain::validation {
         , const char* name
     ) {
         const auto x = v.value();
-        if (!is_finite(x))
-            return fail(
-                "length is not finite"
-                , mathfp::invalid_arg("length is not finite").ctx("name", name)
-            );
+        if (!is_finite(x)) {
+			const char* message = "length is not finite";
+            return fail(message, mathfp::invalid_arg(message).ctx("name", name));
+        }
 
-        if (x < 0.0)
-            return fail(
-                "length must be non-negative"
-                , mathfp::invalid_arg("length must be non-negative").ctx("name", name)
-            );
+        if (x < 0.0) {
+            const char* message = "length must be non-negative";
+            return fail(message, mathfp::invalid_arg(message).ctx("name", name));
+        }
+
         return mathfp::kUnit;
     }
 
@@ -68,17 +65,16 @@ namespace timetable::domain::validation {
         , const char* name
     ) {
         const auto x = mathfp::units::as_dimless(v);
-        if (!is_finite(x))
-            return fail(
-                "coefficient is not finite"
-                , mathfp::invalid_arg("coefficient is not finite").ctx("name", name)
-            );
+        if (!is_finite(x)) {
+            const char* message = "coefficient is not finite";
+            return fail(message, mathfp::invalid_arg(message).ctx("name", name));
+        }
 
-        if (x < 0.0)
-            return fail(
-                "coefficient must be non-negative"
-                , mathfp::invalid_arg("coefficient must be non-negative").ctx("name", name)
-            );
+        if (x < 0.0) {
+            const char* message = "coefficient must be non-negative";
+            return fail(message, mathfp::invalid_arg(message).ctx("name", name));
+        }
+
         return mathfp::kUnit;
     }
 
@@ -87,17 +83,16 @@ namespace timetable::domain::validation {
         , const char* name
     ) {
         const auto x = mathfp::units::as_dimless(v);
-        if (!is_finite(x))
-            return fail(
-                "coefficient is not finite"
-                , mathfp::invalid_arg("coefficient is not finite").ctx("name", name)
-            );
+        if (!is_finite(x)) {
+            const char* message = "coefficient is not finite";
+            return fail(message, mathfp::invalid_arg(message).ctx("name", name));
+        }
 
-        if (x <= 0.0)
-            return fail(
-                "coefficient must be positive"
-                , mathfp::invalid_arg("coefficient must be positive").ctx("name", name)
-            );
+        if (x <= 0.0) {
+            const char* message = "coefficient must be positive";
+            return fail(message, mathfp::invalid_arg(message).ctx("name", name));
+        }
+
         return mathfp::kUnit;
     }
 
@@ -106,17 +101,15 @@ namespace timetable::domain::validation {
         , const char* name
     ) {
         const auto x = v.value();
-        if (!is_finite(x))
-            return fail(
-                "speed is not finite"
-                , mathfp::invalid_arg("speed is not finite").ctx("name", name)
-            );
+        if (!is_finite(x)) {
+            const char* message = "speed is not finite";
+            return fail(message, mathfp::invalid_arg(message).ctx("name", name));
+        }
 
-        if (x <= 0.0)
-            return fail(
-                "speed must be positive"
-                , mathfp::invalid_arg("speed must be positive").ctx("name", name)
-            );
+        if (x <= 0.0) {
+            const char* message = "speed must be positive";
+            return fail(message, mathfp::invalid_arg(message).ctx("name", name));
+        }
         return mathfp::kUnit;
     }
 
