@@ -193,18 +193,18 @@ namespace timetable::infra::csv {
 			);
 		}
 
-		mathfp::Expected<csv::CSVReader> open_connection_segments_csv(
+		mathfp::Expected<::csv::CSVReader> open_connection_segments_csv(
 			const std::filesystem::path& path
 		) {
 			try {
-				auto format = csv::CSVFormat{};
+				auto format = ::csv::CSVFormat{};
 				format.delimiter(',')
 					.quote('"')
 					.header_row(0)
 					.trim({ ' ', '\t' })
-					.variable_columns(csv::VariableColumnPolicy::THROW);
+					.variable_columns(::csv::VariableColumnPolicy::THROW);
 
-				return csv::CSVReader(path.string(), format);
+				return ::csv::CSVReader(path.string(), format);
 			} catch (const std::exception& e) {
 				return mathfp::unexpected(
 					mathfp::invalid_arg("failed to open or initialize connection segments csv")
@@ -215,14 +215,15 @@ namespace timetable::infra::csv {
 		}
 
 		mathfp::Expected<SegmentCsvColumns> resolve_segment_csv_columns(
-			const csv::CSVReader& reader
+			const ::csv::CSVReader& reader
 		) {
 			SegmentCsvColumns resolved;
 			MATHFP_TRY(try_for_each_segment_csv_column(
 				resolved,
-				[&reader](std::string_view name, std::size_t& column) {
+				[&reader](std::string_view name, std::size_t& column)
+					-> mathfp::Expected<mathfp::Unit> {
 					const auto resolved_column = reader.index_of(std::string(name));
-					if (resolved_column == csv::CSV_NOT_FOUND) {
+					if (resolved_column == ::csv::CSV_NOT_FOUND) {
 						return mathfp::unexpected(
 							mathfp::invalid_arg("missing required csv column")
 								.ctx("column", std::string(name))
@@ -236,7 +237,7 @@ namespace timetable::infra::csv {
 		}
 
 		mathfp::Expected<ParsedCsvHeader> parse_csv_header(
-			const csv::CSVReader& reader
+			const ::csv::CSVReader& reader
 			, const std::filesystem::path& path
 		) {
 			const auto header = reader.get_col_names();
@@ -255,13 +256,13 @@ namespace timetable::infra::csv {
 			};
 		}
 
-		std::string_view field_text(const csv::CSVField& field) {
+		std::string_view field_text(const ::csv::CSVField& field) {
 			const auto sv = field.get_sv();
 			return std::string_view(sv.data(), sv.size());
 		}
 
 		mathfp::Expected<ParsedSegmentRow> parse_segment_row(
-			const csv::CSVRow& row_data
+			const ::csv::CSVRow& row_data
 			, const SegmentCsvColumns& cols
 			, std::size_t row
 		) {
@@ -357,14 +358,14 @@ namespace timetable::infra::csv {
 		}
 
 		mathfp::Expected<ParsedCsvData> parse_csv_data_rows(
-			csv::CSVReader& reader
+			::csv::CSVReader& reader
 			, const SegmentCsvColumns& cols
 		) {
 			ParsedCsvData data;
 			data.zone_set.reserve(256);
 
 			std::size_t row = 1;
-			csv::CSVRow row_data;
+			::csv::CSVRow row_data;
 			timetable::infra::progress::status("parsing: reading connection segments csv (0 rows)");
 
 			try {
@@ -417,7 +418,11 @@ namespace timetable::infra::csv {
 		using timetable::infra::progress::status;
 
 		status("parsing: opening connection segments csv");
-		MATHFP_TRY_LET(csv::CSVReader, input, open_connection_segments_csv(path));
+		auto input_result = open_connection_segments_csv(path);
+		if (!input_result) {
+			return mathfp::unexpected(input_result.error());
+		}
+		auto input = std::move(*input_result);
 		status("parsing: reading connection segments csv header");
 		MATHFP_TRY_LET(ParsedCsvHeader, header, parse_csv_header(input, path));
 		log(

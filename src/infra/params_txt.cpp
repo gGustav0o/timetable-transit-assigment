@@ -52,76 +52,107 @@ namespace timetable::infra::params_txt {
 		struct ParserState final {
 			std::vector<ContainerState> stack{};
 			std::optional<Value> root{};
-
-			template <typename Input>
-			void set_object_key(std::string key, const Input& in) {
-				if (stack.empty() || stack.back().kind != ContainerState::Kind::Object) {
-					throw pegtl::parse_error("object key outside object", in);
-				}
-				auto& top = stack.back();
-				if (top.pending_key.has_value()) {
-					throw pegtl::parse_error("dangling object key before value", in);
-				}
-				top.pending_key = std::move(key);
-			}
-
-			template <typename Input>
-			void push_value(Value value, const Input& in) {
-				if (stack.empty()) {
-					if (root.has_value()) {
-						throw pegtl::parse_error("multiple root values", in);
-					}
-					root = std::move(value);
-					return;
-				}
-
-				auto& top = stack.back();
-				if (top.kind == ContainerState::Kind::Array) {
-					top.array.push_back(std::move(value));
-					return;
-				}
-
-				if (!top.pending_key.has_value()) {
-					throw pegtl::parse_error("object value without key", in);
-				}
-
-				top.object.emplace(std::move(*top.pending_key), std::move(value));
-				top.pending_key.reset();
-			}
-
-			template <typename Input>
-			void begin_object(const Input&) {
-				stack.push_back(ContainerState{ .kind = ContainerState::Kind::Object });
-			}
-
-			template <typename Input>
-			void end_object(const Input& in) {
-				if (stack.empty() || stack.back().kind != ContainerState::Kind::Object) {
-					throw pegtl::parse_error("unexpected object end", in);
-				}
-				auto ctx = std::move(stack.back());
-				stack.pop_back();
-				if (ctx.pending_key.has_value()) {
-					throw pegtl::parse_error("dangling object key at object end", in);
-				}
-				push_value(Value{ std::move(ctx.object) }, in);
-			}
-
-			template <typename Input>
-			void begin_array(const Input&) {
-				stack.push_back(ContainerState{ .kind = ContainerState::Kind::Array });
-			}
-
-			template <typename Input>
-			void end_array(const Input& in) {
-				if (stack.empty() || stack.back().kind != ContainerState::Kind::Array) {
-					throw pegtl::parse_error("unexpected array end", in);
-				}
-				auto ctx = std::move(stack.back());
-				stack.pop_back();
-				push_value(Value{ std::move(ctx.array) }, in);
-			}
 		};
+
+		mathfp::Expected<ParserState> with_object_key(
+			ParserState&& state
+			, std::string key
+		) {
+			if (state.stack.empty() || state.stack.back().kind != ContainerState::Kind::Object) {
+				return mathfp::unexpected(
+					mathfp::invalid_arg("object key outside object")
+				);
+			}
+			auto& top = state.stack.back();
+			if (top.pending_key.has_value()) {
+				return mathfp::unexpected(
+					mathfp::invalid_arg("dangling object key before value")
+				);
+			}
+			top.pending_key = std::move(key);
+			return std::move(state);
+		}
+
+		mathfp::Expected<ParserState> with_pushed_value(
+			ParserState&& state
+			, Value value
+		) {
+			if (state.stack.empty()) {
+				if (state.root.has_value()) {
+					return mathfp::unexpected(
+						mathfp::invalid_arg("multiple root values")
+					);
+				}
+				state.root = std::move(value);
+				return std::move(state);
+			}
+
+			auto& top = state.stack.back();
+			if (top.kind == ContainerState::Kind::Array) {
+				top.array.push_back(std::move(value));
+				return std::move(state);
+			}
+
+			if (!top.pending_key.has_value()) {
+				return mathfp::unexpected(
+					mathfp::invalid_arg("object value without key")
+				);
+			}
+
+			top.object.emplace(std::move(*top.pending_key), std::move(value));
+			top.pending_key.reset();
+			return std::move(state);
+		}
+
+		ParserState begun_object(ParserState&& state) {
+			state.stack.push_back(ContainerState{ .kind = ContainerState::Kind::Object });
+			return std::move(state);
+		}
+
+		mathfp::Expected<ParserState> ended_object(ParserState&& state) {
+			if (state.stack.empty() || state.stack.back().kind != ContainerState::Kind::Object) {
+				return mathfp::unexpected(
+					mathfp::invalid_arg("unexpected object end")
+				);
+			}
+			auto ctx = std::move(state.stack.back());
+			state.stack.pop_back();
+			if (ctx.pending_key.has_value()) {
+				return mathfp::unexpected(
+					mathfp::invalid_arg("dangling object key at object end")
+				);
+			}
+			return with_pushed_value(std::move(state), Value{ std::move(ctx.object) });
+		}
+
+		ParserState begun_array(ParserState&& state) {
+			state.stack.push_back(ContainerState{ .kind = ContainerState::Kind::Array });
+			return std::move(state);
+		}
+
+		mathfp::Expected<ParserState> ended_array(ParserState&& state) {
+			if (state.stack.empty() || state.stack.back().kind != ContainerState::Kind::Array) {
+				return mathfp::unexpected(
+					mathfp::invalid_arg("unexpected array end")
+				);
+			}
+			auto ctx = std::move(state.stack.back());
+			state.stack.pop_back();
+			return with_pushed_value(std::move(state), Value{ std::move(ctx.array) });
+		}
+
+		template <typename Input, typename Transition>
+		void apply_parser_transition(
+			ParserState& state
+			, const Input& in
+			, Transition&& transition
+		) {
+			auto next_state = transition(std::move(state));
+			if (!next_state) {
+				throw pegtl::parse_error(next_state.error().message(), in);
+			}
+			state = std::move(*next_state);
+		}
 
 		std::string decode_quoted_string(std::string_view token) {
 			std::string out;
@@ -215,7 +246,8 @@ namespace timetable::infra::params_txt {
 		struct action<grammar::object_begin> final {
 			template <typename Input>
 			static void apply(const Input& in, ParserState& state) {
-				state.begin_object(in);
+				(void)in;
+				state = begun_object(std::move(state));
 			}
 		};
 
@@ -223,7 +255,7 @@ namespace timetable::infra::params_txt {
 		struct action<grammar::object_end> final {
 			template <typename Input>
 			static void apply(const Input& in, ParserState& state) {
-				state.end_object(in);
+				apply_parser_transition(state, in, ended_object);
 			}
 		};
 
@@ -231,7 +263,8 @@ namespace timetable::infra::params_txt {
 		struct action<grammar::array_begin> final {
 			template <typename Input>
 			static void apply(const Input& in, ParserState& state) {
-				state.begin_array(in);
+				(void)in;
+				state = begun_array(std::move(state));
 			}
 		};
 
@@ -239,7 +272,7 @@ namespace timetable::infra::params_txt {
 		struct action<grammar::array_end> final {
 			template <typename Input>
 			static void apply(const Input& in, ParserState& state) {
-				state.end_array(in);
+				apply_parser_transition(state, in, ended_array);
 			}
 		};
 
@@ -247,7 +280,16 @@ namespace timetable::infra::params_txt {
 		struct action<grammar::key_string> final {
 			template <typename Input>
 			static void apply(const Input& in, ParserState& state) {
-				state.set_object_key(decode_quoted_string(in.string_view()), in);
+				apply_parser_transition(
+					state
+					, in
+					, [&](ParserState current) {
+						return with_object_key(
+							std::move(current),
+							decode_quoted_string(in.string_view())
+						);
+					}
+				);
 			}
 		};
 
@@ -255,7 +297,16 @@ namespace timetable::infra::params_txt {
 		struct action<grammar::value_string> final {
 			template <typename Input>
 			static void apply(const Input& in, ParserState& state) {
-				state.push_value(Value{ decode_quoted_string(in.string_view()) }, in);
+				apply_parser_transition(
+					state
+					, in
+					, [&](ParserState current) {
+						return with_pushed_value(
+							std::move(current),
+							Value{ decode_quoted_string(in.string_view()) }
+						);
+					}
+				);
 			}
 		};
 
@@ -263,7 +314,13 @@ namespace timetable::infra::params_txt {
 		struct action<grammar::kw_true> final {
 			template <typename Input>
 			static void apply(const Input& in, ParserState& state) {
-				state.push_value(Value{ true }, in);
+				apply_parser_transition(
+					state
+					, in
+					, [](ParserState current) {
+						return with_pushed_value(std::move(current), Value{ true });
+					}
+				);
 			}
 		};
 
@@ -271,7 +328,13 @@ namespace timetable::infra::params_txt {
 		struct action<grammar::kw_false> final {
 			template <typename Input>
 			static void apply(const Input& in, ParserState& state) {
-				state.push_value(Value{ false }, in);
+				apply_parser_transition(
+					state
+					, in
+					, [](ParserState current) {
+						return with_pushed_value(std::move(current), Value{ false });
+					}
+				);
 			}
 		};
 
@@ -279,7 +342,13 @@ namespace timetable::infra::params_txt {
 		struct action<grammar::kw_none> final {
 			template <typename Input>
 			static void apply(const Input& in, ParserState& state) {
-				state.push_value(Value{ nullptr }, in);
+				apply_parser_transition(
+					state
+					, in
+					, [](ParserState current) {
+						return with_pushed_value(std::move(current), Value{ nullptr });
+					}
+				);
 			}
 		};
 
@@ -297,11 +366,20 @@ namespace timetable::infra::params_txt {
 				if (errno == ERANGE) {
 					throw pegtl::parse_error("number out of range", in);
 				}
-				state.push_value(Value{ value }, in);
+				apply_parser_transition(
+					state
+					, in
+					, [&](ParserState current) {
+						return with_pushed_value(std::move(current), Value{ value });
+					}
+				);
 			}
 		};
 
-		mathfp::Expected<Value> parse_value_text(std::string text, std::string source_name) {
+		mathfp::Expected<Value> parse_value_text(
+			const std::string& text
+			, std::string_view source_name
+		) {
 			pegtl::memory_input in(text, source_name);
 			ParserState state;
 			try {
@@ -309,13 +387,13 @@ namespace timetable::infra::params_txt {
 				if (!state.stack.empty() || !state.root.has_value()) {
 					return mathfp::unexpected(
 						mathfp::invalid_arg("incomplete parse state")
-						.ctx("source", source_name)
+						.ctx("source", std::string(source_name))
 					);
 				}
 				return std::move(*state.root);
 			} catch (const pegtl::parse_error& e) {
 				auto err = mathfp::invalid_arg(e.what());
-				err.ctx("source", source_name);
+				err.ctx("source", std::string(source_name));
 				if (!e.positions().empty()) {
 					const auto& pos = e.positions().front();
 					err.ctx("line", static_cast<std::int64_t>(pos.line));

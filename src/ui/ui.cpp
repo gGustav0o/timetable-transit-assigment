@@ -37,6 +37,11 @@ namespace timetable::ui {
 			int last_log_lines = 0;
 		};
 
+		struct ScrollTracking final {
+			int offset = 0;
+			int last_total = 0;
+		};
+
 		void flush_wrapped_line(
 			std::vector<std::string>& lines
 			, std::string& current
@@ -187,27 +192,37 @@ namespace timetable::ui {
 			return max_offset;
 		}
 
-		void clamp_scroll(int& offset, int total, int height) {
-			offset = std::clamp(offset, 0, max_scroll(total, height));
+		int clamp_scroll(int offset, int total, int height) {
+			return std::clamp(offset, 0, max_scroll(total, height));
 		}
 
-		void auto_scroll(
-			int& offset
+		ScrollTracking auto_scroll(
+			int offset
 			, int total
 			, int height
-			, int& last_total
+			, int last_total
 		) {
 			if (total > last_total) {
-				offset = max_scroll(total, height);
-				last_total = total;
-				return;
+				return ScrollTracking{
+					.offset = max_scroll(total, height),
+					.last_total = total
+				};
 			}
-			last_total = total;
+			return ScrollTracking{
+				.offset = offset,
+				.last_total = total
+			};
 		}
 
 		struct PanelViewport final {
 			std::vector<ftxui::Element> visible_lines{};
 			int content_height{};
+			ScrollTracking scroll_tracking{};
+		};
+
+		struct BuiltPanel final {
+			ftxui::Element element;
+			ScrollTracking scroll_tracking{};
 		};
 
 		struct WrappedPanelContent final {
@@ -226,16 +241,28 @@ namespace timetable::ui {
 		PanelViewport prepare_panel_viewport(
 			WrappedPanelContent content
 			, int panel_height
-			, int& scroll
-			, int& last_total
+			, ScrollTracking scroll_tracking
 		) {
 			const auto content_height = std::max(1, panel_height - kPanelBorderHeight);
-			auto_scroll(scroll, static_cast<int>(content.lines.size()), content_height, last_total);
-			clamp_scroll(scroll, static_cast<int>(content.lines.size()), content_height);
+			auto tracked = auto_scroll(
+				scroll_tracking.offset,
+				static_cast<int>(content.lines.size()),
+				content_height,
+				scroll_tracking.last_total
+			);
+			const auto clamped_offset = clamp_scroll(
+				tracked.offset,
+				static_cast<int>(content.lines.size()),
+				content_height
+			);
 
 			return PanelViewport{
-				.visible_lines = slice_elements(content.lines, scroll, content_height),
-				.content_height = content_height
+				.visible_lines = slice_elements(content.lines, clamped_offset, content_height),
+				.content_height = content_height,
+				.scroll_tracking = ScrollTracking{
+					.offset = clamped_offset,
+					.last_total = tracked.last_total
+				}
 			};
 		}
 
@@ -268,10 +295,11 @@ namespace timetable::ui {
 			return event == ftxui::Event::Tab;
 		}
 
-		void toggle_focus(UiState& state) {
+		UiState toggle_focus(UiState state) {
 			state.focus = (state.focus == FocusPanel::Logs)
 				? FocusPanel::Status
 				: FocusPanel::Logs;
+			return state;
 		}
 
 		int scroll_delta(const ftxui::Event& event) {
@@ -290,20 +318,21 @@ namespace timetable::ui {
 			return 0;
 		}
 
-		void apply_scroll_delta(
-			UiState& state
+		UiState apply_scroll_delta(
+			UiState state
 			, int delta
 		) {
 			if (delta == 0) {
-				return;
+				return state;
 			}
 
 			if (state.focus == FocusPanel::Logs) {
 				state.logs_scroll += delta;
-				return;
+				return state;
 			}
 
 			state.status_scroll += delta;
+			return state;
 		}
 
 		bool handle_exit_event(
@@ -326,7 +355,7 @@ namespace timetable::ui {
 				return false;
 			}
 
-			toggle_focus(state);
+			state = toggle_focus(state);
 			return true;
 		}
 
@@ -339,7 +368,7 @@ namespace timetable::ui {
 				return false;
 			}
 
-			apply_scroll_delta(state, delta);
+			state = apply_scroll_delta(state, delta);
 			return true;
 		}
 
@@ -371,26 +400,31 @@ namespace timetable::ui {
 			std::thread refresh_thread_;
 		};
 
-		ftxui::Element build_panel(
+		BuiltPanel build_panel(
 			const char* title
 			, const std::vector<infra::LogEntry>& lines
 			, int wrap_width
 			, int panel_height
-			, int& scroll
+			, int scroll
 			, bool focused
-			, int& last_total
+			, int last_total
 		) {
 			auto content = prepare_wrapped_panel_content(lines, wrap_width);
 			auto viewport = prepare_panel_viewport(
 				std::move(content)
 				, panel_height
-				, scroll
-				, last_total
+				, ScrollTracking{
+					.offset = scroll,
+					.last_total = last_total
+				}
 			);
-			return render_panel_window(
-				make_panel_title(title, focused)
-				, std::move(viewport.visible_lines)
-			);
+			return BuiltPanel{
+				.element = render_panel_window(
+					make_panel_title(title, focused)
+					, std::move(viewport.visible_lines)
+				),
+				.scroll_tracking = viewport.scroll_tracking
+			};
 		}
 
 		ftxui::Component make_renderer(const UiModel& model, UiState& state) {
@@ -406,17 +440,25 @@ namespace timetable::ui {
 				);
 				const auto logs_height = std::max(3, total_height - status_height - 1);
 
-				auto status_box = build_panel(
+				auto status_panel = build_panel(
 					"Status", snapshot.status_lines, width, status_height,
 					state.status_scroll, state.focus == FocusPanel::Status,
 					state.last_status_lines
-				) | ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, status_height);
+				);
+				auto status_box = std::move(status_panel.element)
+					| ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, status_height);
+				state.status_scroll = status_panel.scroll_tracking.offset;
+				state.last_status_lines = status_panel.scroll_tracking.last_total;
 
-				auto logs_box = build_panel(
+				auto logs_panel = build_panel(
 					"Logs", snapshot.log_lines, width, logs_height,
 					state.logs_scroll, state.focus == FocusPanel::Logs,
 					state.last_log_lines
-				) | ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, logs_height);
+				);
+				auto logs_box = std::move(logs_panel.element)
+					| ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, logs_height);
+				state.logs_scroll = logs_panel.scroll_tracking.offset;
+				state.last_log_lines = logs_panel.scroll_tracking.last_total;
 
 				return ftxui::vbox({
 						   status_box

@@ -7,6 +7,7 @@
 #include <vector>
 
 #include <mathfp/core/error.hpp>
+#include <mathfp/core/try.hpp>
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
@@ -104,13 +105,21 @@ namespace timetable::infra {
 			);
 		}
 
-		void activate_logging(const std::shared_ptr<spdlog::logger>& logger) {
+		mathfp::Expected<mathfp::Unit> activate_logging(
+			const std::shared_ptr<spdlog::logger>& logger
+		) {
+			if (!logger) {
+				return mathfp::unexpected(
+					mathfp::invalid_arg("cannot activate logging with null logger")
+				);
+			}
 			// TODO: Define repeated init_logging(...) semantics explicitly:
 			// whether replacing the default logger is allowed, expected, or should
 			// be rejected/reused for process-wide stability.
 			spdlog::set_default_logger(logger);
 			spdlog::set_pattern("[%H:%M:%S.%e] [%^%l%$] %v");
 			g_logging_started.store(true, std::memory_order_relaxed);
+			return mathfp::ok();
 		}
 
 		struct LoggingArtifacts final {
@@ -146,7 +155,7 @@ namespace timetable::infra {
 			, make_logging_artifacts(
 			log_capacity, log_dir, enable_console_sink
 		));
-		activate_logging(artifacts.context.logger);
+		MATHFP_TRY(activate_logging(artifacts.context.logger));
 		artifacts.context.logger->info(
 			"log file: {}"
 			, artifacts.log_path.string()

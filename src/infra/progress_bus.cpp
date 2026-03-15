@@ -7,31 +7,36 @@
 namespace timetable::infra::progress {
 	namespace {
 		std::mutex g_mutex;
-		Sink g_status_sink;
-		Sink g_log_sink;
+		SinkState g_sinks;
 	}
 
-	void set_status_sink(Sink sink) {
+	mathfp::Expected<mathfp::Unit> set_sinks(SinkState sinks) {
 		std::lock_guard lock(g_mutex);
-		g_status_sink = std::move(sink);
+		g_sinks = std::move(sinks);
+		return mathfp::ok();
 	}
 
-	void set_log_sink(Sink sink) {
+	mathfp::Expected<mathfp::Unit> set_status_sink(Sink sink) {
 		std::lock_guard lock(g_mutex);
-		g_log_sink = std::move(sink);
+		g_sinks.status = std::move(sink);
+		return mathfp::ok();
 	}
 
-	void clear_sinks() {
+	mathfp::Expected<mathfp::Unit> set_log_sink(Sink sink) {
 		std::lock_guard lock(g_mutex);
-		g_status_sink = Sink{};
-		g_log_sink = Sink{};
+		g_sinks.log = std::move(sink);
+		return mathfp::ok();
+	}
+
+	mathfp::Expected<mathfp::Unit> clear_sinks() {
+		return set_sinks(SinkState{});
 	}
 
 	void status(std::string_view message, LogLevel level) {
 		Sink sink;
 		{
 			std::lock_guard lock(g_mutex);
-			sink = g_status_sink;
+			sink = g_sinks.status;
 		}
 		assert(sink && "progress::status sink not set");
 		if (sink) {
@@ -43,7 +48,7 @@ namespace timetable::infra::progress {
 		Sink sink;
 		{
 			std::lock_guard lock(g_mutex);
-			sink = g_log_sink;
+			sink = g_sinks.log;
 		}
 		assert(sink && "progress::log sink not set");
 		if (sink) {

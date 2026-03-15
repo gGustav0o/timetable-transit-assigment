@@ -66,7 +66,7 @@ namespace timetable::domain::assignment {
     /**
      * @brief Assign contiguous RouteSegmentId values starting from zero.
      */
-    void reindex_route_segments(std::vector<RouteSegment>& segments);
+    std::vector<RouteSegment> reindex_route_segments(std::vector<RouteSegment> segments);
 
     /**
      * @brief Validate route segments before indexing.

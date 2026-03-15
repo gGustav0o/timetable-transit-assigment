@@ -3,6 +3,8 @@
 #include <filesystem>
 #include <memory>
 
+#include <mathfp/core/expected.hpp>
+
 #include "timetable/infra/log_buffer.hpp"
 
 namespace spdlog {

@@ -261,8 +261,10 @@ namespace timetable::infra::txt {
 		struct LineRouteKeyHash final {
 			std::size_t operator()(const LineRouteKey& key) const noexcept {
 				std::size_t seed = 0;
-				boost::hash_combine(seed, key.from);
-				boost::hash_combine(seed, key.to);
+				boost::hash_combine(seed, static_cast<std::uint8_t>(key.from.kind));
+				boost::hash_combine(seed, key.from.id);
+				boost::hash_combine(seed, static_cast<std::uint8_t>(key.to.kind));
+				boost::hash_combine(seed, key.to.id);
 				boost::hash_combine(seed, key.line_id);
 				return seed;
 			}
@@ -330,8 +332,19 @@ namespace timetable::infra::txt {
 			const LineRouteMetrics& lhs
 			, const LineRouteMetrics& rhs
 		) {
-			return mathfp::almost_equal(lhs.length_km, rhs.length_km)
-				&& mathfp::almost_equal(lhs.time_sec, rhs.time_sec);
+			const auto length_abs_tol = mathfp::abs_tolerance(lhs.length_km, rhs.length_km);
+			const auto length_rel_tol = mathfp::rel_tolerance_coeff<double>();
+			const auto time_abs_tol = mathfp::abs_tolerance(lhs.time_sec, rhs.time_sec);
+			const auto time_rel_tol = mathfp::rel_tolerance_coeff<double>();
+
+			const auto length_scale = mathfp::scalar_scale(lhs.length_km, rhs.length_km);
+			const auto time_scale = mathfp::scalar_scale(lhs.time_sec, rhs.time_sec);
+
+			const auto length_tol = std::max(length_abs_tol, length_rel_tol * length_scale);
+			const auto time_tol = std::max(time_abs_tol, time_rel_tol * time_scale);
+
+			return std::abs(lhs.length_km - rhs.length_km) <= length_tol
+				&& std::abs(lhs.time_sec - rhs.time_sec) <= time_tol;
 		}
 
 		mathfp::Expected<mathfp::Unit> validate_int_column_length(
@@ -454,7 +467,7 @@ namespace timetable::infra::txt {
 			};
 		}
 
-		void report_build_progress(
+		mathfp::Expected<mathfp::Unit> report_build_progress(
 			std::size_t index
 			, std::size_t total
 			, const BuildStats& stats
@@ -464,7 +477,7 @@ namespace timetable::infra::txt {
 			using timetable::infra::progress::status;
 
 			if (index == 0 || (index % kProgressStep) != 0) {
-				return;
+				return mathfp::kUnit;
 			}
 
 			const auto pct = static_cast<int>(100.0 * static_cast<double>(index) / static_cast<double>(total));
@@ -480,6 +493,7 @@ namespace timetable::infra::txt {
 				),
 				LogLevel::Debug
 			);
+			return mathfp::kUnit;
 		}
 
 		mathfp::Expected<mathfp::Unit> ensure_distinct_segment_endpoints(
@@ -517,15 +531,15 @@ namespace timetable::infra::txt {
 				&& row.arr_sec < row.dep_sec;
 		}
 
-		bool should_drop_overnight_row(
-			BuildState& state
+		std::optional<BuildState> dropped_overnight_state(
+			BuildState state
 			, const SegmentRowView& row
 		) {
 			using timetable::infra::LogLevel;
 			using timetable::infra::progress::log;
 
 			if (!is_overnight_timed_row(row)) {
-				return false;
+				return std::nullopt;
 			}
 
 			++state.stats.dropped_overnight;
@@ -540,7 +554,7 @@ namespace timetable::infra::txt {
 				),
 				LogLevel::Warning
 			);
-			return true;
+			return state;
 		}
 
 		mathfp::Expected<SegmentSemantics> interpret_segment_row(
@@ -662,8 +676,8 @@ namespace timetable::infra::txt {
 			};
 		}
 
-		void collect_model_entities(
-			BuildState& state
+		mathfp::Expected<BuildState> collect_model_entities(
+			BuildState state
 			, const SegmentRowView& row
 			, const SegmentSemantics& semantics
 		) {
@@ -693,6 +707,7 @@ namespace timetable::infra::txt {
 			if (std::holds_alternative<StopId>(semantics.to_endpoint)) {
 				state.stop_ids.insert(std::get<StopId>(semantics.to_endpoint).get());
 			}
+			return state;
 		}
 
 		mathfp::Expected<const timetable::domain::RouteSegment*> build_route_segment_for_row(
@@ -803,16 +818,27 @@ namespace timetable::infra::txt {
 			return &state.route_segments.back();
 		}
 
-		mathfp::Expected<mathfp::Unit> append_connection_segment_for_row(
-			BuildState& state
+		mathfp::Expected<BuildState> append_connection_segment_for_row(
+			BuildState state
 			, const SegmentRowView& row
 			, const SegmentSemantics& semantics
-			, const timetable::domain::RouteSegment& route_segment
+			, timetable::domain::RouteSegmentId route_segment_id
 		) {
 			using timetable::domain::ConnectionSegment;
 			using timetable::domain::ConnectionSegmentId;
+			using timetable::domain::RouteSegment;
 			using timetable::domain::TripId;
 			using timetable::domain::preprocessing::make_connection_segment;
+
+			const auto route_index = static_cast<std::size_t>(route_segment_id.get());
+			if (route_index >= state.route_segments.size()) {
+				return mathfp::unexpected(
+					mathfp::internal_error("missing route segment while appending connection segment")
+					.ctx(std::string(kCtxIndex), static_cast<std::int64_t>(row.index))
+					.ctx("route_segment_id", route_segment_id.get())
+				);
+			}
+			const RouteSegment& route_segment = state.route_segments[route_index];
 
 			MATHFP_TRY_LET(
 				ConnectionSegment
@@ -838,28 +864,27 @@ namespace timetable::infra::txt {
 				++state.stats.timed_segments;
 			}
 
-			return mathfp::kUnit;
+			return state;
 		}
 
-		mathfp::Expected<mathfp::Unit> process_segment_row(
-			BuildState& state
+		mathfp::Expected<BuildState> process_segment_row(
+			BuildState state
 			, const SegmentColumns& columns
 			, std::size_t index
 		) {
 			const auto row = segment_row_view(columns, index);
-			if (should_drop_overnight_row(state, row)) {
-				return mathfp::kUnit;
+			if (const auto dropped = dropped_overnight_state(std::move(state), row); dropped.has_value()) {
+				return std::move(*dropped);
 			}
 
 			MATHFP_TRY_LET(SegmentSemantics, semantics, interpret_segment_row(row, state.zones_set));
-			collect_model_entities(state, row, semantics);
+			MATHFP_TRY_LET(BuildState, with_entities, collect_model_entities(std::move(state), row, semantics));
 			MATHFP_TRY_LET(
 				const timetable::domain::RouteSegment*
 				, route_segment
-				, build_route_segment_for_row(state, row, semantics)
+				, build_route_segment_for_row(with_entities, row, semantics)
 			);
-			MATHFP_TRY(append_connection_segment_for_row(state, row, semantics, *route_segment));
-			return mathfp::kUnit;
+			return append_connection_segment_for_row(std::move(with_entities), row, semantics, route_segment->id);
 		}
 
 		mathfp::Expected<mathfp::Unit> validate_extra_zones(
@@ -1110,8 +1135,9 @@ namespace timetable::infra::txt {
 		log("parsing: building segments", LogLevel::Info);
 		status("parsing: building segments (0%)");
 		for (std::size_t i = 0; i < n; ++i) {
-			report_build_progress(i, n, state.stats);
-			MATHFP_TRY(process_segment_row(state, columns, i));
+			MATHFP_TRY(report_build_progress(i, n, state.stats));
+			MATHFP_TRY_LET(BuildState, next_state, process_segment_row(std::move(state), columns, i));
+			state = std::move(next_state);
 		}
 
 		status("parsing: building segments (100%)");

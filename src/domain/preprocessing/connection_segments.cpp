@@ -50,6 +50,66 @@ namespace timetable::domain::preprocessing {
             std::size_t skipped_overnight_policy{};
         };
 
+        struct ConnectionBuildState final {
+            std::vector<ConnectionSegment> segments{};
+            std::int64_t next_id{};
+            ConnectionBuildStats stats{};
+        };
+
+        struct GroupTripsResult final {
+            IndexedTripsByLine trips_by_line{};
+            ConnectionBuildStats stats{};
+        };
+
+        struct RouteLookupResult final {
+            const Route* route{};
+            ConnectionBuildStats stats{};
+        };
+
+        struct StopEndpointResult final {
+            std::optional<StopEndpoints> endpoints{};
+            ConnectionBuildStats stats{};
+        };
+
+        struct TimedSegmentData final {
+            Time arrival{};
+            Time departure{};
+            std::int64_t from_index{};
+            std::int64_t to_index{};
+        };
+
+        struct TripTimesResult final {
+            std::optional<TimedSegmentData> times{};
+            ConnectionBuildStats stats{};
+        };
+
+        struct TimedRouteBuildResult final {
+            std::vector<ConnectionSegment> segments{};
+            std::int64_t next_id{};
+            ConnectionBuildStats stats{};
+        };
+
+        struct BuiltConnectionSegment final {
+            ConnectionSegment segment{};
+            std::int64_t next_id{};
+        };
+
+        ConnectionBuildStats add_stats(
+            ConnectionBuildStats lhs
+            , const ConnectionBuildStats& rhs
+        ) {
+            lhs.walk_segments += rhs.walk_segments;
+            lhs.timed_segments += rhs.timed_segments;
+            lhs.skipped_missing_routes += rhs.skipped_missing_routes;
+            lhs.skipped_invalid_endpoints += rhs.skipped_invalid_endpoints;
+            lhs.skipped_missing_trips += rhs.skipped_missing_trips;
+            lhs.skipped_missing_trip_stops += rhs.skipped_missing_trip_stops;
+            lhs.skipped_invalid_trip_order += rhs.skipped_invalid_trip_order;
+            lhs.skipped_early_arrival += rhs.skipped_early_arrival;
+            lhs.skipped_overnight_policy += rhs.skipped_overnight_policy;
+            return lhs;
+        }
+
         const Route* find_route(
             const std::unordered_map<RouteId, const Route*>& routes_by_id
             , RouteId id
@@ -58,18 +118,19 @@ namespace timetable::domain::preprocessing {
             return it == routes_by_id.end() ? nullptr : it->second;
         }
 
-        mathfp::Expected<const Route*> find_trip_route(
+        mathfp::Expected<RouteLookupResult> find_trip_route(
             const Trip& trip
             , const std::unordered_map<RouteId, const Route*>& routes_by_id
             , const PreprocessParams& params
-            , ConnectionBuildStats& stats
         ) {
             const auto* route = find_route(routes_by_id, trip.route);
             if (route) {
-                return route;
+                return RouteLookupResult{
+                    .route = route,
+                    .stats = {}
+                };
             }
 
-            ++stats.skipped_missing_routes;
             if (params.strict_trips) {
                 return mathfp::unexpected(
                     mathfp::invalid_arg("trip references unknown route")
@@ -77,7 +138,10 @@ namespace timetable::domain::preprocessing {
                     .ctx("route_id", trip.route.get())
                 );
             }
-            return static_cast<const Route*>(nullptr);
+            return RouteLookupResult{
+                .route = nullptr,
+                .stats = ConnectionBuildStats{ .skipped_missing_routes = 1 }
+            };
         }
 
         IndexedTrip index_trip(const Trip& trip) {
@@ -87,19 +151,19 @@ namespace timetable::domain::preprocessing {
             };
         }
 
-        void insert_indexed_trip(
-            IndexedTripsByLine& trips_by_line
+        IndexedTripsByLine insert_indexed_trip(
+            IndexedTripsByLine trips_by_line
             , LineId line
             , IndexedTrip indexed_trip
         ) {
             trips_by_line[line].push_back(std::move(indexed_trip));
+            return trips_by_line;
         }
 
-        mathfp::Expected<IndexedTripsByLine> group_trips_by_line(
+        mathfp::Expected<GroupTripsResult> group_trips_by_line(
             const std::vector<Route>& routes
             , const std::vector<Trip>& trips
             , const PreprocessParams& params
-            , ConnectionBuildStats& stats
         ) {
             std::unordered_map<RouteId, const Route*> routes_by_id;
             routes_by_id.reserve(routes.size());
@@ -108,18 +172,23 @@ namespace timetable::domain::preprocessing {
             }
 
             IndexedTripsByLine out;
+            ConnectionBuildStats stats;
             for (const auto& trip : trips) {
                 MATHFP_TRY_LET(
-                    const Route*
-                    , route
-                    , find_trip_route(trip, routes_by_id, params, stats)
+                    RouteLookupResult
+                    , route_result
+                    , find_trip_route(trip, routes_by_id, params)
                 );
-                if (!route) {
+                stats = add_stats(std::move(stats), route_result.stats);
+                if (!route_result.route) {
                     continue;
                 }
-                insert_indexed_trip(out, route->line, index_trip(trip));
+                out = insert_indexed_trip(std::move(out), route_result.route->line, index_trip(trip));
             }
-            return out;
+            return GroupTripsResult{
+                .trips_by_line = std::move(out),
+                .stats = std::move(stats)
+            };
         }
 
         std::vector<const RouteSegment*> ordered_route_segments(
@@ -175,19 +244,11 @@ namespace timetable::domain::preprocessing {
             };
         }
 
-        struct TimedSegmentData final {
-            Time arrival{};
-            Time departure{};
-            std::int64_t from_index{};
-            std::int64_t to_index{};
-        };
-
-        mathfp::Expected<std::optional<TimedSegmentData>> extract_trip_times(
+        mathfp::Expected<TripTimesResult> extract_trip_times(
             const IndexedTrip& indexed_trip
             , StopId from
             , StopId to
             , const PreprocessParams& params
-            , ConnectionBuildStats& stats
         ) {
             const auto& trip = *indexed_trip.trip;
             const auto it_from = indexed_trip.stop_index.find(from);
@@ -201,8 +262,10 @@ namespace timetable::domain::preprocessing {
                         .ctx("to", to.get())
                     );
                 }
-                ++stats.skipped_missing_trip_stops;
-                return std::optional<TimedSegmentData>{};
+                return TripTimesResult{
+                    .times = std::nullopt,
+                    .stats = ConnectionBuildStats{ .skipped_missing_trip_stops = 1 }
+                };
             }
 
             if (it_to->second <= it_from->second) {
@@ -214,8 +277,10 @@ namespace timetable::domain::preprocessing {
                         .ctx("to", to.get())
                     );
                 }
-                ++stats.skipped_invalid_trip_order;
-                return std::optional<TimedSegmentData>{};
+                return TripTimesResult{
+                    .times = std::nullopt,
+                    .stats = ConnectionBuildStats{ .skipped_invalid_trip_order = 1 }
+                };
             }
 
             const auto& dep = trip.times[it_from->second].departure;
@@ -230,8 +295,10 @@ namespace timetable::domain::preprocessing {
                             .ctx("to", to.get())
                         );
                     }
-                    ++stats.skipped_early_arrival;
-                    return std::optional<TimedSegmentData>{};
+                    return TripTimesResult{
+                        .times = std::nullopt,
+                        .stats = ConnectionBuildStats{ .skipped_early_arrival = 1 }
+                    };
                 }
                 if (params.overnight_add_24h) {
                     arr = Time{ arr.value() + 24.0 * 3600.0 };
@@ -244,17 +311,22 @@ namespace timetable::domain::preprocessing {
                             .ctx("to", to.get())
                         );
                     }
-                    ++stats.skipped_overnight_policy;
-                    return std::optional<TimedSegmentData>{};
+                    return TripTimesResult{
+                        .times = std::nullopt,
+                        .stats = ConnectionBuildStats{ .skipped_overnight_policy = 1 }
+                    };
                 }
             }
 
-            return std::optional<TimedSegmentData>{ TimedSegmentData{
-                .arrival = arr,
-                .departure = dep,
-                .from_index = static_cast<std::int64_t>(it_from->second),
-                .to_index = static_cast<std::int64_t>(it_to->second)
-            } };
+            return TripTimesResult{
+                .times = TimedSegmentData{
+                    .arrival = arr,
+                    .departure = dep,
+                    .from_index = static_cast<std::int64_t>(it_from->second),
+                    .to_index = static_cast<std::int64_t>(it_to->second)
+                },
+                .stats = {}
+            };
         }
 
         bool has_non_strict_skips(const ConnectionBuildStats& stats) noexcept {
@@ -313,77 +385,102 @@ namespace timetable::domain::preprocessing {
             );
         }
 
-        mathfp::Expected<ConnectionSegment> build_walk_connection_segment(
+        mathfp::Expected<BuiltConnectionSegment> build_walk_connection_segment(
             const RouteSegment& route_segment
-            , std::int64_t& next_id
+            , std::int64_t next_id
         ) {
-            return make_connection_segment(
-                ConnectionSegmentId{ next_id++ }
-                , route_segment
-                , std::nullopt
-                , std::nullopt
-                , std::nullopt
-                , std::nullopt
-                , std::nullopt
-                , std::nullopt
+            MATHFP_TRY_LET(
+                ConnectionSegment
+                , segment
+                , make_connection_segment(
+                    ConnectionSegmentId{ next_id++ }
+                    , route_segment
+                    , std::nullopt
+                    , std::nullopt
+                    , std::nullopt
+                    , std::nullopt
+                    , std::nullopt
+                    , std::nullopt
+                )
             );
+            return BuiltConnectionSegment{
+                .segment = std::move(segment),
+                .next_id = next_id
+            };
         }
 
-        mathfp::Expected<std::optional<StopEndpoints>> extract_line_route_stop_endpoints(
+        mathfp::Expected<StopEndpointResult> extract_line_route_stop_endpoints(
             const RouteSegment& route_segment
             , const PreprocessParams& params
-            , ConnectionBuildStats& stats
         ) {
             if (!std::holds_alternative<StopId>(route_segment.from)
                 || !std::holds_alternative<StopId>(route_segment.to)) {
-                ++stats.skipped_invalid_endpoints;
                 if (params.strict_trips) {
                     return mathfp::unexpected(
                         mathfp::invalid_arg("line route segment endpoints must be stops")
                         .ctx("route_segment_id", route_segment.id.get())
                     );
                 }
-                return std::optional<StopEndpoints>{};
+                return StopEndpointResult{
+                    .endpoints = std::nullopt,
+                    .stats = ConnectionBuildStats{ .skipped_invalid_endpoints = 1 }
+                };
             }
 
-            return std::optional<StopEndpoints>{ StopEndpoints{
-                std::get<StopId>(route_segment.from),
-                std::get<StopId>(route_segment.to)
-            } };
+            return StopEndpointResult{
+                .endpoints = StopEndpoints{
+                    std::get<StopId>(route_segment.from),
+                    std::get<StopId>(route_segment.to)
+                },
+                .stats = {}
+            };
         }
 
-        mathfp::Expected<ConnectionSegment> build_timed_connection_segment(
+        mathfp::Expected<BuiltConnectionSegment> build_timed_connection_segment(
             const RouteSegment& route_segment
             , const IndexedTrip& indexed_trip
             , const TimedSegmentData& times
-            , std::int64_t& next_id
+            , std::int64_t next_id
         ) {
-            return make_connection_segment(
-                ConnectionSegmentId{ next_id++ }
-                , route_segment
-                , indexed_trip.trip->id
-                , times.from_index
-                , times.to_index
-                , times.departure
-                , times.arrival
-                , std::nullopt
+            MATHFP_TRY_LET(
+                ConnectionSegment
+                , segment
+                , make_connection_segment(
+                    ConnectionSegmentId{ next_id++ }
+                    , route_segment
+                    , indexed_trip.trip->id
+                    , times.from_index
+                    , times.to_index
+                    , times.departure
+                    , times.arrival
+                    , std::nullopt
+                )
             );
+            return BuiltConnectionSegment{
+                .segment = std::move(segment),
+                .next_id = next_id
+            };
         }
 
-        mathfp::Expected<std::vector<ConnectionSegment>> build_timed_connection_segments_for_route(
+        mathfp::Expected<TimedRouteBuildResult> build_timed_connection_segments_for_route(
             const RouteSegment& route_segment
             , const std::vector<IndexedTrip>& line_trips
             , const PreprocessParams& params
-            , std::int64_t& next_id
-            , ConnectionBuildStats& stats
+            , std::int64_t next_id
         ) {
             MATHFP_TRY_LET(
-                std::optional<StopEndpoints>
-                , stop_endpoints
-                , extract_line_route_stop_endpoints(route_segment, params, stats)
+                StopEndpointResult
+                , stop_endpoint_result
+                , extract_line_route_stop_endpoints(route_segment, params)
             );
-            if (!stop_endpoints.has_value()) {
-                return std::vector<ConnectionSegment>{};
+
+            ConnectionBuildStats stats = std::move(stop_endpoint_result.stats);
+            if (!stop_endpoint_result.endpoints.has_value()) {
+                return TimedRouteBuildResult{
+                    .segments = {},
+                    .next_id = next_id,
+                    .stats = std::move(stats)
+                };
             }
 
             // TODO: Derive a better reserve estimate for timed segments when
@@ -392,89 +489,94 @@ namespace timetable::domain::preprocessing {
             segments.reserve(line_trips.size());
             for (const auto& indexed_trip : line_trips) {
                 MATHFP_TRY_LET(
-                    std::optional<TimedSegmentData>
-                    , times
+                    TripTimesResult
+                    , trip_times_result
                     , extract_trip_times(
                         indexed_trip
-                        , stop_endpoints->first
-                        , stop_endpoints->second
+                        , stop_endpoint_result.endpoints->first
+                        , stop_endpoint_result.endpoints->second
                         , params
-                        , stats
                     )
                 );
-                if (!times.has_value()) {
+                stats = add_stats(std::move(stats), trip_times_result.stats);
+                if (!trip_times_result.times.has_value()) {
                     continue;
                 }
 
-                ++stats.timed_segments;
+                stats.timed_segments += 1;
                 MATHFP_TRY_LET(
-                    ConnectionSegment
-                    , segment
+                    BuiltConnectionSegment
+                    , built_segment
                     , build_timed_connection_segment(
                         route_segment
                         , indexed_trip
-                        , *times
+                        , *trip_times_result.times
                         , next_id
                     )
                 );
+                next_id = built_segment.next_id;
                 // TODO: Decide how fare should be derived for built-from-trips
                 // timed segments; presegmented CSV can carry fare explicitly,
                 // but this path currently leaves fare unset by construction.
-                segments.push_back(std::move(segment));
+                segments.push_back(std::move(built_segment.segment));
             }
 
-            return segments;
+            return TimedRouteBuildResult{
+                .segments = std::move(segments),
+                .next_id = next_id,
+                .stats = std::move(stats)
+            };
         }
 
-        mathfp::Expected<mathfp::Unit> append_route_connection_segments(
-            std::vector<ConnectionSegment>& out
+        mathfp::Expected<ConnectionBuildState> append_route_connection_segments(
+            ConnectionBuildState state
             , const RouteSegment& route_segment
             , const IndexedTripsByLine& trips_by_line
             , const PreprocessParams& params
-            , std::int64_t& next_id
-            , ConnectionBuildStats& stats
         ) {
             if (is_walk(route_segment.carrier)) {
-                ++stats.walk_segments;
+                state.stats.walk_segments += 1;
                 MATHFP_TRY_LET(
-                    ConnectionSegment
-                    , segment
-                    , build_walk_connection_segment(route_segment, next_id)
+                    BuiltConnectionSegment
+                    , built_segment
+                    , build_walk_connection_segment(route_segment, state.next_id)
                 );
-                out.push_back(std::move(segment));
-                return mathfp::kUnit;
+                state.next_id = built_segment.next_id;
+                state.segments.push_back(std::move(built_segment.segment));
+                return state;
             }
 
             const auto line = std::get<LineId>(route_segment.carrier);
             const auto it_trips = trips_by_line.find(line);
             if (it_trips == trips_by_line.end()) {
-                ++stats.skipped_missing_trips;
                 if (params.strict_trips) {
                     return mathfp::unexpected(
                         mathfp::invalid_arg("line has no trips")
                         .ctx("line_id", line.get())
                     );
                 }
-                return mathfp::kUnit;
+                state.stats.skipped_missing_trips += 1;
+                return state;
             }
 
             MATHFP_TRY_LET(
-                std::vector<ConnectionSegment>
-                , route_segments
+                TimedRouteBuildResult
+                , route_result
                 , build_timed_connection_segments_for_route(
                     route_segment
                     , it_trips->second
                     , params
-                    , next_id
-                    , stats
+                    , state.next_id
                 )
             );
-            out.insert(
-                out.end()
-                , std::make_move_iterator(route_segments.begin())
-                , std::make_move_iterator(route_segments.end())
+            state.next_id = route_result.next_id;
+            state.stats = add_stats(std::move(state.stats), route_result.stats);
+            state.segments.insert(
+                state.segments.end()
+                , std::make_move_iterator(route_result.segments.begin())
+                , std::make_move_iterator(route_result.segments.end())
             );
-            return mathfp::kUnit;
+            return state;
         }
 
     }  // namespace
@@ -500,18 +602,14 @@ namespace timetable::domain::preprocessing {
             , LogLevel::Info
         );
 
-        std::vector<ConnectionSegment> out;
-        std::int64_t next_id = 0;
-        ConnectionBuildStats stats;
-
         MATHFP_TRY_LET(
-            IndexedTripsByLine
-            , trips_by_line
-            , group_trips_by_line(routes, trips, params, stats)
+            GroupTripsResult
+            , grouped_trips
+            , group_trips_by_line(routes, trips, params)
         );
         const auto ordered_inputs = ordered_generation_inputs(
             route_segments
-            , std::move(trips_by_line)
+            , std::move(grouped_trips.trips_by_line)
             , params.stable_ordering
         );
         log(
@@ -525,22 +623,30 @@ namespace timetable::domain::preprocessing {
             , LogLevel::Info
         );
 
+        ConnectionBuildState state{
+            .segments = {},
+            .next_id = 0,
+            .stats = std::move(grouped_trips.stats)
+        };
+
         for (const auto* route_segment : ordered_inputs.route_order) {
-            MATHFP_TRY(append_route_connection_segments(
-                out
+            MATHFP_TRY_LET(
+                ConnectionBuildState
+                , next_state
+                , append_route_connection_segments(
+                std::move(state)
                 , *route_segment
                 , ordered_inputs.trips_by_line
                 , params
-                , next_id
-                , stats
             ));
+            state = std::move(next_state);
         }
 
-        log_connection_segment_totals(out, stats);
-        log_skip_summary(stats);
+        log_connection_segment_totals(state.segments, state.stats);
+        log_skip_summary(state.stats);
         both("preprocessing: connection segments done");
 
-        return out;
+        return std::move(state.segments);
     }
 
 }  // namespace timetable::domain::preprocessing

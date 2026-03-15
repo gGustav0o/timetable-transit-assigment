@@ -17,6 +17,7 @@
 #include "timetable/ui/ui.hpp"
 
 #include <mathfp/core/fp.hpp>
+#include <mathfp/core/expected.hpp>
 #include <mathfp/core/try.hpp>
 #include <spdlog/spdlog.h>
 #include <mathfp/core/error.hpp>
@@ -28,42 +29,82 @@ namespace timetable::app {
 			timetable::infra::LogLevel level
 		) noexcept;
 
+		std::thread start_log_refresh_thread(
+			std::atomic_bool& running
+			, ui::UiModel& model
+			, const timetable::app::AppConfig& config
+			, const std::shared_ptr<timetable::infra::LogBuffer>& log_buffer
+		);
+
+		std::thread start_worker_thread(
+			const io::DataSource& data_source
+			, const std::shared_ptr<spdlog::logger>& logger
+			, class WorkerResultBox& worker_result
+		);
+
 		class ScopedProgressSinks final {
 		public:
-			ScopedProgressSinks(
+			static mathfp::Expected<ScopedProgressSinks> make(
 				ui::UiModel& model
 				, const std::shared_ptr<spdlog::logger>& logger
 			) {
-				timetable::infra::progress::set_log_sink(
-					[logger](timetable::infra::LogLevel level, std::string_view message) {
-						if (logger) {
-							logger->log(to_spdlog_level(level), "{}", message);
-						}
-					});
-				timetable::infra::progress::set_status_sink(
-					[&model](timetable::infra::LogLevel level, std::string_view message) {
+				MATHFP_TRY(timetable::infra::progress::set_sinks({
+					.status = [&model](timetable::infra::LogLevel level, std::string_view message) {
 						model.set_status_lines({
 							timetable::infra::LogEntry{ level, std::string(message) }
 						});
-					});
+					},
+					.log = [logger](timetable::infra::LogLevel level, std::string_view message) {
+						if (logger) {
+							logger->log(to_spdlog_level(level), "{}", message);
+						}
+					}
+				}));
+				return ScopedProgressSinks{ true };
 			}
 
 			ScopedProgressSinks(const ScopedProgressSinks&) = delete;
 			ScopedProgressSinks& operator=(const ScopedProgressSinks&) = delete;
 
-			ScopedProgressSinks(ScopedProgressSinks&&) = delete;
-			ScopedProgressSinks& operator=(ScopedProgressSinks&&) = delete;
+			ScopedProgressSinks(ScopedProgressSinks&& other) noexcept
+				: active_(std::exchange(other.active_, false)) {
+			}
+
+			ScopedProgressSinks& operator=(ScopedProgressSinks&& other) noexcept {
+				if (this != &other) {
+					if (active_) {
+						(void)timetable::infra::progress::clear_sinks();
+					}
+					active_ = std::exchange(other.active_, false);
+				}
+				return *this;
+			}
 
 			~ScopedProgressSinks() {
-				timetable::infra::progress::clear_sinks();
+				if (active_) {
+					(void)timetable::infra::progress::clear_sinks();
+				}
 			}
+
+		private:
+			explicit ScopedProgressSinks(bool active) noexcept
+				: active_(active) {
+			}
+
+			bool active_ = false;
 		};
 
 		class WorkerResultBox final {
 		public:
-			void set(mathfp::Expected<mathfp::Unit> result) {
+			mathfp::Expected<mathfp::Unit> set(mathfp::Expected<mathfp::Unit> result) {
 				std::lock_guard lock(mutex_);
+				if (result_.has_value()) {
+					return mathfp::unexpected(
+						mathfp::internal_error("worker result already set")
+					);
+				}
 				result_ = std::move(result);
+				return mathfp::ok();
 			}
 
 			mathfp::Expected<mathfp::Unit> take() {
@@ -226,7 +267,13 @@ namespace timetable::app {
 			, WorkerResultBox& worker_result
 		) {
 			return std::thread([&] {
-				worker_result.set(run_worker(data_source, logger));
+				const auto set_result = worker_result.set(run_worker(data_source, logger));
+				if (!set_result && logger) {
+					logger->error(
+						"worker result handoff failed:\n{}",
+						timetable::app::format_error(set_result.error())
+					);
+				}
 			});
 		}
 
@@ -248,7 +295,11 @@ namespace timetable::app {
 		auto logger = logging.logger;
 
 		ui::UiModel model;
-		ScopedProgressSinks progress_sinks(model, logger);
+		auto progress_sinks_result = ScopedProgressSinks::make(model, logger);
+		if (!progress_sinks_result) {
+			return mathfp::unexpected(progress_sinks_result.error());
+		}
+		auto progress_sinks = std::move(*progress_sinks_result);
 		WorkerResultBox worker_result;
 
 		timetable::infra::progress::status("waiting to start");

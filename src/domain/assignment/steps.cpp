@@ -98,7 +98,7 @@ namespace timetable::domain::assignment {
         }
 
         double nth_fare_value(
-            std::vector<double>& fares
+            std::vector<double> fares
             , std::size_t idx
         ) {
             std::nth_element(
@@ -109,7 +109,7 @@ namespace timetable::domain::assignment {
             return fares[idx];
         }
 
-        double median_fare_scale(std::vector<double>& fares) {
+        double median_fare_scale(std::vector<double> fares) {
             const auto mid = fares.size() / 2;
             if (fares.size() % 2 == 1) {
                 return nth_fare_value(fares, mid);
@@ -120,7 +120,7 @@ namespace timetable::domain::assignment {
             return 0.5 * (lower + upper);
         }
 
-        double p95_fare_scale(std::vector<double>& fares) {
+        double p95_fare_scale(std::vector<double> fares) {
             const auto idx = static_cast<std::size_t>(
                 std::floor(0.95 * static_cast<double>(fares.size() - 1))
             );
@@ -333,8 +333,7 @@ namespace timetable::domain::assignment {
             , bool allow_empty
         ) {
             MATHFP_TRY(validate_route_segments(route_segments, allow_empty));
-            reindex_route_segments(route_segments);
-            return route_segments;
+            return reindex_route_segments(std::move(route_segments));
         }
 
         mathfp::Expected<PreprocessedNetwork> finalize_preprocessed_network(
@@ -424,10 +423,11 @@ namespace timetable::domain::assignment {
         );
     }
 
-    void reindex_route_segments(std::vector<RouteSegment>& segments) {
+    std::vector<RouteSegment> reindex_route_segments(std::vector<RouteSegment> segments) {
         for (std::size_t i = 0; i < segments.size(); ++i) {
             segments[i].id = RouteSegmentId{ static_cast<std::int64_t>(i) };
         }
+        return segments;
     }
 
     bool is_branch_extension_feasible(
