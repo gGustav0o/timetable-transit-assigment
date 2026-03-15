@@ -1,9 +1,7 @@
 #include "timetable/infra/txt_segments.hpp"
 
 #include <algorithm>
-#include <cerrno>
 #include <cctype>
-#include <cstdlib>
 #include <fstream>
 #include <string>
 #include <string_view>
@@ -14,15 +12,17 @@
 #include <boost/container_hash/hash.hpp>
 
 #include <mathfp/core/error.hpp>
-#include <mathfp/core/fp.hpp>
-#include <mathfp/core/numeric_tolerance.hpp>
 #include <mathfp/core/try.hpp>
 #include <mathfp/core/unit.hpp>
 
 #include <fmt/format.h>
 
+#include "timetable/domain/endpoints.hpp"
+#include "timetable/domain/numeric.hpp"
 #include "timetable/domain/preprocessing/segments_factory.hpp"
+#include "timetable/domain/state_ops.hpp"
 #include "timetable/infra/progress_bus.hpp"
+#include "timetable/infra/text_parse.hpp"
 
 namespace timetable::infra::txt {
 
@@ -77,13 +77,6 @@ namespace timetable::infra::txt {
 		constexpr std::string_view kFieldFromIndex = "from_index";
 		constexpr std::string_view kFieldToIndex = "to_index";
 
-		std::string_view trim_cr(std::string_view line) {
-			if (!line.empty() && line.back() == '\r') {
-				line.remove_suffix(1);
-			}
-			return line;
-		}
-
 		mathfp::Unexpected parse_error(
 			const char* message
 			, std::string_view field
@@ -108,7 +101,7 @@ namespace timetable::infra::txt {
 			, ParseFn&& parse
 		) {
 			std::vector<T> out;
-			line = trim_cr(line);
+			line = text_parse::trim_trailing_cr(line);
 
 			const char* p = line.data();
 			const char* end = p + line.size();
@@ -122,17 +115,21 @@ namespace timetable::infra::txt {
 					break;
 				}
 
-				errno = 0;
-				char* next = nullptr;
-				const auto value = parse(p, &next);
-				if (next == p) {
+				const auto result = text_parse::parse_numeric_prefix<T>(
+					p, std::forward<ParseFn>(parse)
+				);
+				if (const auto* failure = std::get_if<text_parse::NumericParseFailure>(&result)) {
+					if (*failure == text_parse::NumericParseFailure::Invalid) {
+						return parse_error(invalid_message, field, line_no, idx);
+					}
+					if (*failure == text_parse::NumericParseFailure::Range) {
+						return parse_error(range_message, field, line_no, idx);
+					}
 					return parse_error(invalid_message, field, line_no, idx);
 				}
-				if (errno == ERANGE) {
-					return parse_error(range_message, field, line_no, idx);
-				}
 
-				out.push_back(static_cast<T>(value));
+				const auto& [value, next] = std::get<std::pair<T, const char*>>(result);
+				out.push_back(value);
 				p = next;
 				++idx;
 			}
@@ -332,19 +329,8 @@ namespace timetable::infra::txt {
 			const LineRouteMetrics& lhs
 			, const LineRouteMetrics& rhs
 		) {
-			const auto length_abs_tol = mathfp::abs_tolerance(lhs.length_km, rhs.length_km);
-			const auto length_rel_tol = mathfp::rel_tolerance_coeff<double>();
-			const auto time_abs_tol = mathfp::abs_tolerance(lhs.time_sec, rhs.time_sec);
-			const auto time_rel_tol = mathfp::rel_tolerance_coeff<double>();
-
-			const auto length_scale = mathfp::scalar_scale(lhs.length_km, rhs.length_km);
-			const auto time_scale = mathfp::scalar_scale(lhs.time_sec, rhs.time_sec);
-
-			const auto length_tol = std::max(length_abs_tol, length_rel_tol * length_scale);
-			const auto time_tol = std::max(time_abs_tol, time_rel_tol * time_scale);
-
-			return std::abs(lhs.length_km - rhs.length_km) <= length_tol
-				&& std::abs(lhs.time_sec - rhs.time_sec) <= time_tol;
+			return timetable::domain::numeric::nearly_equal(lhs.length_km, rhs.length_km)
+				&& timetable::domain::numeric::nearly_equal(lhs.time_sec, rhs.time_sec);
 		}
 
 		mathfp::Expected<mathfp::Unit> validate_int_column_length(
@@ -887,6 +873,16 @@ namespace timetable::infra::txt {
 			return append_connection_segment_for_row(std::move(with_entities), row, semantics, route_segment->id);
 		}
 
+		mathfp::Expected<BuildState> process_segment_row_with_progress(
+			BuildState state
+			, const SegmentColumns& columns
+			, std::size_t count
+			, std::size_t index
+		) {
+			MATHFP_TRY(report_build_progress(index, count, state.stats));
+			return process_segment_row(std::move(state), columns, index);
+		}
+
 		mathfp::Expected<mathfp::Unit> validate_extra_zones(
 			const BuildState& state
 			, const ParseParams& params
@@ -1134,11 +1130,23 @@ namespace timetable::infra::txt {
 		);
 		log("parsing: building segments", LogLevel::Info);
 		status("parsing: building segments (0%)");
-		for (std::size_t i = 0; i < n; ++i) {
-			MATHFP_TRY(report_build_progress(i, n, state.stats));
-			MATHFP_TRY_LET(BuildState, next_state, process_segment_row(std::move(state), columns, i));
-			state = std::move(next_state);
-		}
+		MATHFP_TRY_LET(
+			BuildState
+			, built_state
+			, timetable::domain::state_ops::fold_indexed(
+				std::move(state)
+				, n
+				, [&](BuildState current, std::size_t i) {
+					return process_segment_row_with_progress(
+						std::move(current)
+						, columns
+						, n
+						, i
+					);
+				}
+			)
+		);
+		state = std::move(built_state);
 
 		status("parsing: building segments (100%)");
 		log(

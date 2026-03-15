@@ -9,6 +9,7 @@
 
 #include <fmt/format.h>
 
+#include "timetable/domain/segment_semantics.hpp"
 #include "timetable/domain/segments_order.hpp"
 #include "timetable/infra/progress_bus.hpp"
 

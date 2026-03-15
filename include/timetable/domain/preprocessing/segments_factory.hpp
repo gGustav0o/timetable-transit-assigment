@@ -4,6 +4,7 @@
 #include <utility>
 
 #include <mathfp/core/expected.hpp>
+#include <mathfp/core/try.hpp>
 #include <mathfp/core/unit.hpp>
 
 #include "timetable/domain/segments.hpp"

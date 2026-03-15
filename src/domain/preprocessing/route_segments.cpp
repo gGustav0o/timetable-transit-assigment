@@ -18,7 +18,9 @@
 
 #include <fmt/format.h>
 
+#include "timetable/domain/endpoints.hpp"
 #include "timetable/domain/preprocessing/segments_factory.hpp"
+#include "timetable/domain/statistics.hpp"
 #include "timetable/infra/progress_bus.hpp"
 
 namespace timetable::domain::preprocessing {
@@ -62,59 +64,18 @@ namespace timetable::domain::preprocessing {
         }
 
         mathfp::Expected<Time> mean_time(const std::vector<double>& values) {
-            if (values.empty())
-                return mathfp::unexpected(
-                    mathfp::invalid_arg("cannot compute mean of empty duration list")
-                );
-            double sum = 0.0;
-            for (const auto v : values) {
-                if (!std::isfinite(v))
-                    return mathfp::unexpected(
-                        mathfp::domain_error("non-finite duration")
-                        .ctx("duration", v)
-                    );
-                sum += v;
-            }
-            return Time{ sum / static_cast<double>(values.size()) };
+            MATHFP_TRY_LET(double, result, statistics::mean(values, "duration"));
+            return Time{ result };
         }
 
         mathfp::Expected<Time> median_time(std::vector<double> values) {
-            if (values.empty())
-                return mathfp::unexpected(
-                    mathfp::invalid_arg("cannot compute median of empty duration list")
-                );
-            for (const auto v : values) {
-                if (!std::isfinite(v))
-                    return mathfp::unexpected(
-                        mathfp::domain_error("non-finite duration")
-                        .ctx("duration", v)
-                    );
-            }
-            const auto mid = values.size() / 2;
-            std::nth_element(values.begin(), values.begin() + mid, values.end());
-            if (values.size() % 2 == 1)
-                return Time{ values[mid] };
-            const auto upper = values[mid];
-            std::nth_element(values.begin(), values.begin() + (mid - 1), values.end());
-            const auto lower = values[mid - 1];
-            return Time{ 0.5 * (lower + upper) };
+            MATHFP_TRY_LET(double, result, statistics::median(std::move(values), "duration"));
+            return Time{ result };
         }
 
         mathfp::Expected<Time> min_time(const std::vector<double>& values) {
-            if (values.empty())
-                return mathfp::unexpected(
-                    mathfp::invalid_arg("cannot compute min of empty duration list")
-                );
-            double best = std::numeric_limits<double>::infinity();
-            for (const auto v : values) {
-                if (!std::isfinite(v))
-                    return mathfp::unexpected(
-                        mathfp::domain_error("non-finite duration")
-                        .ctx("duration", v)
-                    );
-                if (v < best) best = v;
-            }
-            return Time{ best };
+            MATHFP_TRY_LET(double, result, statistics::minimum(values, "duration"));
+            return Time{ result };
         }
 
         mathfp::Expected<Time> aggregate_time(

@@ -2,8 +2,6 @@
 
 #include <algorithm>
 #include <array>
-#include <cerrno>
-#include <cctype>
 #include <cstdint>
 #include <cstdlib>
 #include <exception>
@@ -20,6 +18,7 @@
 #include <fmt/format.h>
 
 #include "timetable/infra/progress_bus.hpp"
+#include "timetable/infra/text_parse.hpp"
 
 namespace timetable::infra::csv {
 
@@ -109,14 +108,6 @@ namespace timetable::infra::csv {
 			return mathfp::ok();
 		}
 
-		std::string trim(std::string_view in) {
-			std::size_t b = 0;
-			std::size_t e = in.size();
-			while (b < e && std::isspace(static_cast<unsigned char>(in[b]))) ++b;
-			while (e > b && std::isspace(static_cast<unsigned char>(in[e - 1]))) --e;
-			return std::string(in.substr(b, e - b));
-		}
-
 		mathfp::Unexpected parse_error(
 			const char* message
 			, std::size_t row
@@ -139,22 +130,21 @@ namespace timetable::infra::csv {
 			, const char* range_message
 			, ParseFn&& parse
 		) {
-			const auto t = trim(text);
-			if (t.empty()) {
-				return parse_error(empty_message, row, column);
-			}
+			const auto result = text_parse::parse_numeric_token<T>(
+				text, std::forward<ParseFn>(parse)
+			);
 
-			errno = 0;
-			char* end = nullptr;
-			const auto value = parse(t.c_str(), &end);
-			if (end == t.c_str() || *end != '\0') {
-				return parse_error(invalid_message, row, column);
-			}
-			if (errno == ERANGE) {
+			if (const auto* failure = std::get_if<text_parse::NumericParseFailure>(&result)) {
+				if (*failure == text_parse::NumericParseFailure::Empty) {
+					return parse_error(empty_message, row, column);
+				}
+				if (*failure == text_parse::NumericParseFailure::Invalid) {
+					return parse_error(invalid_message, row, column);
+				}
 				return parse_error(range_message, row, column);
 			}
 
-			return static_cast<T>(value);
+			return std::get<T>(result);
 		}
 
 		mathfp::Expected<std::int64_t> parse_int64_cell(

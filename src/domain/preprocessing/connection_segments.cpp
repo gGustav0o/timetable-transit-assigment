@@ -12,6 +12,8 @@
 #include <fmt/format.h>
 
 #include "timetable/domain/preprocessing/segments_factory.hpp"
+#include "timetable/domain/segment_semantics.hpp"
+#include "timetable/domain/state_ops.hpp"
 #include "timetable/domain/segments_order.hpp"
 #include "timetable/infra/progress_bus.hpp"
 
@@ -629,18 +631,23 @@ namespace timetable::domain::preprocessing {
             .stats = std::move(grouped_trips.stats)
         };
 
-        for (const auto* route_segment : ordered_inputs.route_order) {
-            MATHFP_TRY_LET(
-                ConnectionBuildState
-                , next_state
-                , append_route_connection_segments(
+        MATHFP_TRY_LET(
+            ConnectionBuildState
+            , built_state
+            , timetable::domain::state_ops::fold(
                 std::move(state)
-                , *route_segment
-                , ordered_inputs.trips_by_line
-                , params
-            ));
-            state = std::move(next_state);
-        }
+                , ordered_inputs.route_order
+                , [&](ConnectionBuildState current, const RouteSegment* route_segment) {
+                    return append_route_connection_segments(
+                        std::move(current)
+                        , *route_segment
+                        , ordered_inputs.trips_by_line
+                        , params
+                    );
+                }
+            )
+        );
+        state = std::move(built_state);
 
         log_connection_segment_totals(state.segments, state.stats);
         log_skip_summary(state.stats);

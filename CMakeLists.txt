@@ -20,7 +20,9 @@ add_executable(timetable-transit-assigment
   src/main.cpp
   src/app/app.cpp
   src/app/cli.cpp
+  src/domain/assignment/branch_state.cpp
   src/domain/assignment/output.cpp
+  src/domain/assignment/preprocessed_network.cpp
   src/domain/assignment/run.cpp
   src/domain/assignment/steps.cpp
   src/domain/preprocessing/segments_index.cpp

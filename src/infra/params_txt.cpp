@@ -1,6 +1,5 @@
 #include "timetable/infra/params_txt.hpp"
 
-#include <cerrno>
 #include <cstdint>
 #include <cstdlib>
 #include <fstream>
@@ -21,7 +20,9 @@
 #include <fmt/format.h>
 
 #include "timetable/domain/params_factory.hpp"
+#include "timetable/domain/state_ops.hpp"
 #include "timetable/infra/progress_bus.hpp"
+#include "timetable/infra/text_parse.hpp"
 
 namespace timetable::infra::params_txt {
 
@@ -147,11 +148,13 @@ namespace timetable::infra::params_txt {
 			, const Input& in
 			, Transition&& transition
 		) {
-			auto next_state = transition(std::move(state));
-			if (!next_state) {
-				throw pegtl::parse_error(next_state.error().message(), in);
-			}
-			state = std::move(*next_state);
+			timetable::domain::state_ops::transition_or_throw(
+				state
+				, std::forward<Transition>(transition)
+				, [&](const mathfp::Error& error) {
+					throw pegtl::parse_error(error.message(), in);
+				}
+			);
 		}
 
 		std::string decode_quoted_string(std::string_view token) {
@@ -356,16 +359,21 @@ namespace timetable::infra::params_txt {
 		struct action<grammar::number> final {
 			template <typename Input>
 			static void apply(const Input& in, ParserState& state) {
-				const auto token = std::string(in.string_view());
-				errno = 0;
-				char* end = nullptr;
-				const auto value = std::strtod(token.c_str(), &end);
-				if (end == token.c_str() || *end != '\0') {
+				const auto result = text_parse::parse_numeric_token<double>(
+					in.string_view()
+					, [](const char* begin, char** end) {
+						return std::strtod(begin, end);
+					}
+				);
+
+				if (const auto* failure = std::get_if<text_parse::NumericParseFailure>(&result)) {
+					if (*failure == text_parse::NumericParseFailure::Range) {
+						throw pegtl::parse_error("number out of range", in);
+					}
 					throw pegtl::parse_error("failed to parse number", in);
 				}
-				if (errno == ERANGE) {
-					throw pegtl::parse_error("number out of range", in);
-				}
+
+				const auto value = std::get<double>(result);
 				apply_parser_transition(
 					state
 					, in
@@ -437,10 +445,9 @@ namespace timetable::infra::params_txt {
 			, std::string_view key
 			, std::string_view path
 		) {
-			const auto child = object_get(obj, key, path);
-			if (!child) return mathfp::unexpected(child.error());
+			MATHFP_TRY_LET(const Value*, child, object_get(obj, key, path));
 			const auto child_path = std::string(path) + "." + std::string(key);
-			return as_object(**child, child_path);
+			return as_object(*child, child_path);
 		}
 
 		mathfp::Expected<double> number_at(
@@ -448,16 +455,15 @@ namespace timetable::infra::params_txt {
 			, std::string_view key
 			, std::string_view path
 		) {
-			const auto child = object_get(obj, key, path);
-			if (!child) return mathfp::unexpected(child.error());
-			if (!std::holds_alternative<double>((*child)->data)) {
+			MATHFP_TRY_LET(const Value*, child, object_get(obj, key, path));
+			if (!std::holds_alternative<double>(child->data)) {
 				return mathfp::unexpected(
 					mathfp::invalid_arg("expected number")
 					.ctx("path", std::string(path))
 					.ctx("key", std::string(key))
 				);
 			}
-			return std::get<double>((*child)->data);
+			return std::get<double>(child->data);
 		}
 
 		mathfp::Expected<bool> bool_at(
@@ -465,16 +471,15 @@ namespace timetable::infra::params_txt {
 			, std::string_view key
 			, std::string_view path
 		) {
-			const auto child = object_get(obj, key, path);
-			if (!child) return mathfp::unexpected(child.error());
-			if (!std::holds_alternative<bool>((*child)->data)) {
+			MATHFP_TRY_LET(const Value*, child, object_get(obj, key, path));
+			if (!std::holds_alternative<bool>(child->data)) {
 				return mathfp::unexpected(
 					mathfp::invalid_arg("expected bool")
 					.ctx("path", std::string(path))
 					.ctx("key", std::string(key))
 				);
 			}
-			return std::get<bool>((*child)->data);
+			return std::get<bool>(child->data);
 		}
 
 		mathfp::Expected<std::string> string_at(
@@ -482,16 +487,15 @@ namespace timetable::infra::params_txt {
 			, std::string_view key
 			, std::string_view path
 		) {
-			const auto child = object_get(obj, key, path);
-			if (!child) return mathfp::unexpected(child.error());
-			if (!std::holds_alternative<std::string>((*child)->data)) {
+			MATHFP_TRY_LET(const Value*, child, object_get(obj, key, path));
+			if (!std::holds_alternative<std::string>(child->data)) {
 				return mathfp::unexpected(
 					mathfp::invalid_arg("expected string")
 					.ctx("path", std::string(path))
 					.ctx("key", std::string(key))
 				);
 			}
-			return std::get<std::string>((*child)->data);
+			return std::get<std::string>(child->data);
 		}
 
 		mathfp::Expected<timetable::domain::SearchParams> map_params(
@@ -499,27 +503,18 @@ namespace timetable::infra::params_txt {
 		) {
 			using namespace timetable::domain;
 
-			const auto search_para = object_at(root, "searchPara", "root");
-			if (!search_para) return mathfp::unexpected(search_para.error());
-			const auto choice_para = object_at(root, "choicePara", "root");
-			if (!choice_para) return mathfp::unexpected(choice_para.error());
-			const auto split_para = object_at(root, "splitPara", "root");
-			if (!split_para) return mathfp::unexpected(split_para.error());
+			MATHFP_TRY_LET(const Object*, search_para, object_at(root, "searchPara", "root"));
+			MATHFP_TRY_LET(const Object*, choice_para, object_at(root, "choicePara", "root"));
+			MATHFP_TRY_LET(const Object*, split_para, object_at(root, "splitPara", "root"));
 
-			const auto search_tol = object_at(**search_para, "ToleranceConstraints", "root.searchPara");
-			if (!search_tol) return mathfp::unexpected(search_tol.error());
-			const auto temporal = object_at(**search_para, "TemporalSuitability", "root.searchPara");
-			if (!temporal) return mathfp::unexpected(temporal.error());
-			const auto search_imp = object_at(**search_para, "SearchImp", "root.searchPara");
-			if (!search_imp) return mathfp::unexpected(search_imp.error());
+			MATHFP_TRY_LET(const Object*, search_tol, object_at(*search_para, "ToleranceConstraints", "root.searchPara"));
+			MATHFP_TRY_LET(const Object*, temporal, object_at(*search_para, "TemporalSuitability", "root.searchPara"));
+			MATHFP_TRY_LET(const Object*, search_imp, object_at(*search_para, "SearchImp", "root.searchPara"));
 
-			const auto choice_tol = object_at(**choice_para, "ToleranceConstraints", "root.choicePara");
-			if (!choice_tol) return mathfp::unexpected(choice_tol.error());
+			MATHFP_TRY_LET(const Object*, choice_tol, object_at(*choice_para, "ToleranceConstraints", "root.choicePara"));
 
-			const auto indep = object_at(**split_para, "Independence", "root.splitPara");
-			if (!indep) return mathfp::unexpected(indep.error());
-			const auto split_imp = object_at(**split_para, "SplitImp", "root.splitPara");
-			if (!split_imp) return mathfp::unexpected(split_imp.error());
+			MATHFP_TRY_LET(const Object*, indep, object_at(*split_para, "Independence", "root.splitPara"));
+			MATHFP_TRY_LET(const Object*, split_imp, object_at(*split_para, "SplitImp", "root.splitPara"));
 
 			const auto num = [](const Object& obj, std::string_view key, std::string_view path) {
 				return number_at(obj, key, path);
@@ -528,65 +523,61 @@ namespace timetable::infra::params_txt {
 				return string_at(obj, key, path);
 			};
 
-			MATHFP_TRY_LET(double, s_imp_mult, num(**search_tol, "minSearchImpFactor", "root.searchPara.ToleranceConstraints"));
-			MATHFP_TRY_LET(double, s_imp_add, num(**search_tol, "minSearchImpAbs", "root.searchPara.ToleranceConstraints"));
-			MATHFP_TRY_LET(double, s_jt_mult, num(**search_tol, "minJourneyTimeFactor", "root.searchPara.ToleranceConstraints"));
-			MATHFP_TRY_LET(double, s_jt_add, num(**search_tol, "minJourneyTimeAbs", "root.searchPara.ToleranceConstraints"));
-			MATHFP_TRY_LET(double, s_nt_mult, num(**search_tol, "minNumberTransfersFactor", "root.searchPara.ToleranceConstraints"));
-			MATHFP_TRY_LET(double, s_nt_add, num(**search_tol, "minNumberTransfersAbs", "root.searchPara.ToleranceConstraints"));
+			MATHFP_TRY_LET(double, s_imp_mult, num(*search_tol, "minSearchImpFactor", "root.searchPara.ToleranceConstraints"));
+			MATHFP_TRY_LET(double, s_imp_add, num(*search_tol, "minSearchImpAbs", "root.searchPara.ToleranceConstraints"));
+			MATHFP_TRY_LET(double, s_jt_mult, num(*search_tol, "minJourneyTimeFactor", "root.searchPara.ToleranceConstraints"));
+			MATHFP_TRY_LET(double, s_jt_add, num(*search_tol, "minJourneyTimeAbs", "root.searchPara.ToleranceConstraints"));
+			MATHFP_TRY_LET(double, s_nt_mult, num(*search_tol, "minNumberTransfersFactor", "root.searchPara.ToleranceConstraints"));
+			MATHFP_TRY_LET(double, s_nt_add, num(*search_tol, "minNumberTransfersAbs", "root.searchPara.ToleranceConstraints"));
 
-			const auto search_tolerances = make_search_tolerances(
+			MATHFP_TRY_LET(SearchTolerances, search_tolerances, make_search_tolerances(
 				Dimless{ s_imp_mult }
 				, Dimless{ s_imp_add }
 				, Dimless{ s_jt_mult }
 				, Dimless{ s_jt_add }
 				, Dimless{ s_nt_mult }
 				, Dimless{ s_nt_add }
-			);
-			if (!search_tolerances) return mathfp::unexpected(search_tolerances.error());
+			));
 
-			MATHFP_TRY_LET(double, c_imp_mult, num(**choice_tol, "minSearchImpFactor", "root.choicePara.ToleranceConstraints"));
-			MATHFP_TRY_LET(double, c_imp_add, num(**choice_tol, "minSearchImpAbs", "root.choicePara.ToleranceConstraints"));
-			MATHFP_TRY_LET(double, c_jt_mult, num(**choice_tol, "minJourneyTimeFactor", "root.choicePara.ToleranceConstraints"));
-			MATHFP_TRY_LET(double, c_jt_add, num(**choice_tol, "minJourneyTimeAbs", "root.choicePara.ToleranceConstraints"));
-			MATHFP_TRY_LET(double, c_nt_mult, num(**choice_tol, "minNumberTransfersFactor", "root.choicePara.ToleranceConstraints"));
-			MATHFP_TRY_LET(double, c_nt_add, num(**choice_tol, "minNumberTransfersAbs", "root.choicePara.ToleranceConstraints"));
+			MATHFP_TRY_LET(double, c_imp_mult, num(*choice_tol, "minSearchImpFactor", "root.choicePara.ToleranceConstraints"));
+			MATHFP_TRY_LET(double, c_imp_add, num(*choice_tol, "minSearchImpAbs", "root.choicePara.ToleranceConstraints"));
+			MATHFP_TRY_LET(double, c_jt_mult, num(*choice_tol, "minJourneyTimeFactor", "root.choicePara.ToleranceConstraints"));
+			MATHFP_TRY_LET(double, c_jt_add, num(*choice_tol, "minJourneyTimeAbs", "root.choicePara.ToleranceConstraints"));
+			MATHFP_TRY_LET(double, c_nt_mult, num(*choice_tol, "minNumberTransfersFactor", "root.choicePara.ToleranceConstraints"));
+			MATHFP_TRY_LET(double, c_nt_add, num(*choice_tol, "minNumberTransfersAbs", "root.choicePara.ToleranceConstraints"));
 
-			const auto choice_tolerances = make_choice_tolerances(
+			MATHFP_TRY_LET(ChoiceTolerances, choice_tolerances, make_choice_tolerances(
 				Dimless{ c_imp_mult }
 				, Dimless{ c_imp_add }
 				, Dimless{ c_jt_mult }
 				, Dimless{ c_jt_add }
 				, Dimless{ c_nt_mult }
 				, Dimless{ c_nt_add }
-			);
-			if (!choice_tolerances) return mathfp::unexpected(choice_tolerances.error());
+			));
 
-			MATHFP_TRY_LET(double, max_transfers, num(**search_para, "maxNumTransfers", "root.searchPara"));
-			MATHFP_TRY_LET(double, min_twt, num(**temporal, "minTWT", "root.searchPara.TemporalSuitability"));
-			MATHFP_TRY_LET(double, max_twt, num(**temporal, "maxTWT", "root.searchPara.TemporalSuitability"));
-			MATHFP_TRY_LET(double, n_transfers, num(**search_imp, "numTransfersFactor", "root.searchPara.SearchImp"));
+			MATHFP_TRY_LET(double, max_transfers, num(*search_para, "maxNumTransfers", "root.searchPara"));
+			MATHFP_TRY_LET(double, min_twt, num(*temporal, "minTWT", "root.searchPara.TemporalSuitability"));
+			MATHFP_TRY_LET(double, max_twt, num(*temporal, "maxTWT", "root.searchPara.TemporalSuitability"));
+			MATHFP_TRY_LET(double, n_transfers, num(*search_imp, "numTransfersFactor", "root.searchPara.SearchImp"));
 
-			const auto transfer_limits = make_transfer_limits(
+			MATHFP_TRY_LET(TransferLimits, transfer_limits, make_transfer_limits(
 				TransferCount{ static_cast<std::int32_t>(max_transfers) }
 				, Time{ min_twt }
 				, Time{ max_twt }
 				, true
 				, true
-			);
-			if (!transfer_limits) return mathfp::unexpected(transfer_limits.error());
+			));
 
-			MATHFP_TRY_LET(double, in_veh_factor, num(**search_imp, "inVehTimeFactor", "root.searchPara.SearchImp"));
-			MATHFP_TRY_LET(double, suppl_factor, num(**search_imp, "supplementsFactor", "root.searchPara.SearchImp"));
-			const auto impedance = make_search_impedance(
+			MATHFP_TRY_LET(double, in_veh_factor, num(*search_imp, "inVehTimeFactor", "root.searchPara.SearchImp"));
+			MATHFP_TRY_LET(double, suppl_factor, num(*search_imp, "supplementsFactor", "root.searchPara.SearchImp"));
+			MATHFP_TRY_LET(SearchImpedance, impedance, make_search_impedance(
 				Dimless{ in_veh_factor }
 				, Dimless{ n_transfers }
 				, Dimless{ suppl_factor }
 				, Time{ n_transfers }
-			);
-			if (!impedance) return mathfp::unexpected(impedance.error());
+			));
 
-			const auto preprocess = make_preprocess_params(
+			MATHFP_TRY_LET(PreprocessParams, preprocess, make_preprocess_params(
 				WalkCostKind::Time
 				, WalkCostWeights{
 					.w_time = Dimless{ 1.0 }
@@ -600,19 +591,18 @@ namespace timetable::infra::params_txt {
 				, TimeAggregationKind::Mean
 				, true
 				, true
-			);
-			if (!preprocess) return mathfp::unexpected(preprocess.error());
+			));
 
-			MATHFP_TRY_LET(std::string, choice_model, text(**split_para, "choiceModel", "root.splitPara"));
+			MATHFP_TRY_LET(std::string, choice_model, text(*split_para, "choiceModel", "root.splitPara"));
 			double beta = 0.0;
 			if (choice_model == "Kirchhoff") {
-				MATHFP_TRY_LET(double, beta_v, num(**split_para, "KirchhoffExp", "root.splitPara"));
+				MATHFP_TRY_LET(double, beta_v, num(*split_para, "KirchhoffExp", "root.splitPara"));
 				beta = beta_v;
 			} else if (choice_model == "Logit") {
-				MATHFP_TRY_LET(double, beta_v, num(**split_para, "logitExp", "root.splitPara"));
+				MATHFP_TRY_LET(double, beta_v, num(*split_para, "logitExp", "root.splitPara"));
 				beta = beta_v;
 			} else if (choice_model == "Lohse") {
-				MATHFP_TRY_LET(double, beta_v, num(**split_para, "LohseExp", "root.splitPara"));
+				MATHFP_TRY_LET(double, beta_v, num(*split_para, "LohseExp", "root.splitPara"));
 				beta = beta_v;
 			} else {
 				return mathfp::unexpected(
@@ -621,16 +611,16 @@ namespace timetable::infra::params_txt {
 				);
 			}
 
-			MATHFP_TRY_LET(double, q_time, num(**split_imp, "perceivedJourneyTimeFactor", "root.splitPara.SplitImp"));
-			MATHFP_TRY_LET(double, q_dep_early, num(**split_imp, "temporalUtilityFactor_early", "root.splitPara.SplitImp"));
-			MATHFP_TRY_LET(double, q_dep_late, num(**split_imp, "temporalUtilityFactor_late", "root.splitPara.SplitImp"));
-			MATHFP_TRY_LET(double, q_fare, num(**split_imp, "fareFactor", "root.splitPara.SplitImp"));
-			MATHFP_TRY_LET(double, boxcox_t, num(**split_para, "BoxCoxExp", "root.splitPara"));
-			MATHFP_TRY_LET(double, gamma, num(**indep, "gamma", "root.splitPara.Independence"));
-			MATHFP_TRY_LET(double, x_scale, num(**indep, "indepMaxDelta", "root.splitPara.Independence"));
-			MATHFP_TRY_LET(double, y_scale, num(**indep, "indepHigherQualityCoeff", "root.splitPara.Independence"));
-			MATHFP_TRY_LET(double, z_scale, num(**indep, "indepLowerQualityCoeff", "root.splitPara.Independence"));
-			const auto split = make_split_params(
+			MATHFP_TRY_LET(double, q_time, num(*split_imp, "perceivedJourneyTimeFactor", "root.splitPara.SplitImp"));
+			MATHFP_TRY_LET(double, q_dep_early, num(*split_imp, "temporalUtilityFactor_early", "root.splitPara.SplitImp"));
+			MATHFP_TRY_LET(double, q_dep_late, num(*split_imp, "temporalUtilityFactor_late", "root.splitPara.SplitImp"));
+			MATHFP_TRY_LET(double, q_fare, num(*split_imp, "fareFactor", "root.splitPara.SplitImp"));
+			MATHFP_TRY_LET(double, boxcox_t, num(*split_para, "BoxCoxExp", "root.splitPara"));
+			MATHFP_TRY_LET(double, gamma, num(*indep, "gamma", "root.splitPara.Independence"));
+			MATHFP_TRY_LET(double, x_scale, num(*indep, "indepMaxDelta", "root.splitPara.Independence"));
+			MATHFP_TRY_LET(double, y_scale, num(*indep, "indepHigherQualityCoeff", "root.splitPara.Independence"));
+			MATHFP_TRY_LET(double, z_scale, num(*indep, "indepLowerQualityCoeff", "root.splitPara.Independence"));
+			MATHFP_TRY_LET(SplitParams, split, make_split_params(
 				Dimless{ q_time }
 				, Dimless{ 0.5 * (q_dep_early + q_dep_late) }
 				, Dimless{ q_fare }
@@ -640,16 +630,15 @@ namespace timetable::infra::params_txt {
 				, Dimless{ x_scale }
 				, Dimless{ y_scale }
 				, Dimless{ z_scale }
-			);
-			if (!split) return mathfp::unexpected(split.error());
+			));
 
 			return make_search_params(
-				*preprocess
-				, *impedance
-				, *transfer_limits
-				, *search_tolerances
-				, *choice_tolerances
-				, *split
+				preprocess
+				, impedance
+				, transfer_limits
+				, search_tolerances
+				, choice_tolerances
+				, split
 			);
 		}
 
@@ -684,20 +673,18 @@ namespace timetable::infra::params_txt {
 		);
 
 		status("parsing: parsing params.txt syntax");
-		const auto root = parse_value_text(text, path.string());
-		if (!root) return mathfp::unexpected(root.error());
+		MATHFP_TRY_LET(Value, root, parse_value_text(text, path.string()));
 		log("parsing: params.txt syntax parsed", LogLevel::Info);
 
 		status("parsing: validating params.txt root");
-		const auto root_obj = as_object(*root, "root");
-		if (!root_obj) return mathfp::unexpected(root_obj.error());
+		MATHFP_TRY_LET(const Object*, root_obj, as_object(root, "root"));
 		log("parsing: params.txt root object validated", LogLevel::Info);
 
 		status("parsing: mapping params");
 		MATHFP_TRY_LET(
 			timetable::domain::SearchParams
 			, params
-			, map_params(**root_obj)
+			, map_params(*root_obj)
 		);
 		log(
 			fmt::format(

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "timetable/domain/segments.hpp"
+#include "timetable/domain/segment_semantics.hpp"
 
 namespace timetable::domain {
 
