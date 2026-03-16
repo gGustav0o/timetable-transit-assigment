@@ -16,6 +16,26 @@ namespace timetable::domain {
         return carrier_kind(carrier) == CarrierKind::Walk;
     }
 
+    [[nodiscard]] inline std::optional<LineId> line_of(
+        const RouteSegment& segment
+    ) noexcept {
+        if (!is_line(segment.carrier)) {
+            return std::nullopt;
+        }
+        return std::get<LineId>(segment.carrier);
+    }
+
+    [[nodiscard]] inline bool same_line(
+        const RouteSegment& lhs
+        , const RouteSegment& rhs
+    ) noexcept {
+        const auto lhs_line = line_of(lhs);
+        const auto rhs_line = line_of(rhs);
+        return lhs_line.has_value()
+            && rhs_line.has_value()
+            && lhs_line.value() == rhs_line.value();
+    }
+
     [[nodiscard]] inline bool has_trip(const ConnectionSegment& segment) noexcept {
         return segment.trip.has_value();
     }

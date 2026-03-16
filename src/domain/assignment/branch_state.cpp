@@ -34,6 +34,58 @@ namespace timetable::domain::assignment {
                 && forbids_transfer_to_same_trip(*state.last_segment, candidate);
         }
 
+        bool is_stop_endpoint(const WalkEndpoint& endpoint) noexcept {
+            return std::holds_alternative<StopId>(endpoint);
+        }
+
+        bool same_transfer_stop(
+            const RouteSegment& current
+            , const RouteSegment& candidate
+        ) noexcept {
+            if (!is_stop_endpoint(current.to) || !is_stop_endpoint(candidate.from)) {
+                return false;
+            }
+            return std::get<StopId>(current.to) == std::get<StopId>(candidate.from);
+        }
+
+        bool is_loop_line_transfer(
+            const BranchState& state
+            , const ConnectionSegment& candidate
+            , const RouteSegment& candidate_route_segment
+        ) noexcept {
+            if (!state.last_segment || !state.last_route_segment) {
+                return false;
+            }
+            if (!same_line(*state.last_route_segment, candidate_route_segment)) {
+                return false;
+            }
+            if (!same_transfer_stop(*state.last_route_segment, candidate_route_segment)) {
+                return false;
+            }
+            if (!state.last_segment->to_index.has_value() || !candidate.from_index.has_value()) {
+                return false;
+            }
+
+            // In the loop-line special case, the same physical stop appears at
+            // multiple positions on the route. A transfer is only meaningful if
+            // the candidate boards the same stop at an earlier route position.
+            return candidate.from_index.value() < state.last_segment->to_index.value();
+        }
+
+        bool violates_same_line_transfer_rule(
+            const BranchState& state
+            , const ConnectionSegment& candidate
+            , const RouteSegment& candidate_route_segment
+        ) noexcept {
+            if (!state.last_segment || !state.last_route_segment) {
+                return false;
+            }
+            if (!same_line(*state.last_route_segment, candidate_route_segment)) {
+                return false;
+            }
+            return !is_loop_line_transfer(state, candidate, candidate_route_segment);
+        }
+
         Time transfer_wait_time(
             Time current_arrival_time
             , const ConnectionSegment& candidate
@@ -66,16 +118,35 @@ namespace timetable::domain::assignment {
             return candidate.departure->value() <= state.start_time->value();
         }
 
+        bool transfer_count_within_limits(
+            const BranchState& state
+            , const ConnectionSegment& candidate
+            , const TransferLimits& limits
+        ) noexcept {
+            if (is_first_branch_segment(state) || is_walk_segment(candidate)) {
+                return true;
+            }
+
+            if (!state.transfer_count.has_value()) {
+                return true;
+            }
+
+            return state.transfer_count->get() < limits.max_transfers.get();
+        }
+
     }  // namespace
 
     bool is_branch_extension_feasible(
         const BranchState& state
         , const ConnectionSegment& candidate
+        , const RouteSegment& candidate_route_segment
         , const TransferLimits& limits
     ) noexcept {
-        // TODO: Enforce limits.max_transfers once real branch expansion updates
-        // BranchState.transfer_count consistently for every extension step.
         if (!start_wait_allowed(state, candidate, limits)) {
+            return false;
+        }
+
+        if (!transfer_count_within_limits(state, candidate, limits)) {
             return false;
         }
 
@@ -89,6 +160,10 @@ namespace timetable::domain::assignment {
         }
 
         if (violates_same_trip_rule(state, candidate)) {
+            return false;
+        }
+
+        if (violates_same_line_transfer_rule(state, candidate, candidate_route_segment)) {
             return false;
         }
 

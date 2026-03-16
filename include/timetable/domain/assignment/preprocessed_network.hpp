@@ -62,4 +62,16 @@ namespace timetable::domain::assignment {
         , bool allow_empty
     );
 
+    /**
+     * @brief Validate connection segments against canonical route segments.
+     *
+     * Ensures non-empty collection, valid route references, unique ids and
+     * factory-level invariants for each connection segment.
+     */
+    mathfp::Expected<mathfp::Unit> validate_connection_segments(
+        const std::vector<ConnectionSegment>& segments
+        , std::span<const RouteSegment> route_segments
+        , bool allow_empty
+    );
+
 }  // namespace timetable::domain::assignment

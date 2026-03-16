@@ -1,5 +1,7 @@
 #pragma once
 
+#include <vector>
+
 #include <mathfp/core/expected.hpp>
 
 #include "timetable/domain/model.hpp"
@@ -9,11 +11,41 @@
 
 namespace timetable::domain::assignment {
 
-    struct ConnectionSearchResult final {};
+    struct DiscoveredConnection final {
+        ZoneId origin{};
+        ZoneId destination{};
+        Time departure{};
+        Time arrival{};
+        Time journey_time{};
+        Time transfer_time{};
+        TransferCount transfers{};
+        double fare{};
+        double impedance{};
+        std::vector<ConnectionSegmentId> segments{};
+    };
 
-    struct ConnectionChoiceResult final {};
+    struct ConnectionSearchResult final {
+        std::vector<DiscoveredConnection> connections{};
+    };
 
-    struct DemandSplitResult final {};
+    struct ConnectionChoiceResult final {
+        std::vector<DiscoveredConnection> connections{};
+    };
+
+    struct ConnectionDemandShare final {
+        ZoneId origin{};
+        ZoneId destination{};
+        IntervalId interval{};
+        DiscoveredConnection connection{};
+        double passengers{};
+        double probability{};
+        double independence{};
+        double split_impedance{};
+    };
+
+    struct DemandSplitResult final {
+        std::vector<ConnectionDemandShare> shares{};
+    };
 
     /**
      * @brief Enumerate feasible connections using timetable-based branch & bound.

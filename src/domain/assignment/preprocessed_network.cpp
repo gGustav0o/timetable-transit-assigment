@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <unordered_map>
 
 #include <fmt/format.h>
 
@@ -12,6 +13,7 @@
 #include "timetable/domain/segment_semantics.hpp"
 #include "timetable/domain/segments_order.hpp"
 #include "timetable/domain/preprocessing/connection_segments.hpp"
+#include "timetable/domain/preprocessing/segments_factory.hpp"
 #include "timetable/domain/preprocessing/route_segments.hpp"
 #include "timetable/domain/preprocessing/segments_index.hpp"
 #include "timetable/infra/progress_bus.hpp"
@@ -40,6 +42,23 @@ namespace timetable::domain::assignment {
             std::vector<WalkLinkId> path{};
 
             auto operator<=>(const RouteSegmentKey&) const = default;
+        };
+
+        struct ConnectionSegmentKey final {
+            std::int64_t route_segment{};
+            std::optional<std::int64_t> trip{};
+            std::optional<std::int64_t> from_index{};
+            std::optional<std::int64_t> to_index{};
+            std::optional<double> departure{};
+            std::optional<double> arrival{};
+            std::optional<double> fare{};
+
+            auto operator<=>(const ConnectionSegmentKey&) const = default;
+        };
+
+        struct CanonicalRouteSegments final {
+            std::vector<RouteSegment> routes{};
+            std::unordered_map<std::int64_t, RouteSegmentId> old_to_new_ids{};
         };
 
         RouteSegmentKey route_segment_key(const RouteSegment& segment) {
@@ -77,6 +96,63 @@ namespace timetable::domain::assignment {
 
         const RouteSegmentKey* find_duplicate_route_segment_key(
             std::vector<RouteSegmentKey>& keys
+        ) {
+            std::sort(keys.begin(), keys.end());
+            const auto duplicate = std::adjacent_find(keys.begin(), keys.end());
+            return duplicate == keys.end() ? nullptr : &*duplicate;
+        }
+
+        mathfp::Expected<mathfp::Unit> validate_unique_route_segment_ids(
+            std::span<const RouteSegment> segments
+        ) {
+            std::vector<std::int64_t> ids;
+            ids.reserve(segments.size());
+            for (const auto& segment : segments) {
+                ids.push_back(segment.id.get());
+            }
+
+            std::sort(ids.begin(), ids.end());
+            const auto duplicate = std::adjacent_find(ids.begin(), ids.end());
+            if (duplicate == ids.end()) {
+                return mathfp::kUnit;
+            }
+
+            return mathfp::unexpected(
+                mathfp::invalid_arg("duplicate route segment id before canonicalization")
+                    .ctx("route_segment_id", *duplicate)
+            );
+        }
+
+        ConnectionSegmentKey connection_segment_key(
+            const ConnectionSegment& segment
+        ) {
+            return ConnectionSegmentKey{
+                .route_segment = segment.route_segment.get(),
+                .trip = segment.trip ? std::optional<std::int64_t>{ segment.trip->get() } : std::nullopt,
+                .from_index = segment.from_index,
+                .to_index = segment.to_index,
+                .departure = segment.departure ? std::optional<double>{ segment.departure->value() } : std::nullopt,
+                .arrival = segment.arrival ? std::optional<double>{ segment.arrival->value() } : std::nullopt,
+                .fare = segment.fare
+            };
+        }
+
+        std::vector<ConnectionSegmentKey> collect_connection_segment_keys(
+            const std::vector<ConnectionSegment>& segments
+        ) {
+            std::vector<ConnectionSegmentKey> keys;
+            keys.reserve(segments.size());
+            std::transform(
+                segments.begin(),
+                segments.end(),
+                std::back_inserter(keys),
+                connection_segment_key
+            );
+            return keys;
+        }
+
+        const ConnectionSegmentKey* find_duplicate_connection_segment_key(
+            std::vector<ConnectionSegmentKey>& keys
         ) {
             std::sort(keys.begin(), keys.end());
             const auto duplicate = std::adjacent_find(keys.begin(), keys.end());
@@ -233,12 +309,54 @@ namespace timetable::domain::assignment {
             };
         }
 
-        mathfp::Expected<std::vector<RouteSegment>> canonicalize_route_segments(
+        mathfp::Expected<CanonicalRouteSegments> canonicalize_route_segments(
             std::vector<RouteSegment> route_segments
             , bool allow_empty
         ) {
             MATHFP_TRY(validate_route_segments(route_segments, allow_empty));
-            return reindex_route_segments(std::move(route_segments));
+            MATHFP_TRY(validate_unique_route_segment_ids(route_segments));
+
+            CanonicalRouteSegments out;
+            out.routes = std::move(route_segments);
+            out.old_to_new_ids.reserve(out.routes.size());
+            for (std::size_t i = 0; i < out.routes.size(); ++i) {
+                const auto old_id = out.routes[i].id.get();
+                const auto new_id = RouteSegmentId{ static_cast<std::int64_t>(i) };
+                out.old_to_new_ids.emplace(old_id, new_id);
+                out.routes[i].id = new_id;
+            }
+
+            return out;
+        }
+
+        mathfp::Expected<std::vector<ConnectionSegment>> canonicalize_connection_segments(
+            std::vector<ConnectionSegment> connection_segments
+            , std::span<const RouteSegment> canonical_route_segments
+            , const std::unordered_map<std::int64_t, RouteSegmentId>& route_id_map
+            , bool allow_empty
+        ) {
+            for (std::size_t i = 0; i < connection_segments.size(); ++i) {
+                const auto remapped = route_id_map.find(connection_segments[i].route_segment.get());
+                if (remapped == route_id_map.end()) {
+                    return mathfp::unexpected(
+                        mathfp::invalid_arg("connection segment references unknown route segment")
+                            .ctx("connection_segment_id", connection_segments[i].id.get())
+                            .ctx("route_segment_id", connection_segments[i].route_segment.get())
+                    );
+                }
+                connection_segments[i].route_segment = remapped->second;
+                connection_segments[i].id = ConnectionSegmentId{
+                    static_cast<std::int64_t>(i)
+                };
+            }
+
+            MATHFP_TRY(validate_connection_segments(
+                connection_segments
+                , canonical_route_segments
+                , allow_empty
+            ));
+
+            return connection_segments;
         }
 
         mathfp::Expected<PreprocessedNetwork> finalize_preprocessed_network(
@@ -247,17 +365,20 @@ namespace timetable::domain::assignment {
             , bool allow_empty
         ) {
             MATHFP_TRY_LET(
-                std::vector<RouteSegment>
-                , canonical_route_segments
+                CanonicalRouteSegments
+                , canonical_routes
                 , canonicalize_route_segments(std::move(route_segments), allow_empty)
             );
-            if (connection_segments.empty() && !allow_empty) {
-                return mathfp::unexpected(
-                    mathfp::invalid_arg("connection segments collection is empty")
-                );
-            }
-            // TODO: Canonicalize/validate connection_segments here as well so that
-            // both preprocessing paths establish the same full network invariants.
+            MATHFP_TRY_LET(
+                std::vector<ConnectionSegment>
+                , canonical_connection_segments
+                , canonicalize_connection_segments(
+                    std::move(connection_segments)
+                    , canonical_routes.routes
+                    , canonical_routes.old_to_new_ids
+                    , allow_empty
+                )
+            );
 
             using SegmentIndices = std::pair<
                 preprocessing::RouteSegmentIndex
@@ -266,14 +387,14 @@ namespace timetable::domain::assignment {
             MATHFP_TRY_LET(
                 SegmentIndices
                 , indices
-                , build_indices(canonical_route_segments, connection_segments)
+                , build_indices(canonical_routes.routes, canonical_connection_segments)
             );
 
             timetable::infra::progress::both("preprocessing: done");
 
             return PreprocessedNetwork{
-                .route_segments        = std::move(canonical_route_segments)
-                , .connection_segments = std::move(connection_segments)
+                .route_segments        = std::move(canonical_routes.routes)
+                , .connection_segments = std::move(canonical_connection_segments)
                 , .route_index         = std::move(indices.first)
                 , .connection_index    = std::move(indices.second)
             };
@@ -352,6 +473,97 @@ namespace timetable::domain::assignment {
                 .ctx("from", duplicate->from.id)
                 .ctx("to", duplicate->to.id)
                 .ctx("carrier_id", duplicate->carrier_id)
+            );
+        }
+
+        return mathfp::kUnit;
+    }
+
+    mathfp::Expected<mathfp::Unit> validate_connection_segments(
+        const std::vector<ConnectionSegment>& segments
+        , std::span<const RouteSegment> route_segments
+        , bool allow_empty
+    ) {
+        if (segments.empty() && !allow_empty) {
+            return mathfp::unexpected(
+                mathfp::invalid_arg("connection segments collection is empty")
+            );
+        }
+
+        if (!segments.empty() && route_segments.empty()) {
+            return mathfp::unexpected(
+                mathfp::invalid_arg("connection segments require non-empty route segments")
+            );
+        }
+
+        std::vector<const RouteSegment*> canonical_routes_by_id(route_segments.size(), nullptr);
+        for (const auto& route_segment : route_segments) {
+            const auto route_index = static_cast<std::size_t>(route_segment.id.get());
+            if (route_index >= canonical_routes_by_id.size()) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("route segment id out of canonical range")
+                        .ctx("route_segment_id", route_segment.id.get())
+                );
+            }
+            canonical_routes_by_id[route_index] = &route_segment;
+        }
+
+        std::vector<bool> seen_ids(segments.size(), false);
+        for (const auto& segment : segments) {
+            const auto id_index = static_cast<std::size_t>(segment.id.get());
+            if (id_index >= seen_ids.size()) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("connection segment id out of range")
+                        .ctx("connection_segment_id", segment.id.get())
+                );
+            }
+            if (seen_ids[id_index]) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("duplicate connection segment id")
+                        .ctx("connection_segment_id", segment.id.get())
+                );
+            }
+            seen_ids[id_index] = true;
+
+            const auto route_index = static_cast<std::size_t>(segment.route_segment.get());
+            if (route_index >= canonical_routes_by_id.size()) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("connection segment route reference out of range")
+                        .ctx("connection_segment_id", segment.id.get())
+                        .ctx("route_segment_id", segment.route_segment.get())
+                );
+            }
+            const auto* route_segment = canonical_routes_by_id[route_index];
+            if (route_segment == nullptr) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("connection segment references missing canonical route segment")
+                        .ctx("connection_segment_id", segment.id.get())
+                        .ctx("route_segment_id", segment.route_segment.get())
+                );
+            }
+
+            MATHFP_TRY_LET(
+                ConnectionSegment
+                , validated_segment
+                , preprocessing::make_connection_segment(
+                    segment.id,
+                    *route_segment,
+                    segment.trip,
+                    segment.from_index,
+                    segment.to_index,
+                    segment.departure,
+                    segment.arrival,
+                    segment.fare
+                )
+            );
+            (void)validated_segment;
+        }
+
+        auto keys = collect_connection_segment_keys(segments);
+        if (const auto* duplicate = find_duplicate_connection_segment_key(keys)) {
+            return mathfp::unexpected(
+                mathfp::invalid_arg("duplicate connection segments detected")
+                    .ctx("route_segment_id", duplicate->route_segment)
             );
         }
 

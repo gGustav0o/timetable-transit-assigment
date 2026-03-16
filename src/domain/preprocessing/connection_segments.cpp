@@ -331,6 +331,38 @@ namespace timetable::domain::preprocessing {
             };
         }
 
+        bool has_forward_trip_times(
+            const IndexedTrip& indexed_trip
+            , StopId from
+            , StopId to
+        ) {
+            const auto it_from = indexed_trip.stop_index.find(from);
+            if (it_from == indexed_trip.stop_index.end()) {
+                return false;
+            }
+
+            const auto it_to = indexed_trip.stop_index.find(to);
+            if (it_to == indexed_trip.stop_index.end()) {
+                return false;
+            }
+
+            return it_from->second < it_to->second;
+        }
+
+        std::size_t estimate_timed_segment_reserve(
+            const std::vector<IndexedTrip>& line_trips
+            , StopId from
+            , StopId to
+        ) {
+            return static_cast<std::size_t>(std::count_if(
+                line_trips.begin()
+                , line_trips.end()
+                , [&](const IndexedTrip& indexed_trip) {
+                    return has_forward_trip_times(indexed_trip, from, to);
+                }
+            ));
+        }
+
         bool has_non_strict_skips(const ConnectionBuildStats& stats) noexcept {
             return stats.skipped_missing_routes > 0
                 || stats.skipped_invalid_endpoints > 0
@@ -485,10 +517,12 @@ namespace timetable::domain::preprocessing {
                 };
             }
 
-            // TODO: Derive a better reserve estimate for timed segments when
-            // preprocessing large networks; line_trips.size() is only a loose upper bound.
             std::vector<ConnectionSegment> segments;
-            segments.reserve(line_trips.size());
+            segments.reserve(estimate_timed_segment_reserve(
+                line_trips
+                , stop_endpoint_result.endpoints->first
+                , stop_endpoint_result.endpoints->second
+            ));
             for (const auto& indexed_trip : line_trips) {
                 MATHFP_TRY_LET(
                     TripTimesResult

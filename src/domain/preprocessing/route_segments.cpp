@@ -291,6 +291,12 @@ namespace timetable::domain::preprocessing {
             std::unordered_map<WalkLinkId, const WalkLink*> link_by_id{};
         };
 
+        struct CanonicalWalkEndpoints final {
+            std::vector<WalkEndpoint> endpoints{};
+            std::unordered_map<EndpointKey, std::size_t> index_by_key{};
+            std::vector<std::size_t> old_to_new{};
+        };
+
         struct WalkKey final {
             EndpointKey             from{};
             EndpointKey             to{};
@@ -373,6 +379,48 @@ namespace timetable::domain::preprocessing {
             return idx;
         }
 
+        CanonicalWalkEndpoints canonicalize_walk_endpoints(
+            const std::vector<WalkEndpoint>& endpoints
+        ) {
+            std::vector<std::pair<EndpointKey, std::size_t>> ordered_keys;
+            ordered_keys.reserve(endpoints.size());
+            for (std::size_t i = 0; i < endpoints.size(); ++i) {
+                ordered_keys.emplace_back(to_endpoint_key(endpoints[i]), i);
+            }
+            std::sort(ordered_keys.begin(), ordered_keys.end(), [](const auto& lhs, const auto& rhs) {
+                return lhs.first < rhs.first;
+            });
+
+            CanonicalWalkEndpoints canonical;
+            canonical.endpoints.reserve(endpoints.size());
+            canonical.index_by_key.reserve(endpoints.size());
+            canonical.old_to_new.resize(endpoints.size());
+
+            for (std::size_t new_index = 0; new_index < ordered_keys.size(); ++new_index) {
+                const auto old_index = ordered_keys[new_index].second;
+                canonical.endpoints.push_back(endpoints[old_index]);
+                canonical.index_by_key.emplace(ordered_keys[new_index].first, new_index);
+                canonical.old_to_new[old_index] = new_index;
+            }
+
+            return canonical;
+        }
+
+        std::unordered_map<Pair, BestEdge, PairHash> remap_best_edges(
+            const std::unordered_map<Pair, BestEdge, PairHash>& best_edges
+            , const std::vector<std::size_t>& old_to_new
+        ) {
+            std::unordered_map<Pair, BestEdge, PairHash> remapped;
+            remapped.reserve(best_edges.size());
+            for (const auto& [pair, edge] : best_edges) {
+                remapped.emplace(
+                    Pair{ old_to_new[pair.first], old_to_new[pair.second] }
+                    , edge
+                );
+            }
+            return remapped;
+        }
+
         mathfp::Expected<WalkGraphData> build_walk_graph_data(
             const std::vector<WalkLink>& walk_links
             , const PreprocessParams& params
@@ -401,36 +449,10 @@ namespace timetable::domain::preprocessing {
             }
 
             if (params.stable_ordering) {
-                // TODO: Avoid rebuilding best_edges from scratch after endpoint sorting.
-                // The current implementation favors determinism over efficiency.
-                std::sort(data.endpoints.begin(), data.endpoints.end(), [](const WalkEndpoint& a, const WalkEndpoint& b) {
-                    return to_endpoint_key(a) < to_endpoint_key(b);
-                });
-                data.index_by_key.clear();
-                data.index_by_key.reserve(data.endpoints.size());
-                for (std::size_t i = 0; i < data.endpoints.size(); ++i) {
-                    data.index_by_key.emplace(to_endpoint_key(data.endpoints[i]), i);
-                }
-
-                data.best_edges.clear();
-                data.best_edges.reserve(walk_links.size());
-                for (const auto* link_ptr : link_order) {
-                    const auto& link = *link_ptr;
-                    MATHFP_TRY_LET(
-                        double
-                        , w
-                        , compute_walk_weight(link, params)
-                    );
-
-                    const auto u = data.index_by_key.at(to_endpoint_key(link.from));
-                    const auto v = data.index_by_key.at(to_endpoint_key(link.to));
-
-                    const Pair key{ u, v };
-                    const auto it = data.best_edges.find(key);
-                    if (it == data.best_edges.end() || w < it->second.weight) {
-                        data.best_edges[key] = BestEdge{ w, link.id };
-                    }
-                }
+                auto canonical = canonicalize_walk_endpoints(data.endpoints);
+                data.best_edges = remap_best_edges(data.best_edges, canonical.old_to_new);
+                data.endpoints = std::move(canonical.endpoints);
+                data.index_by_key = std::move(canonical.index_by_key);
             }
 
             return data;

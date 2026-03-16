@@ -11,6 +11,7 @@ namespace timetable::domain::assignment {
         std::optional<Time>             start_time{};
         std::optional<Time>             current_arrival_time{};
         const ConnectionSegment*        last_segment{};
+        const RouteSegment*             last_route_segment{};
         std::optional<TransferCount>    transfer_count{};
     };
 
@@ -18,12 +19,15 @@ namespace timetable::domain::assignment {
      * @brief Search-level feasibility predicate for extending a connection branch.
      *
      * Enforces temporal suitability, start-wait policy, and forbids transfers
-     * to the same TRIP_ID. The candidate is interpreted relative to the full
-     * current branch state, not only to one predecessor segment.
+     * to the same TRIP_ID. Transfers within the same line are forbidden by
+     * default and are only allowed in the explicit loop-line special case from
+     * the assignment algorithm. The candidate is interpreted relative to the
+     * full current branch state, not only to one predecessor segment.
      */
     bool is_branch_extension_feasible(
         const BranchState& state
         , const ConnectionSegment& candidate
+        , const RouteSegment& candidate_route_segment
         , const TransferLimits& limits
     ) noexcept;
 
