@@ -309,6 +309,9 @@ namespace timetable::app {
 			BackgroundThreads background_threads(
 				model, config, logging.log_buffer, data_source, logger, worker_result
 			);
+			// TODO: Propagate user-requested UI shutdown into cooperative worker
+			// cancellation. Right now pressing q exits the UI loop, but run()
+			// still waits for the parsing/assignment worker to finish via join().
 			return ui::run(model, logger);
 		}();
 

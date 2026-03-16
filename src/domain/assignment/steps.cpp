@@ -16,6 +16,7 @@
 #include <fmt/format.h>
 
 #include "timetable/domain/endpoints.hpp"
+#include "timetable/domain/numeric.hpp"
 #include "timetable/domain/preprocessing/segments_index.hpp"
 #include "timetable/domain/segment_semantics.hpp"
 #include "timetable/infra/progress_bus.hpp"
@@ -84,15 +85,13 @@ namespace timetable::domain::assignment {
             , const SearchImpedance& impedance
             , double fare_scale
         ) noexcept {
-            const auto a_jt = mathfp::units::as_dimless(impedance.a_journey_time);
-            const auto a_nt = mathfp::units::as_dimless(impedance.a_transfers);
-            const auto a_fare = mathfp::units::as_dimless(impedance.a_fare);
             const auto nt = static_cast<double>(transfers.get());
-            const auto penalized_jt = journey_time.value() + impedance.transfer_penalty.value() * nt;
+            const auto penalized_journey_time =
+                journey_time.value() + impedance.transfer_penalty.value() * nt;
 
-            return a_jt * penalized_jt
-                + a_nt * nt
-                + a_fare * normalized_fare(fare, fare_scale);
+            return mathfp::units::as_dimless(impedance.a_journey_time) * penalized_journey_time
+                + mathfp::units::as_dimless(impedance.a_transfers) * nt
+                + mathfp::units::as_dimless(impedance.a_fare) * normalized_fare(fare, fare_scale);
         }
 
         std::vector<ZoneId> search_origins(
@@ -182,18 +181,15 @@ namespace timetable::domain::assignment {
             , const SearchTolerances& tolerances
             , const TransferLimits& limits
         ) noexcept {
-            const auto imp_mult = mathfp::units::as_dimless(tolerances.imp_mult);
-            const auto imp_add = mathfp::units::as_dimless(tolerances.imp_add);
-            const auto jt_mult = mathfp::units::as_dimless(tolerances.jt_mult);
-            const auto jt_add = mathfp::units::as_dimless(tolerances.jt_add);
-            const auto nt_mult = mathfp::units::as_dimless(tolerances.nt_mult);
-            const auto nt_add = mathfp::units::as_dimless(tolerances.nt_add);
-            const auto candidate_nt = static_cast<double>(candidate.transfers.get());
-
             return candidate.transfers <= limits.max_transfers
-                && candidate.impedance <= imp_mult * known.min_impedance + imp_add
-                && candidate.journey_time.value() <= jt_mult * known.min_journey_time + jt_add
-                && candidate_nt <= nt_mult * known.min_transfers + nt_add;
+                && candidate.impedance <= mathfp::units::as_dimless(tolerances.imp_mult) * known.min_impedance
+                    + mathfp::units::as_dimless(tolerances.imp_add)
+                && candidate.journey_time.value()
+                    <= mathfp::units::as_dimless(tolerances.jt_mult) * known.min_journey_time
+                        + mathfp::units::as_dimless(tolerances.jt_add)
+                && static_cast<double>(candidate.transfers.get())
+                    <= mathfp::units::as_dimless(tolerances.nt_mult) * known.min_transfers
+                        + mathfp::units::as_dimless(tolerances.nt_add);
         }
 
         void insert_label(
@@ -773,17 +769,15 @@ namespace timetable::domain::assignment {
             , const ChoiceGroupStats& stats
             , const ChoiceTolerances& tolerances
         ) noexcept {
-            const auto imp_mult = mathfp::units::as_dimless(tolerances.imp_mult);
-            const auto imp_add = mathfp::units::as_dimless(tolerances.imp_add);
-            const auto jt_mult = mathfp::units::as_dimless(tolerances.jt_mult);
-            const auto jt_add = mathfp::units::as_dimless(tolerances.jt_add);
-            const auto nt_mult = mathfp::units::as_dimless(tolerances.nt_mult);
-            const auto nt_add = mathfp::units::as_dimless(tolerances.nt_add);
-            const auto transfers = static_cast<double>(connection.transfers.get());
-
-            return connection.impedance <= imp_mult * stats.min_impedance + imp_add
-                && connection.journey_time.value() <= jt_mult * stats.min_journey_time + jt_add
-                && transfers <= nt_mult * stats.min_transfers + nt_add;
+            return connection.impedance
+                    <= mathfp::units::as_dimless(tolerances.imp_mult) * stats.min_impedance
+                        + mathfp::units::as_dimless(tolerances.imp_add)
+                && connection.journey_time.value()
+                    <= mathfp::units::as_dimless(tolerances.jt_mult) * stats.min_journey_time
+                        + mathfp::units::as_dimless(tolerances.jt_add)
+                && static_cast<double>(connection.transfers.get())
+                    <= mathfp::units::as_dimless(tolerances.nt_mult) * stats.min_transfers
+                        + mathfp::units::as_dimless(tolerances.nt_add);
         }
 
         std::vector<DiscoveredConnection> filter_choice_group(
@@ -900,22 +894,17 @@ namespace timetable::domain::assignment {
             , const TimeInterval& interval
             , const SplitParams& params
         ) noexcept {
-            const auto q_time = mathfp::units::as_dimless(params.q_time);
-            const auto q_dep = mathfp::units::as_dimless(params.q_departure);
-            const auto q_fare = mathfp::units::as_dimless(params.q_fare);
-
-            return q_time * perceived_journey_time(connection)
-                + q_dep * temporal_utility(connection, interval)
-                + q_fare * connection.fare;
+            return mathfp::units::as_dimless(params.q_time) * perceived_journey_time(connection)
+                + mathfp::units::as_dimless(params.q_departure) * temporal_utility(connection, interval)
+                + mathfp::units::as_dimless(params.q_fare) * connection.fare;
         }
 
         double box_cox_transform(
             double value
             , double t
         ) noexcept {
-            constexpr double kMinPositive = 1e-12;
-            const auto positive = std::max(value, kMinPositive);
-            if (std::abs(t) <= 1e-12) {
+            const auto positive = std::max(value, numeric::positive_stability_floor());
+            if (mathfp::almost_zero(t)) {
                 return std::log(positive);
             }
             return (std::pow(positive, t) - 1.0) / t;
@@ -960,19 +949,21 @@ namespace timetable::domain::assignment {
             , const DiscoveredConnection& other
             , const SplitParams& params
         ) noexcept {
-            const auto x_scale = mathfp::units::as_dimless(params.x_scale);
-            const auto y_scale = mathfp::units::as_dimless(params.y_scale);
-            const auto z_scale = mathfp::units::as_dimless(params.z_scale);
-            const auto gamma = mathfp::units::as_dimless(params.gamma);
-
             const auto x = temporal_similarity(base, other);
             const auto y = std::abs(journey_advantage(base, other));
             const auto z = std::abs(fare_advantage(base, other));
-            const auto proximity = capped_proximity(x, x_scale);
-            const auto y_term = y_scale > 0.0 ? y / y_scale : 0.0;
-            const auto z_term = z_scale > 0.0 ? z / z_scale : 0.0;
+            const auto proximity = capped_proximity(
+                x
+                , mathfp::units::as_dimless(params.x_scale)
+            );
+            const auto y_term = mathfp::units::as_dimless(params.y_scale) > 0.0
+                ? y / mathfp::units::as_dimless(params.y_scale)
+                : 0.0;
+            const auto z_term = mathfp::units::as_dimless(params.z_scale) > 0.0
+                ? z / mathfp::units::as_dimless(params.z_scale)
+                : 0.0;
 
-            return proximity * std::exp(-gamma * (y_term + z_term));
+            return proximity * std::exp(-mathfp::units::as_dimless(params.gamma) * (y_term + z_term));
         }
 
         double connection_independence(
@@ -1163,7 +1154,10 @@ namespace timetable::domain::assignment {
                     , params.split
                 );
                 const auto transformed = box_cox_transform(imp, boxcox_t);
-                const auto log_weight = std::log(std::max(independence, 1e-12))
+                const auto log_weight = std::log(std::max(
+                    independence
+                    , numeric::positive_stability_floor()
+                ))
                     - beta * transformed;
 
                 independences.push_back(independence);

@@ -30,7 +30,6 @@ namespace timetable::infra::txt {
 
 		constexpr std::size_t kExpectedLines = 11;
 		constexpr std::int64_t kMissingId = -1;
-		constexpr double kTimeConsistencyEps = 1e-9;
 		constexpr std::size_t kStopReserveDiv = 2;
 		constexpr std::size_t kLineReserveDiv = 4;
 		constexpr std::size_t kExtraZoneReserveDiv = 16;
@@ -234,7 +233,7 @@ namespace timetable::infra::txt {
 			, std::size_t row_index
 		) {
 			const auto scheduled_time = arr_sec - dep_sec;
-			if (std::abs(time_sec - scheduled_time) > kTimeConsistencyEps) {
+			if (!mathfp::almost_equal(time_sec, scheduled_time)) {
 				return mathfp::unexpected(
 					mathfp::invalid_arg("TIME must equal ARR - DEP for timed segment")
 					.ctx(std::string(kCtxIndex), static_cast<std::int64_t>(row_index))
@@ -329,8 +328,8 @@ namespace timetable::infra::txt {
 			const LineRouteMetrics& lhs
 			, const LineRouteMetrics& rhs
 		) {
-			return timetable::domain::numeric::nearly_equal(lhs.length_km, rhs.length_km)
-				&& timetable::domain::numeric::nearly_equal(lhs.time_sec, rhs.time_sec);
+			return mathfp::almost_equal(lhs.length_km, rhs.length_km)
+				&& mathfp::almost_equal(lhs.time_sec, rhs.time_sec);
 		}
 
 		mathfp::Expected<mathfp::Unit> validate_int_column_length(

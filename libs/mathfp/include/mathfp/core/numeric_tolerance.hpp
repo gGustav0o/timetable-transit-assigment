@@ -52,16 +52,6 @@ namespace mathfp {
         return mathfp::machine_epsilon<T>();
     }
 
-    template<std::floating_point T>
-    MATHFP_CONST_FN
-    constexpr bool almost_equal(T a, T b) noexcept {
-        return mathfp::almost_equal(
-            a
-            , b
-            , mathfp::abs_tolerance<T>(T(0))
-            , mathfp::rel_tolerance_coeff<T>()
-        );
-    }
 
     template<std::floating_point T>
     MATHFP_CONST_FN
@@ -75,6 +65,17 @@ namespace mathfp {
         const T scale = mathfp::scalar_scale(a, b);
         const T tol = (std::max)(abs_tol, rel_tol * scale);
         return diff <= tol;
+    }
+
+    template<std::floating_point T>
+    MATHFP_CONST_FN
+    constexpr bool almost_equal(T a, T b) noexcept {
+        return mathfp::almost_equal(
+            a
+            , b
+            , mathfp::abs_tolerance<T>(T(0))
+            , mathfp::rel_tolerance_coeff<T>()
+        );
     }
 
     template<std::integral I>
