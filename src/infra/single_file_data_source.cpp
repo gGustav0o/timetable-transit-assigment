@@ -25,8 +25,8 @@ namespace timetable::infra {
 
 				status("parsing: deprecated single-file input selected", LogLevel::Warning);
 				log(
-					"single-file TXT input is deprecated, is not maintained against the current program logic, and may diverge from actively updated behavior",
-					LogLevel::Warning
+					"single-file TXT input is deprecated, is not maintained against the current program logic, and may diverge from actively updated behavior"
+					, LogLevel::Warning
 				);
 				status("parsing: start");
 				return

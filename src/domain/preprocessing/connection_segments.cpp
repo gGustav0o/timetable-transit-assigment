@@ -496,15 +496,15 @@ namespace timetable::domain::preprocessing {
                     );
                 }
                 return OccurrenceEndpointResult{
-                    .endpoints = std::nullopt,
-                    .stats = ConnectionBuildStats{ .skipped_non_line_topology = 1 }
+                    .endpoints = std::nullopt
+                    , .stats = ConnectionBuildStats{ .skipped_non_line_topology = 1 }
                 };
             }
 
             return OccurrenceEndpointResult{
                 .endpoints = OccurrenceEndpoints{
-                    line->from,
-                    line->to
+                    line->from
+                    , line->to
                 },
                 .stats = {}
             };
@@ -532,8 +532,8 @@ namespace timetable::domain::preprocessing {
                 )
             );
             return BuiltConnectionSegment{
-                .segment = std::move(segment),
-                .next_id = next_id
+                .segment = std::move(segment)
+                , .next_id = next_id
             };
         }
 
@@ -549,8 +549,9 @@ namespace timetable::domain::preprocessing {
 
             const auto valid = ensure_line_fare_consistent(*line.fare);
             if (!valid) {
+                auto error = valid.error();
                 return mathfp::unexpected(
-                    std::move(valid.error()).ctx("line_id", line.id.get())
+                    std::move(error).ctx("line_id", line.id.get())
                 );
             }
 
@@ -598,9 +599,9 @@ namespace timetable::domain::preprocessing {
             ConnectionBuildStats stats = std::move(occurrence_result.stats);
             if (!occurrence_result.endpoints.has_value()) {
                 return TimedRouteBuildResult{
-                    .segments = {},
-                    .next_id = next_id,
-                    .stats = std::move(stats)
+                    .segments = {}
+                    , .next_id = next_id
+                    , .stats = std::move(stats)
                 };
             }
 
@@ -649,9 +650,9 @@ namespace timetable::domain::preprocessing {
             }
 
             return TimedRouteBuildResult{
-                .segments = std::move(segments),
-                .next_id = next_id,
-                .stats = std::move(stats)
+                .segments = std::move(segments)
+                , .next_id = next_id
+                , .stats = std::move(stats)
             };
         }
 

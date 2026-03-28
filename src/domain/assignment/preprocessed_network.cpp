@@ -66,19 +66,19 @@ namespace timetable::domain::assignment {
         RouteSegmentKey route_segment_key(const RouteSegment& segment) {
             if (const auto* walk = walk_topology_of(segment)) {
                 return RouteSegmentKey{
-                    .topology_kind = RouteTopologyKind::Walk,
-                    .walk_from = to_endpoint_key(walk->from),
-                    .walk_to = to_endpoint_key(walk->to),
-                    .path = walk->path
+                    .topology_kind = RouteTopologyKind::Walk
+                    , .walk_from = to_endpoint_key(walk->from)
+                    , .walk_to = to_endpoint_key(walk->to)
+                    , .path = walk->path
                 };
             }
 
             const auto* line = line_topology_of(segment);
             return RouteSegmentKey{
-                .topology_kind = RouteTopologyKind::Line,
-                .line_from = occurrence_key(line->from),
-                .line_to = occurrence_key(line->to),
-                .line_id = line->line.get()
+                .topology_kind = RouteTopologyKind::Line
+                , .line_from = occurrence_key(line->from)
+                , .line_to = occurrence_key(line->to)
+                , .line_id = line->line.get()
             };
         }
 
@@ -129,13 +129,13 @@ namespace timetable::domain::assignment {
             const ConnectionSegment& segment
         ) {
             return ConnectionSegmentKey{
-                .route_segment = segment.route_segment.get(),
-                .trip = segment.trip ? std::optional<std::int64_t>{ segment.trip->get() } : std::nullopt,
-                .from_index = segment.from_index ? std::optional<std::int64_t>{ segment.from_index->get() } : std::nullopt,
-                .to_index = segment.to_index ? std::optional<std::int64_t>{ segment.to_index->get() } : std::nullopt,
-                .departure = segment.departure ? std::optional<double>{ segment.departure->value() } : std::nullopt,
-                .arrival = segment.arrival ? std::optional<double>{ segment.arrival->value() } : std::nullopt,
-                .fare = segment.fare
+                .route_segment = segment.route_segment.get()
+                , .trip = segment.trip ? std::optional<std::int64_t>{ segment.trip->get() } : std::nullopt
+                , .from_index = segment.from_index ? std::optional<std::int64_t>{ segment.from_index->get() } : std::nullopt
+                , .to_index = segment.to_index ? std::optional<std::int64_t>{ segment.to_index->get() } : std::nullopt
+                , .departure = segment.departure ? std::optional<double>{ segment.departure->value() } : std::nullopt
+                , .arrival = segment.arrival ? std::optional<double>{ segment.arrival->value() } : std::nullopt
+                , .fare = segment.fare
             };
         }
 

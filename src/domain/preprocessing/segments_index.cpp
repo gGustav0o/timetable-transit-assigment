@@ -293,9 +293,9 @@ namespace timetable::domain::preprocessing {
             LineRouteIndexData data;
             data.order.reserve(line_refs.size());
             std::transform(
-                line_refs.begin(), line_refs.end(),
-                std::back_inserter(data.order),
-                [](const RouteSegRef& ref) { return ref.id; }
+                line_refs.begin(), line_refs.end()
+                , std::back_inserter(data.order)
+                , [](const RouteSegRef& ref) { return ref.id; }
             );
             data.bucket_index = build_buckets<std::vector<RouteSegRef>, StopOccurrenceKey>(
                 line_refs
@@ -310,9 +310,9 @@ namespace timetable::domain::preprocessing {
             WalkRouteIndexData data;
             data.order.reserve(walk_refs.size());
             std::transform(
-                walk_refs.begin(), walk_refs.end(),
-                std::back_inserter(data.order),
-                [](const RouteSegRef& ref) { return ref.id; }
+                walk_refs.begin(), walk_refs.end()
+                , std::back_inserter(data.order)
+                , [](const RouteSegRef& ref) { return ref.id; }
             );
             data.bucket_index = build_buckets<std::vector<RouteSegRef>, EndpointKey>(
                 walk_refs
@@ -328,14 +328,14 @@ namespace timetable::domain::preprocessing {
             data.order.reserve(timed_refs.size());
             data.departures.reserve(timed_refs.size());
             std::transform(
-                timed_refs.begin(), timed_refs.end(),
-                std::back_inserter(data.order),
-                [](const ConnectionSegRef& ref) { return ref.id; }
+                timed_refs.begin(), timed_refs.end()
+                , std::back_inserter(data.order)
+                , [](const ConnectionSegRef& ref) { return ref.id; }
             );
             std::transform(
-                timed_refs.begin(), timed_refs.end(),
-                std::back_inserter(data.departures),
-                [](const ConnectionSegRef& ref) { return *ref.ptr->departure; }
+                timed_refs.begin(), timed_refs.end()
+                , std::back_inserter(data.departures)
+                , [](const ConnectionSegRef& ref) { return *ref.ptr->departure; }
             );
             data.bucket_index = build_buckets<std::vector<ConnectionSegRef>, StopOccurrenceKey>(
                 timed_refs
@@ -353,14 +353,14 @@ namespace timetable::domain::preprocessing {
             data.order.reserve(timed_refs.size());
             data.departures.reserve(timed_refs.size());
             std::transform(
-                timed_refs.begin(), timed_refs.end(),
-                std::back_inserter(data.order),
-                [](const ConnectionSegRef& ref) { return ref.id; }
+                timed_refs.begin(), timed_refs.end()
+                , std::back_inserter(data.order)
+                , [](const ConnectionSegRef& ref) { return ref.id; }
             );
             std::transform(
-                timed_refs.begin(), timed_refs.end(),
-                std::back_inserter(data.departures),
-                [](const ConnectionSegRef& ref) { return *ref.ptr->departure; }
+                timed_refs.begin(), timed_refs.end()
+                , std::back_inserter(data.departures)
+                , [](const ConnectionSegRef& ref) { return *ref.ptr->departure; }
             );
             data.bucket_index = build_buckets<std::vector<ConnectionSegRef>, StopId>(
                 timed_refs
@@ -375,9 +375,9 @@ namespace timetable::domain::preprocessing {
             WalkConnectionIndexData data;
             data.order.reserve(walk_refs.size());
             std::transform(
-                walk_refs.begin(), walk_refs.end(),
-                std::back_inserter(data.order),
-                [](const ConnectionSegRef& ref) { return ref.id; }
+                walk_refs.begin(), walk_refs.end()
+                , std::back_inserter(data.order)
+                , [](const ConnectionSegRef& ref) { return ref.id; }
             );
             data.bucket_index = build_buckets<std::vector<ConnectionSegRef>, EndpointKey>(
                 walk_refs
@@ -420,12 +420,12 @@ namespace timetable::domain::preprocessing {
         auto walk_index = fill_walk_route_index(refs.walk);
 
         RouteSegmentIndex index{
-            .line_order = std::move(line_index.order),
-            .line_buckets = std::move(line_index.bucket_index.buckets),
-            .line_offsets = std::move(line_index.bucket_index.offsets),
-            .walk_order = std::move(walk_index.order),
-            .walk_buckets = std::move(walk_index.bucket_index.buckets),
-            .walk_offsets = std::move(walk_index.bucket_index.offsets)
+            .line_order = std::move(line_index.order)
+            , .line_buckets = std::move(line_index.bucket_index.buckets)
+            , .line_offsets = std::move(line_index.bucket_index.offsets)
+            , .walk_order = std::move(walk_index.order)
+            , .walk_buckets = std::move(walk_index.bucket_index.buckets)
+            , .walk_offsets = std::move(walk_index.bucket_index.offsets)
         };
 
         log(
@@ -474,17 +474,17 @@ namespace timetable::domain::preprocessing {
         auto walk_index = fill_walk_connection_index(refs.walk);
 
         ConnectionSegmentIndex index{
-            .timed_order = std::move(timed_index.order),
-            .timed_departures = std::move(timed_index.departures),
-            .timed_buckets = std::move(timed_index.bucket_index.buckets),
-            .timed_offsets = std::move(timed_index.bucket_index.offsets),
-            .boarding_order = std::move(boarding_index.order),
-            .boarding_departures = std::move(boarding_index.departures),
-            .boarding_stop_buckets = std::move(boarding_index.bucket_index.buckets),
-            .boarding_offsets = std::move(boarding_index.bucket_index.offsets),
-            .walk_order = std::move(walk_index.order),
-            .walk_buckets = std::move(walk_index.bucket_index.buckets),
-            .walk_offsets = std::move(walk_index.bucket_index.offsets)
+            .timed_order = std::move(timed_index.order)
+            , .timed_departures = std::move(timed_index.departures)
+            , .timed_buckets = std::move(timed_index.bucket_index.buckets)
+            , .timed_offsets = std::move(timed_index.bucket_index.offsets)
+            , .boarding_order = std::move(boarding_index.order)
+            , .boarding_departures = std::move(boarding_index.departures)
+            , .boarding_stop_buckets = std::move(boarding_index.bucket_index.buckets)
+            , .boarding_offsets = std::move(boarding_index.bucket_index.offsets)
+            , .walk_order = std::move(walk_index.order)
+            , .walk_buckets = std::move(walk_index.bucket_index.buckets)
+            , .walk_offsets = std::move(walk_index.bucket_index.offsets)
         };
 
         log(

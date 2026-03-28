@@ -81,8 +81,8 @@ namespace timetable::infra {
 
 				status("parsing: deprecated data-dir input selected", LogLevel::Warning);
 				log(
-					"data-dir input is deprecated, is not maintained against the current program logic, and no further compatibility work is performed on it",
-					LogLevel::Warning
+					"data-dir input is deprecated, is not maintained against the current program logic, and no further compatibility work is performed on it"
+					, LogLevel::Warning
 				);
 				return mathfp::unexpected(mathfp::not_implemented("file data source not implemented yet"));
 			}

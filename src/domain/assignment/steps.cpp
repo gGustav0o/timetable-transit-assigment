@@ -156,8 +156,8 @@ namespace timetable::domain::assignment {
             const SearchBranch& branch
         ) noexcept {
             return SearchNodeKey{
-                .physical = branch.current_physical,
-                .occurrence = branch.current_occurrence
+                .physical = branch.current_physical
+                , .occurrence = branch.current_occurrence
             };
         }
 

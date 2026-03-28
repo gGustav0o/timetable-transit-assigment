@@ -284,20 +284,20 @@ namespace timetable::infra {
 			, std::size_t index
 		) {
 			return SegmentRowView{
-				.index = index,
-				.from_zone = columns.from_zone_id[index],
-				.from_stop = columns.from_stop_id[index],
-				.to_zone = columns.to_zone_id[index],
-				.to_stop = columns.to_stop_id[index],
-				.profile = columns.profile_id[index],
-				.trip_id = columns.trip_id[index],
-				.from_index = columns.from_index[index],
-				.to_index = columns.to_index[index],
-				.length_km = columns.length_km[index],
-				.time_sec = columns.time_sec[index],
-				.dep_sec = columns.dep_sec[index],
-				.arr_sec = columns.arr_sec[index],
-				.fare = columns.fare[index]
+				.index = index
+				, .from_zone = columns.from_zone_id[index]
+				, .from_stop = columns.from_stop_id[index]
+				, .to_zone = columns.to_zone_id[index]
+				, .to_stop = columns.to_stop_id[index]
+				, .profile = columns.profile_id[index]
+				, .trip_id = columns.trip_id[index]
+				, .from_index = columns.from_index[index]
+				, .to_index = columns.to_index[index]
+				, .length_km = columns.length_km[index]
+				, .time_sec = columns.time_sec[index]
+				, .dep_sec = columns.dep_sec[index]
+				, .arr_sec = columns.arr_sec[index]
+				, .fare = columns.fare[index]
 			};
 		}
 
@@ -570,14 +570,14 @@ namespace timetable::infra {
 			}
 
 			return SegmentSemantics{
-				.from_endpoint = std::move(from_endpoint),
-				.to_endpoint = std::move(to_endpoint),
-				.is_walk_segment = is_walk_segment,
-				.from_occurrence = std::move(from_occurrence),
-				.to_occurrence = std::move(to_occurrence),
-				.dep = std::move(dep),
-				.arr = std::move(arr),
-				.fare = std::move(fare)
+				.from_endpoint = std::move(from_endpoint)
+				, .to_endpoint = std::move(to_endpoint)
+				, .is_walk_segment = is_walk_segment
+				, .from_occurrence = std::move(from_occurrence)
+				, .to_occurrence = std::move(to_occurrence)
+				, .dep = std::move(dep)
+				, .arr = std::move(arr)
+				, .fare = std::move(fare)
 			};
 		}
 
@@ -704,10 +704,10 @@ namespace timetable::infra {
 			state.line_routes.emplace(
 				key,
 				LineRouteEntry{
-					.route_segment_index = route_segment_index,
-					.metrics = LineRouteMetrics{
-						.length_km = row.length_km,
-						.time_sec = row.time_sec
+					.route_segment_index = route_segment_index
+					, .metrics = LineRouteMetrics{
+						.length_km = row.length_km
+						, .time_sec = row.time_sec
 					}
 				}
 			);
@@ -874,8 +874,8 @@ namespace timetable::infra {
 			out.input = std::move(input);
 			out.params = timetable::domain::SearchParams{};
 			out.presegmented = timetable::domain::AssignmentInput::PresegmentedInput{
-				.route_segments = std::move(state.route_segments),
-				.connection_segments = std::move(state.connection_segments)
+				.route_segments = std::move(state.route_segments)
+				, .connection_segments = std::move(state.connection_segments)
 			};
 			return out;
 		}

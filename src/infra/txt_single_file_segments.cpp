@@ -102,12 +102,12 @@ namespace timetable::infra::txt {
 			, std::size_t line_no
 		) {
 			return parse_numeric_sequence<std::int64_t>(
-				line,
-				field,
-				line_no,
-				"failed to parse integer",
-				"integer out of range",
-				[](const char* begin, char** end) {
+				line
+				, field
+				, line_no
+				, "failed to parse integer"
+				, "integer out of range"
+				, [](const char* begin, char** end) {
 					return std::strtoll(begin, end, 10);
 				}
 			);
@@ -119,12 +119,12 @@ namespace timetable::infra::txt {
 			, std::size_t line_no
 		) {
 			return parse_numeric_sequence<double>(
-				line,
-				field,
-				line_no,
-				"failed to parse floating point",
-				"floating point out of range",
-				[](const char* begin, char** end) {
+				line
+				, field
+				, line_no
+				, "failed to parse floating point"
+				, "floating point out of range"
+				, [](const char* begin, char** end) {
 					return std::strtod(begin, end);
 				}
 			);
