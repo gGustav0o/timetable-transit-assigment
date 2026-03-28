@@ -30,6 +30,7 @@ add_executable(timetable-transit-assigment
   src/domain/preprocessing/segments_index.cpp
   src/domain/preprocessing/connection_segments.cpp
   src/domain/preprocessing/route_segments.cpp
+  src/infra/clipboard.cpp
   src/infra/data_sources.cpp
   src/infra/file_data_source.cpp
   src/infra/log_buffer.cpp

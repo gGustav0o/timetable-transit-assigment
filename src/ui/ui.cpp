@@ -3,7 +3,9 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <span>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -14,6 +16,8 @@
 #include <spdlog/spdlog.h>
 
 #include <mathfp/core/expected.hpp>
+
+#include "timetable/infra/clipboard.hpp"
 
 namespace timetable::ui {
 	namespace {
@@ -225,6 +229,60 @@ namespace timetable::ui {
 			ScrollTracking scroll_tracking{};
 		};
 
+		std::string_view panel_name(FocusPanel panel) noexcept {
+			return panel == FocusPanel::Logs ? "logs" : "status";
+		}
+
+		std::string_view log_level_label(infra::LogLevel level) noexcept {
+			switch (level) {
+				case infra::LogLevel::Info:
+					return "INFO";
+				case infra::LogLevel::Warning:
+					return "WARN";
+				case infra::LogLevel::Error:
+					return "ERROR";
+				case infra::LogLevel::Debug:
+					return "DEBUG";
+			}
+			return "INFO";
+		}
+
+		std::span<const infra::LogEntry> focused_panel_lines(
+			const UiSnapshot& snapshot
+			, FocusPanel panel
+		) noexcept {
+			if (panel == FocusPanel::Logs) {
+				return snapshot.log_lines;
+			}
+			return snapshot.status_lines;
+		}
+
+		std::string serialize_log_entries_for_clipboard(
+			std::span<const infra::LogEntry> lines
+		) {
+			std::string out;
+			for (std::size_t i = 0; i < lines.size(); ++i) {
+				const auto& entry = lines[i];
+				out.append("[");
+				out.append(log_level_label(entry.level));
+				out.append("] ");
+				out.append(entry.message);
+				if (i + 1 < lines.size()) {
+					out.append("\n");
+				}
+			}
+			return out;
+		}
+
+		mathfp::Expected<mathfp::Unit> copy_focused_panel_to_clipboard(
+			const UiSnapshot& snapshot
+			, FocusPanel panel
+		) {
+			return infra::copy_text_to_clipboard(
+				serialize_log_entries_for_clipboard(focused_panel_lines(snapshot, panel))
+			);
+		}
+
 		struct WrappedPanelContent final {
 			std::vector<ftxui::Element> lines{};
 		};
@@ -270,9 +328,12 @@ namespace timetable::ui {
 			const char* title
 			, bool focused
 		) {
+			const auto label = focused
+				? std::string("> ") + title + " [c copy]"
+				: std::string(title);
 			return focused
-				? ftxui::text(std::string("> ") + title) | ftxui::bold
-				: ftxui::text(title);
+				? ftxui::text(label) | ftxui::bold
+				: ftxui::text(label);
 		}
 
 		ftxui::Element render_panel_window(
@@ -293,6 +354,11 @@ namespace timetable::ui {
 
 		bool is_focus_switch_event(const ftxui::Event& event) {
 			return event == ftxui::Event::Tab;
+		}
+
+		bool is_copy_event(const ftxui::Event& event) {
+			return event == ftxui::Event::Character('c')
+				|| event == ftxui::Event::Character('C');
 		}
 
 		UiState toggle_focus(UiState state) {
@@ -356,6 +422,32 @@ namespace timetable::ui {
 			}
 
 			state = toggle_focus(state);
+			return true;
+		}
+
+		bool handle_copy_event(
+			const ftxui::Event& event
+			, const UiModel& model
+			, const UiState& state
+			, const std::shared_ptr<spdlog::logger>& logger
+		) {
+			if (!is_copy_event(event)) {
+				return false;
+			}
+
+			const auto snapshot = model.snapshot();
+			auto copy_result = copy_focused_panel_to_clipboard(snapshot, state.focus);
+			if (logger) {
+				if (copy_result) {
+					logger->info("copied {} panel to clipboard", panel_name(state.focus));
+				} else {
+					logger->error(
+						"failed to copy {} panel to clipboard:\n{}"
+						, panel_name(state.focus)
+						, copy_result.error().to_string()
+					);
+				}
+			}
 			return true;
 		}
 
@@ -473,10 +565,13 @@ namespace timetable::ui {
 			ftxui::Component renderer
 			, ftxui::ScreenInteractive& screen
 			, UiState& state
+			, const UiModel& model
+			, const std::shared_ptr<spdlog::logger>& logger
 		) {
 			return CatchEvent(renderer, [&](const ftxui::Event& event) {
 				return handle_exit_event(event, screen)
 					|| handle_focus_event(event, state)
+					|| handle_copy_event(event, model, state, logger)
 					|| handle_scroll_event(event, state);
 			});
 		}
@@ -495,7 +590,7 @@ namespace timetable::ui {
 		auto renderer = make_renderer(model, state);
 
 		auto screen = ftxui::ScreenInteractive::TerminalOutput();
-		renderer = with_exit_handler(renderer, screen, state);
+		renderer = with_exit_handler(renderer, screen, state, model, logger);
 		ScopedRefreshLoop refresh_loop(screen);
 
 		screen.PostEvent(ftxui::Event::Custom);
