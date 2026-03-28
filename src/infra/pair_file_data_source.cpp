@@ -88,6 +88,15 @@ namespace timetable::infra {
 					Dimless{ 1.0 }
 					, Dimless{ 1.0 }
 					, Dimless{ 0.0 }
+					, PerceivedJourneyTimeWeights{
+						.journey_time = Dimless{ 1.0 }
+						, .transfer_time = Dimless{ 2.0 }
+						, .transfer_count = Dimless{ 2.0 }
+					}
+					, TemporalUtilityWeights{
+						.early_departure = Dimless{ 1.0 }
+						, .late_departure = Dimless{ 1.0 }
+					}
 					, Dimless{ 4.0 }
 					, Dimless{ 1.0 }
 					, Dimless{ 1.0 }

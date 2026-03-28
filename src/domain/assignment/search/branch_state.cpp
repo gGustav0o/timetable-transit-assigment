@@ -1,8 +1,4 @@
-// This file is intentionally excluded from the build graph.
-// Active staged implementation lives in:
-// - src/domain/assignment/search/branch_state.cpp
-
-#include "timetable/domain/assignment/branch_state.hpp"
+#include "timetable/domain/assignment/search/branch_state.hpp"
 
 #include "timetable/domain/segment_semantics.hpp"
 

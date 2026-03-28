@@ -3,7 +3,7 @@
 #include <mathfp/core/expected.hpp>
 
 #include "timetable/domain/assignment.hpp"
-#include "timetable/domain/assignment/steps.hpp"
+#include "timetable/domain/assignment/split.hpp"
 
 namespace timetable::domain::assignment {
 

@@ -6,8 +6,10 @@
 #include <mathfp/core/fp.hpp>
 
 #include "timetable/domain/assignment.hpp"
+#include "timetable/domain/assignment/choice.hpp"
 #include "timetable/domain/assignment/preprocessed_network.hpp"
-#include "timetable/domain/assignment/steps.hpp"
+#include "timetable/domain/assignment/search.hpp"
+#include "timetable/domain/assignment/split.hpp"
 #include "timetable/infra/progress_bus.hpp"
 
 namespace timetable::domain::assignment {

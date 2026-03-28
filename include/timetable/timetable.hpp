@@ -2,10 +2,12 @@
 
 #include "timetable/app/app.hpp"
 #include "timetable/domain/assignment.hpp"
+#include "timetable/domain/assignment/choice.hpp"
 #include "timetable/domain/assignment/output.hpp"
 #include "timetable/domain/assignment/pipeline.hpp"
 #include "timetable/domain/assignment/run.hpp"
-#include "timetable/domain/assignment/steps.hpp"
+#include "timetable/domain/assignment/search.hpp"
+#include "timetable/domain/assignment/split.hpp"
 #include "timetable/domain/model.hpp"
 #include "timetable/domain/segments.hpp"
 #include "timetable/domain/preprocessing/segments_index.hpp"

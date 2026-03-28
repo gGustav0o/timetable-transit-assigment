@@ -1,8 +1,4 @@
-// This file is intentionally excluded from the build graph.
-// Active staged implementation lives in:
-// - src/domain/assignment/search/preprocessed_network.cpp
-
-#include "timetable/domain/assignment/preprocessed_network.hpp"
+#include "timetable/domain/assignment/search/preprocessed_network.hpp"
 
 #include <algorithm>
 #include <cmath>

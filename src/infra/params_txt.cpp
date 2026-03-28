@@ -515,6 +515,11 @@ namespace timetable::infra::params_txt {
 
 			MATHFP_TRY_LET(const Object*, indep, object_at(*split_para, "Independence", "root.splitPara"));
 			MATHFP_TRY_LET(const Object*, split_imp, object_at(*split_para, "SplitImp", "root.splitPara"));
+			MATHFP_TRY_LET(
+				const Object*
+				, split_pjt
+				, object_at(*split_imp, "PerceivedJourneyTime", "root.splitPara.SplitImp")
+			);
 
 			const auto num = [](const Object& obj, std::string_view key, std::string_view path) {
 				return number_at(obj, key, path);
@@ -614,6 +619,9 @@ namespace timetable::infra::params_txt {
 			MATHFP_TRY_LET(double, q_dep_early, num(*split_imp, "temporalUtilityFactor_early", "root.splitPara.SplitImp"));
 			MATHFP_TRY_LET(double, q_dep_late, num(*split_imp, "temporalUtilityFactor_late", "root.splitPara.SplitImp"));
 			MATHFP_TRY_LET(double, q_fare, num(*split_imp, "fareFactor", "root.splitPara.SplitImp"));
+			MATHFP_TRY_LET(double, pjt_journey_time, num(*split_pjt, "inVehTimeFactor", "root.splitPara.SplitImp.PerceivedJourneyTime"));
+			MATHFP_TRY_LET(double, pjt_transfer_time, num(*split_pjt, "transferWaitTimeFactor", "root.splitPara.SplitImp.PerceivedJourneyTime"));
+			MATHFP_TRY_LET(double, pjt_transfer_count, num(*split_pjt, "numTransfersFactor", "root.splitPara.SplitImp.PerceivedJourneyTime"));
 			MATHFP_TRY_LET(double, boxcox_t, num(*split_para, "BoxCoxExp", "root.splitPara"));
 			MATHFP_TRY_LET(double, gamma, num(*indep, "gamma", "root.splitPara.Independence"));
 			MATHFP_TRY_LET(double, temporal_similarity_scale, num(*indep, "indepMaxDelta", "root.splitPara.Independence"));
@@ -621,8 +629,17 @@ namespace timetable::infra::params_txt {
 			MATHFP_TRY_LET(double, lower_quality_scale, num(*indep, "indepLowerQualityCoeff", "root.splitPara.Independence"));
 			MATHFP_TRY_LET(SplitParams, split, make_split_params(
 				Dimless{ q_time }
-				, Dimless{ 0.5 * (q_dep_early + q_dep_late) }
+				, Dimless{ 1.0 }
 				, Dimless{ q_fare }
+				, PerceivedJourneyTimeWeights{
+					.journey_time = Dimless{ pjt_journey_time }
+					, .transfer_time = Dimless{ pjt_transfer_time }
+					, .transfer_count = Dimless{ pjt_transfer_count }
+				}
+				, TemporalUtilityWeights{
+					.early_departure = Dimless{ q_dep_early }
+					, .late_departure = Dimless{ q_dep_late }
+				}
 				, Dimless{ beta }
 				, Dimless{ boxcox_t }
 				, Dimless{ gamma }

@@ -93,9 +93,30 @@ namespace timetable::domain {
     };
 
     /**
+     * @brief Submodels used by the demand split step.
+     *
+     * PJT(c) = w_jt * JT(c) + w_tt * TT(c) + w_nt * NT(c)
+     * U_a(c) = u_early * max(0, start(a) - DEP(c))
+     *        + u_late  * max(0, DEP(c) - end(a))
+     * IMP_a(c) = q_time * PJT(c) + q_departure * U_a(c) + q_fare * FARE(c).
+     *
+     * This keeps the split model aligned with the paper while making the two
+     * user-defined subfunctions PJT and U_a explicit in the domain model.
+     */
+    struct PerceivedJourneyTimeWeights final {
+        Dimless journey_time{};
+        Dimless transfer_time{};
+        Dimless transfer_count{};
+    };
+
+    struct TemporalUtilityWeights final {
+        Dimless early_departure{};
+        Dimless late_departure{};
+    };
+
+    /**
      * @brief Parameters for demand split across connections.
      *
-     * IMP_a(c) = q_time * PJT(c) + q_departure * U_a(c) + q_fare * FARE(c).
      * beta controls MNL sensitivity; boxcox_t is the Box-Cox parameter.
      * gamma and the asymmetric independence scales control the evaluation
      * function f_c(c') from the paper:
@@ -107,6 +128,8 @@ namespace timetable::domain {
         Dimless q_time{};
         Dimless q_departure{};
         Dimless q_fare{};
+        PerceivedJourneyTimeWeights perceived_journey_time{};
+        TemporalUtilityWeights temporal_utility{};
         Dimless beta{};
         Dimless boxcox_t{};
         Dimless gamma{};

@@ -56,6 +56,33 @@ namespace timetable::domain {
             return mathfp::kUnit;
         }
 
+        inline mathfp::Expected<mathfp::Unit> ensure_nonnegative_perceived_journey_time_weights(
+            PerceivedJourneyTimeWeights weights
+        ) {
+            MATHFP_TRY(validation::ensure_nonneg(
+                weights.journey_time, "perceived_journey_time.journey_time"
+            ));
+            MATHFP_TRY(validation::ensure_nonneg(
+                weights.transfer_time, "perceived_journey_time.transfer_time"
+            ));
+            MATHFP_TRY(validation::ensure_nonneg(
+                weights.transfer_count, "perceived_journey_time.transfer_count"
+            ));
+            return mathfp::kUnit;
+        }
+
+        inline mathfp::Expected<mathfp::Unit> ensure_nonnegative_temporal_utility_weights(
+            TemporalUtilityWeights weights
+        ) {
+            MATHFP_TRY(validation::ensure_nonneg(
+                weights.early_departure, "temporal_utility.early_departure"
+            ));
+            MATHFP_TRY(validation::ensure_nonneg(
+                weights.late_departure, "temporal_utility.late_departure"
+            ));
+            return mathfp::kUnit;
+        }
+
         inline mathfp::Expected<mathfp::Unit> ensure_positive_split_scales(
             Dimless beta
             , Dimless temporal_similarity_scale
@@ -233,6 +260,8 @@ namespace timetable::domain {
         Dimless q_time
         , Dimless q_departure
         , Dimless q_fare
+        , PerceivedJourneyTimeWeights perceived_journey_time
+        , TemporalUtilityWeights temporal_utility
         , Dimless beta
         , Dimless boxcox_t
         , Dimless gamma
@@ -242,6 +271,12 @@ namespace timetable::domain {
     ) {
         MATHFP_TRY(detail::ensure_nonnegative_split_weights(
             q_time, q_departure, q_fare, boxcox_t, gamma
+        ));
+        MATHFP_TRY(detail::ensure_nonnegative_perceived_journey_time_weights(
+            perceived_journey_time
+        ));
+        MATHFP_TRY(detail::ensure_nonnegative_temporal_utility_weights(
+            temporal_utility
         ));
         MATHFP_TRY(detail::ensure_positive_split_scales(
             beta
@@ -254,6 +289,8 @@ namespace timetable::domain {
             .q_time        = q_time
             , .q_departure = q_departure
             , .q_fare      = q_fare
+            , .perceived_journey_time = perceived_journey_time
+            , .temporal_utility       = temporal_utility
             , .beta        = beta
             , .boxcox_t    = boxcox_t
             , .gamma       = gamma
