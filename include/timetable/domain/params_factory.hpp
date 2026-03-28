@@ -17,12 +17,10 @@ namespace timetable::domain {
             Dimless a_journey_time
             , Dimless a_transfers
             , Dimless a_fare
-            , Time transfer_penalty
         ) {
             MATHFP_TRY(validation::ensure_nonneg(a_journey_time, "a_journey_time"));
             MATHFP_TRY(validation::ensure_nonneg(a_transfers, "a_transfers"));
             MATHFP_TRY(validation::ensure_nonneg(a_fare, "a_fare"));
-            MATHFP_TRY(validation::ensure_nonneg(transfer_penalty, "transfer_penalty"));
             return mathfp::kUnit;
         }
 
@@ -60,14 +58,20 @@ namespace timetable::domain {
 
         inline mathfp::Expected<mathfp::Unit> ensure_positive_split_scales(
             Dimless beta
-            , Dimless x_scale
-            , Dimless y_scale
-            , Dimless z_scale
+            , Dimless temporal_similarity_scale
+            , Dimless higher_quality_scale
+            , Dimless lower_quality_scale
         ) {
             MATHFP_TRY(validation::ensure_positive(beta, "beta"));
-            MATHFP_TRY(validation::ensure_positive(x_scale, "x_scale"));
-            MATHFP_TRY(validation::ensure_positive(y_scale, "y_scale"));
-            MATHFP_TRY(validation::ensure_positive(z_scale, "z_scale"));
+            MATHFP_TRY(validation::ensure_positive(
+                temporal_similarity_scale, "temporal_similarity_scale"
+            ));
+            MATHFP_TRY(validation::ensure_positive(
+                higher_quality_scale, "higher_quality_scale"
+            ));
+            MATHFP_TRY(validation::ensure_positive(
+                lower_quality_scale, "lower_quality_scale"
+            ));
             return mathfp::kUnit;
         }
 
@@ -163,17 +167,15 @@ namespace timetable::domain {
         Dimless a_journey_time
         , Dimless a_transfers
         , Dimless a_fare
-        , Time transfer_penalty
         , FareNormalization fare_normalization = {}
     ) {
         MATHFP_TRY(detail::ensure_nonnegative_search_impedance_inputs(
-            a_journey_time, a_transfers, a_fare, transfer_penalty
+            a_journey_time, a_transfers, a_fare
         ));
         return SearchImpedance{
             .a_journey_time       = a_journey_time
             , .a_transfers        = a_transfers
             , .a_fare             = a_fare
-            , .transfer_penalty   = transfer_penalty
             , .fare_normalization = fare_normalization
         };
     }
@@ -234,15 +236,18 @@ namespace timetable::domain {
         , Dimless beta
         , Dimless boxcox_t
         , Dimless gamma
-        , Dimless x_scale
-        , Dimless y_scale
-        , Dimless z_scale
+        , Dimless temporal_similarity_scale
+        , Dimless higher_quality_scale
+        , Dimless lower_quality_scale
     ) {
         MATHFP_TRY(detail::ensure_nonnegative_split_weights(
             q_time, q_departure, q_fare, boxcox_t, gamma
         ));
         MATHFP_TRY(detail::ensure_positive_split_scales(
-            beta, x_scale, y_scale, z_scale
+            beta
+            , temporal_similarity_scale
+            , higher_quality_scale
+            , lower_quality_scale
         ));
 
         return SplitParams{
@@ -252,9 +257,9 @@ namespace timetable::domain {
             , .beta        = beta
             , .boxcox_t    = boxcox_t
             , .gamma       = gamma
-            , .x_scale     = x_scale
-            , .y_scale     = y_scale
-            , .z_scale     = z_scale
+            , .temporal_similarity_scale = temporal_similarity_scale
+            , .higher_quality_scale      = higher_quality_scale
+            , .lower_quality_scale       = lower_quality_scale
         };
     }
 

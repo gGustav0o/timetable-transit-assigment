@@ -13,7 +13,8 @@ namespace timetable::domain::preprocessing {
     /**
      * @brief Build line-based route segments from routes and trips.
      *
-     * For each route, creates segments for all ordered stop pairs i<j.
+     * For each route, creates segments for all ordered stop-occurrence pairs
+     * i<j along the route order.
      *
      * Length policy:
      *  - If line_speed is provided, length = line_speed * running_time.

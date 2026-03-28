@@ -7,6 +7,8 @@
 #include <mathfp/core/error.hpp>
 #include <mathfp/core/try.hpp>
 
+#include "timetable/infra/progress_bus.hpp"
+
 namespace timetable::infra {
 
 	namespace {
@@ -73,6 +75,15 @@ namespace timetable::infra {
 			explicit FileDataSource(io::DataDirSpec spec) : spec_(std::move(spec)) {}
 
 			mathfp::Expected<timetable::domain::AssignmentInput> load() const override {
+				using timetable::infra::LogLevel;
+				using timetable::infra::progress::log;
+				using timetable::infra::progress::status;
+
+				status("parsing: deprecated data-dir input selected", LogLevel::Warning);
+				log(
+					"data-dir input is deprecated, is not maintained against the current program logic, and no further compatibility work is performed on it",
+					LogLevel::Warning
+				);
 				return mathfp::unexpected(mathfp::not_implemented("file data source not implemented yet"));
 			}
 

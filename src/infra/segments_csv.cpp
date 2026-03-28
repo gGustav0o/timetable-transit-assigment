@@ -63,7 +63,7 @@ namespace timetable::infra::csv {
 		};
 
 		struct ParsedCsvData final {
-			txt::SegmentColumns columns{};
+			SegmentColumns columns{};
 			std::unordered_set<std::int64_t> zone_set{};
 		};
 
@@ -288,7 +288,7 @@ namespace timetable::infra::csv {
 		}
 
 		void append_segment_row(
-			txt::SegmentColumns& out
+			SegmentColumns& out
 			, const ParsedSegmentRow& row
 		) {
 			out.from_zone_id.push_back(row.from_zone);
@@ -315,7 +315,7 @@ namespace timetable::infra::csv {
 		}
 
 		void finalize_zone_ids(
-			txt::SegmentColumns& out
+			SegmentColumns& out
 			, const std::unordered_set<std::int64_t>& zone_set
 		) {
 			out.zone_ids.assign(zone_set.begin(), zone_set.end());
@@ -382,7 +382,7 @@ namespace timetable::infra::csv {
 			return data;
 		}
 
-		mathfp::Expected<txt::SegmentColumns> finalize_parsed_csv_data(
+		mathfp::Expected<SegmentColumns> finalize_parsed_csv_data(
 			ParsedCsvData data
 			, const std::filesystem::path& path
 		) {
@@ -400,7 +400,7 @@ namespace timetable::infra::csv {
 
 	}  // namespace
 
-	mathfp::Expected<txt::SegmentColumns> parse_connection_segments_csv(
+	mathfp::Expected<SegmentColumns> parse_connection_segments_csv(
 		const std::filesystem::path& path
 	) {
 		using timetable::infra::LogLevel;
@@ -429,7 +429,7 @@ namespace timetable::infra::csv {
 		);
 
 		MATHFP_TRY_LET(ParsedCsvData, parsed_data, parse_csv_data_rows(input, header.columns));
-		MATHFP_TRY_LET(txt::SegmentColumns, out, finalize_parsed_csv_data(std::move(parsed_data), path));
+		MATHFP_TRY_LET(SegmentColumns, out, finalize_parsed_csv_data(std::move(parsed_data), path));
 		log(
 			fmt::format(
 				"parsing: csv parsed; segments = {}  zones = {}"

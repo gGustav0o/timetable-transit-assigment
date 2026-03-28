@@ -16,6 +16,7 @@
 #include <fmt/format.h>
 
 #include "timetable/domain/endpoints.hpp"
+#include "timetable/domain/impedance.hpp"
 #include "timetable/domain/numeric.hpp"
 #include "timetable/domain/preprocessing/segments_index.hpp"
 #include "timetable/domain/segment_semantics.hpp"
@@ -28,34 +29,69 @@ namespace timetable::domain::assignment {
             Time departure{};
             Time arrival{};
             Time journey_time{};
+            // Sum of walk-segment durations accumulated along the partial connection.
+            Time walk_time{};
             TransferCount transfers{};
             double fare{};
             double impedance{};
         };
 
-        struct NodeConnectionSet final {
-            std::vector<PartialConnectionLabel> labels{};
+        struct NodeLocalSearchSummary final {
             double min_impedance{ std::numeric_limits<double>::infinity() };
             double min_journey_time{ std::numeric_limits<double>::infinity() };
+            // Paper-consistent node-local summary values retained alongside the
+            // current relevance/tolerance checks.
+            double min_walk_time{ std::numeric_limits<double>::infinity() };
             double min_transfers{ std::numeric_limits<double>::infinity() };
+            double min_fare{ std::numeric_limits<double>::infinity() };
+        };
+
+        struct NodeConnectionSet final {
+            std::vector<PartialConnectionLabel> labels{};
+            NodeLocalSearchSummary summary{};
+        };
+
+        struct SearchNodeKey final {
+            EndpointKey                    physical{};
+            std::optional<StopOccurrenceKey> occurrence{};
+
+            auto operator<=>(const SearchNodeKey&) const = default;
+        };
+
+        struct SearchNodeKeyHash final {
+            std::size_t operator()(const SearchNodeKey& key) const noexcept {
+                std::size_t seed = 17u;
+                seed = seed * 31u + std::hash<std::int64_t>{}(static_cast<std::int64_t>(key.physical.kind));
+                seed = seed * 31u + std::hash<std::int64_t>{}(key.physical.id);
+                seed = seed * 31u + std::hash<bool>{}(key.occurrence.has_value());
+                if (key.occurrence.has_value()) {
+                    seed = seed * 31u + std::hash<std::int64_t>{}(key.occurrence->stop.get());
+                    seed = seed * 31u + std::hash<std::int64_t>{}(key.occurrence->position.get());
+                }
+                return seed;
+            }
         };
 
         struct SearchBranch final {
             ZoneId origin{};
-            EndpointKey current{};
+            EndpointKey current_physical{};
+            std::optional<StopOccurrenceKey> current_occurrence{};
             std::optional<Time> departure{};
             std::optional<Time> current_time{};
+            // Total accumulated walk duration over all walk segments seen so far.
+            Time walk_time{};
             Time access_walk_time{};
             Time transfer_time{};
             TransferCount transfers{};
             double fare{};
             std::vector<ConnectionSegmentId> segments{};
-            std::vector<EndpointKey> visited{};
+            std::vector<EndpointKey> visited_physical{};
+            std::vector<StopOccurrenceKey> visited_occurrences{};
             const ConnectionSegment* last_timed_segment{};
             const RouteSegment* last_timed_route_segment{};
         };
 
-        using NodeConnectionMap = std::unordered_map<EndpointKey, NodeConnectionSet>;
+        using NodeConnectionMap = std::unordered_map<SearchNodeKey, NodeConnectionSet, SearchNodeKeyHash>;
 
         const RouteSegment& route_segment_at(
             const PreprocessedNetwork& network
@@ -85,13 +121,14 @@ namespace timetable::domain::assignment {
             , const SearchImpedance& impedance
             , double fare_scale
         ) noexcept {
-            const auto nt = static_cast<double>(transfers.get());
-            const auto penalized_journey_time =
-                journey_time.value() + impedance.transfer_penalty.value() * nt;
-
-            return mathfp::units::as_dimless(impedance.a_journey_time) * penalized_journey_time
-                + mathfp::units::as_dimless(impedance.a_transfers) * nt
-                + mathfp::units::as_dimless(impedance.a_fare) * normalized_fare(fare, fare_scale);
+            return linear_connection_impedance(
+                mathfp::units::as_dimless(impedance.a_journey_time)
+                , mathfp::units::as_dimless(impedance.a_transfers)
+                , mathfp::units::as_dimless(impedance.a_fare)
+                , journey_time.value()
+                , static_cast<double>(transfers.get())
+                , normalized_fare(fare, fare_scale)
+            );
         }
 
         std::vector<ZoneId> search_origins(
@@ -99,11 +136,6 @@ namespace timetable::domain::assignment {
         ) {
             std::unordered_set<std::int64_t> ids;
             for (const auto& key : network.connection_index.walk_buckets) {
-                if (key.kind == EndpointKind::Zone) {
-                    ids.insert(key.id);
-                }
-            }
-            for (const auto& key : network.connection_index.timed_buckets) {
                 if (key.kind == EndpointKind::Zone) {
                     ids.insert(key.id);
                 }
@@ -120,19 +152,37 @@ namespace timetable::domain::assignment {
             return origins;
         }
 
-        bool branch_revisits_endpoint(
+        SearchNodeKey search_node_key(
+            const SearchBranch& branch
+        ) noexcept {
+            return SearchNodeKey{
+                .physical = branch.current_physical,
+                .occurrence = branch.current_occurrence
+            };
+        }
+
+        bool branch_revisits_physical(
             const SearchBranch& branch
             , EndpointKey next
         ) {
-            return std::find(branch.visited.begin(), branch.visited.end(), next) != branch.visited.end();
+            return std::find(branch.visited_physical.begin(), branch.visited_physical.end(), next)
+                != branch.visited_physical.end();
+        }
+
+        bool branch_revisits_occurrence(
+            const SearchBranch& branch
+            , StopOccurrenceKey next
+        ) {
+            return std::find(branch.visited_occurrences.begin(), branch.visited_occurrences.end(), next)
+                != branch.visited_occurrences.end();
         }
 
         bool is_complete_connection(
             const SearchBranch& branch
         ) noexcept {
             return branch.departure.has_value()
-                && branch.current.kind == EndpointKind::Zone
-                && branch.current.id != branch.origin.get();
+                && branch.current_physical.kind == EndpointKind::Zone
+                && branch.current_physical.id != branch.origin.get();
         }
 
         PartialConnectionLabel make_partial_label(
@@ -148,6 +198,7 @@ namespace timetable::domain::assignment {
                 .departure = *branch.departure
                 , .arrival = *branch.current_time
                 , .journey_time = journey_time
+                , .walk_time = branch.walk_time
                 , .transfers = branch.transfers
                 , .fare = branch.fare
                 , .impedance = branch_impedance_value(
@@ -177,24 +228,38 @@ namespace timetable::domain::assignment {
 
         bool within_search_tolerances(
             const PartialConnectionLabel& candidate
-            , const NodeConnectionSet& known
+            , const NodeLocalSearchSummary& summary
             , const SearchTolerances& tolerances
             , const TransferLimits& limits
         ) noexcept {
             return candidate.transfers <= limits.max_transfers
-                && candidate.impedance <= mathfp::units::as_dimless(tolerances.imp_mult) * known.min_impedance
+                && candidate.impedance <= mathfp::units::as_dimless(tolerances.imp_mult) * summary.min_impedance
                     + mathfp::units::as_dimless(tolerances.imp_add)
                 && candidate.journey_time.value()
-                    <= mathfp::units::as_dimless(tolerances.jt_mult) * known.min_journey_time
+                    <= mathfp::units::as_dimless(tolerances.jt_mult) * summary.min_journey_time
                         + mathfp::units::as_dimless(tolerances.jt_add)
                 && static_cast<double>(candidate.transfers.get())
-                    <= mathfp::units::as_dimless(tolerances.nt_mult) * known.min_transfers
+                    <= mathfp::units::as_dimless(tolerances.nt_mult) * summary.min_transfers
                         + mathfp::units::as_dimless(tolerances.nt_add);
+        }
+
+        void update_node_local_search_summary(
+            NodeLocalSearchSummary& summary
+            , const PartialConnectionLabel& label
+        ) noexcept {
+            summary.min_impedance = std::min(summary.min_impedance, label.impedance);
+            summary.min_journey_time = std::min(summary.min_journey_time, label.journey_time.value());
+            summary.min_walk_time = std::min(summary.min_walk_time, label.walk_time.value());
+            summary.min_transfers = std::min(
+                summary.min_transfers
+                , static_cast<double>(label.transfers.get())
+            );
+            summary.min_fare = std::min(summary.min_fare, label.fare);
         }
 
         void insert_label(
             NodeConnectionMap& known_connections
-            , EndpointKey node
+            , SearchNodeKey node
             , PartialConnectionLabel label
         ) {
             auto& known = known_connections[node];
@@ -207,17 +272,12 @@ namespace timetable::domain::assignment {
                 }
             );
             known.labels.insert(it, label);
-            known.min_impedance = std::min(known.min_impedance, label.impedance);
-            known.min_journey_time = std::min(known.min_journey_time, label.journey_time.value());
-            known.min_transfers = std::min(
-                known.min_transfers
-                , static_cast<double>(label.transfers.get())
-            );
+            update_node_local_search_summary(known.summary, label);
         }
 
         std::optional<std::pair<std::size_t, std::size_t>> timed_bucket_range(
             const preprocessing::ConnectionSegmentIndex& index
-            , EndpointKey from
+            , StopOccurrenceKey from
         ) {
             const auto bucket = preprocessing::find_bucket(index.timed_buckets, from);
             if (!bucket) {
@@ -233,22 +293,35 @@ namespace timetable::domain::assignment {
 
         std::vector<ConnectionSegmentId> timed_successors(
             const PreprocessedNetwork& network
-            , EndpointKey from
+            , EndpointKey physical_from
             , std::optional<Time> current_time
             , const TransferLimits& limits
         ) {
             std::vector<ConnectionSegmentId> out;
-            const auto range = timed_bucket_range(network.connection_index, from);
-            if (!range) {
+            if (physical_from.kind != EndpointKind::Stop) {
                 return out;
             }
 
-            const auto [start, end] = *range;
+            const auto bucket = preprocessing::find_bucket(
+                network.connection_index.boarding_stop_buckets
+                , StopId{ physical_from.id }
+            );
+            if (!bucket) {
+                return out;
+            }
+
+            const auto bucket_index = *bucket;
+            const auto start = network.connection_index.boarding_offsets[bucket_index];
+            const auto end = network.connection_index.boarding_offsets[bucket_index + 1];
+            if (start >= end) {
+                return out;
+            }
+
             if (!current_time.has_value()) {
                 out.insert(
                     out.end()
-                    , network.connection_index.timed_order.begin() + static_cast<std::ptrdiff_t>(start)
-                    , network.connection_index.timed_order.begin() + static_cast<std::ptrdiff_t>(end)
+                    , network.connection_index.boarding_order.begin() + static_cast<std::ptrdiff_t>(start)
+                    , network.connection_index.boarding_order.begin() + static_cast<std::ptrdiff_t>(end)
                 );
                 return out;
             }
@@ -259,11 +332,10 @@ namespace timetable::domain::assignment {
             const auto latest = Time{
                 current_time->value() + limits.max_transfer_wait.value()
             };
-
             const auto departures_begin =
-                network.connection_index.timed_departures.begin() + static_cast<std::ptrdiff_t>(start);
+                network.connection_index.boarding_departures.begin() + static_cast<std::ptrdiff_t>(start);
             const auto departures_end =
-                network.connection_index.timed_departures.begin() + static_cast<std::ptrdiff_t>(end);
+                network.connection_index.boarding_departures.begin() + static_cast<std::ptrdiff_t>(end);
             const auto begin = std::lower_bound(
                 departures_begin
                 , departures_end
@@ -279,9 +351,9 @@ namespace timetable::domain::assignment {
                 }
 
                 const auto idx = static_cast<std::size_t>(
-                    std::distance(network.connection_index.timed_departures.begin(), it)
+                    std::distance(network.connection_index.boarding_departures.begin(), it)
                 );
-                out.push_back(network.connection_index.timed_order[idx]);
+                out.push_back(network.connection_index.boarding_order[idx]);
             }
 
             return out;
@@ -295,7 +367,7 @@ namespace timetable::domain::assignment {
             if (!branch.last_timed_segment || !branch.last_timed_route_segment) {
                 return false;
             }
-            if (!is_timed_connection_segment(successor)) {
+            if (!is_timed_connection(successor)) {
                 return false;
             }
             if (!same_line(*branch.last_timed_route_segment, successor_route_segment)) {
@@ -304,7 +376,7 @@ namespace timetable::domain::assignment {
             return successor.trip != branch.last_timed_segment->trip;
         }
 
-        bool is_loop_line_geometry_case(
+        bool is_repeated_stop_reboarding_case(
             const SearchBranch& branch
             , const ConnectionSegment& successor
             , const RouteSegment& successor_route_segment
@@ -312,12 +384,12 @@ namespace timetable::domain::assignment {
             if (!is_same_line_transfer_candidate(branch, successor, successor_route_segment)) {
                 return false;
             }
-            if (!std::holds_alternative<StopId>(branch.last_timed_route_segment->to)
-                || !std::holds_alternative<StopId>(successor_route_segment.from)) {
+            const auto* current_line = line_topology_of(*branch.last_timed_route_segment);
+            const auto* successor_line = line_topology_of(successor_route_segment);
+            if (!current_line || !successor_line) {
                 return false;
             }
-            if (std::get<StopId>(branch.last_timed_route_segment->to)
-                != std::get<StopId>(successor_route_segment.from)) {
+            if (current_line->to.stop != successor_line->from.stop) {
                 return false;
             }
             if (!branch.last_timed_segment->to_index.has_value() || !successor.from_index.has_value()) {
@@ -341,7 +413,7 @@ namespace timetable::domain::assignment {
                 return std::nullopt;
             }
 
-            const auto current_stop = to_endpoint_key(branch.last_timed_route_segment->to);
+            const auto current_stop = occurrence_key(line_topology_of(*branch.last_timed_route_segment)->to);
             const auto desired_route_to_index = successor.to_index.value();
             const auto range = timed_bucket_range(network.connection_index, current_stop);
             if (!range) {
@@ -365,9 +437,8 @@ namespace timetable::domain::assignment {
                 if (continuation.from_index != branch.last_timed_segment->to_index) {
                     continue;
                 }
-                // For loop lines, the same physical stop may occur multiple times
-                // on the route. The comparison must therefore target the same
-                // downstream route occurrence, not merely the same endpoint.
+                // Repeated-stop geometry must match the same downstream route
+                // occurrence, not merely the same physical stop.
                 if (continuation.to_index != desired_route_to_index) {
                     continue;
                 }
@@ -377,13 +448,13 @@ namespace timetable::domain::assignment {
             return std::nullopt;
         }
 
-        bool saves_time_on_loop_line(
+        bool improves_repeated_stop_reboarding(
             const SearchBranch& branch
             , const PreprocessedNetwork& network
             , const ConnectionSegment& successor
             , const RouteSegment& successor_route_segment
         ) noexcept {
-            if (!is_loop_line_geometry_case(branch, successor, successor_route_segment)) {
+            if (!is_repeated_stop_reboarding_case(branch, successor, successor_route_segment)) {
                 return true;
             }
             const auto continuation_arrival = same_trip_continuation_arrival(
@@ -403,15 +474,19 @@ namespace timetable::domain::assignment {
             , const RouteSegment& route_segment
             , ConnectionSegmentId segment_id
         ) {
-            branch.current = to_endpoint_key(route_segment.to);
+            branch.current_physical = physical_to_key(route_segment);
+            branch.current_occurrence = std::nullopt;
+            branch.walk_time = Time{
+                branch.walk_time.value() + route_segment.run_time.value()
+            };
             branch.segments.push_back(segment_id);
-            branch.visited.push_back(branch.current);
+            branch.visited_physical.push_back(branch.current_physical);
 
             if (branch.departure.has_value()) {
                 branch.current_time = Time{
                     branch.current_time->value() + route_segment.run_time.value()
                 };
-                if (branch.current.kind == EndpointKind::Stop) {
+                if (branch.current_physical.kind == EndpointKind::Stop) {
                     branch.transfer_time = Time{
                         branch.transfer_time.value() + route_segment.run_time.value()
                     };
@@ -430,6 +505,7 @@ namespace timetable::domain::assignment {
             , const ConnectionSegment& segment
             , const RouteSegment& route_segment
         ) {
+            const auto next_occurrence = occurrence_key(line_topology_of(route_segment)->to);
             const auto had_departure = branch.departure.has_value();
             if (!had_departure) {
                 branch.departure = Time{
@@ -444,10 +520,11 @@ namespace timetable::domain::assignment {
             }
 
             branch.current_time = *segment.arrival;
-            branch.current = to_endpoint_key(route_segment.to);
+            branch.current_physical = physical_to_key(route_segment);
+            branch.current_occurrence = next_occurrence;
             branch.fare += segment.fare.value_or(0.0);
             branch.segments.push_back(segment.id);
-            branch.visited.push_back(branch.current);
+            branch.visited_occurrences.push_back(next_occurrence);
             branch.last_timed_segment = &segment;
             branch.last_timed_route_segment = &route_segment;
             return branch;
@@ -459,16 +536,18 @@ namespace timetable::domain::assignment {
             , const ConnectionSegment& successor
         ) {
             const auto& route_segment = route_segment_at(network, successor.route_segment);
-            const auto next_endpoint = to_endpoint_key(route_segment.to);
-
-            if (branch_revisits_endpoint(branch, next_endpoint)) {
-                return std::nullopt;
-            }
-
-            if (is_walk_connection_segment(successor)) {
+            if (is_walk_connection(successor)) {
+                const auto next_physical = physical_to_key(route_segment);
+                if (branch_revisits_physical(branch, next_physical)) {
+                    return std::nullopt;
+                }
                 return extend_with_walk(std::move(branch), route_segment, successor.id);
             }
 
+            const auto next_occurrence = occurrence_key(line_topology_of(route_segment)->to);
+            if (branch_revisits_occurrence(branch, next_occurrence)) {
+                return std::nullopt;
+            }
             return extend_with_timed(std::move(branch), successor, route_segment);
         }
 
@@ -480,7 +559,7 @@ namespace timetable::domain::assignment {
             auto lookup = preprocessing::lookup_from(
                 network.route_index
                 , network.connection_index
-                , branch.current
+                , branch.current_physical
             );
 
             std::vector<ConnectionSegmentId> out;
@@ -489,7 +568,7 @@ namespace timetable::domain::assignment {
 
             auto timed = timed_successors(
                 network
-                , branch.current
+                , branch.current_physical
                 , branch.current_time
                 , limits
             );
@@ -520,12 +599,12 @@ namespace timetable::domain::assignment {
                     network,
                     branch.segments.back()
                 );
-                if (is_walk_connection_segment(last_segment)) {
+                if (is_walk_connection(last_segment)) {
                     return std::nullopt;
                 }
             }
 
-            const auto destination = ZoneId{ branch.current.id };
+            const auto destination = ZoneId{ branch.current_physical.id };
             const auto journey_time = Time{
                 branch.current_time->value() - branch.departure->value()
             };
@@ -560,9 +639,10 @@ namespace timetable::domain::assignment {
             }
 
             const auto label = make_partial_label(branch, params.impedance, fare_scale);
-            auto it = known_connections.find(branch.current);
+            const auto node = search_node_key(branch);
+            auto it = known_connections.find(node);
             if (it == known_connections.end()) {
-                insert_label(known_connections, branch.current, label);
+                insert_label(known_connections, node, label);
                 return true;
             }
 
@@ -570,11 +650,16 @@ namespace timetable::domain::assignment {
                 return false;
             }
 
-            if (!within_search_tolerances(label, it->second, params.search_tolerances, params.transfers)) {
+            if (!within_search_tolerances(
+                label
+                , it->second.summary
+                , params.search_tolerances
+                , params.transfers
+            )) {
                 return false;
             }
 
-            insert_label(known_connections, branch.current, label);
+            insert_label(known_connections, node, label);
             return true;
         }
 
@@ -606,15 +691,18 @@ namespace timetable::domain::assignment {
             current_frontier.push_back(
                 SearchBranch{
                     .origin = origin
-                    , .current = endpoint_key(origin)
+                    , .current_physical = endpoint_key(origin)
+                    , .current_occurrence = std::nullopt
                     , .departure = std::nullopt
                     , .current_time = std::nullopt
+                    , .walk_time = Time{ 0.0 }
                     , .access_walk_time = Time{ 0.0 }
                     , .transfer_time = Time{ 0.0 }
                     , .transfers = TransferCount{ 0 }
                     , .fare = 0.0
                     , .segments = {}
-                    , .visited = { endpoint_key(origin) }
+                    , .visited_physical = { endpoint_key(origin) }
+                    , .visited_occurrences = {}
                     , .last_timed_segment = nullptr
                     , .last_timed_route_segment = nullptr
                 }
@@ -651,7 +739,7 @@ namespace timetable::domain::assignment {
                     )) {
                         continue;
                     }
-                    if (!saves_time_on_loop_line(
+                    if (!improves_repeated_stop_reboarding(
                         branch
                         , network
                         , successor
@@ -679,7 +767,7 @@ namespace timetable::domain::assignment {
                     }
 
                     const auto same_level =
-                        is_walk_connection_segment(successor) || !branch.departure.has_value();
+                        is_walk_connection(successor) || !branch.departure.has_value();
                     if (same_level) {
                         current_frontier.push_back(std::move(*candidate));
                     } else {
@@ -934,6 +1022,28 @@ namespace timetable::domain::assignment {
             return rhs.fare - lhs.fare;
         }
 
+        double asymmetric_quality_scale(
+            double advantage
+            , const SplitParams& params
+        ) noexcept {
+            // Paper pages 11-12: s_y / s_z depend on the sign of the advantage,
+            // so superior base connections are affected less than inferior ones.
+            return advantage >= 0.0
+                ? mathfp::units::as_dimless(params.higher_quality_scale)
+                : mathfp::units::as_dimless(params.lower_quality_scale);
+        }
+
+        double normalized_quality_distance(
+            double advantage
+            , const SplitParams& params
+        ) noexcept {
+            const auto scale = asymmetric_quality_scale(advantage, params);
+            if (scale <= 0.0) {
+                return 0.0;
+            }
+            return std::abs(advantage) / scale;
+        }
+
         double capped_proximity(
             double similarity
             , double scale
@@ -950,18 +1060,14 @@ namespace timetable::domain::assignment {
             , const SplitParams& params
         ) noexcept {
             const auto x = temporal_similarity(base, other);
-            const auto y = std::abs(journey_advantage(base, other));
-            const auto z = std::abs(fare_advantage(base, other));
+            const auto y = journey_advantage(base, other);
+            const auto z = fare_advantage(base, other);
             const auto proximity = capped_proximity(
                 x
-                , mathfp::units::as_dimless(params.x_scale)
+                , mathfp::units::as_dimless(params.temporal_similarity_scale)
             );
-            const auto y_term = mathfp::units::as_dimless(params.y_scale) > 0.0
-                ? y / mathfp::units::as_dimless(params.y_scale)
-                : 0.0;
-            const auto z_term = mathfp::units::as_dimless(params.z_scale) > 0.0
-                ? z / mathfp::units::as_dimless(params.z_scale)
-                : 0.0;
+            const auto y_term = normalized_quality_distance(y, params);
+            const auto z_term = normalized_quality_distance(z, params);
 
             return proximity * std::exp(-mathfp::units::as_dimless(params.gamma) * (y_term + z_term));
         }

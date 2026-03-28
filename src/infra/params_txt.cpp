@@ -574,7 +574,6 @@ namespace timetable::infra::params_txt {
 				Dimless{ in_veh_factor }
 				, Dimless{ n_transfers }
 				, Dimless{ suppl_factor }
-				, Time{ n_transfers }
 			));
 
 			MATHFP_TRY_LET(PreprocessParams, preprocess, make_preprocess_params(
@@ -617,9 +616,9 @@ namespace timetable::infra::params_txt {
 			MATHFP_TRY_LET(double, q_fare, num(*split_imp, "fareFactor", "root.splitPara.SplitImp"));
 			MATHFP_TRY_LET(double, boxcox_t, num(*split_para, "BoxCoxExp", "root.splitPara"));
 			MATHFP_TRY_LET(double, gamma, num(*indep, "gamma", "root.splitPara.Independence"));
-			MATHFP_TRY_LET(double, x_scale, num(*indep, "indepMaxDelta", "root.splitPara.Independence"));
-			MATHFP_TRY_LET(double, y_scale, num(*indep, "indepHigherQualityCoeff", "root.splitPara.Independence"));
-			MATHFP_TRY_LET(double, z_scale, num(*indep, "indepLowerQualityCoeff", "root.splitPara.Independence"));
+			MATHFP_TRY_LET(double, temporal_similarity_scale, num(*indep, "indepMaxDelta", "root.splitPara.Independence"));
+			MATHFP_TRY_LET(double, higher_quality_scale, num(*indep, "indepHigherQualityCoeff", "root.splitPara.Independence"));
+			MATHFP_TRY_LET(double, lower_quality_scale, num(*indep, "indepLowerQualityCoeff", "root.splitPara.Independence"));
 			MATHFP_TRY_LET(SplitParams, split, make_split_params(
 				Dimless{ q_time }
 				, Dimless{ 0.5 * (q_dep_early + q_dep_late) }
@@ -627,9 +626,9 @@ namespace timetable::infra::params_txt {
 				, Dimless{ beta }
 				, Dimless{ boxcox_t }
 				, Dimless{ gamma }
-				, Dimless{ x_scale }
-				, Dimless{ y_scale }
-				, Dimless{ z_scale }
+				, Dimless{ temporal_similarity_scale }
+				, Dimless{ higher_quality_scale }
+				, Dimless{ lower_quality_scale }
 			));
 
 			return make_search_params(

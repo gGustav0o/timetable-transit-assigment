@@ -12,33 +12,29 @@
 namespace timetable::domain::preprocessing {
 
     /**
-     * @brief Sorted index over route segments for fast access by origin endpoint.
+     * @brief Sorted indices over route segments split by topology space.
      *
-     * Sorting key (lexicographic):
-     *  1) from EndpointKey
-     *  2) to EndpointKey
-     *  3) carrier_kind (Line < Walk)
-     *  4) carrier_id (LineId.get(), Walk -> 0)
-     *  5) RouteSegmentId
-     *
-     * Buckets:
-     *  - buckets are unique 'from' keys in ascending order.
-     *  - offsets.size() == buckets.size() + 1, offsets.back() == order.size().
+     * Line route segments are indexed in occurrence space.
+     * Walk route segments are indexed in physical endpoint space.
      */
     struct RouteSegmentIndex final {
-        std::vector<RouteSegmentId> order{};
-        std::vector<EndpointKey>    buckets{};
-        std::vector<std::size_t>    offsets{};
+        std::vector<RouteSegmentId>    line_order{};
+        std::vector<StopOccurrenceKey> line_buckets{};
+        std::vector<std::size_t>       line_offsets{};
+
+        std::vector<RouteSegmentId> walk_order{};
+        std::vector<EndpointKey>    walk_buckets{};
+        std::vector<std::size_t>    walk_offsets{};
     };
 
     /**
      * @brief Sorted index over connection segments, split into timed and walk groups.
      *
      * Timed sorting key (lexicographic):
-     *  1) from EndpointKey (of underlying RouteSegment)
+     *  1) from StopOccurrenceKey (of underlying RouteSegment)
      *  2) departure time
      *  3) arrival time
-     *  4) to EndpointKey
+     *  4) to StopOccurrenceKey
      *  5) TripId (empty < present)
      *  6) from_index (empty < present)
      *  7) to_index (empty < present)
@@ -51,6 +47,14 @@ namespace timetable::domain::preprocessing {
      *  3) RouteSegmentId
      *  4) ConnectionSegmentId
      *
+     * Boarding sorting key (lexicographic):
+     *  1) from StopId (physical stop space)
+     *  2) departure time
+     *  3) arrival time
+     *  4) from StopOccurrenceKey
+     *  5) RouteSegmentId
+     *  6) ConnectionSegmentId
+     *
      * Buckets:
      *  - buckets are unique 'from' keys in ascending order.
      *  - offsets.size() == buckets.size() + 1, offsets.back() == order.size().
@@ -58,8 +62,13 @@ namespace timetable::domain::preprocessing {
     struct ConnectionSegmentIndex final {
         std::vector<ConnectionSegmentId> timed_order{};
         std::vector<Time>                timed_departures{};
-        std::vector<EndpointKey>         timed_buckets{};
+        std::vector<StopOccurrenceKey>   timed_buckets{};
         std::vector<std::size_t>         timed_offsets{};
+
+        std::vector<ConnectionSegmentId> boarding_order{};
+        std::vector<Time>                boarding_departures{};
+        std::vector<StopId>              boarding_stop_buckets{};
+        std::vector<std::size_t>         boarding_offsets{};
 
         std::vector<ConnectionSegmentId> walk_order{};
         std::vector<EndpointKey>         walk_buckets{};
@@ -67,10 +76,15 @@ namespace timetable::domain::preprocessing {
     };
 
     /**
-     * @brief Aggregate lookup ranges for segments departing from a given endpoint.
+     * @brief Aggregate lookup ranges in the physical and occurrence spaces.
+     *
+     * `walk_*` ranges are keyed by the physical origin endpoint.
+     * `line_route` and `timed_connections` ranges are keyed by an exact
+     * origin stop occurrence.
      */
     struct SegmentLookup final {
-        std::span<const RouteSegmentId>      route{};
+        std::span<const RouteSegmentId>      line_route{};
+        std::span<const RouteSegmentId>      walk_route{};
         std::span<const ConnectionSegmentId> timed_connections{};
         std::span<const ConnectionSegmentId> walk_connections{};
     };
@@ -91,7 +105,7 @@ namespace timetable::domain::preprocessing {
     );
 
     /**
-     * @brief Find bucket index for an endpoint key (if present).
+     * @brief Find bucket index for a physical endpoint key (if present).
      */
     std::optional<std::size_t> find_bucket(
         std::span<const EndpointKey> buckets
@@ -99,20 +113,46 @@ namespace timetable::domain::preprocessing {
     );
 
     /**
-     * @brief Lookup all segment ranges by origin endpoint.
+     * @brief Find bucket index for an occurrence key (if present).
+     */
+    std::optional<std::size_t> find_bucket(
+        std::span<const StopOccurrenceKey> buckets
+        , const StopOccurrenceKey& key
+    );
+
+    /**
+     * @brief Find bucket index for a physical stop (if present).
+     */
+    std::optional<std::size_t> find_bucket(
+        std::span<const StopId> buckets
+        , StopId key
+    );
+
+    /**
+     * @brief Lookup physical-space walk ranges by physical origin endpoint.
      */
     SegmentLookup lookup_from(
         const RouteSegmentIndex& route_index
         , const ConnectionSegmentIndex& connection_index
-        , EndpointKey from
+        , EndpointKey physical_from
     );
 
     /**
-     * @brief Find the next timed connection segment from an endpoint at or after a time.
+     * @brief Lookup physical walk ranges plus exact occurrence-space ranges.
+     */
+    SegmentLookup lookup_from(
+        const RouteSegmentIndex& route_index
+        , const ConnectionSegmentIndex& connection_index
+        , StopOccurrenceKey timed_from
+        , EndpointKey physical_from
+    );
+
+    /**
+     * @brief Find the next timed connection segment from an occurrence at or after a time.
      */
     std::optional<ConnectionSegmentId> next_connection_from(
         const ConnectionSegmentIndex& connection_index
-        , EndpointKey from
+        , StopOccurrenceKey from
         , Time time
     );
 

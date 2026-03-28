@@ -29,15 +29,15 @@ namespace timetable::app {
 		std::string usage() {
 			return
 				"Usage:\n"
-				"  timetable-transit-assigment --data-dir <path>\n"
-				"  timetable-transit-assigment --pair-data-dir <path>\n"
-				"  timetable-transit-assigment --data-file <path>\n"
+				"  timetable-transit-assigment --data-dir <path>      [deprecated compatibility path]\n"
+				"  timetable-transit-assigment --pair-data-dir <path> [primary maintained path]\n"
+				"  timetable-transit-assigment --data-file <path>     [deprecated compatibility path]\n"
 				"Default:\n"
 				"  without arguments the app searches upward for data/test/connection_segments_input.csv\n"
 				"Aliases:\n"
-				"  -d  --data-dir\n"
-				"  -p  --pair-data-dir\n"
-				"  -f  --data-file\n";
+				"  -d  --data-dir      [deprecated]\n"
+				"  -p  --pair-data-dir [maintained]\n"
+				"  -f  --data-file     [deprecated]\n";
 		}
 
 		mathfp::Unexpected make_single_source_error() {

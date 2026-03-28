@@ -31,7 +31,7 @@ namespace timetable::domain::assignment {
             , const ConnectionSegment& candidate
         ) noexcept {
             return state.last_segment
-                && forbids_transfer_to_same_trip(*state.last_segment, candidate);
+                && transfer_reuses_same_trip(*state.last_segment, candidate);
         }
 
         bool is_stop_endpoint(const WalkEndpoint& endpoint) noexcept {
@@ -42,13 +42,15 @@ namespace timetable::domain::assignment {
             const RouteSegment& current
             , const RouteSegment& candidate
         ) noexcept {
-            if (!is_stop_endpoint(current.to) || !is_stop_endpoint(candidate.from)) {
+            const auto current_to = physical_to_endpoint(current);
+            const auto candidate_from = physical_from_endpoint(candidate);
+            if (!is_stop_endpoint(current_to) || !is_stop_endpoint(candidate_from)) {
                 return false;
             }
-            return std::get<StopId>(current.to) == std::get<StopId>(candidate.from);
+            return std::get<StopId>(current_to) == std::get<StopId>(candidate_from);
         }
 
-        bool is_loop_line_transfer(
+        bool is_repeated_stop_reboarding_transfer(
             const BranchState& state
             , const ConnectionSegment& candidate
             , const RouteSegment& candidate_route_segment
@@ -66,9 +68,9 @@ namespace timetable::domain::assignment {
                 return false;
             }
 
-            // In the loop-line special case, the same physical stop appears at
-            // multiple positions on the route. A transfer is only meaningful if
-            // the candidate boards the same stop at an earlier route position.
+            // The same physical stop may appear at multiple route positions on
+            // a line. Reboarding is only meaningful if the candidate boards the
+            // same stop at an earlier route position.
             return candidate.from_index.value() < state.last_segment->to_index.value();
         }
 
@@ -83,7 +85,7 @@ namespace timetable::domain::assignment {
             if (!same_line(*state.last_route_segment, candidate_route_segment)) {
                 return false;
             }
-            return !is_loop_line_transfer(state, candidate, candidate_route_segment);
+            return !is_repeated_stop_reboarding_transfer(state, candidate, candidate_route_segment);
         }
 
         Time transfer_wait_time(

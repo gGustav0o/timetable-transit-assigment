@@ -9,13 +9,15 @@
 
 namespace timetable::io {
 
-	// Data dir is provided via CLI argument.
+	// Deprecated compatibility input.
+	// This path is not maintained against the actively evolving assignment logic.
 	// Required files in data dir: stops.csv, trips.csv, stop_times.csv, walk_links.csv,
 	// od.csv, params.json.
 	struct DataDirSpec {
 		std::filesystem::path root;
 	};
 
+	// Primary maintained input path.
 	// Pair layout directory:
 	// - connection_segments_input.csv
 	// - params.txt
@@ -23,7 +25,8 @@ namespace timetable::io {
 		std::filesystem::path root;
 	};
 
-	// Single input text file.
+	// Deprecated compatibility input.
+	// This path is not maintained against the actively evolving assignment logic.
 	struct DataFileSpec {
 		std::filesystem::path path;
 	};
@@ -35,7 +38,7 @@ namespace timetable::io {
 	};
 
 	struct DataSourceSpec {
-		DataSourceKind kind = DataSourceKind::DataDir;
+		DataSourceKind kind = DataSourceKind::PairDataDir;
 		DataDirSpec    dir;
 		PairDataDirSpec pair_dir;
 		DataFileSpec   file;

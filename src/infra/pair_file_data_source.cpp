@@ -2,8 +2,8 @@
 
 #include "timetable/domain/params_factory.hpp"
 #include "timetable/infra/progress_bus.hpp"
+#include "timetable/infra/presegmented_input.hpp"
 #include "timetable/infra/segments_csv.hpp"
-#include "timetable/infra/txt_segments.hpp"
 
 #include <filesystem>
 #include <utility>
@@ -44,7 +44,6 @@ namespace timetable::infra {
 					Dimless{ 1.0 }
 					, Dimless{ 12.0 }
 					, Dimless{ 0.0 }
-					, Time{ 12.0 }
 				)
 			);
 			MATHFP_TRY_LET(
@@ -123,8 +122,8 @@ namespace timetable::infra {
 				status("parsing: loading pair input");
 				return
 					csv::parse_connection_segments_csv(segments_path)
-					| and_then([](txt::SegmentColumns columns) {
-						return txt::build_assignment_input(std::move(columns));
+					| and_then([](timetable::infra::SegmentColumns columns) {
+						return build_presegmented_assignment_input(std::move(columns));
 					})
 					| and_then([&](timetable::domain::AssignmentInput input) -> mathfp::Expected<timetable::domain::AssignmentInput> {
 						status("parsing: applying default params");

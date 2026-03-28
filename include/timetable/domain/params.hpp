@@ -22,7 +22,6 @@ namespace timetable::domain {
      * @brief Search impedance weights for branch-and-bound connection search.
      *
      * IMP(c) = a_journey_time * JT(c) + a_transfers * NT(c) + a_fare * FARE(c).
-     * transfer_penalty is a fixed additive time penalty per transfer used during search.
      */
     struct FareNormalization final {
         enum class Kind : std::uint8_t {
@@ -41,7 +40,6 @@ namespace timetable::domain {
         Dimless a_journey_time{};
         Dimless a_transfers{};
         Dimless a_fare{};
-        Time transfer_penalty{};
         FareNormalization fare_normalization{};
     };
 
@@ -99,7 +97,11 @@ namespace timetable::domain {
      *
      * IMP_a(c) = q_time * PJT(c) + q_departure * U_a(c) + q_fare * FARE(c).
      * beta controls MNL sensitivity; boxcox_t is the Box-Cox parameter.
-     * gamma and scales control independence/similarity effects.
+     * gamma and the asymmetric independence scales control the evaluation
+     * function f_c(c') from the paper:
+     * - temporal_similarity_scale corresponds to s_x
+     * - higher_quality_scale is used for s_y / s_z when the base connection c is superior
+     * - lower_quality_scale is used for s_y / s_z when the base connection c is inferior
      */
     struct SplitParams final {
         Dimless q_time{};
@@ -108,9 +110,9 @@ namespace timetable::domain {
         Dimless beta{};
         Dimless boxcox_t{};
         Dimless gamma{};
-        Dimless x_scale{};
-        Dimless y_scale{};
-        Dimless z_scale{};
+        Dimless temporal_similarity_scale{};
+        Dimless higher_quality_scale{};
+        Dimless lower_quality_scale{};
     };
 
     enum class WalkCostKind : std::uint8_t {

@@ -20,9 +20,9 @@ namespace timetable::domain::assignment {
      *
      * Enforces temporal suitability, start-wait policy, and forbids transfers
      * to the same TRIP_ID. Transfers within the same line are forbidden by
-     * default and are only allowed in the explicit loop-line special case from
-     * the assignment algorithm. The candidate is interpreted relative to the
-     * full current branch state, not only to one predecessor segment.
+     * default and are only allowed in the explicit repeated-stop reboarding
+     * case from the assignment algorithm. The candidate is interpreted relative
+     * to the full current branch state, not only to one predecessor segment.
      */
     bool is_branch_extension_feasible(
         const BranchState& state

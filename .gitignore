@@ -17,5 +17,8 @@ vcpkg_installed/
 # Local presets
 CMakeUserPresets.json
 
+# Runtime logs
+logs/
+
 # Local datasets / large input files
 data/

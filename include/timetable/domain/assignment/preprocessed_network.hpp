@@ -55,7 +55,7 @@ namespace timetable::domain::assignment {
     /**
      * @brief Validate route segments before indexing.
      *
-     * Ensures non-empty collection and unique (from, to, carrier) tuples.
+     * Ensures non-empty collection and unique route-topology tuples.
      */
     mathfp::Expected<mathfp::Unit> validate_route_segments(
         const std::vector<RouteSegment>& segments

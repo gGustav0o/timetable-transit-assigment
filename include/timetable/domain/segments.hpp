@@ -27,40 +27,64 @@ namespace timetable::domain {
         , mathfp::strong_detail::Ordered
     >;
 
-    enum class CarrierKind : std::uint8_t {
+    enum class RouteTopologyKind : std::uint8_t {
         Line
         , Walk
     };
 
-    using WalkPath       = std::vector<WalkLinkId>;
-    using SegmentCarrier = std::variant<LineId, WalkPath>;
+    using WalkPath = std::vector<WalkLinkId>;
+
+    /**
+     * @brief Physical walk topology.
+     *
+     * Walk segments live in the physical network space (stops/zones).
+     */
+    struct WalkRouteTopology final {
+        WalkEndpoint from{};
+        WalkEndpoint to{};
+        WalkPath     path{};
+    };
+
+    /**
+     * @brief Timetable line topology.
+     *
+     * Line segments live in the route-occurrence space and therefore distinguish
+     * repeated appearances of the same physical stop on loop lines.
+     */
+    struct LineRouteTopology final {
+        StopOccurrence from{};
+        StopOccurrence to{};
+        LineId         line{};
+    };
+
+    using RouteTopology = std::variant<WalkRouteTopology, LineRouteTopology>;
 
     /**
      * @brief Infrastructure-level segment between two nodes.
      *
-     * Describes either a transit line segment or a walk path.
+     * Encodes either:
+     * - physical walk topology, or
+     * - occurrence-aware timetable line topology.
      */
     struct RouteSegment final {
         RouteSegmentId id{};
-        WalkEndpoint   from{};
-        WalkEndpoint   to{};
         Length         length{};
         Time           run_time{};
-        SegmentCarrier carrier{};
+        RouteTopology  topology{};
     };
 
     /**
      * @brief Timetable-level segment with concrete times (or always-available walk).
      */
     struct ConnectionSegment final {
-        ConnectionSegmentId id{};
-        RouteSegmentId      route_segment{};
-        std::optional<TripId> trip{};
-        std::optional<std::int64_t> from_index{};
-        std::optional<std::int64_t> to_index{};
-        std::optional<Time> departure{};
-        std::optional<Time> arrival{};
-        std::optional<double> fare{};
+        ConnectionSegmentId          id{};
+        RouteSegmentId               route_segment{};
+        std::optional<TripId>        trip{};
+        std::optional<RoutePosition> from_index{};
+        std::optional<RoutePosition> to_index{};
+        std::optional<Time>          departure{};
+        std::optional<Time>          arrival{};
+        std::optional<double>        fare{};
     };
 
 }  // namespace timetable::domain

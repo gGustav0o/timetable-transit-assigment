@@ -1,4 +1,5 @@
 #include "timetable/infra/single_file_data_source.hpp"
+#include "timetable/infra/presegmented_input.hpp"
 #include "timetable/infra/txt_segments.hpp"
 #include "timetable/infra/progress_bus.hpp"
 
@@ -18,11 +19,20 @@ namespace timetable::infra {
 
 			mathfp::Expected<timetable::domain::AssignmentInput> load() const override {
 				using mathfp::fp::pipe::and_then;
-				timetable::infra::progress::status("parsing: start");
+				using timetable::infra::LogLevel;
+				using timetable::infra::progress::log;
+				using timetable::infra::progress::status;
+
+				status("parsing: deprecated single-file input selected", LogLevel::Warning);
+				log(
+					"single-file TXT input is deprecated, is not maintained against the current program logic, and may diverge from actively updated behavior",
+					LogLevel::Warning
+				);
+				status("parsing: start");
 				return
 					txt::parse_segments_file(spec_.path)
-					| and_then([](txt::SegmentColumns columns) {
-						return txt::build_assignment_input(std::move(columns));
+					| and_then([](timetable::infra::SegmentColumns columns) {
+						return build_presegmented_assignment_input(std::move(columns));
 					})
 					| and_then([](timetable::domain::AssignmentInput input) {
 						timetable::infra::progress::status("parsing: single-file input ready");

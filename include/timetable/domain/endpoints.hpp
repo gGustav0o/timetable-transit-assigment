@@ -9,6 +9,12 @@
 
 namespace timetable::domain {
 
+    /**
+     * @brief Key in the physical endpoint space.
+     *
+     * This identifies stops/zones as transfer-access nodes. It intentionally
+     * does not distinguish repeated occurrences of the same stop on a loop line.
+     */
     enum class EndpointKind : std::uint8_t {
         Stop
         , Zone
@@ -19,6 +25,19 @@ namespace timetable::domain {
         std::int64_t id{};
 
         auto operator<=>(const EndpointKey&) const = default;
+    };
+
+    /**
+     * @brief Key in the timetable occurrence space.
+     *
+     * Unlike EndpointKey, this distinguishes repeated appearances of the same
+     * physical stop by route position.
+     */
+    struct StopOccurrenceKey final {
+        StopId        stop{};
+        RoutePosition position{};
+
+        auto operator<=>(const StopOccurrenceKey&) const = default;
     };
 
     [[nodiscard]] constexpr EndpointKey to_endpoint_key(const WalkEndpoint& endpoint) noexcept {
@@ -35,6 +54,15 @@ namespace timetable::domain {
         return EndpointKey{ EndpointKind::Zone, id.get() };
     }
 
+    [[nodiscard]] constexpr StopOccurrenceKey occurrence_key(
+        StopOccurrence occurrence
+    ) noexcept {
+        return StopOccurrenceKey{
+            .stop = occurrence.stop
+            , .position = occurrence.position
+        };
+    }
+
 }  // namespace timetable::domain
 
 namespace std {
@@ -44,6 +72,16 @@ namespace std {
             std::size_t seed = 0;
             boost::hash_combine(seed, static_cast<std::uint8_t>(k.kind));
             boost::hash_combine(seed, k.id);
+            return seed;
+        }
+    };
+
+    template <>
+    struct hash<timetable::domain::StopOccurrenceKey> {
+        size_t operator()(const timetable::domain::StopOccurrenceKey& k) const noexcept {
+            std::size_t seed = 0;
+            boost::hash_combine(seed, k.stop.get());
+            boost::hash_combine(seed, k.position.get());
             return seed;
         }
     };

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <compare>
 #include <cstdint>
 #include <optional>
 #include <variant>
@@ -7,6 +8,7 @@
 
 #include <mathfp/types/strong_type.hpp>
 
+#include "timetable/domain/fare.hpp"
 #include "timetable/domain/scalars.hpp"
 
 namespace timetable::domain {
@@ -19,6 +21,7 @@ namespace timetable::domain {
     struct TripIdTag {};
     struct IntervalIdTag {};
     struct WalkLinkIdTag {};
+    struct RoutePositionTag {};
 
     using StopId = mathfp::StrongType<
         std::int64_t
@@ -69,6 +72,13 @@ namespace timetable::domain {
         , mathfp::strong_detail::Ordered
     >;
 
+    using RoutePosition = mathfp::StrongType<
+        std::int64_t
+        , RoutePositionTag
+        , mathfp::strong_detail::EqualityComparable
+        , mathfp::strong_detail::Ordered
+    >;
+
     // --- Base entities ----------------------------------------------------------
     struct Stop final {
         StopId                id{};
@@ -79,8 +89,16 @@ namespace timetable::domain {
         ZoneId id{};
     };
 
+    /**
+     * @brief Transit service line metadata.
+     *
+     * fare models the additive cost of boarding and riding a timed segment on
+     * the line in the raw timetable pipeline. Pre-segmented inputs may leave it
+     * empty because their connection segments already carry fare directly.
+     */
     struct Line final {
-        LineId id{};
+        LineId                  id{};
+        std::optional<LineFare> fare{};
     };
 
     struct Route final {
@@ -95,6 +113,19 @@ namespace timetable::domain {
         Time   departure{};
     };
 
+    /**
+     * @brief Stop occurrence on a route/trip order axis.
+     *
+     * A physical stop may appear multiple times on a loop line. RoutePosition
+     * distinguishes these occurrences without changing the physical stop model.
+     */
+    struct StopOccurrence final {
+        StopId        stop{};
+        RoutePosition position{};
+
+        auto operator<=>(const StopOccurrence&) const = default;
+    };
+
     struct Trip final {
         TripId                id{};
         RouteId               route{};
@@ -107,6 +138,11 @@ namespace timetable::domain {
         Time       end{};
     };
 
+    /**
+     * @brief Physical endpoint used by access/egress/walk topology.
+     *
+     * Timetable line topology may need StopOccurrence instead of bare StopId.
+     */
     using WalkEndpoint = std::variant<StopId, ZoneId>;
 
     struct WalkLink final {

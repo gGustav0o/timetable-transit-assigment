@@ -21,30 +21,19 @@ namespace timetable::domain::preprocessing {
 
     namespace {
 
-        using StopIndex = std::unordered_map<StopId, std::size_t>;
-
-        StopIndex index_stop_times(const Trip& trip) {
-            StopIndex idx;
-            idx.reserve(trip.times.size());
-            for (std::size_t i = 0; i < trip.times.size(); ++i) {
-                idx.emplace(trip.times[i].stop, i);
-            }
-            return idx;
-        }
-
         struct IndexedTrip final {
             const Trip* trip{};
-            StopIndex   stop_index{};
         };
 
         using IndexedTripsByLine = std::map<LineId, std::vector<IndexedTrip>>;
-        using StopEndpoints = std::pair<StopId, StopId>;
+        using LinesById = std::unordered_map<LineId, const Line*>;
+        using OccurrenceEndpoints = std::pair<StopOccurrence, StopOccurrence>;
 
         struct ConnectionBuildStats final {
             std::size_t walk_segments{};
             std::size_t timed_segments{};
             std::size_t skipped_missing_routes{};
-            std::size_t skipped_invalid_endpoints{};
+            std::size_t skipped_non_line_topology{};
             std::size_t skipped_missing_trips{};
             std::size_t skipped_missing_trip_stops{};
             std::size_t skipped_invalid_trip_order{};
@@ -68,16 +57,16 @@ namespace timetable::domain::preprocessing {
             ConnectionBuildStats stats{};
         };
 
-        struct StopEndpointResult final {
-            std::optional<StopEndpoints> endpoints{};
+        struct OccurrenceEndpointResult final {
+            std::optional<OccurrenceEndpoints> endpoints{};
             ConnectionBuildStats stats{};
         };
 
         struct TimedSegmentData final {
             Time arrival{};
             Time departure{};
-            std::int64_t from_index{};
-            std::int64_t to_index{};
+            RoutePosition from_index{};
+            RoutePosition to_index{};
         };
 
         struct TripTimesResult final {
@@ -103,13 +92,39 @@ namespace timetable::domain::preprocessing {
             lhs.walk_segments += rhs.walk_segments;
             lhs.timed_segments += rhs.timed_segments;
             lhs.skipped_missing_routes += rhs.skipped_missing_routes;
-            lhs.skipped_invalid_endpoints += rhs.skipped_invalid_endpoints;
+            lhs.skipped_non_line_topology += rhs.skipped_non_line_topology;
             lhs.skipped_missing_trips += rhs.skipped_missing_trips;
             lhs.skipped_missing_trip_stops += rhs.skipped_missing_trip_stops;
             lhs.skipped_invalid_trip_order += rhs.skipped_invalid_trip_order;
             lhs.skipped_early_arrival += rhs.skipped_early_arrival;
             lhs.skipped_overnight_policy += rhs.skipped_overnight_policy;
             return lhs;
+        }
+
+        mathfp::Expected<LinesById> index_lines_by_id(
+            const std::vector<Line>& lines
+        ) {
+            LinesById indexed;
+            indexed.reserve(lines.size());
+            for (const auto& line : lines) {
+                const auto [it, inserted] = indexed.emplace(line.id, &line);
+                (void)it;
+                if (!inserted) {
+                    return mathfp::unexpected(
+                        mathfp::invalid_arg("duplicate line id in raw input")
+                            .ctx("line_id", line.id.get())
+                    );
+                }
+            }
+            return indexed;
+        }
+
+        const Line* find_line(
+            const LinesById& lines_by_id
+            , LineId id
+        ) {
+            const auto it = lines_by_id.find(id);
+            return it == lines_by_id.end() ? nullptr : it->second;
         }
 
         const Route* find_route(
@@ -148,8 +163,7 @@ namespace timetable::domain::preprocessing {
 
         IndexedTrip index_trip(const Trip& trip) {
             return IndexedTrip{
-                .trip = &trip,
-                .stop_index = index_stop_times(trip)
+                .trip = &trip
             };
         }
 
@@ -248,35 +262,23 @@ namespace timetable::domain::preprocessing {
 
         mathfp::Expected<TripTimesResult> extract_trip_times(
             const IndexedTrip& indexed_trip
-            , StopId from
-            , StopId to
+            , StopOccurrence from
+            , StopOccurrence to
             , const PreprocessParams& params
         ) {
             const auto& trip = *indexed_trip.trip;
-            const auto it_from = indexed_trip.stop_index.find(from);
-            const auto it_to = indexed_trip.stop_index.find(to);
-            if (it_from == indexed_trip.stop_index.end() || it_to == indexed_trip.stop_index.end()) {
-                if (params.strict_trips) {
-                    return mathfp::unexpected(
-                        mathfp::invalid_arg("trip does not contain route segment stops")
-                        .ctx("trip_id", trip.id.get())
-                        .ctx("from", from.get())
-                        .ctx("to", to.get())
-                    );
-                }
-                return TripTimesResult{
-                    .times = std::nullopt,
-                    .stats = ConnectionBuildStats{ .skipped_missing_trip_stops = 1 }
-                };
-            }
+            const auto from_index = static_cast<std::size_t>(from.position.get());
+            const auto to_index = static_cast<std::size_t>(to.position.get());
 
-            if (it_to->second <= it_from->second) {
+            if (to_index <= from_index) {
                 if (params.strict_trips) {
                     return mathfp::unexpected(
-                        mathfp::invalid_arg("route segment order invalid in trip")
+                        mathfp::invalid_arg("route segment occurrence order invalid in trip")
                         .ctx("trip_id", trip.id.get())
-                        .ctx("from", from.get())
-                        .ctx("to", to.get())
+                        .ctx("from_stop_id", from.stop.get())
+                        .ctx("from_position", from.position.get())
+                        .ctx("to_stop_id", to.stop.get())
+                        .ctx("to_position", to.position.get())
                     );
                 }
                 return TripTimesResult{
@@ -285,16 +287,55 @@ namespace timetable::domain::preprocessing {
                 };
             }
 
-            const auto& dep = trip.times[it_from->second].departure;
-            auto arr = trip.times[it_to->second].arrival;
+            if (to_index >= trip.times.size()) {
+                if (params.strict_trips) {
+                    return mathfp::unexpected(
+                        mathfp::invalid_arg("trip does not contain route segment occurrences")
+                        .ctx("trip_id", trip.id.get())
+                        .ctx("trip_stop_time_count", static_cast<std::int64_t>(trip.times.size()))
+                        .ctx("from_stop_id", from.stop.get())
+                        .ctx("from_position", from.position.get())
+                        .ctx("to_stop_id", to.stop.get())
+                        .ctx("to_position", to.position.get())
+                    );
+                }
+                return TripTimesResult{
+                    .times = std::nullopt,
+                    .stats = ConnectionBuildStats{ .skipped_missing_trip_stops = 1 }
+                };
+            }
+
+            if (trip.times[from_index].stop != from.stop || trip.times[to_index].stop != to.stop) {
+                if (params.strict_trips) {
+                    return mathfp::unexpected(
+                        mathfp::invalid_arg("trip stop occurrences do not match route segment occurrences")
+                        .ctx("trip_id", trip.id.get())
+                        .ctx("from_stop_id", from.stop.get())
+                        .ctx("from_position", from.position.get())
+                        .ctx("trip_from_stop_id", trip.times[from_index].stop.get())
+                        .ctx("to_stop_id", to.stop.get())
+                        .ctx("to_position", to.position.get())
+                        .ctx("trip_to_stop_id", trip.times[to_index].stop.get())
+                    );
+                }
+                return TripTimesResult{
+                    .times = std::nullopt,
+                    .stats = ConnectionBuildStats{ .skipped_missing_trip_stops = 1 }
+                };
+            }
+
+            const auto& dep = trip.times[from_index].departure;
+            auto arr = trip.times[to_index].arrival;
             if (arr.value() < dep.value()) {
                 if (!params.allow_overnight) {
                     if (params.strict_trips) {
                         return mathfp::unexpected(
                             mathfp::invalid_arg("arrival earlier than departure")
                             .ctx("trip_id", trip.id.get())
-                            .ctx("from", from.get())
-                            .ctx("to", to.get())
+                            .ctx("from_stop_id", from.stop.get())
+                            .ctx("from_position", from.position.get())
+                            .ctx("to_stop_id", to.stop.get())
+                            .ctx("to_position", to.position.get())
                         );
                     }
                     return TripTimesResult{
@@ -309,8 +350,10 @@ namespace timetable::domain::preprocessing {
                         return mathfp::unexpected(
                             mathfp::invalid_arg("overnight arrival requires add_24h policy")
                             .ctx("trip_id", trip.id.get())
-                            .ctx("from", from.get())
-                            .ctx("to", to.get())
+                            .ctx("from_stop_id", from.stop.get())
+                            .ctx("from_position", from.position.get())
+                            .ctx("to_stop_id", to.stop.get())
+                            .ctx("to_position", to.position.get())
                         );
                     }
                     return TripTimesResult{
@@ -324,48 +367,45 @@ namespace timetable::domain::preprocessing {
                 .times = TimedSegmentData{
                     .arrival = arr,
                     .departure = dep,
-                    .from_index = static_cast<std::int64_t>(it_from->second),
-                    .to_index = static_cast<std::int64_t>(it_to->second)
+                    .from_index = from.position,
+                    .to_index = to.position
                 },
                 .stats = {}
             };
         }
 
-        bool has_forward_trip_times(
+        bool has_trip_occurrences(
             const IndexedTrip& indexed_trip
-            , StopId from
-            , StopId to
+            , StopOccurrence from
+            , StopOccurrence to
         ) {
-            const auto it_from = indexed_trip.stop_index.find(from);
-            if (it_from == indexed_trip.stop_index.end()) {
+            const auto& trip = *indexed_trip.trip;
+            const auto from_index = static_cast<std::size_t>(from.position.get());
+            const auto to_index = static_cast<std::size_t>(to.position.get());
+            if (to_index <= from_index || to_index >= trip.times.size()) {
                 return false;
             }
-
-            const auto it_to = indexed_trip.stop_index.find(to);
-            if (it_to == indexed_trip.stop_index.end()) {
-                return false;
-            }
-
-            return it_from->second < it_to->second;
+            return trip.times[from_index].stop == from.stop
+                && trip.times[to_index].stop == to.stop;
         }
 
         std::size_t estimate_timed_segment_reserve(
             const std::vector<IndexedTrip>& line_trips
-            , StopId from
-            , StopId to
+            , StopOccurrence from
+            , StopOccurrence to
         ) {
             return static_cast<std::size_t>(std::count_if(
                 line_trips.begin()
                 , line_trips.end()
                 , [&](const IndexedTrip& indexed_trip) {
-                    return has_forward_trip_times(indexed_trip, from, to);
+                    return has_trip_occurrences(indexed_trip, from, to);
                 }
             ));
         }
 
         bool has_non_strict_skips(const ConnectionBuildStats& stats) noexcept {
             return stats.skipped_missing_routes > 0
-                || stats.skipped_invalid_endpoints > 0
+                || stats.skipped_non_line_topology > 0
                 || stats.skipped_missing_trips > 0
                 || stats.skipped_missing_trip_stops > 0
                 || stats.skipped_invalid_trip_order > 0
@@ -379,11 +419,11 @@ namespace timetable::domain::preprocessing {
 
             log(
                 fmt::format(
-                    "connection segments: skipped_missing_routes = {:>6}  skipped_invalid_endpoints = {:>6}  skipped_missing_trips = {:>6}\n"
+                    "connection segments: skipped_missing_routes = {:>6}  skipped_non_line_topology = {:>6}  skipped_missing_trips = {:>6}\n"
                     "                    skipped_missing_trip_stops = {:>6}  skipped_invalid_trip_order = {:>6}\n"
                     "                    skipped_early_arrival = {:>6}  skipped_overnight_policy = {:>6}"
                     , stats.skipped_missing_routes
-                    , stats.skipped_invalid_endpoints
+                    , stats.skipped_non_line_topology
                     , stats.skipped_missing_trips
                     , stats.skipped_missing_trip_stops
                     , stats.skipped_invalid_trip_order
@@ -443,28 +483,28 @@ namespace timetable::domain::preprocessing {
             };
         }
 
-        mathfp::Expected<StopEndpointResult> extract_line_route_stop_endpoints(
+        mathfp::Expected<OccurrenceEndpointResult> extract_line_route_occurrences(
             const RouteSegment& route_segment
             , const PreprocessParams& params
         ) {
-            if (!std::holds_alternative<StopId>(route_segment.from)
-                || !std::holds_alternative<StopId>(route_segment.to)) {
+            const auto* line = line_topology_of(route_segment);
+            if (!line) {
                 if (params.strict_trips) {
                     return mathfp::unexpected(
-                        mathfp::invalid_arg("line route segment endpoints must be stops")
+                        mathfp::invalid_arg("timed connection generation requires line route topology")
                         .ctx("route_segment_id", route_segment.id.get())
                     );
                 }
-                return StopEndpointResult{
+                return OccurrenceEndpointResult{
                     .endpoints = std::nullopt,
-                    .stats = ConnectionBuildStats{ .skipped_invalid_endpoints = 1 }
+                    .stats = ConnectionBuildStats{ .skipped_non_line_topology = 1 }
                 };
             }
 
-            return StopEndpointResult{
-                .endpoints = StopEndpoints{
-                    std::get<StopId>(route_segment.from),
-                    std::get<StopId>(route_segment.to)
+            return OccurrenceEndpointResult{
+                .endpoints = OccurrenceEndpoints{
+                    line->from,
+                    line->to
                 },
                 .stats = {}
             };
@@ -474,6 +514,7 @@ namespace timetable::domain::preprocessing {
             const RouteSegment& route_segment
             , const IndexedTrip& indexed_trip
             , const TimedSegmentData& times
+            , double fare
             , std::int64_t next_id
         ) {
             MATHFP_TRY_LET(
@@ -487,7 +528,7 @@ namespace timetable::domain::preprocessing {
                     , times.to_index
                     , times.departure
                     , times.arrival
-                    , std::nullopt
+                    , fare
                 )
             );
             return BuiltConnectionSegment{
@@ -496,20 +537,66 @@ namespace timetable::domain::preprocessing {
             };
         }
 
+        mathfp::Expected<double> required_line_ride_fare(
+            const Line& line
+        ) {
+            if (!line.fare.has_value()) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("raw timed connection generation requires explicit line fare")
+                        .ctx("line_id", line.id.get())
+                );
+            }
+
+            const auto valid = ensure_line_fare_consistent(*line.fare);
+            if (!valid) {
+                return mathfp::unexpected(
+                    std::move(valid.error()).ctx("line_id", line.id.get())
+                );
+            }
+
+            return line_ride_fare_value(*line.fare);
+        }
+
+        mathfp::Expected<double> timed_route_segment_fare(
+            const RouteSegment& route_segment
+            , const LinesById& lines_by_id
+        ) {
+            const auto line_id = line_of(route_segment);
+            if (!line_id.has_value()) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("timed route segment fare requires line topology")
+                        .ctx("route_segment_id", route_segment.id.get())
+                );
+            }
+
+            const auto* line = find_line(lines_by_id, *line_id);
+            if (line == nullptr) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("route segment references unknown line fare")
+                        .ctx("route_segment_id", route_segment.id.get())
+                        .ctx("line_id", line_id->get())
+                );
+            }
+
+            MATHFP_TRY_LET(double, fare, required_line_ride_fare(*line));
+            return fare;
+        }
+
         mathfp::Expected<TimedRouteBuildResult> build_timed_connection_segments_for_route(
             const RouteSegment& route_segment
             , const std::vector<IndexedTrip>& line_trips
+            , const LinesById& lines_by_id
             , const PreprocessParams& params
             , std::int64_t next_id
         ) {
             MATHFP_TRY_LET(
-                StopEndpointResult
-                , stop_endpoint_result
-                , extract_line_route_stop_endpoints(route_segment, params)
+                OccurrenceEndpointResult
+                , occurrence_result
+                , extract_line_route_occurrences(route_segment, params)
             );
 
-            ConnectionBuildStats stats = std::move(stop_endpoint_result.stats);
-            if (!stop_endpoint_result.endpoints.has_value()) {
+            ConnectionBuildStats stats = std::move(occurrence_result.stats);
+            if (!occurrence_result.endpoints.has_value()) {
                 return TimedRouteBuildResult{
                     .segments = {},
                     .next_id = next_id,
@@ -517,11 +604,17 @@ namespace timetable::domain::preprocessing {
                 };
             }
 
+            MATHFP_TRY_LET(
+                double
+                , segment_fare
+                , timed_route_segment_fare(route_segment, lines_by_id)
+            );
+
             std::vector<ConnectionSegment> segments;
             segments.reserve(estimate_timed_segment_reserve(
                 line_trips
-                , stop_endpoint_result.endpoints->first
-                , stop_endpoint_result.endpoints->second
+                , occurrence_result.endpoints->first
+                , occurrence_result.endpoints->second
             ));
             for (const auto& indexed_trip : line_trips) {
                 MATHFP_TRY_LET(
@@ -529,8 +622,8 @@ namespace timetable::domain::preprocessing {
                     , trip_times_result
                     , extract_trip_times(
                         indexed_trip
-                        , stop_endpoint_result.endpoints->first
-                        , stop_endpoint_result.endpoints->second
+                        , occurrence_result.endpoints->first
+                        , occurrence_result.endpoints->second
                         , params
                     )
                 );
@@ -547,13 +640,11 @@ namespace timetable::domain::preprocessing {
                         route_segment
                         , indexed_trip
                         , *trip_times_result.times
+                        , segment_fare
                         , next_id
                     )
                 );
                 next_id = built_segment.next_id;
-                // TODO: Decide how fare should be derived for built-from-trips
-                // timed segments; presegmented CSV can carry fare explicitly,
-                // but this path currently leaves fare unset by construction.
                 segments.push_back(std::move(built_segment.segment));
             }
 
@@ -568,9 +659,10 @@ namespace timetable::domain::preprocessing {
             ConnectionBuildState state
             , const RouteSegment& route_segment
             , const IndexedTripsByLine& trips_by_line
+            , const LinesById& lines_by_id
             , const PreprocessParams& params
         ) {
-            if (is_walk(route_segment.carrier)) {
+            if (is_walk(route_segment)) {
                 state.stats.walk_segments += 1;
                 MATHFP_TRY_LET(
                     BuiltConnectionSegment
@@ -582,7 +674,7 @@ namespace timetable::domain::preprocessing {
                 return state;
             }
 
-            const auto line = std::get<LineId>(route_segment.carrier);
+            const auto line = line_of(route_segment).value();
             const auto it_trips = trips_by_line.find(line);
             if (it_trips == trips_by_line.end()) {
                 if (params.strict_trips) {
@@ -601,6 +693,7 @@ namespace timetable::domain::preprocessing {
                 , build_timed_connection_segments_for_route(
                     route_segment
                     , it_trips->second
+                    , lines_by_id
                     , params
                     , state.next_id
                 )
@@ -619,6 +712,7 @@ namespace timetable::domain::preprocessing {
 
     mathfp::Expected<std::vector<ConnectionSegment>> build_connection_segments(
         const std::vector<RouteSegment>& route_segments
+        , const std::vector<Line>& lines
         , const std::vector<Route>& routes
         , const std::vector<Trip>& trips
         , const PreprocessParams& params
@@ -630,8 +724,9 @@ namespace timetable::domain::preprocessing {
         both("preprocessing: connection segments (timed + walk)");
         log(
             fmt::format(
-                "connection segments input: route_segments = {:>8}  routes = {:>6}  trips = {:>6}"
+                "connection segments input: route_segments = {:>8}  lines = {:>6}  routes = {:>6}  trips = {:>6}"
                 , route_segments.size()
+                , lines.size()
                 , routes.size()
                 , trips.size()
             )
@@ -647,6 +742,11 @@ namespace timetable::domain::preprocessing {
             route_segments
             , std::move(grouped_trips.trips_by_line)
             , params.stable_ordering
+        );
+        MATHFP_TRY_LET(
+            LinesById
+            , lines_by_id
+            , index_lines_by_id(lines)
         );
         log(
             fmt::format(
@@ -676,6 +776,7 @@ namespace timetable::domain::preprocessing {
                         std::move(current)
                         , *route_segment
                         , ordered_inputs.trips_by_line
+                        , lines_by_id
                         , params
                     );
                 }

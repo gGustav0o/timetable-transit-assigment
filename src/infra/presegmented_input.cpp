@@ -1,8 +1,7 @@
-#include "timetable/infra/txt_segments.hpp"
+#include "timetable/infra/presegmented_input.hpp"
 
 #include <algorithm>
-#include <cctype>
-#include <fstream>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -22,19 +21,18 @@
 #include "timetable/domain/preprocessing/segments_factory.hpp"
 #include "timetable/domain/state_ops.hpp"
 #include "timetable/infra/progress_bus.hpp"
-#include "timetable/infra/text_parse.hpp"
 
-namespace timetable::infra::txt {
+namespace timetable::infra {
 
 	namespace {
 
-		constexpr std::size_t kExpectedLines = 11;
 		constexpr std::int64_t kMissingId = -1;
 		constexpr std::size_t kStopReserveDiv = 2;
 		constexpr std::size_t kLineReserveDiv = 4;
 		constexpr std::size_t kExtraZoneReserveDiv = 16;
 		constexpr std::size_t kReservePadding = 1;
 		constexpr std::size_t kProgressStep = 100'000;
+
 		constexpr std::string_view kCtxActual = "actual";
 		constexpr std::string_view kCtxArr = "arr";
 		constexpr std::string_view kCtxColumn = "column";
@@ -48,7 +46,6 @@ namespace timetable::infra::txt {
 		constexpr std::string_view kCtxIndex = "index";
 		constexpr std::string_view kCtxLength = "length";
 		constexpr std::string_view kCtxLineId = "line_id";
-		constexpr std::string_view kCtxPath = "path";
 		constexpr std::string_view kCtxProfileId = "profile_id";
 		constexpr std::string_view kCtxSample = "sample";
 		constexpr std::string_view kCtxStopId = "stop_id";
@@ -59,196 +56,13 @@ namespace timetable::infra::txt {
 		constexpr std::string_view kCtxTripId = "trip_id";
 		constexpr std::string_view kCtxZoneId = "zone_id";
 
-		constexpr std::string_view kFieldArr = "arr";
-		constexpr std::string_view kFieldDep = "dep";
 		constexpr std::string_view kFieldFare = "fare";
 		constexpr std::string_view kFieldFrom = "from";
-		constexpr std::string_view kFieldFromStopId = "from_stop_id";
-		constexpr std::string_view kFieldFromZoneId = "from_zone_id";
-		constexpr std::string_view kFieldLength = "length";
-		constexpr std::string_view kFieldProfileId = "profile_id";
-		constexpr std::string_view kFieldTime = "time";
 		constexpr std::string_view kFieldTo = "to";
-		constexpr std::string_view kFieldToStopId = "to_stop_id";
-		constexpr std::string_view kFieldToZoneId = "to_zone_id";
-		constexpr std::string_view kFieldTripId = "trip_id";
-		constexpr std::string_view kFieldZoneIds = "zone_ids";
-		constexpr std::string_view kFieldFromIndex = "from_index";
-		constexpr std::string_view kFieldToIndex = "to_index";
-
-		mathfp::Unexpected parse_error(
-			const char* message
-			, std::string_view field
-			, std::size_t line_no
-			, std::size_t index
-		) {
-			return mathfp::unexpected(
-				mathfp::invalid_arg(message)
-				.ctx(std::string(kCtxField), std::string(field))
-				.ctx("line", static_cast<std::int64_t>(line_no))
-				.ctx(std::string(kCtxIndex), static_cast<std::int64_t>(index))
-			);
-		}
-
-		template <typename T, typename ParseFn>
-		mathfp::Expected<std::vector<T>> parse_numeric_sequence(
-			std::string_view line
-			, std::string_view field
-			, std::size_t line_no
-			, const char* invalid_message
-			, const char* range_message
-			, ParseFn&& parse
-		) {
-			std::vector<T> out;
-			line = text_parse::trim_trailing_cr(line);
-
-			const char* p = line.data();
-			const char* end = p + line.size();
-			std::size_t idx = 0;
-
-			while (p < end) {
-				while (p < end && std::isspace(static_cast<unsigned char>(*p))) {
-					++p;
-				}
-				if (p >= end) {
-					break;
-				}
-
-				const auto result = text_parse::parse_numeric_prefix<T>(
-					p, std::forward<ParseFn>(parse)
-				);
-				if (const auto* failure = std::get_if<text_parse::NumericParseFailure>(&result)) {
-					if (*failure == text_parse::NumericParseFailure::Invalid) {
-						return parse_error(invalid_message, field, line_no, idx);
-					}
-					if (*failure == text_parse::NumericParseFailure::Range) {
-						return parse_error(range_message, field, line_no, idx);
-					}
-					return parse_error(invalid_message, field, line_no, idx);
-				}
-
-				const auto& [value, next] = std::get<std::pair<T, const char*>>(result);
-				out.push_back(value);
-				p = next;
-				++idx;
-			}
-
-			return out;
-		}
-
-		mathfp::Expected<std::vector<std::int64_t>> parse_ints(
-			std::string_view line
-			, std::string_view field
-			, std::size_t line_no
-		) {
-			return parse_numeric_sequence<std::int64_t>(
-				line,
-				field,
-				line_no,
-				"failed to parse integer",
-				"integer out of range",
-				[](const char* begin, char** end) {
-					return std::strtoll(begin, end, 10);
-				}
-			);
-		}
-
-		mathfp::Expected<std::vector<double>> parse_doubles(
-			std::string_view line
-			, std::string_view field
-			, std::size_t line_no
-		) {
-			return parse_numeric_sequence<double>(
-				line,
-				field,
-				line_no,
-				"failed to parse floating point",
-				"floating point out of range",
-				[](const char* begin, char** end) {
-					return std::strtod(begin, end);
-				}
-			);
-		}
-
-		mathfp::Expected<timetable::domain::WalkEndpoint> parse_endpoint(
-			std::int64_t zone_id
-			, std::int64_t stop_id
-			, std::string_view field
-			, std::size_t index
-			, const std::unordered_set<std::int64_t>& zones
-		) {
-			using timetable::domain::StopId;
-			using timetable::domain::ZoneId;
-
-			const auto zone_missing = (zone_id == kMissingId);
-			const auto stop_missing = (stop_id == kMissingId);
-
-			if (zone_missing == stop_missing) {
-				return mathfp::unexpected(
-					mathfp::invalid_arg("exactly one of zone_id or stop_id must be set")
-					.ctx(std::string(kCtxField), std::string(field))
-					.ctx(std::string(kCtxIndex), static_cast<std::int64_t>(index))
-				);
-			}
-
-			if (!zone_missing) {
-				if (zone_id < 0) {
-					return mathfp::unexpected(
-						mathfp::invalid_arg("zone_id must be non-negative")
-						.ctx(std::string(kCtxField), std::string(field))
-						.ctx(std::string(kCtxIndex), static_cast<std::int64_t>(index))
-						.ctx(std::string(kCtxZoneId), zone_id)
-					);
-				}
-				return timetable::domain::WalkEndpoint{ ZoneId{ zone_id } };
-			}
-
-			if (stop_id < 0) {
-				return mathfp::unexpected(
-					mathfp::invalid_arg("stop_id must be non-negative")
-					.ctx(std::string(kCtxField), std::string(field))
-					.ctx(std::string(kCtxIndex), static_cast<std::int64_t>(index))
-					.ctx(std::string(kCtxStopId), stop_id)
-				);
-			}
-
-			return timetable::domain::WalkEndpoint{ StopId{ stop_id } };
-		}
-
-		bool same_endpoint(
-			const timetable::domain::WalkEndpoint& a
-			, const timetable::domain::WalkEndpoint& b
-		) {
-			if (a.index() != b.index())
-				return false;
-			if (std::holds_alternative<timetable::domain::StopId>(a))
-				return std::get<timetable::domain::StopId>(a) == std::get<timetable::domain::StopId>(b);
-			return std::get<timetable::domain::ZoneId>(a) == std::get<timetable::domain::ZoneId>(b);
-		}
-
-		mathfp::Expected<mathfp::Unit> ensure_time_matches_departure_arrival(
-			double time_sec
-			, double dep_sec
-			, double arr_sec
-			, std::size_t row_index
-		) {
-			const auto scheduled_time = arr_sec - dep_sec;
-			if (!mathfp::almost_equal(time_sec, scheduled_time)) {
-				return mathfp::unexpected(
-					mathfp::invalid_arg("TIME must equal ARR - DEP for timed segment")
-					.ctx(std::string(kCtxIndex), static_cast<std::int64_t>(row_index))
-					.ctx(std::string(kCtxTime), time_sec)
-					.ctx(std::string(kCtxDep), dep_sec)
-					.ctx(std::string(kCtxArr), arr_sec)
-					.ctx("arr_minus_dep", scheduled_time)
-				);
-			}
-			return mathfp::kUnit;
-		}
 
 		struct LineRouteKey final {
-			timetable::domain::EndpointKey from{};
-			timetable::domain::EndpointKey to{};
+			timetable::domain::StopOccurrenceKey from{};
+			timetable::domain::StopOccurrenceKey to{};
 			std::int64_t line_id{};
 
 			auto operator<=>(const LineRouteKey&) const = default;
@@ -257,10 +71,10 @@ namespace timetable::infra::txt {
 		struct LineRouteKeyHash final {
 			std::size_t operator()(const LineRouteKey& key) const noexcept {
 				std::size_t seed = 0;
-				boost::hash_combine(seed, static_cast<std::uint8_t>(key.from.kind));
-				boost::hash_combine(seed, key.from.id);
-				boost::hash_combine(seed, static_cast<std::uint8_t>(key.to.kind));
-				boost::hash_combine(seed, key.to.id);
+				boost::hash_combine(seed, key.from.stop.get());
+				boost::hash_combine(seed, key.from.position.get());
+				boost::hash_combine(seed, key.to.stop.get());
+				boost::hash_combine(seed, key.to.position.get());
 				boost::hash_combine(seed, key.line_id);
 				return seed;
 			}
@@ -319,10 +133,45 @@ namespace timetable::infra::txt {
 			timetable::domain::WalkEndpoint from_endpoint{};
 			timetable::domain::WalkEndpoint to_endpoint{};
 			bool is_walk_segment{};
+			std::optional<timetable::domain::StopOccurrence> from_occurrence{};
+			std::optional<timetable::domain::StopOccurrence> to_occurrence{};
 			std::optional<timetable::domain::Time> dep{};
 			std::optional<timetable::domain::Time> arr{};
 			std::optional<double> fare{};
 		};
+
+		bool same_endpoint(
+			const timetable::domain::WalkEndpoint& a
+			, const timetable::domain::WalkEndpoint& b
+		) {
+			if (a.index() != b.index()) {
+				return false;
+			}
+			if (std::holds_alternative<timetable::domain::StopId>(a)) {
+				return std::get<timetable::domain::StopId>(a) == std::get<timetable::domain::StopId>(b);
+			}
+			return std::get<timetable::domain::ZoneId>(a) == std::get<timetable::domain::ZoneId>(b);
+		}
+
+		mathfp::Expected<mathfp::Unit> ensure_time_matches_departure_arrival(
+			double time_sec
+			, double dep_sec
+			, double arr_sec
+			, std::size_t row_index
+		) {
+			const auto scheduled_time = arr_sec - dep_sec;
+			if (!mathfp::almost_equal(time_sec, scheduled_time)) {
+				return mathfp::unexpected(
+					mathfp::invalid_arg("TIME must equal ARR - DEP for timed segment")
+					.ctx(std::string(kCtxIndex), static_cast<std::int64_t>(row_index))
+					.ctx(std::string(kCtxTime), time_sec)
+					.ctx(std::string(kCtxDep), dep_sec)
+					.ctx(std::string(kCtxArr), arr_sec)
+					.ctx("arr_minus_dep", scheduled_time)
+				);
+			}
+			return mathfp::kUnit;
+		}
 
 		bool line_route_metrics_equal(
 			const LineRouteMetrics& lhs
@@ -465,7 +314,9 @@ namespace timetable::infra::txt {
 				return mathfp::kUnit;
 			}
 
-			const auto pct = static_cast<int>(100.0 * static_cast<double>(index) / static_cast<double>(total));
+			const auto pct = static_cast<int>(
+				100.0 * static_cast<double>(index) / static_cast<double>(total)
+			);
 			status(fmt::format("parsing: building segments ({}%)", pct));
 			log(
 				fmt::format(
@@ -481,7 +332,51 @@ namespace timetable::infra::txt {
 			return mathfp::kUnit;
 		}
 
-		mathfp::Expected<mathfp::Unit> ensure_distinct_segment_endpoints(
+		mathfp::Expected<timetable::domain::WalkEndpoint> parse_endpoint(
+			std::int64_t zone_id
+			, std::int64_t stop_id
+			, std::string_view field
+			, std::size_t index
+		) {
+			using timetable::domain::StopId;
+			using timetable::domain::ZoneId;
+
+			const auto zone_missing = (zone_id == kMissingId);
+			const auto stop_missing = (stop_id == kMissingId);
+
+			if (zone_missing == stop_missing) {
+				return mathfp::unexpected(
+					mathfp::invalid_arg("exactly one of zone_id or stop_id must be set")
+					.ctx(std::string(kCtxField), std::string(field))
+					.ctx(std::string(kCtxIndex), static_cast<std::int64_t>(index))
+				);
+			}
+
+			if (!zone_missing) {
+				if (zone_id < 0) {
+					return mathfp::unexpected(
+						mathfp::invalid_arg("zone_id must be non-negative")
+						.ctx(std::string(kCtxField), std::string(field))
+						.ctx(std::string(kCtxIndex), static_cast<std::int64_t>(index))
+						.ctx(std::string(kCtxZoneId), zone_id)
+					);
+				}
+				return timetable::domain::WalkEndpoint{ ZoneId{ zone_id } };
+			}
+
+			if (stop_id < 0) {
+				return mathfp::unexpected(
+					mathfp::invalid_arg("stop_id must be non-negative")
+					.ctx(std::string(kCtxField), std::string(field))
+					.ctx(std::string(kCtxIndex), static_cast<std::int64_t>(index))
+					.ctx(std::string(kCtxStopId), stop_id)
+				);
+			}
+
+			return timetable::domain::WalkEndpoint{ StopId{ stop_id } };
+		}
+
+		mathfp::Expected<mathfp::Unit> ensure_distinct_walk_segment_endpoints(
 			const SegmentRowView& row
 			, const timetable::domain::WalkEndpoint& from_endpoint
 			, const timetable::domain::WalkEndpoint& to_endpoint
@@ -491,7 +386,7 @@ namespace timetable::infra::txt {
 			}
 
 			return mathfp::unexpected(
-				mathfp::invalid_arg("segment endpoints must be distinct")
+				mathfp::invalid_arg("walk endpoints must be distinct")
 				.ctx(std::string(kCtxIndex), static_cast<std::int64_t>(row.index))
 				.ctx(std::string(kCtxFromZoneId), row.from_zone)
 				.ctx(std::string(kCtxFromStopId), row.from_stop)
@@ -544,24 +439,27 @@ namespace timetable::infra::txt {
 
 		mathfp::Expected<SegmentSemantics> interpret_segment_row(
 			const SegmentRowView& row
-			, const std::unordered_set<std::int64_t>& zones_set
 		) {
+			using timetable::domain::RoutePosition;
+			using timetable::domain::StopId;
+			using timetable::domain::StopOccurrence;
 			using timetable::domain::Time;
 
 			MATHFP_TRY_LET(
 				timetable::domain::WalkEndpoint
 				, from_endpoint
-				, parse_endpoint(row.from_zone, row.from_stop, kFieldFrom, row.index, zones_set)
+				, parse_endpoint(row.from_zone, row.from_stop, kFieldFrom, row.index)
 			);
 			MATHFP_TRY_LET(
 				timetable::domain::WalkEndpoint
 				, to_endpoint
-				, parse_endpoint(row.to_zone, row.to_stop, kFieldTo, row.index, zones_set)
+				, parse_endpoint(row.to_zone, row.to_stop, kFieldTo, row.index)
 			);
-			MATHFP_TRY(ensure_distinct_segment_endpoints(row, from_endpoint, to_endpoint));
 
 			std::optional<Time> dep{};
 			std::optional<Time> arr{};
+			std::optional<StopOccurrence> from_occurrence{};
+			std::optional<StopOccurrence> to_occurrence{};
 			if (row.dep_sec >= 0.0 || row.arr_sec >= 0.0) {
 				if (!(row.dep_sec >= 0.0 && row.arr_sec >= 0.0)) {
 					return mathfp::unexpected(
@@ -612,6 +510,25 @@ namespace timetable::infra::txt {
 						.ctx(std::string(kCtxToIndex), row.to_index)
 					);
 				}
+				if (!std::holds_alternative<StopId>(from_endpoint)
+					|| !std::holds_alternative<StopId>(to_endpoint)) {
+					return mathfp::unexpected(
+						mathfp::invalid_arg("timed line segment endpoints must be stops")
+						.ctx(std::string(kCtxIndex), static_cast<std::int64_t>(row.index))
+						.ctx(std::string(kCtxFromZoneId), row.from_zone)
+						.ctx(std::string(kCtxFromStopId), row.from_stop)
+						.ctx(std::string(kCtxToZoneId), row.to_zone)
+						.ctx(std::string(kCtxToStopId), row.to_stop)
+					);
+				}
+				from_occurrence = StopOccurrence{
+					.stop = std::get<StopId>(from_endpoint),
+					.position = RoutePosition{ row.from_index }
+				};
+				to_occurrence = StopOccurrence{
+					.stop = std::get<StopId>(to_endpoint),
+					.position = RoutePosition{ row.to_index }
+				};
 				MATHFP_TRY(ensure_time_matches_departure_arrival(
 					row.time_sec
 					, row.dep_sec
@@ -621,6 +538,7 @@ namespace timetable::infra::txt {
 				dep = Time{ row.dep_sec };
 				arr = Time{ row.arr_sec };
 			} else {
+				MATHFP_TRY(ensure_distinct_walk_segment_endpoints(row, from_endpoint, to_endpoint));
 				if (row.dep_sec >= 0.0 || row.arr_sec >= 0.0) {
 					return mathfp::unexpected(
 						mathfp::invalid_arg("walk segment must not have departure/arrival times")
@@ -655,6 +573,8 @@ namespace timetable::infra::txt {
 				.from_endpoint = std::move(from_endpoint),
 				.to_endpoint = std::move(to_endpoint),
 				.is_walk_segment = is_walk_segment,
+				.from_occurrence = std::move(from_occurrence),
+				.to_occurrence = std::move(to_occurrence),
 				.dep = std::move(dep),
 				.arr = std::move(arr),
 				.fare = std::move(fare)
@@ -704,15 +624,13 @@ namespace timetable::infra::txt {
 			using timetable::domain::LineId;
 			using timetable::domain::RouteSegment;
 			using timetable::domain::RouteSegmentId;
-			using timetable::domain::SegmentCarrier;
-			using timetable::domain::StopId;
+			using timetable::domain::RoutePosition;
 			using timetable::domain::Time;
 			using timetable::domain::WalkLinkId;
 			using timetable::domain::WalkPath;
 			using timetable::domain::preprocessing::make_route_segment;
 
 			if (semantics.is_walk_segment) {
-				SegmentCarrier carrier = WalkPath{ WalkLinkId{ state.next_walk_id++ } };
 				MATHFP_TRY_LET(
 					RouteSegment
 					, route
@@ -722,25 +640,16 @@ namespace timetable::infra::txt {
 						, semantics.to_endpoint
 						, Length{ row.length_km }
 						, Time{ row.time_sec }
-						, std::move(carrier)
+						, WalkPath{ WalkLinkId{ state.next_walk_id++ } }
 					)
 				);
 				state.route_segments.push_back(std::move(route));
 				return state.route_segments.size() - 1;
 			}
 
-			if (!std::holds_alternative<StopId>(semantics.from_endpoint)
-				|| !std::holds_alternative<StopId>(semantics.to_endpoint)) {
-				return mathfp::unexpected(
-					mathfp::invalid_arg("line segment endpoints must be stops")
-					.ctx(std::string(kCtxIndex), static_cast<std::int64_t>(row.index))
-					.ctx(std::string(kCtxProfileId), row.profile)
-				);
-			}
-
 			const LineRouteKey key{
-				.from = timetable::domain::to_endpoint_key(semantics.from_endpoint),
-				.to = timetable::domain::to_endpoint_key(semantics.to_endpoint),
+				.from = timetable::domain::occurrence_key(*semantics.from_occurrence),
+				.to = timetable::domain::occurrence_key(*semantics.to_occurrence),
 				.line_id = row.profile
 			};
 
@@ -750,17 +659,17 @@ namespace timetable::infra::txt {
 					.time_sec = row.time_sec
 				};
 				if (!line_route_metrics_equal(it->second.metrics, actual_metrics)) {
-					const auto expected_length = it->second.metrics.length_km;
-					const auto expected_time = it->second.metrics.time_sec;
 					return mathfp::unexpected(
-						mathfp::invalid_arg("inconsistent TIME/LENGTH for identical line stop pair")
+						mathfp::invalid_arg("inconsistent TIME/LENGTH for identical line occurrence pair")
 						.ctx(std::string(kCtxIndex), static_cast<std::int64_t>(row.index))
 						.ctx(std::string(kCtxLineId), row.profile)
-						.ctx(std::string(kCtxFromStopId), std::get<StopId>(semantics.from_endpoint).get())
-						.ctx(std::string(kCtxToStopId), std::get<StopId>(semantics.to_endpoint).get())
-						.ctx("expected_length", expected_length)
+						.ctx(std::string(kCtxFromStopId), semantics.from_occurrence->stop.get())
+						.ctx(std::string(kCtxFromIndex), semantics.from_occurrence->position.get())
+						.ctx(std::string(kCtxToStopId), semantics.to_occurrence->stop.get())
+						.ctx(std::string(kCtxToIndex), semantics.to_occurrence->position.get())
+						.ctx("expected_length", it->second.metrics.length_km)
 						.ctx("actual_length", row.length_km)
-						.ctx("expected_time", expected_time)
+						.ctx("expected_time", it->second.metrics.time_sec)
 						.ctx("actual_time", row.time_sec)
 					);
 				}
@@ -778,17 +687,16 @@ namespace timetable::infra::txt {
 				return route_index;
 			}
 
-			SegmentCarrier carrier = LineId{ row.profile };
 			MATHFP_TRY_LET(
 				RouteSegment
 				, route
 				, make_route_segment(
 					RouteSegmentId{ state.next_route_segment_id++ }
-					, semantics.from_endpoint
-					, semantics.to_endpoint
+					, *semantics.from_occurrence
+					, *semantics.to_occurrence
 					, Length{ row.length_km }
 					, Time{ row.time_sec }
-					, std::move(carrier)
+					, LineId{ row.profile }
 				)
 			);
 			state.route_segments.push_back(std::move(route));
@@ -798,8 +706,8 @@ namespace timetable::infra::txt {
 				LineRouteEntry{
 					.route_segment_index = route_segment_index,
 					.metrics = LineRouteMetrics{
-						.length_km = row.length_km
-						, .time_sec = row.time_sec
+						.length_km = row.length_km,
+						.time_sec = row.time_sec
 					}
 				}
 			);
@@ -815,6 +723,7 @@ namespace timetable::infra::txt {
 			using timetable::domain::ConnectionSegment;
 			using timetable::domain::ConnectionSegmentId;
 			using timetable::domain::RouteSegment;
+			using timetable::domain::RoutePosition;
 			using timetable::domain::TripId;
 			using timetable::domain::preprocessing::make_connection_segment;
 
@@ -835,8 +744,8 @@ namespace timetable::infra::txt {
 					ConnectionSegmentId{ state.next_connection_segment_id++ }
 					, route_segment
 					, semantics.is_walk_segment ? std::optional<TripId>{} : std::optional<TripId>{ TripId{ row.trip_id } }
-					, semantics.is_walk_segment ? std::optional<std::int64_t>{} : std::optional<std::int64_t>{ row.from_index }
-					, semantics.is_walk_segment ? std::optional<std::int64_t>{} : std::optional<std::int64_t>{ row.to_index }
+					, semantics.is_walk_segment ? std::optional<RoutePosition>{} : std::optional<RoutePosition>{ RoutePosition{ row.from_index } }
+					, semantics.is_walk_segment ? std::optional<RoutePosition>{} : std::optional<RoutePosition>{ RoutePosition{ row.to_index } }
 					, semantics.dep
 					, semantics.arr
 					, semantics.fare
@@ -865,7 +774,7 @@ namespace timetable::infra::txt {
 				return std::move(*dropped);
 			}
 
-			MATHFP_TRY_LET(SegmentSemantics, semantics, interpret_segment_row(row, state.zones_set));
+			MATHFP_TRY_LET(SegmentSemantics, semantics, interpret_segment_row(row));
 			MATHFP_TRY_LET(BuildState, with_entities, collect_model_entities(std::move(state), row, semantics));
 			MATHFP_TRY_LET(
 				std::size_t
@@ -888,7 +797,7 @@ namespace timetable::infra::txt {
 
 		mathfp::Expected<mathfp::Unit> validate_extra_zones(
 			const BuildState& state
-			, const ParseParams& params
+			, const PresegmentedInputBuildParams& params
 		) {
 			if (state.extra_zone_ids.empty()) {
 				return mathfp::kUnit;
@@ -900,7 +809,9 @@ namespace timetable::infra::txt {
 				const auto sample = std::min<std::size_t>(extra_list.size(), 10);
 				std::string sample_str;
 				for (std::size_t i = 0; i < sample; ++i) {
-					if (i > 0) sample_str += ", ";
+					if (i > 0) {
+						sample_str += ", ";
+					}
 					sample_str += std::to_string(extra_list[i]);
 				}
 				return mathfp::unexpected(
@@ -971,144 +882,13 @@ namespace timetable::infra::txt {
 
 	}  // namespace
 
-	mathfp::Expected<SegmentColumns> parse_segments_file(
-		const std::filesystem::path& path
-	) {
-		using timetable::infra::LogLevel;
-		using timetable::infra::progress::status;
-		using timetable::infra::progress::log;
-
-		status("parsing: opening txt input");
-		log(
-			"parsing: reading lines"
-			, LogLevel::Info
-		);
-
-		std::ifstream input(path);
-		if (!input.is_open()) {
-			return mathfp::unexpected(
-				mathfp::invalid_arg("failed to open input file")
-				.ctx("path", path.string())
-			);
-		}
-
-		std::vector<std::string> lines;
-		lines.reserve(kExpectedLines);
-		for (std::string line; std::getline(input, line); ) {
-			if (line.empty())
-				continue;
-			lines.push_back(std::move(line));
-		}
-
-		if (lines.size() != kExpectedLines) {
-			return mathfp::unexpected(
-				mathfp::invalid_arg("unexpected number of lines in segment file")
-				.ctx("lines", static_cast<std::int64_t>(lines.size()))
-				.ctx("expected", static_cast<std::int64_t>(kExpectedLines))
-			);
-		}
-
-		log(
-			fmt::format("parsing: lines loaded = {}", lines.size())
-			, LogLevel::Info
-		);
-		log("parsing: parsing columns", LogLevel::Info);
-		SegmentColumns out;
-		MATHFP_TRY_LET(
-			std::vector<std::int64_t>
-			, from_zone_id
-			, parse_ints(lines[0], kFieldFromZoneId, 1)
-		);
-		MATHFP_TRY_LET(
-			std::vector<std::int64_t>
-			, from_stop_id
-			, parse_ints(lines[1], kFieldFromStopId, 2)
-		);
-		MATHFP_TRY_LET(
-			std::vector<std::int64_t>
-			, to_zone_id
-			, parse_ints(lines[2], kFieldToZoneId, 3)
-		);
-		MATHFP_TRY_LET(
-			std::vector<std::int64_t>
-			, to_stop_id
-			, parse_ints(lines[3], kFieldToStopId, 4)
-		);
-		MATHFP_TRY_LET(
-			std::vector<std::int64_t>
-			, profile_id
-			, parse_ints(lines[4], kFieldProfileId, 5)
-		);
-		MATHFP_TRY_LET(
-			std::vector<double>
-			, length_km
-			, parse_doubles(lines[5], kFieldLength, 6)
-		);
-		MATHFP_TRY_LET(
-			std::vector<double>
-			, time_sec
-			, parse_doubles(lines[6], kFieldTime, 7)
-		);
-		MATHFP_TRY_LET(
-			std::vector<double>
-			, dep_sec
-			, parse_doubles(lines[7], kFieldDep, 8)
-		);
-		MATHFP_TRY_LET(
-			std::vector<double>
-			, arr_sec
-			, parse_doubles(lines[8], kFieldArr, 9)
-		);
-		MATHFP_TRY_LET(
-			std::vector<double>
-			, fare
-			, parse_doubles(lines[9], kFieldFare, 10)
-		);
-		MATHFP_TRY_LET(
-			std::vector<std::int64_t>
-			, zone_ids
-			, parse_ints(lines[10], kFieldZoneIds, 11)
-		);
-
-		out.from_zone_id = std::move(from_zone_id);
-		out.from_stop_id = std::move(from_stop_id);
-		out.to_zone_id = std::move(to_zone_id);
-		out.to_stop_id = std::move(to_stop_id);
-		out.profile_id = std::move(profile_id);
-		// TODO(txt-single-file): this single-file TXT format does not carry
-		// TRIP_ID/FROM_INDEX/TO_INDEX. Timed line segments therefore no longer
-		// match the stricter trip-aware model and should be either rejected
-		// explicitly, the format extended, or this path treated as walk/single-file-only.
-		out.trip_id.assign(out.profile_id.size(), kMissingId);
-		out.from_index.assign(out.profile_id.size(), kMissingId);
-		out.to_index.assign(out.profile_id.size(), kMissingId);
-		out.length_km = std::move(length_km);
-		out.time_sec = std::move(time_sec);
-		out.dep_sec = std::move(dep_sec);
-		out.arr_sec = std::move(arr_sec);
-		out.fare = std::move(fare);
-		out.zone_ids = std::move(zone_ids);
-
-		log(
-			fmt::format(
-				"parsing: columns parsed; segments = {}  zones = {}"
-				, out.from_zone_id.size()
-				, out.zone_ids.size()
-			),
-			LogLevel::Info
-		);
-		status("parsing: columns parsed");
-
-		return out;
-	}
-
-	mathfp::Expected<timetable::domain::AssignmentInput> build_assignment_input(
+	mathfp::Expected<timetable::domain::AssignmentInput> build_presegmented_assignment_input(
 		SegmentColumns columns
-		, const ParseParams& params
+		, const PresegmentedInputBuildParams& params
 	) {
 		using timetable::infra::LogLevel;
-		using timetable::infra::progress::status;
 		using timetable::infra::progress::log;
+		using timetable::infra::progress::status;
 
 		status("parsing: validating columns");
 		MATHFP_TRY_LET(std::size_t, n, validate_segment_columns(columns));
@@ -1175,33 +955,24 @@ namespace timetable::infra::txt {
 				LogLevel::Warning
 			);
 		}
+
+		status("parsing: validating extra zones");
 		MATHFP_TRY(validate_extra_zones(state, params));
-		if (!state.extra_zone_ids.empty()) {
-			log(
-				fmt::format(
-					"parsing: zone_ids extended by {} extra zones from segments"
-					, state.extra_zone_ids.size()
-				),
-				LogLevel::Warning
-			);
-		}
 
+		status("parsing: finalizing input model");
 		auto input = build_input_model(columns, state);
-
 		log(
 			fmt::format(
-				"parsing: model entities; zones = {}  stops = {}  lines = {}"
+				"parsing: model entities built; zones = {}  stops = {}  lines = {}"
 				, input.zones.size()
 				, input.stops.size()
 				, input.lines.size()
 			),
 			LogLevel::Info
 		);
+		status("parsing: completed");
 
-		status("parsing: building assignment input");
-		log("parsing: assignment input ready", LogLevel::Info);
-		status("parsing: done");
 		return make_assignment_input(std::move(input), std::move(state));
 	}
 
-}  // namespace timetable::infra::txt
+}  // namespace timetable::infra

@@ -35,11 +35,13 @@ namespace timetable::domain::assignment {
         }
 
         struct RouteSegmentKey final {
-            EndpointKey             from{};
-            EndpointKey             to{};
-            CarrierKind             kind{};
-            std::int64_t            carrier_id{};
-            std::vector<WalkLinkId> path{};
+            RouteTopologyKind                   topology_kind{};
+            std::optional<EndpointKey>          walk_from{};
+            std::optional<EndpointKey>          walk_to{};
+            std::optional<StopOccurrenceKey>    line_from{};
+            std::optional<StopOccurrenceKey>    line_to{};
+            std::optional<std::int64_t>         line_id{};
+            std::vector<WalkLinkId>             path{};
 
             auto operator<=>(const RouteSegmentKey&) const = default;
         };
@@ -62,21 +64,21 @@ namespace timetable::domain::assignment {
         };
 
         RouteSegmentKey route_segment_key(const RouteSegment& segment) {
-            const auto kind = carrier_kind(segment.carrier);
-            const auto carrier_id = is_line(segment.carrier)
-                ? std::get<LineId>(segment.carrier).get()
-                : 0;
-            std::vector<WalkLinkId> path{};
-            if (is_walk(segment.carrier)) {
-                path = std::get<WalkPath>(segment.carrier);
+            if (const auto* walk = walk_topology_of(segment)) {
+                return RouteSegmentKey{
+                    .topology_kind = RouteTopologyKind::Walk,
+                    .walk_from = to_endpoint_key(walk->from),
+                    .walk_to = to_endpoint_key(walk->to),
+                    .path = walk->path
+                };
             }
 
+            const auto* line = line_topology_of(segment);
             return RouteSegmentKey{
-                .from = to_endpoint_key(segment.from),
-                .to = to_endpoint_key(segment.to),
-                .kind = kind,
-                .carrier_id = carrier_id,
-                .path = std::move(path)
+                .topology_kind = RouteTopologyKind::Line,
+                .line_from = occurrence_key(line->from),
+                .line_to = occurrence_key(line->to),
+                .line_id = line->line.get()
             };
         }
 
@@ -129,8 +131,8 @@ namespace timetable::domain::assignment {
             return ConnectionSegmentKey{
                 .route_segment = segment.route_segment.get(),
                 .trip = segment.trip ? std::optional<std::int64_t>{ segment.trip->get() } : std::nullopt,
-                .from_index = segment.from_index,
-                .to_index = segment.to_index,
+                .from_index = segment.from_index ? std::optional<std::int64_t>{ segment.from_index->get() } : std::nullopt,
+                .to_index = segment.to_index ? std::optional<std::int64_t>{ segment.to_index->get() } : std::nullopt,
                 .departure = segment.departure ? std::optional<double>{ segment.departure->value() } : std::nullopt,
                 .arrival = segment.arrival ? std::optional<double>{ segment.arrival->value() } : std::nullopt,
                 .fare = segment.fare
@@ -255,7 +257,7 @@ namespace timetable::domain::assignment {
                 std::vector<ConnectionSegment>
                 , connection_segments
                 , preprocessing::build_connection_segments(
-                    route_segments, input.routes, input.trips, params
+                    route_segments, input.lines, input.routes, input.trips, params
                 )
             );
             log(
@@ -292,13 +294,19 @@ namespace timetable::domain::assignment {
             );
             log(
                 fmt::format(
-                    "indices: route_order = {:>8}  route_buckets = {:>6}\n"
+                    "indices: line_route_order = {:>8}  line_route_buckets = {:>6}\n"
+                    "         walk_route_order = {:>8}  walk_route_buckets = {:>6}\n"
                     "         timed_order = {:>8}  timed_buckets = {:>6}\n"
+                    "         boarding_order = {:>8}  boarding_stop_buckets = {:>6}\n"
                     "         walk_order  = {:>8}  walk_buckets  = {:>6}"
-                    , route_index.order.size()
-                    , route_index.buckets.size()
+                    , route_index.line_order.size()
+                    , route_index.line_buckets.size()
+                    , route_index.walk_order.size()
+                    , route_index.walk_buckets.size()
                     , connection_index.timed_order.size()
                     , connection_index.timed_buckets.size()
+                    , connection_index.boarding_order.size()
+                    , connection_index.boarding_stop_buckets.size()
                     , connection_index.walk_order.size()
                     , connection_index.walk_buckets.size()
                 ),
@@ -468,12 +476,22 @@ namespace timetable::domain::assignment {
 
         auto keys = collect_route_segment_keys(segments);
         if (const auto* duplicate = find_duplicate_route_segment_key(keys)) {
-            return mathfp::unexpected(
-                mathfp::invalid_arg("duplicate route segments detected")
-                .ctx("from", duplicate->from.id)
-                .ctx("to", duplicate->to.id)
-                .ctx("carrier_id", duplicate->carrier_id)
-            );
+            auto error = mathfp::invalid_arg("duplicate route segments detected")
+                .ctx("topology_kind", static_cast<std::int64_t>(duplicate->topology_kind));
+            if (duplicate->line_id.has_value()) {
+                error = std::move(error)
+                    .ctx("line_id", *duplicate->line_id)
+                    .ctx("from_stop_id", duplicate->line_from->stop.get())
+                    .ctx("from_position", duplicate->line_from->position.get())
+                    .ctx("to_stop_id", duplicate->line_to->stop.get())
+                    .ctx("to_position", duplicate->line_to->position.get());
+            } else {
+                error = std::move(error)
+                    .ctx("from", duplicate->walk_from->id)
+                    .ctx("to", duplicate->walk_to->id)
+                    .ctx("path_size", static_cast<std::int64_t>(duplicate->path.size()));
+            }
+            return mathfp::unexpected(std::move(error));
         }
 
         return mathfp::kUnit;
