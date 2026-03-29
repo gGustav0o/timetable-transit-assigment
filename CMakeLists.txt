@@ -27,6 +27,7 @@ add_executable(timetable-transit-assigment
   src/domain/assignment/search/search.cpp
   src/domain/assignment/run.cpp
   src/domain/assignment/split/split.cpp
+  src/domain/assignment/validation.cpp
   src/domain/preprocessing/segments_index.cpp
   src/domain/preprocessing/connection_segments.cpp
   src/domain/preprocessing/route_segments.cpp
