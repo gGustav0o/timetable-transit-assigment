@@ -99,24 +99,24 @@ namespace timetable::domain::assignment {
             const DiscoveredConnection& connection
         ) {
             return ConnectionTraceKey{
-                .origin = connection.origin,
-                .destination = connection.destination,
-                .segments = connection.segments
+                .origin = connection.origin
+                , .destination = connection.destination
+                , .segments = connection.segments
             };
         }
 
         OdKey od_key(const DiscoveredConnection& connection) noexcept {
             return OdKey{
-                .origin = connection.origin,
-                .destination = connection.destination
+                .origin = connection.origin
+                , .destination = connection.destination
             };
         }
 
         DemandKey demand_key(const DemandEntry& demand) noexcept {
             return DemandKey{
-                .origin = demand.origin,
-                .destination = demand.destination,
-                .interval = demand.interval
+                .origin = demand.origin
+                , .destination = demand.destination
+                , .interval = demand.interval
             };
         }
 
@@ -334,14 +334,14 @@ namespace timetable::domain::assignment {
             }
 
             return EvaluatedConnectionTrace{
-                .start = start,
-                .finish = finish,
-                .departure = *departure,
-                .arrival = *current_time,
-                .journey_time = Time{ current_time->value() - departure->value() },
-                .transfer_time = transfer_time,
-                .transfers = transfers,
-                .fare = fare
+                .start = start
+                , .finish = finish
+                , .departure = *departure
+                , .arrival = *current_time
+                , .journey_time = Time{ current_time->value() - departure->value() }
+                , .transfer_time = transfer_time
+                , .transfers = transfers
+                , .fare = fare
             };
         }
 
@@ -519,27 +519,27 @@ namespace timetable::domain::assignment {
 
                 if (emit_warnings && demand.origin == demand.destination) {
                     warn(fmt::format(
-                        "split input: demand entry has identical origin and destination zone {} for interval {}",
-                        demand.origin.get(),
-                        demand.interval.get()
+                        "split input: demand entry has identical origin and destination zone {} for interval {}"
+                        , demand.origin.get()
+                        , demand.interval.get()
                     ));
                 }
                 if (emit_warnings && mathfp::almost_zero(demand.passengers)) {
                     warn(fmt::format(
-                        "split input: demand entry origin={} destination={} interval={} has zero passengers",
-                        demand.origin.get(),
-                        demand.destination.get(),
-                        demand.interval.get()
+                        "split input: demand entry origin={} destination={} interval={} has zero passengers"
+                        , demand.origin.get()
+                        , demand.destination.get()
+                        , demand.interval.get()
                     ));
                 }
                 if (emit_warnings
                     && !choice_counts.contains(OdKey{ demand.origin, demand.destination })
                     && demand.passengers > 0.0) {
                     warn(fmt::format(
-                        "split input: no chosen connections for demand origin={} destination={} interval={}",
-                        demand.origin.get(),
-                        demand.destination.get(),
-                        demand.interval.get()
+                        "split input: no chosen connections for demand origin={} destination={} interval={}"
+                        , demand.origin.get()
+                        , demand.destination.get()
+                        , demand.interval.get()
                     ));
                 }
             }
@@ -594,34 +594,34 @@ namespace timetable::domain::assignment {
         }
 
         MATHFP_TRY(validate_index_offsets(
-            network.route_index.line_offsets,
-            network.route_index.line_buckets.size(),
-            network.route_index.line_order.size(),
-            "route_index.line"
+            network.route_index.line_offsets
+            , network.route_index.line_buckets.size()
+            , network.route_index.line_order.size()
+            , "route_index.line"
         ));
         MATHFP_TRY(validate_index_offsets(
-            network.route_index.walk_offsets,
-            network.route_index.walk_buckets.size(),
-            network.route_index.walk_order.size(),
-            "route_index.walk"
+            network.route_index.walk_offsets
+            , network.route_index.walk_buckets.size()
+            , network.route_index.walk_order.size()
+            , "route_index.walk"
         ));
         MATHFP_TRY(validate_index_offsets(
-            network.connection_index.timed_offsets,
-            network.connection_index.timed_buckets.size(),
-            network.connection_index.timed_order.size(),
-            "connection_index.timed"
+            network.connection_index.timed_offsets
+            , network.connection_index.timed_buckets.size()
+            , network.connection_index.timed_order.size()
+            , "connection_index.timed"
         ));
         MATHFP_TRY(validate_index_offsets(
-            network.connection_index.boarding_offsets,
-            network.connection_index.boarding_stop_buckets.size(),
-            network.connection_index.boarding_order.size(),
-            "connection_index.boarding"
+            network.connection_index.boarding_offsets
+            , network.connection_index.boarding_stop_buckets.size()
+            , network.connection_index.boarding_order.size()
+            , "connection_index.boarding"
         ));
         MATHFP_TRY(validate_index_offsets(
-            network.connection_index.walk_offsets,
-            network.connection_index.walk_buckets.size(),
-            network.connection_index.walk_order.size(),
-            "connection_index.walk"
+            network.connection_index.walk_offsets
+            , network.connection_index.walk_buckets.size()
+            , network.connection_index.walk_order.size()
+            , "connection_index.walk"
         ));
 
         if (network.route_index.line_order.size() + network.route_index.walk_order.size()
@@ -651,9 +651,9 @@ namespace timetable::domain::assignment {
         }
 
         const auto has_zone_bucket = std::any_of(
-            network.connection_index.walk_buckets.begin(),
-            network.connection_index.walk_buckets.end(),
-            [](const EndpointKey& key) { return key.kind == EndpointKind::Zone; }
+            network.connection_index.walk_buckets.begin()
+            , network.connection_index.walk_buckets.end()
+            , [](const EndpointKey& key) { return key.kind == EndpointKind::Zone; }
         );
         if (!has_zone_bucket) {
             return mathfp::unexpected(
@@ -663,9 +663,9 @@ namespace timetable::domain::assignment {
 
         const auto fare_required = mathfp::units::as_dimless(params.impedance.a_fare) > 0.0;
         const auto has_any_fare = std::any_of(
-            network.connection_segments.begin(),
-            network.connection_segments.end(),
-            [](const ConnectionSegment& segment) {
+            network.connection_segments.begin()
+            , network.connection_segments.end()
+            , [](const ConnectionSegment& segment) {
                 return segment.fare.has_value() && std::isfinite(*segment.fare);
             }
         );
@@ -704,11 +704,11 @@ namespace timetable::domain::assignment {
                 , evaluate_connection_trace(connection, network, i)
             );
             MATHFP_TRY(validate_evaluated_connection_against_declared(
-                connection,
-                evaluated,
-                fare_scale,
-                params,
-                i
+                connection
+                , evaluated
+                , fare_scale
+                , params
+                , i
             ));
         }
 
@@ -798,9 +798,9 @@ namespace timetable::domain::assignment {
                 const auto& rhs = input.intervals[j];
                 if (intervals_overlap(lhs, rhs)) {
                     warn(fmt::format(
-                        "split input: intervals {} and {} overlap in time",
-                        lhs.id.get(),
-                        rhs.id.get()
+                        "split input: intervals {} and {} overlap in time"
+                        , lhs.id.get()
+                        , rhs.id.get()
                     ));
                 }
             }
@@ -821,9 +821,9 @@ namespace timetable::domain::assignment {
     ) {
         const auto choice_trace_map = trace_index_map(choice_result.connections);
         const auto demand_by_key_result = validate_and_index_demand_entries(
-            input,
-            choice_result.connections,
-            false
+            input
+            , choice_result.connections
+            , false
         );
         if (!demand_by_key_result) {
             return mathfp::unexpected(std::move(demand_by_key_result.error()));
@@ -837,9 +837,9 @@ namespace timetable::domain::assignment {
         for (std::size_t i = 0; i < split_result.shares.size(); ++i) {
             const auto& share = split_result.shares[i];
             const auto key = DemandKey{
-                .origin = share.origin,
-                .destination = share.destination,
-                .interval = share.interval
+                .origin = share.origin
+                , .destination = share.destination
+                , .interval = share.interval
             };
 
             if (!demand_by_key.contains(key)) {
@@ -880,8 +880,8 @@ namespace timetable::domain::assignment {
 
         for (const auto& [key, demand] : demand_by_key) {
             const auto has_available_choice = choice_counts.contains(OdKey{
-                .origin = key.origin,
-                .destination = key.destination
+                .origin = key.origin
+                , .destination = key.destination
             });
             if (!has_available_choice || demand->passengers <= 0.0) {
                 continue;

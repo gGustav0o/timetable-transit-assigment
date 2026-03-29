@@ -132,6 +132,26 @@ namespace timetable::domain::assignment::projection {
             return rows;
         }
 
+        std::size_t count_od_segment_rows(
+            const AssignmentOdResult& od_result
+        ) {
+            std::size_t count = 0;
+            for (const auto& connection : od_result.connections) {
+                count += connection.segments.size();
+            }
+            return count;
+        }
+
+        std::size_t count_total_segment_rows(
+            const AssignmentOutput& output
+        ) {
+            std::size_t count = 0;
+            for (const auto& od_result : output.od_results) {
+                count += count_od_segment_rows(od_result);
+            }
+            return count;
+        }
+
         AssignmentSegmentCsvRow build_segment_row(
             const AssignmentOdResult& od_result
             , AssignmentConnectionRef connection_index
@@ -205,46 +225,11 @@ namespace timetable::domain::assignment::projection {
             return rows;
         }
 
-    }  // namespace
-
-    mathfp::Expected<AssignmentCsvProjection> build_assignment_csv_projection(
-        const AssignmentOutput& output
-    ) {
-        MATHFP_TRY_LET(
-            AssignmentResultSummary
-            , summary
-            , build_assignment_result_summary(output)
-        );
-
-        if (summary.od_results.size() != output.od_results.size()) {
-            return mathfp::unexpected(
-                mathfp::internal_error("assignment csv projection encountered mismatched OD result count")
-                    .ctx("output_od_count" , static_cast<std::int64_t>(output.od_results.size()))
-                    .ctx("summary_od_count", static_cast<std::int64_t>(summary.od_results.size()))
-            );
-        }
-
-        std::size_t segment_row_count = 0;
-        for (const auto& od_result : output.od_results) {
-            for (const auto& connection : od_result.connections) {
-                segment_row_count += connection.segments.size();
-            }
-        }
-
-        AssignmentCsvProjection projection{};
-        projection.od_summary_rows.reserve(summary.od_results.size());
-        projection.connection_rows.reserve(output.summary.chosen_connection_count);
-        projection.share_rows.reserve(output.summary.demand_share_count);
-        projection.segment_rows.reserve(segment_row_count);
-
-        for (std::size_t od_index = 0; od_index < output.od_results.size(); ++od_index) {
-            const auto& od_result = output.od_results[od_index];
-            const auto& od_summary = summary.od_results[od_index];
-
-            MATHFP_TRY(ensure_matching_od_summary(od_result, od_summary));
-
-            projection.od_summary_rows.push_back(build_od_summary_row(od_summary));
-
+        mathfp::Expected<mathfp::Unit> append_connection_projection_rows(
+            AssignmentCsvProjection& projection
+            , const AssignmentOdResult& od_result
+            , const AssignmentOdSummary& od_summary
+        ) {
             for (std::size_t connection_index = 0; connection_index < od_result.connections.size(); ++connection_index) {
                 const auto connection_ref = AssignmentConnectionRef{
                     static_cast<std::int64_t>(connection_index)
@@ -274,12 +259,64 @@ namespace timetable::domain::assignment::projection {
                 );
             }
 
+            return mathfp::kUnit;
+        }
+
+        void append_share_projection_rows(
+            AssignmentCsvProjection& projection
+            , const AssignmentOdResult& od_result
+        ) {
             auto share_rows = build_share_rows(od_result);
             projection.share_rows.insert(
                 projection.share_rows.end()
                 , share_rows.begin()
                 , share_rows.end()
             );
+        }
+
+        mathfp::Expected<mathfp::Unit> append_od_projection_rows(
+            AssignmentCsvProjection& projection
+            , const AssignmentOdResult& od_result
+            , const AssignmentOdSummary& od_summary
+        ) {
+            MATHFP_TRY(ensure_matching_od_summary(od_result, od_summary));
+            projection.od_summary_rows.push_back(build_od_summary_row(od_summary));
+            MATHFP_TRY(append_connection_projection_rows(projection, od_result, od_summary));
+            append_share_projection_rows(projection, od_result);
+            return mathfp::kUnit;
+        }
+
+    }  // namespace
+
+    mathfp::Expected<AssignmentCsvProjection> build_assignment_csv_projection(
+        const AssignmentOutput& output
+    ) {
+        MATHFP_TRY_LET(
+            AssignmentResultSummary
+            , summary
+            , build_assignment_result_summary(output)
+        );
+
+        if (summary.od_results.size() != output.od_results.size()) {
+            return mathfp::unexpected(
+                mathfp::internal_error("assignment csv projection encountered mismatched OD result count")
+                    .ctx("output_od_count" , static_cast<std::int64_t>(output.od_results.size()))
+                    .ctx("summary_od_count", static_cast<std::int64_t>(summary.od_results.size()))
+            );
+        }
+
+        const auto segment_row_count = count_total_segment_rows(output);
+
+        AssignmentCsvProjection projection{};
+        projection.od_summary_rows.reserve(summary.od_results.size());
+        projection.connection_rows.reserve(output.summary.chosen_connection_count);
+        projection.share_rows.reserve(output.summary.demand_share_count);
+        projection.segment_rows.reserve(segment_row_count);
+
+        for (std::size_t od_index = 0; od_index < output.od_results.size(); ++od_index) {
+            const auto& od_result = output.od_results[od_index];
+            const auto& od_summary = summary.od_results[od_index];
+            MATHFP_TRY(append_od_projection_rows(projection, od_result, od_summary));
         }
 
         return projection;

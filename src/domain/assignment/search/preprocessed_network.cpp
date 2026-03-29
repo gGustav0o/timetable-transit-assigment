@@ -145,10 +145,10 @@ namespace timetable::domain::assignment {
             std::vector<ConnectionSegmentKey> keys;
             keys.reserve(segments.size());
             std::transform(
-                segments.begin(),
-                segments.end(),
-                std::back_inserter(keys),
-                connection_segment_key
+                segments.begin()
+                , segments.end()
+                , std::back_inserter(keys)
+                , connection_segment_key
             );
             return keys;
         }
@@ -176,8 +176,8 @@ namespace timetable::domain::assignment {
                     , input.walk_links.size()
                     , input.intervals.size()
                     , input.demand.size()
-                ),
-                LogLevel::Info
+                )
+                , LogLevel::Info
             );
         }
 
@@ -213,8 +213,8 @@ namespace timetable::domain::assignment {
                     , line_segments.size()
                     , walk_segments.size()
                     , line_segments.size() + walk_segments.size()
-                ),
-                LogLevel::Info
+                )
+                , LogLevel::Info
             );
 
             std::vector<RouteSegment> route_segments;
@@ -236,8 +236,8 @@ namespace timetable::domain::assignment {
                 fmt::format(
                     "route segments: stable_ordering = {}"
                     , params.stable_ordering ? "true" : "false"
-                ),
-                LogLevel::Info
+                )
+                , LogLevel::Info
             );
             MATHFP_TRY(validate_route_segments(route_segments, true));
             return route_segments;
@@ -264,8 +264,8 @@ namespace timetable::domain::assignment {
                 fmt::format(
                     "connection segments: total = {:>8}"
                     , connection_segments.size()
-                ),
-                LogLevel::Info
+                )
+                , LogLevel::Info
             );
             return connection_segments;
         }
@@ -309,8 +309,8 @@ namespace timetable::domain::assignment {
                     , connection_index.boarding_stop_buckets.size()
                     , connection_index.walk_order.size()
                     , connection_index.walk_buckets.size()
-                ),
-                LogLevel::Info
+                )
+                , LogLevel::Info
             );
             return std::pair<preprocessing::RouteSegmentIndex, preprocessing::ConnectionSegmentIndex>{
                 std::move(route_index), std::move(connection_index)
@@ -426,9 +426,9 @@ namespace timetable::domain::assignment {
         );
 
         return finalize_preprocessed_network(
-            std::move(route_segments),
-            std::move(connection_segments),
-            true
+            std::move(route_segments)
+            , std::move(connection_segments)
+            , true
         );
     }
 
@@ -446,14 +446,14 @@ namespace timetable::domain::assignment {
                 "preprocessing input: route_segments = {:>8}  connection_segments = {:>8}"
                 , route_segments.size()
                 , connection_segments.size()
-            ),
-            LogLevel::Info
+            )
+            , LogLevel::Info
         );
 
         return finalize_preprocessed_network(
-            std::move(route_segments),
-            std::move(connection_segments),
-            false
+            std::move(route_segments)
+            , std::move(connection_segments)
+            , false
         );
     }
 
@@ -564,14 +564,14 @@ namespace timetable::domain::assignment {
                 ConnectionSegment
                 , validated_segment
                 , preprocessing::make_connection_segment(
-                    segment.id,
-                    *route_segment,
-                    segment.trip,
-                    segment.from_index,
-                    segment.to_index,
-                    segment.departure,
-                    segment.arrival,
-                    segment.fare
+                    segment.id
+                    , *route_segment
+                    , segment.trip
+                    , segment.from_index
+                    , segment.to_index
+                    , segment.departure
+                    , segment.arrival
+                    , segment.fare
                 )
             );
             (void)validated_segment;
@@ -615,8 +615,8 @@ namespace timetable::domain::assignment {
             const auto scale_result = statistics::mean(fares, "fare");
             if (!scale_result) {
                 log(
-                    fmt::format("fare normalization: mean failed: {}", scale_result.error().message()),
-                    LogLevel::Warning
+                    fmt::format("fare normalization: mean failed: {}", scale_result.error().message())
+                    , LogLevel::Warning
                 );
                 return 1.0;
             }
@@ -629,8 +629,8 @@ namespace timetable::domain::assignment {
             const auto scale_result = statistics::median(std::move(fares), "fare");
             if (!scale_result) {
                 log(
-                    fmt::format("fare normalization: median failed: {}", scale_result.error().message()),
-                    LogLevel::Warning
+                    fmt::format("fare normalization: median failed: {}", scale_result.error().message())
+                    , LogLevel::Warning
                 );
                 return 1.0;
             }
@@ -643,8 +643,8 @@ namespace timetable::domain::assignment {
             const auto scale_result = statistics::p95(std::move(fares), "fare");
             if (!scale_result) {
                 log(
-                    fmt::format("fare normalization: p95 failed: {}", scale_result.error().message()),
-                    LogLevel::Warning
+                    fmt::format("fare normalization: p95 failed: {}", scale_result.error().message())
+                    , LogLevel::Warning
                 );
                 return 1.0;
             }

@@ -168,8 +168,8 @@ namespace timetable::infra::txt {
 		}
 
 		log(
-			fmt::format("parsing: lines loaded = {}", lines.size()),
-			LogLevel::Info
+			fmt::format("parsing: lines loaded = {}", lines.size())
+			, LogLevel::Info
 		);
 		log("parsing: parsing columns", LogLevel::Info);
 
@@ -250,8 +250,8 @@ namespace timetable::infra::txt {
 				"parsing: columns parsed; segments = {}  zones = {}"
 				, out.from_zone_id.size()
 				, out.zone_ids.size()
-			),
-			LogLevel::Info
+			)
+			, LogLevel::Info
 		);
 		status("parsing: columns parsed");
 

@@ -12,37 +12,12 @@
 
 #include <fmt/format.h>
 
+#include "../detail/grouping.hpp"
 #include "timetable/domain/numeric.hpp"
 #include "timetable/infra/progress_bus.hpp"
 
 namespace timetable::domain::assignment {
     namespace {
-
-        struct OdKey final {
-            ZoneId origin{};
-            ZoneId destination{};
-
-            auto operator<=>(const OdKey&) const = default;
-        };
-
-        OdKey od_key(const DiscoveredConnection& connection) noexcept {
-            return OdKey{
-                .origin = connection.origin,
-                .destination = connection.destination
-            };
-        }
-
-        using ChoiceGroups = std::map<OdKey, std::vector<DiscoveredConnection>>;
-
-        ChoiceGroups choice_groups_by_od(
-            std::span<const DiscoveredConnection> connections
-        ) {
-            ChoiceGroups groups;
-            for (const auto& connection : connections) {
-                groups[od_key(connection)].push_back(connection);
-            }
-            return groups;
-        }
 
         double transfer_count_value(
             TransferCount transfers
@@ -244,7 +219,7 @@ namespace timetable::domain::assignment {
         );
 
         DemandSplitResult result;
-        const auto groups = choice_groups_by_od(choice_result.connections);
+        const auto groups = detail::grouping::group_connections_by_od(choice_result.connections);
         const auto beta = mathfp::units::as_dimless(params.split.beta);
         const auto boxcox_t = mathfp::units::as_dimless(params.split.boxcox_t);
 
@@ -257,7 +232,7 @@ namespace timetable::domain::assignment {
                 );
             }
 
-            const auto it = groups.find(OdKey{ demand.origin, demand.destination });
+            const auto it = groups.find(detail::grouping::OdKey{ demand.origin, demand.destination });
             if (it == groups.end() || it->second.empty() || demand.passengers <= 0.0) {
                 continue;
             }

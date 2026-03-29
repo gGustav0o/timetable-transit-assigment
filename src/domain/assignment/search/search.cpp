@@ -566,9 +566,9 @@ namespace timetable::domain::assignment {
                 , limits
             );
             out.insert(
-                out.end(),
-                std::make_move_iterator(timed.begin()),
-                std::make_move_iterator(timed.end())
+                out.end()
+                , std::make_move_iterator(timed.begin())
+                , std::make_move_iterator(timed.end())
             );
 
             return out;
@@ -589,8 +589,8 @@ namespace timetable::domain::assignment {
                 && branch.last_timed_segment != nullptr
                 && !branch.segments.empty()) {
                 const auto& last_segment = connection_segment_at(
-                    network,
-                    branch.segments.back()
+                    network
+                    , branch.segments.back()
                 );
                 if (is_walk_connection(last_segment)) {
                     return std::nullopt;
@@ -616,8 +616,8 @@ namespace timetable::domain::assignment {
                     , branch.fare
                     , impedance
                     , fare_scale
-                ),
-                .segments = branch.segments
+                )
+                , .segments = branch.segments
             };
         }
 
@@ -791,8 +791,8 @@ namespace timetable::domain::assignment {
                 , network.route_segments.size()
                 , network.connection_segments.size()
                 , params.transfers.max_transfers.get()
-            ),
-            LogLevel::Info
+            )
+            , LogLevel::Info
         );
 
         const auto origins = search_origins(network);

@@ -210,8 +210,10 @@ namespace timetable::domain::preprocessing {
             , RouteSegmentId id
         ) {
             const auto it = std::lower_bound(
-                refs.begin(), refs.end(), id.get(),
-                [](const RouteSegRef& ref, std::int64_t value) {
+                refs.begin()
+                , refs.end()
+                , id.get()
+                , [](const RouteSegRef& ref, std::int64_t value) {
                     return ref.id.get() < value;
                 }
             );
@@ -498,8 +500,8 @@ namespace timetable::domain::preprocessing {
                 , index.boarding_stop_buckets.size()
                 , index.walk_order.size()
                 , index.walk_buckets.size()
-            ),
-            LogLevel::Info
+            )
+            , LogLevel::Info
         );
         both("preprocessing: connection segment index done");
 

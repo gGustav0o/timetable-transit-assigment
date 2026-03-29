@@ -143,8 +143,8 @@ namespace timetable::domain::preprocessing {
             const auto* route = find_route(routes_by_id, trip.route);
             if (route) {
                 return RouteLookupResult{
-                    .route = route,
-                    .stats = {}
+                    .route = route
+                    , .stats = {}
                 };
             }
 
@@ -156,8 +156,8 @@ namespace timetable::domain::preprocessing {
                 );
             }
             return RouteLookupResult{
-                .route = nullptr,
-                .stats = ConnectionBuildStats{ .skipped_missing_routes = 1 }
+                .route = nullptr
+                , .stats = ConnectionBuildStats{ .skipped_missing_routes = 1 }
             };
         }
 
@@ -202,8 +202,8 @@ namespace timetable::domain::preprocessing {
                 out = insert_indexed_trip(std::move(out), route_result.route->line, index_trip(trip));
             }
             return GroupTripsResult{
-                .trips_by_line = std::move(out),
-                .stats = std::move(stats)
+                .trips_by_line = std::move(out)
+                , .stats = std::move(stats)
             };
         }
 
@@ -214,9 +214,10 @@ namespace timetable::domain::preprocessing {
             std::vector<const RouteSegment*> route_order;
             route_order.reserve(route_segments.size());
             std::transform(
-                route_segments.begin(), route_segments.end(),
-                std::back_inserter(route_order),
-                [](const RouteSegment& rs) { return &rs; }
+                route_segments.begin()
+                , route_segments.end()
+                , std::back_inserter(route_order)
+                , [](const RouteSegment& rs) { return &rs; }
             );
             if (stable_ordering) {
                 std::sort(route_order.begin(), route_order.end(), [](const RouteSegment* a, const RouteSegment* b) {
@@ -252,11 +253,11 @@ namespace timetable::domain::preprocessing {
             , bool stable_ordering
         ) {
             // Deterministic ConnectionSegmentId assignment is defined here:
-            // route segments are generated in ordered_route_segments(...) order,
+            // route segments are generated in ordered_route_segments(...) order
             // and timed segments for each line follow ordered_line_trips(...).
             return OrderedConnectionGenerationInputs{
-                .route_order = ordered_route_segments(route_segments, stable_ordering),
-                .trips_by_line = ordered_line_trips(std::move(trips_by_line), stable_ordering)
+                .route_order = ordered_route_segments(route_segments, stable_ordering)
+                , .trips_by_line = ordered_line_trips(std::move(trips_by_line), stable_ordering)
             };
         }
 
@@ -282,8 +283,8 @@ namespace timetable::domain::preprocessing {
                     );
                 }
                 return TripTimesResult{
-                    .times = std::nullopt,
-                    .stats = ConnectionBuildStats{ .skipped_invalid_trip_order = 1 }
+                    .times = std::nullopt
+                    , .stats = ConnectionBuildStats{ .skipped_invalid_trip_order = 1 }
                 };
             }
 
@@ -300,8 +301,8 @@ namespace timetable::domain::preprocessing {
                     );
                 }
                 return TripTimesResult{
-                    .times = std::nullopt,
-                    .stats = ConnectionBuildStats{ .skipped_missing_trip_stops = 1 }
+                    .times = std::nullopt
+                    , .stats = ConnectionBuildStats{ .skipped_missing_trip_stops = 1 }
                 };
             }
 
@@ -319,8 +320,8 @@ namespace timetable::domain::preprocessing {
                     );
                 }
                 return TripTimesResult{
-                    .times = std::nullopt,
-                    .stats = ConnectionBuildStats{ .skipped_missing_trip_stops = 1 }
+                    .times = std::nullopt
+                    , .stats = ConnectionBuildStats{ .skipped_missing_trip_stops = 1 }
                 };
             }
 
@@ -339,8 +340,8 @@ namespace timetable::domain::preprocessing {
                         );
                     }
                     return TripTimesResult{
-                        .times = std::nullopt,
-                        .stats = ConnectionBuildStats{ .skipped_early_arrival = 1 }
+                        .times = std::nullopt
+                        , .stats = ConnectionBuildStats{ .skipped_early_arrival = 1 }
                     };
                 }
                 if (params.overnight_add_24h) {
@@ -357,20 +358,20 @@ namespace timetable::domain::preprocessing {
                         );
                     }
                     return TripTimesResult{
-                        .times = std::nullopt,
-                        .stats = ConnectionBuildStats{ .skipped_overnight_policy = 1 }
+                        .times = std::nullopt
+                        , .stats = ConnectionBuildStats{ .skipped_overnight_policy = 1 }
                     };
                 }
             }
 
             return TripTimesResult{
                 .times = TimedSegmentData{
-                    .arrival = arr,
-                    .departure = dep,
-                    .from_index = from.position,
-                    .to_index = to.position
-                },
-                .stats = {}
+                    .arrival = arr
+                    , .departure = dep
+                    , .from_index = from.position
+                    , .to_index = to.position
+                }
+                , .stats = {}
             };
         }
 
@@ -429,14 +430,14 @@ namespace timetable::domain::preprocessing {
                     , stats.skipped_invalid_trip_order
                     , stats.skipped_early_arrival
                     , stats.skipped_overnight_policy
-                ),
-                LogLevel::Info
+                )
+                , LogLevel::Info
             );
 
             if (has_non_strict_skips(stats)) {
                 log(
-                    "connection segments: non-strict mode skipped invalid input rows/trips; see counters above",
-                    LogLevel::Warning
+                    "connection segments: non-strict mode skipped invalid input rows/trips; see counters above"
+                    , LogLevel::Warning
                 );
             }
         }
@@ -454,8 +455,8 @@ namespace timetable::domain::preprocessing {
                     , stats.walk_segments
                     , stats.timed_segments
                     , segments.size()
-                ),
-                LogLevel::Info
+                )
+                , LogLevel::Info
             );
         }
 
@@ -478,8 +479,8 @@ namespace timetable::domain::preprocessing {
                 )
             );
             return BuiltConnectionSegment{
-                .segment = std::move(segment),
-                .next_id = next_id
+                .segment = std::move(segment)
+                , .next_id = next_id
             };
         }
 
@@ -505,8 +506,8 @@ namespace timetable::domain::preprocessing {
                 .endpoints = OccurrenceEndpoints{
                     line->from
                     , line->to
-                },
-                .stats = {}
+                }
+                , .stats = {}
             };
         }
 
@@ -761,9 +762,9 @@ namespace timetable::domain::preprocessing {
         );
 
         ConnectionBuildState state{
-            .segments = {},
-            .next_id = 0,
-            .stats = std::move(grouped_trips.stats)
+            .segments = {}
+            , .next_id = 0
+            , .stats = std::move(grouped_trips.stats)
         };
 
         MATHFP_TRY_LET(

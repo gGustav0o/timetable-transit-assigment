@@ -11,8 +11,8 @@ namespace timetable::io {
 
 	// Deprecated compatibility input.
 	// This path is not maintained against the actively evolving assignment logic.
-	// Required files in data dir: stops.csv, trips.csv, stop_times.csv, walk_links.csv,
-	// od.csv, params.json.
+	// Required files in data dir include stops.csv, trips.csv, stop_times.csv
+	// and walk_links.csv, od.csv, params.json.
 	struct DataDirSpec {
 		std::filesystem::path root;
 	};

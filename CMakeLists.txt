@@ -22,6 +22,10 @@ add_executable(timetable-transit-assigment
   src/app/cli.cpp
   src/domain/assignment/choice/choice.cpp
   src/domain/assignment/output.cpp
+  src/domain/assignment/output_assembly.cpp
+  src/domain/assignment/output_connections.cpp
+  src/domain/assignment/output_lookup.cpp
+  src/domain/assignment/output_validation.cpp
   src/domain/assignment/pipeline.cpp
   src/domain/assignment/projection/csv.cpp
   src/domain/assignment/projection/summary.cpp
@@ -31,7 +35,10 @@ add_executable(timetable-transit-assigment
   src/domain/assignment/search/search.cpp
   src/domain/assignment/run.cpp
   src/domain/assignment/split/split.cpp
-  src/domain/assignment/validation.cpp
+  src/domain/assignment/validation/choice.cpp
+  src/domain/assignment/validation/preprocessing.cpp
+  src/domain/assignment/validation/search.cpp
+  src/domain/assignment/validation/split.cpp
   src/domain/preprocessing/segments_index.cpp
   src/domain/preprocessing/connection_segments.cpp
   src/domain/preprocessing/route_segments.cpp
@@ -46,7 +53,14 @@ add_executable(timetable-transit-assigment
   src/infra/logging.cpp
   src/infra/pair_file_data_source.cpp
   src/infra/params_txt.cpp
-  src/infra/presegmented_input.cpp
+  src/infra/params_txt_access.cpp
+  src/infra/params_txt_mapping.cpp
+  src/infra/params_txt_syntax.cpp
+  src/infra/presegmented_input_columns.cpp
+  src/infra/presegmented_input_finalize.cpp
+  src/infra/presegmented_input_pipeline.cpp
+  src/infra/presegmented_input_rows.cpp
+  src/infra/presegmented_input_segments.cpp
   src/infra/progress_bus.cpp
   src/infra/segments_csv.cpp
   src/infra/single_file_data_source.cpp
@@ -55,6 +69,9 @@ add_executable(timetable-transit-assigment
   src/ui/model.cpp
   src/ui/result_bus.cpp
   src/ui/result_snapshot.cpp
+  src/ui/ui_commands.cpp
+  src/ui/ui_panels.cpp
+  src/ui/ui_renderer.cpp
   src/ui/ui.cpp
   include/timetable/timetable.hpp
 )

@@ -137,9 +137,10 @@ namespace timetable::domain::preprocessing {
             std::vector<const Route*> route_order;
             route_order.reserve(routes.size());
             std::transform(
-                routes.begin(), routes.end(),
-                std::back_inserter(route_order),
-                [](const Route& r) { return &r; }
+                routes.begin()
+                , routes.end()
+                , std::back_inserter(route_order)
+                , [](const Route& r) { return &r; }
             );
             if (stable_ordering) {
                 std::sort(route_order.begin(), route_order.end(), [](const Route* a, const Route* b) {
@@ -316,9 +317,10 @@ namespace timetable::domain::preprocessing {
             std::vector<const WalkLink*> order;
             order.reserve(walk_links.size());
             std::transform(
-                walk_links.begin(), walk_links.end(),
-                std::back_inserter(order),
-                [](const WalkLink& link) { return &link; }
+                walk_links.begin()
+                , walk_links.end()
+                , std::back_inserter(order)
+                , [](const WalkLink& link) { return &link; }
             );
             if (stable_ordering) {
                 std::sort(order.begin(), order.end(), [](const WalkLink* a, const WalkLink* b) {
@@ -523,13 +525,13 @@ namespace timetable::domain::preprocessing {
             , bool stable_ordering
         ) {
             // Deterministic RouteSegmentId assignment is defined here:
-            // routes are generated in ordered_routes(...) order,
+            // routes are generated in ordered_routes(...) order
             // and route-local trip data is aggregated from ordered_route_trips(...).
             return OrderedLineGenerationInputs{
-                .route_order = ordered_routes(routes, stable_ordering),
-                .trips_by_route = ordered_route_trips(
-                    group_trips_by_route(trips),
-                    stable_ordering
+                .route_order = ordered_routes(routes, stable_ordering)
+                , .trips_by_route = ordered_route_trips(
+                    group_trips_by_route(trips)
+                    , stable_ordering
                 )
             };
         }
@@ -645,8 +647,8 @@ namespace timetable::domain::preprocessing {
                     , stats.skipped_short_routes
                     , stats.skipped_missing_trips
                     , stats.skipped_stop_times
-                ),
-                LogLevel::Info
+                )
+                , LogLevel::Info
             );
         }
 
@@ -689,8 +691,8 @@ namespace timetable::domain::preprocessing {
                 , params.stable_ordering   ? "true" : "false"
                 , params.strict_stop_times ? "true" : "false"
                 , static_cast<int>(params.time_aggregation)
-            ),
-            LogLevel::Info
+            )
+            , LogLevel::Info
         );
 
         LineRouteBuildStats stats;
@@ -745,8 +747,8 @@ namespace timetable::domain::preprocessing {
                 , walk_links.size()
                 , data.endpoints.size()
                 , data.best_edges.size()
-            ),
-            LogLevel::Info
+            )
+            , LogLevel::Info
         );
         log(
             fmt::format(
@@ -754,8 +756,8 @@ namespace timetable::domain::preprocessing {
                 , params.stable_ordering           ? "true" : "false"
                 , params.deduplicate_walk_segments ? "true" : "false"
                 , static_cast<int>(params.walk_cost_kind)
-            ),
-            LogLevel::Info
+            )
+            , LogLevel::Info
         );
 
         mathfp::graph::DiGraph<double> g(data.endpoints.size());
@@ -841,8 +843,8 @@ namespace timetable::domain::preprocessing {
                 , out.size()
                 , skipped_unreachable
                 , skipped_duplicate
-            ),
-            LogLevel::Info
+            )
+            , LogLevel::Info
         );
         both("preprocessing: walk route segments done");
 

@@ -11,30 +11,17 @@
 
 #include <fmt/format.h>
 
+#include "../detail/grouping.hpp"
 #include "timetable/infra/progress_bus.hpp"
 
 namespace timetable::domain::assignment {
     namespace {
-
-        struct OdKey final {
-            ZoneId origin{};
-            ZoneId destination{};
-
-            auto operator<=>(const OdKey&) const = default;
-        };
 
         struct ChoiceGroupStats final {
             double min_impedance{ std::numeric_limits<double>::infinity() };
             double min_journey_time{ std::numeric_limits<double>::infinity() };
             double min_transfers{ std::numeric_limits<double>::infinity() };
         };
-
-        OdKey od_key(const DiscoveredConnection& connection) noexcept {
-            return OdKey{
-                .origin = connection.origin,
-                .destination = connection.destination
-            };
-        }
 
         bool choice_dominates(
             const DiscoveredConnection& lhs
@@ -127,9 +114,9 @@ namespace timetable::domain::assignment {
             }
 
             std::sort(
-                chosen.begin(),
-                chosen.end(),
-                [](const DiscoveredConnection& lhs, const DiscoveredConnection& rhs) {
+                chosen.begin()
+                , chosen.end()
+                , [](const DiscoveredConnection& lhs, const DiscoveredConnection& rhs) {
                     if (lhs.departure != rhs.departure) {
                         return lhs.departure.value() < rhs.departure.value();
                     }
@@ -147,37 +134,6 @@ namespace timetable::domain::assignment {
             );
 
             return chosen;
-        }
-
-        std::vector<std::pair<OdKey, std::vector<DiscoveredConnection>>> group_connections_by_od(
-            std::span<const DiscoveredConnection> connections
-        ) {
-            std::vector<std::pair<OdKey, std::vector<DiscoveredConnection>>> groups;
-            for (const auto& connection : connections) {
-                const auto key = od_key(connection);
-                auto it = std::find_if(
-                    groups.begin()
-                    , groups.end()
-                    , [&](const auto& group) { return group.first == key; }
-                );
-                if (it == groups.end()) {
-                    groups.push_back({ key, {} });
-                    it = std::prev(groups.end());
-                }
-                it->second.push_back(connection);
-            }
-
-            std::sort(
-                groups.begin()
-                , groups.end()
-                , [](const auto& lhs, const auto& rhs) {
-                    if (lhs.first.origin != rhs.first.origin) {
-                        return lhs.first.origin.get() < rhs.first.origin.get();
-                    }
-                    return lhs.first.destination.get() < rhs.first.destination.get();
-                }
-            );
-            return groups;
         }
 
     }  // namespace
@@ -200,7 +156,7 @@ namespace timetable::domain::assignment {
         );
 
         ConnectionChoiceResult result;
-        const auto groups = group_connections_by_od(search_result.connections);
+        const auto groups = detail::grouping::group_connections_by_od(search_result.connections);
         for (const auto& [key, group_connections] : groups) {
             auto chosen = filter_choice_group(group_connections, params.choice_tolerances);
             log(
@@ -211,8 +167,8 @@ namespace timetable::domain::assignment {
                     , key.destination.get()
                     , group_connections.size()
                     , chosen.size()
-                ),
-                LogLevel::Info
+                )
+                , LogLevel::Info
             );
             result.connections.insert(
                 result.connections.end()

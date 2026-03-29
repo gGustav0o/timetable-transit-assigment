@@ -67,23 +67,58 @@ namespace timetable::infra::csv {
 			std::unordered_set<std::int64_t> zone_set{};
 		};
 
+		struct IntRowFieldSpec final {
+			std::string_view csv_name{};
+			std::size_t SegmentCsvColumns::* column_member{};
+			std::int64_t ParsedSegmentRow::* value_member{};
+		};
+
+		struct DoubleRowFieldSpec final {
+			std::string_view csv_name{};
+			std::size_t SegmentCsvColumns::* column_member{};
+			double ParsedSegmentRow::* value_member{};
+		};
+
 		using SegmentCsvColumnDef = std::pair<std::string_view, std::size_t SegmentCsvColumns::*>;
 
 		constexpr auto segment_csv_column_defs() {
 			return std::array<SegmentCsvColumnDef, 13>{
-				SegmentCsvColumnDef{ "FROM_STOP_ID", &SegmentCsvColumns::from_stop },
-				SegmentCsvColumnDef{ "TO_STOP_ID", &SegmentCsvColumns::to_stop },
-				SegmentCsvColumnDef{ "TIME", &SegmentCsvColumns::time },
-				SegmentCsvColumnDef{ "LENGTH", &SegmentCsvColumns::length },
-				SegmentCsvColumnDef{ "FROM_ZONE_ID", &SegmentCsvColumns::from_zone },
-				SegmentCsvColumnDef{ "TO_ZONE_ID", &SegmentCsvColumns::to_zone },
-				SegmentCsvColumnDef{ "FARE", &SegmentCsvColumns::fare },
-				SegmentCsvColumnDef{ "TRIP_ID", &SegmentCsvColumns::trip },
-				SegmentCsvColumnDef{ "LINE_ID", &SegmentCsvColumns::line },
-				SegmentCsvColumnDef{ "FROM_INDEX", &SegmentCsvColumns::from_index },
-				SegmentCsvColumnDef{ "DEP", &SegmentCsvColumns::dep },
-				SegmentCsvColumnDef{ "TO_INDEX", &SegmentCsvColumns::to_index },
-				SegmentCsvColumnDef{ "ARR", &SegmentCsvColumns::arr }
+				SegmentCsvColumnDef{ "FROM_STOP_ID", &SegmentCsvColumns::from_stop }
+				, SegmentCsvColumnDef{ "TO_STOP_ID", &SegmentCsvColumns::to_stop }
+				, SegmentCsvColumnDef{ "TIME", &SegmentCsvColumns::time }
+				, SegmentCsvColumnDef{ "LENGTH", &SegmentCsvColumns::length }
+				, SegmentCsvColumnDef{ "FROM_ZONE_ID", &SegmentCsvColumns::from_zone }
+				, SegmentCsvColumnDef{ "TO_ZONE_ID", &SegmentCsvColumns::to_zone }
+				, SegmentCsvColumnDef{ "FARE", &SegmentCsvColumns::fare }
+				, SegmentCsvColumnDef{ "TRIP_ID", &SegmentCsvColumns::trip }
+				, SegmentCsvColumnDef{ "LINE_ID", &SegmentCsvColumns::line }
+				, SegmentCsvColumnDef{ "FROM_INDEX", &SegmentCsvColumns::from_index }
+				, SegmentCsvColumnDef{ "DEP", &SegmentCsvColumns::dep }
+				, SegmentCsvColumnDef{ "TO_INDEX", &SegmentCsvColumns::to_index }
+				, SegmentCsvColumnDef{ "ARR", &SegmentCsvColumns::arr }
+			};
+		}
+
+		constexpr auto int_row_field_specs() {
+			return std::array<IntRowFieldSpec, 8>{
+				IntRowFieldSpec{ "FROM_ZONE_ID", &SegmentCsvColumns::from_zone, &ParsedSegmentRow::from_zone }
+				, IntRowFieldSpec{ "FROM_STOP_ID", &SegmentCsvColumns::from_stop, &ParsedSegmentRow::from_stop }
+				, IntRowFieldSpec{ "TO_ZONE_ID", &SegmentCsvColumns::to_zone, &ParsedSegmentRow::to_zone }
+				, IntRowFieldSpec{ "TO_STOP_ID", &SegmentCsvColumns::to_stop, &ParsedSegmentRow::to_stop }
+				, IntRowFieldSpec{ "TRIP_ID", &SegmentCsvColumns::trip, &ParsedSegmentRow::trip_id }
+				, IntRowFieldSpec{ "LINE_ID", &SegmentCsvColumns::line, &ParsedSegmentRow::line_id }
+				, IntRowFieldSpec{ "FROM_INDEX", &SegmentCsvColumns::from_index, &ParsedSegmentRow::from_index }
+				, IntRowFieldSpec{ "TO_INDEX", &SegmentCsvColumns::to_index, &ParsedSegmentRow::to_index }
+			};
+		}
+
+		constexpr auto double_row_field_specs() {
+			return std::array<DoubleRowFieldSpec, 5>{
+				DoubleRowFieldSpec{ "LENGTH", &SegmentCsvColumns::length, &ParsedSegmentRow::length }
+				, DoubleRowFieldSpec{ "TIME", &SegmentCsvColumns::time, &ParsedSegmentRow::time }
+				, DoubleRowFieldSpec{ "DEP", &SegmentCsvColumns::dep, &ParsedSegmentRow::dep }
+				, DoubleRowFieldSpec{ "ARR", &SegmentCsvColumns::arr, &ParsedSegmentRow::arr }
+				, DoubleRowFieldSpec{ "FARE", &SegmentCsvColumns::fare, &ParsedSegmentRow::fare }
 			};
 		}
 
@@ -153,13 +188,13 @@ namespace timetable::infra::csv {
 			, std::string_view column
 		) {
 			return parse_numeric_cell<std::int64_t>(
-				text,
-				row,
-				column,
-				"empty integer field",
-				"failed to parse integer",
-				"integer out of range",
-				[](const char* begin, char** end) {
+				text
+				, row
+				, column
+				, "empty integer field"
+				, "failed to parse integer"
+				, "integer out of range"
+				, [](const char* begin, char** end) {
 					return std::strtoll(begin, end, 10);
 				}
 			);
@@ -171,13 +206,13 @@ namespace timetable::infra::csv {
 			, std::string_view column
 		) {
 			return parse_numeric_cell<double>(
-				text,
-				row,
-				column,
-				"empty floating point field",
-				"failed to parse floating point",
-				"floating point out of range",
-				[](const char* begin, char** end) {
+				text
+				, row
+				, column
+				, "empty floating point field"
+				, "failed to parse floating point"
+				, "floating point out of range"
+				, [](const char* begin, char** end) {
 					return std::strtod(begin, end);
 				}
 			);
@@ -209,8 +244,8 @@ namespace timetable::infra::csv {
 		) {
 			SegmentCsvColumns resolved;
 			MATHFP_TRY(try_for_each_segment_csv_column(
-				resolved,
-				[&reader](std::string_view name, std::size_t& column)
+				resolved
+				, [&reader](std::string_view name, std::size_t& column)
 					-> mathfp::Expected<mathfp::Unit> {
 					const auto resolved_column = reader.index_of(std::string(name));
 					if (resolved_column == ::csv::CSV_NOT_FOUND) {
@@ -241,8 +276,8 @@ namespace timetable::infra::csv {
 			MATHFP_TRY_LET(SegmentCsvColumns, columns, resolve_segment_csv_columns(reader));
 
 			return ParsedCsvHeader{
-				.columns = columns,
-				.header_column_count = header.size()
+				.columns = columns
+				, .header_column_count = header.size()
 			};
 		}
 
@@ -251,40 +286,57 @@ namespace timetable::infra::csv {
 			return std::string_view(sv.data(), sv.size());
 		}
 
+		mathfp::Expected<mathfp::Unit> decode_int_row_fields(
+			ParsedSegmentRow& out
+			, const ::csv::CSVRow& row_data
+			, const SegmentCsvColumns& cols
+			, std::size_t row
+		) {
+			for (const auto& spec : int_row_field_specs()) {
+				MATHFP_TRY_LET(
+					std::int64_t
+					, value
+					, parse_int64_cell(
+						field_text(row_data[cols.*(spec.column_member)])
+						, row
+						, spec.csv_name
+					)
+				);
+				out.*(spec.value_member) = value;
+			}
+			return mathfp::ok();
+		}
+
+		mathfp::Expected<mathfp::Unit> decode_double_row_fields(
+			ParsedSegmentRow& out
+			, const ::csv::CSVRow& row_data
+			, const SegmentCsvColumns& cols
+			, std::size_t row
+		) {
+			for (const auto& spec : double_row_field_specs()) {
+				MATHFP_TRY_LET(
+					double
+					, value
+					, parse_double_cell(
+						field_text(row_data[cols.*(spec.column_member)])
+						, row
+						, spec.csv_name
+					)
+				);
+				out.*(spec.value_member) = value;
+			}
+			return mathfp::ok();
+		}
+
 		mathfp::Expected<ParsedSegmentRow> parse_segment_row(
 			const ::csv::CSVRow& row_data
 			, const SegmentCsvColumns& cols
 			, std::size_t row
 		) {
-			MATHFP_TRY_LET(std::int64_t, from_zone, parse_int64_cell(field_text(row_data[cols.from_zone]), row, "FROM_ZONE_ID"));
-			MATHFP_TRY_LET(std::int64_t, from_stop, parse_int64_cell(field_text(row_data[cols.from_stop]), row, "FROM_STOP_ID"));
-			MATHFP_TRY_LET(std::int64_t, to_zone, parse_int64_cell(field_text(row_data[cols.to_zone]), row, "TO_ZONE_ID"));
-			MATHFP_TRY_LET(std::int64_t, to_stop, parse_int64_cell(field_text(row_data[cols.to_stop]), row, "TO_STOP_ID"));
-			MATHFP_TRY_LET(std::int64_t, trip_id, parse_int64_cell(field_text(row_data[cols.trip]), row, "TRIP_ID"));
-			MATHFP_TRY_LET(std::int64_t, line_id, parse_int64_cell(field_text(row_data[cols.line]), row, "LINE_ID"));
-			MATHFP_TRY_LET(std::int64_t, from_index, parse_int64_cell(field_text(row_data[cols.from_index]), row, "FROM_INDEX"));
-			MATHFP_TRY_LET(std::int64_t, to_index, parse_int64_cell(field_text(row_data[cols.to_index]), row, "TO_INDEX"));
-			MATHFP_TRY_LET(double, length, parse_double_cell(field_text(row_data[cols.length]), row, "LENGTH"));
-			MATHFP_TRY_LET(double, time, parse_double_cell(field_text(row_data[cols.time]), row, "TIME"));
-			MATHFP_TRY_LET(double, dep, parse_double_cell(field_text(row_data[cols.dep]), row, "DEP"));
-			MATHFP_TRY_LET(double, arr, parse_double_cell(field_text(row_data[cols.arr]), row, "ARR"));
-			MATHFP_TRY_LET(double, fare, parse_double_cell(field_text(row_data[cols.fare]), row, "FARE"));
-
-			return ParsedSegmentRow{
-				.from_zone = from_zone,
-				.from_stop = from_stop,
-				.to_zone = to_zone,
-				.to_stop = to_stop,
-				.trip_id = trip_id,
-				.line_id = line_id,
-				.from_index = from_index,
-				.to_index = to_index,
-				.length = length,
-				.time = time,
-				.dep = dep,
-				.arr = arr,
-				.fare = fare
-			};
+			ParsedSegmentRow parsed_row{};
+			MATHFP_TRY(decode_int_row_fields(parsed_row, row_data, cols, row));
+			MATHFP_TRY(decode_double_row_fields(parsed_row, row_data, cols, row));
+			return parsed_row;
 		}
 
 		void append_segment_row(
