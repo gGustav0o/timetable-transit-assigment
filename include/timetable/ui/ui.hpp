@@ -7,14 +7,14 @@
 #include "timetable/ui/model.hpp"
 
 namespace spdlog {
-	class logger;
+    class logger;
 }  // namespace spdlog
 
 namespace timetable::ui {
 
-	mathfp::Expected<mathfp::Unit> run(
-		const UiModel& model
-		, const std::shared_ptr<spdlog::logger>& logger
-	);
+    mathfp::Expected<mathfp::Unit> run(
+          const UiModel&                         model
+        , const std::shared_ptr<spdlog::logger>& logger
+    );
 
 }  // namespace timetable::ui

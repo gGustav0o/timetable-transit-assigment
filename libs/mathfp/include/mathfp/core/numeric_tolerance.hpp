@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include "mathfp/compiler_attributes.hpp"
 
@@ -61,9 +61,9 @@ namespace mathfp {
             return a == b;
 
         }
-        const T diff = std::abs(a - b);
+        const T diff  = std::abs(a - b);
         const T scale = mathfp::scalar_scale(a, b);
-        const T tol = (std::max)(abs_tol, rel_tol * scale);
+        const T tol   = (std::max)(abs_tol, rel_tol * scale);
         return diff <= tol;
     }
 
@@ -71,7 +71,7 @@ namespace mathfp {
     MATHFP_CONST_FN
     constexpr bool almost_equal(T a, T b) noexcept {
         return mathfp::almost_equal(
-            a
+              a
             , b
             , mathfp::abs_tolerance<T>(T(0))
             , mathfp::rel_tolerance_coeff<T>()

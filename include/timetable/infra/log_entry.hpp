@@ -6,9 +6,9 @@
 
 namespace timetable::infra {
 
-	struct LogEntry {
-		LogLevel    level;
-		std::string message;
-	};
+    struct LogEntry {
+        LogLevel    level;
+        std::string message;
+    };
 
 }  // namespace timetable::infra

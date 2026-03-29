@@ -18,8 +18,8 @@ namespace mathfp::linalg {
 
     template <class Derived>
     MATHFP_NODISCARD inline ::mathfp::Expected<::mathfp::Unit> ensure_nonempty(
-        const Eigen::MatrixBase<Derived>& a
-        , std::source_location where = std::source_location::current()
+          const Eigen::MatrixBase<Derived>& a
+        , std::source_location              where = std::source_location::current()
     ) {
         if (a.rows() > 0 && a.cols() > 0) return ::mathfp::kUnit;
         return ::mathfp::unexpected(
@@ -30,7 +30,7 @@ namespace mathfp::linalg {
 
     template <class Derived>
     MATHFP_NODISCARD inline ::mathfp::Expected<::mathfp::Unit> ensure_square(
-        const Eigen::MatrixBase<Derived>& a
+          const Eigen::MatrixBase<Derived>& a
         , std::source_location where = std::source_location::current()
     ) {
         if (a.rows() == a.cols()) return ::mathfp::kUnit;
@@ -42,7 +42,7 @@ namespace mathfp::linalg {
 
     template <class A, class B>
     MATHFP_NODISCARD inline ::mathfp::Expected<::mathfp::Unit> ensure_same_shape(
-        const Eigen::MatrixBase<A>& a
+          const Eigen::MatrixBase<A>& a
         , const Eigen::MatrixBase<B>& b
         , std::source_location where = std::source_location::current()
     ) {
@@ -55,12 +55,12 @@ namespace mathfp::linalg {
 
     template <class A, class X>
     MATHFP_NODISCARD inline ::mathfp::Expected<::mathfp::Unit> ensure_matvec_compatible(
-        const Eigen::MatrixBase<A>& a
+          const Eigen::MatrixBase<A>& a
         , const Eigen::MatrixBase<X>& x
         , std::source_location where = std::source_location::current()
     ) {
         // a: (m x n), x: (n x 1) or (n)
-        const auto n = a.cols();
+        const auto n  = a.cols();
         const auto xr = x.rows();
         const auto xc = x.cols();
         const bool ok = (xc == 1 && xr == n) || (xr == 1 && xc == n);  // allow row vec too
@@ -74,7 +74,7 @@ namespace mathfp::linalg {
 
     template <class Derived>
     MATHFP_NODISCARD inline ::mathfp::Expected<::mathfp::Unit> ensure_finite(
-        const Eigen::MatrixBase<Derived>& a
+          const Eigen::MatrixBase<Derived>& a
         , std::source_location where = std::source_location::current()
     ) requires requires { a.allFinite(); } {
         if (a.allFinite()) return ::mathfp::kUnit;

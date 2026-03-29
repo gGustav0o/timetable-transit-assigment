@@ -25,8 +25,8 @@
 namespace mathfp::graph {
 
     struct BfsResult final {
-        std::vector<VertexId> order{};
-        std::vector<VertexId> parent{};
+        std::vector<VertexId>    order{};
+        std::vector<VertexId>    parent{};
         std::vector<std::size_t> distance{};
 
         MATHFP_NODISCARD std::size_t size() const noexcept { return order.size(); }
@@ -40,8 +40,8 @@ namespace mathfp::graph {
 
     template <class G>
     MATHFP_NODISCARD inline ::mathfp::Expected<BfsResult> bfs(
-        const G& g
-        , VertexId start
+          const G&             g
+        , VertexId             start
         , std::source_location where = std::source_location::current()
     ) {
         const auto n = vertex_count(g);
@@ -50,7 +50,7 @@ namespace mathfp::graph {
             return ::mathfp::unexpected(
                 ::mathfp::invalid_arg("graph must be non-empty", where)
                 .ctx("num_vertices", n)
-                .ctx("num_edges", edge_count(g)));
+                .ctx("num_edges"   , edge_count(g)));
         }
 
         if (!::mathfp::is_valid(start)) {
@@ -62,13 +62,13 @@ namespace mathfp::graph {
         if (s >= n) {
             return ::mathfp::unexpected(
                 ::mathfp::invalid_arg("start vertex id out of range", where)
-                .ctx("start", s)
+                .ctx("start"       , s)
                 .ctx("num_vertices", n));
         }
 
         BfsResult res;
-        res.order.reserve(n);
-        res.parent.assign(n, ::mathfp::invalid_index<VertexIdTag>());
+        res.order   .reserve(n);
+        res.parent  .assign(n, ::mathfp::invalid_index<VertexIdTag>());
         res.distance.assign(n, detail::kInfDist);
 
         std::vector<unsigned char> visited(n, 0);
@@ -76,9 +76,9 @@ namespace mathfp::graph {
         std::queue<Vertex<G>> q;
         const auto sv = static_cast<Vertex<G>>(s);
 
-        visited[s] = 1;
+        visited[s]      = 1;
         res.distance[s] = 0;
-        res.parent[s] = ::mathfp::invalid_index<VertexIdTag>();
+        res.parent[s]   = ::mathfp::invalid_index<VertexIdTag>();
         res.order.push_back(start);
         q.push(sv);
 
@@ -88,13 +88,13 @@ namespace mathfp::graph {
 
             auto [it, it_end] = boost::adjacent_vertices(u, g);
             for (; it != it_end; ++it) {
-                const auto v = *it;
+                const auto v   = *it;
                 const auto vid = vertex_id(g, v);
-                const auto vi = ::mathfp::to_usize(vid);
+                const auto vi  = ::mathfp::to_usize(vid);
 
                 if (!visited[vi]) {
-                    visited[vi] = 1;
-                    res.parent[vi] = vertex_id(g, u);
+                    visited[vi]      = 1;
+                    res.parent[vi]   = vertex_id(g, u);
                     res.distance[vi] = res.distance[::mathfp::to_usize(res.parent[vi])] + 1;
                     res.order.push_back(vid);
                     q.push(v);

@@ -16,7 +16,7 @@ namespace timetable::infra {
     public:
         static mathfp::Expected<ScopedConsoleCopyShortcuts> make();
 
-        ScopedConsoleCopyShortcuts(const ScopedConsoleCopyShortcuts&) = delete;
+        ScopedConsoleCopyShortcuts(const ScopedConsoleCopyShortcuts&)            = delete;
         ScopedConsoleCopyShortcuts& operator=(const ScopedConsoleCopyShortcuts&) = delete;
 
         ScopedConsoleCopyShortcuts(ScopedConsoleCopyShortcuts&& other) noexcept;

@@ -62,7 +62,7 @@ namespace timetable::domain::assignment::projection {
         }
 
         bool should_include_od_summary(
-            const AssignmentOdSummary& od
+              const AssignmentOdSummary&          od
             , const AssignmentTextSummaryOptions& options
         ) {
             if (options.include_empty_ods) {
@@ -76,11 +76,11 @@ namespace timetable::domain::assignment::projection {
         }
 
         void append_global_summary(
-            std::string& out
+              std::string&                   out
             , const AssignmentResultSummary& summary
         ) {
             fmt::format_to(
-                std::back_inserter(out)
+                  std::back_inserter(out)
                 , "Assignment Summary\n"
                   "OD pairs: {}\n"
                   "Non-empty OD pairs: {}\n"
@@ -102,12 +102,12 @@ namespace timetable::domain::assignment::projection {
         }
 
         void append_od_summary(
-            std::string& out
-            , const AssignmentOdSummary& od
+              std::string&                        out
+            , const AssignmentOdSummary&          od
             , const AssignmentTextSummaryOptions& options
         ) {
             fmt::format_to(
-                std::back_inserter(out)
+                  std::back_inserter(out)
                 , "\nOD {} -> {}\n"
                   "  search={} chosen={} intervals={} shares={}\n"
                   "  demand={} assigned={}\n"
@@ -127,13 +127,13 @@ namespace timetable::domain::assignment::projection {
             );
 
             const auto limit = std::min(
-                options.max_connections_per_od
+                  options.max_connections_per_od
                 , od.connections.size()
             );
             for (std::size_t i = 0; i < limit; ++i) {
                 const auto& connection = od.connections[i];
                 fmt::format_to(
-                    std::back_inserter(out)
+                      std::back_inserter(out)
                     , "  #{} dep={} arr={} jt={} tt={} nt={} fare={} imp={} assigned={} shares={}\n"
                     , connection.index.get()
                     , format_clock_like_time(connection.departure)
@@ -150,7 +150,7 @@ namespace timetable::domain::assignment::projection {
 
             if (limit < od.connections.size()) {
                 fmt::format_to(
-                    std::back_inserter(out)
+                      std::back_inserter(out)
                     , "  ... {} more chosen connections\n"
                     , format_count(od.connections.size() - limit)
                 );
@@ -160,7 +160,7 @@ namespace timetable::domain::assignment::projection {
     }  // namespace
 
     std::string format_assignment_result_summary(
-        const AssignmentResultSummary& summary
+          const AssignmentResultSummary&      summary
         , const AssignmentTextSummaryOptions& options
     ) {
         std::string out;
@@ -190,7 +190,7 @@ namespace timetable::domain::assignment::projection {
             : 0;
         if (hidden_count > 0) {
             fmt::format_to(
-                std::back_inserter(out)
+                  std::back_inserter(out)
                 , "\n... {} more OD results omitted\n"
                 , format_count(hidden_count)
             );
@@ -200,11 +200,11 @@ namespace timetable::domain::assignment::projection {
     }
 
     mathfp::Expected<std::string> format_assignment_output_summary(
-        const AssignmentOutput& output
+          const AssignmentOutput&             output
         , const AssignmentTextSummaryOptions& options
     ) {
         MATHFP_TRY_LET(
-            AssignmentResultSummary
+              AssignmentResultSummary
             , summary
             , build_assignment_result_summary(output)
         );

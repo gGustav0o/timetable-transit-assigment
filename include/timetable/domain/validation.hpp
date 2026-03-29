@@ -19,8 +19,8 @@ namespace timetable::domain::validation {
     }
 
     [[nodiscard]] inline mathfp::Unexpected fail(
-        std::string_view invariant
-        , mathfp::Error err
+          std::string_view invariant
+        , mathfp::Error    err
     ) {
         return mathfp::unexpected(
             std::move(err).ctx("validation_invariant", std::string(invariant))
@@ -28,8 +28,8 @@ namespace timetable::domain::validation {
     }
 
     inline mathfp::Expected<mathfp::Unit> ensure_nonneg(
-        mathfp::units::Quantity<double, mathfp::units::Time> v
-        , const char* name
+          mathfp::units::Quantity<double, mathfp::units::Time> v
+        , const char*                                          name
     ) {
         const auto x = v.value();
         if (!is_finite(x)) {
@@ -38,19 +38,19 @@ namespace timetable::domain::validation {
         }
 
         if (x < 0.0) {
-			const char* message = "time must be non-negative";
+            const char* message = "time must be non-negative";
             return fail(message, mathfp::invalid_arg("time must be non-negative").ctx("name", name));
         }
         return mathfp::kUnit;
     }
 
     inline mathfp::Expected<mathfp::Unit> ensure_nonneg(
-        mathfp::units::Quantity<double, mathfp::units::Length> v
-        , const char* name
+          mathfp::units::Quantity<double, mathfp::units::Length> v
+        , const char*                                            name
     ) {
         const auto x = v.value();
         if (!is_finite(x)) {
-			const char* message = "length is not finite";
+            const char* message = "length is not finite";
             return fail(message, mathfp::invalid_arg(message).ctx("name", name));
         }
 
@@ -63,8 +63,8 @@ namespace timetable::domain::validation {
     }
 
     inline mathfp::Expected<mathfp::Unit> ensure_nonneg(
-        mathfp::units::Quantity<double, mathfp::units::Dimless> v
-        , const char* name
+          mathfp::units::Quantity<double, mathfp::units::Dimless> v
+        , const char*                                             name
     ) {
         const auto x = mathfp::units::as_dimless(v);
         if (!is_finite(x)) {
@@ -81,8 +81,8 @@ namespace timetable::domain::validation {
     }
 
     inline mathfp::Expected<mathfp::Unit> ensure_positive(
-        mathfp::units::Quantity<double, mathfp::units::Dimless> v
-        , const char* name
+          mathfp::units::Quantity<double, mathfp::units::Dimless> v
+        , const char*                                             name
     ) {
         const auto x = mathfp::units::as_dimless(v);
         if (!is_finite(x)) {
@@ -99,7 +99,7 @@ namespace timetable::domain::validation {
     }
 
     inline mathfp::Expected<mathfp::Unit> ensure_positive(
-        Speed v
+          Speed       v
         , const char* name
     ) {
         const auto x = v.value();

@@ -103,15 +103,15 @@ namespace timetable::infra {
 
         template <class StrongId>
         void write_strong_field(
-            CsvWriter& writer
-            , StrongId value
+              CsvWriter& writer
+            , StrongId   value
         ) {
             writer.integer(static_cast<std::int64_t>(value.get()));
         }
 
         template <class StrongId>
         void write_optional_strong_field(
-            CsvWriter& writer
+              CsvWriter&                     writer
             , const std::optional<StrongId>& value
         ) {
             if (!value.has_value()) {
@@ -122,14 +122,14 @@ namespace timetable::infra {
         }
 
         void write_time_field(
-            CsvWriter& writer
-            , Time value
+              CsvWriter& writer
+            , Time       value
         ) {
             writer.number(value.value());
         }
 
         void write_optional_time_field(
-            CsvWriter& writer
+              CsvWriter&                 writer
             , const std::optional<Time>& value
         ) {
             if (!value.has_value()) {
@@ -140,14 +140,14 @@ namespace timetable::infra {
         }
 
         void write_length_field(
-            CsvWriter& writer
-            , Length value
+              CsvWriter& writer
+            , Length     value
         ) {
             writer.number(value.value());
         }
 
         void write_optional_double_field(
-            CsvWriter& writer
+              CsvWriter&                   writer
             , const std::optional<double>& value
         ) {
             if (!value.has_value()) {
@@ -158,7 +158,7 @@ namespace timetable::infra {
         }
 
         void write_optional_transfer_count_field(
-            CsvWriter& writer
+              CsvWriter&                          writer
             , const std::optional<TransferCount>& value
         ) {
             if (!value.has_value()) {

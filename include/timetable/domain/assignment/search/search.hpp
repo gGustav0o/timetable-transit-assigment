@@ -11,15 +11,15 @@
 namespace timetable::domain::assignment {
 
     struct DiscoveredConnection final {
-        ZoneId origin{};
-        ZoneId destination{};
-        Time departure{};
-        Time arrival{};
-        Time journey_time{};
-        Time transfer_time{};
-        TransferCount transfers{};
-        double fare{};
-        double impedance{};
+        ZoneId                           origin{};
+        ZoneId                           destination{};
+        Time                             departure{};
+        Time                             arrival{};
+        Time                             journey_time{};
+        Time                             transfer_time{};
+        TransferCount                    transfers{};
+        double                           fare{};
+        double                           impedance{};
         std::vector<ConnectionSegmentId> segments{};
     };
 
@@ -31,9 +31,9 @@ namespace timetable::domain::assignment {
      * @brief Enumerate feasible connections using timetable-based branch & bound.
      */
     mathfp::Expected<ConnectionSearchResult> search_connections_branch_and_bound(
-        const PreprocessedNetwork& network
-        , double fare_scale
-        , const SearchParams& params
+          const PreprocessedNetwork& network
+        , double                   fare_scale
+        , const SearchParams&      params
     );
 
 }  // namespace timetable::domain::assignment

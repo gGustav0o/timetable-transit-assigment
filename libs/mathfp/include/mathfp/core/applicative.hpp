@@ -20,7 +20,7 @@ namespace mathfp::app {
 
     template <class A, class B>
     MATHFP_NODISCARD ::mathfp::Expected<std::pair<A, B>> product(
-        ::mathfp::Expected<A> a
+          ::mathfp::Expected<A> a
         , ::mathfp::Expected<B> b
     ) {
         if (!a) return ::mathfp::unexpected(std::move(a).error());
@@ -30,7 +30,7 @@ namespace mathfp::app {
 
     template <class F, class A>
     MATHFP_NODISCARD auto ap(
-        ::mathfp::Expected<F> ef
+          ::mathfp::Expected<F> ef
         , ::mathfp::Expected<A> ea
     ) -> ::mathfp::Expected<detail::invoke_result_t<F, A>> {
         using B = detail::invoke_result_t<F, A>;
@@ -41,7 +41,7 @@ namespace mathfp::app {
 
     template <class F, class A, class B>
     MATHFP_NODISCARD auto lift2(
-        F&& f
+          F&&                   f
         , ::mathfp::Expected<A> a
         , ::mathfp::Expected<B> b
     ) -> ::mathfp::Expected<detail::invoke_result_t<F, A, B>> {
@@ -53,7 +53,7 @@ namespace mathfp::app {
 
     template <class F, class A, class B, class C>
     MATHFP_NODISCARD auto lift3(
-        F&& f
+          F&&                   f
         , ::mathfp::Expected<A> a
         , ::mathfp::Expected<B> b
         , ::mathfp::Expected<C> c

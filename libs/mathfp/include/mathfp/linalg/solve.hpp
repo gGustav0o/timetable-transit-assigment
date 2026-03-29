@@ -24,8 +24,8 @@
 namespace mathfp::linalg {
 
     struct IterativeOptions final {
-        int max_iter = 500;
-        double tol   = 1e-10;
+        int    max_iter = 500;
+        double tol      = 1e-10;
     };
 
     namespace detail {
@@ -44,9 +44,9 @@ namespace mathfp::linalg {
         }
 
         MATHFP_NODISCARD inline ::mathfp::Error map_eigen_info(
-            Eigen::ComputationInfo info
-            , std::string_view msg
-            , std::source_location where
+              Eigen::ComputationInfo info
+            , std::string_view       msg
+            , std::source_location   where
         ) {
             switch (info) {
             case Eigen::Success:
@@ -72,8 +72,8 @@ namespace mathfp::linalg {
     // Assumes A is symmetric positive definite (SPD). If not, NumericalIssue.
     template <class Scalar>
     MATHFP_NODISCARD inline ::mathfp::Expected<Vec<Scalar>> solve_spd(
-        MatRef<Scalar> A
-        , VecRef<Scalar> b
+          MatRef<Scalar>       A
+        , VecRef<Scalar>       b
         , std::source_location where = std::source_location::current()
     ) {
         MATHFP_TRY(ensure_nonempty(A, where));
@@ -84,8 +84,8 @@ namespace mathfp::linalg {
         if (llt.info() != Eigen::Success) {
             return ::mathfp::unexpected(
                 detail::map_eigen_info(llt.info(), "LLT decomposition failed", where)
-                .ctx(ctx_key::kRows, A.rows())
-                .ctx(ctx_key::kCols, A.cols())
+                .ctx(ctx_key::kRows , A.rows())
+                .ctx(ctx_key::kCols , A.cols())
                 .ctx(detail::kMethod, "solve_spd"));
         }
 
@@ -97,7 +97,7 @@ namespace mathfp::linalg {
     // Robust singularity detection; slower but stable contract.
     template <class Scalar>
     MATHFP_NODISCARD inline ::mathfp::Expected<Vec<Scalar>> solve_lu(
-        MatRef<Scalar> A
+          MatRef<Scalar> A
         , VecRef<Scalar> b
         , std::source_location where = std::source_location::current()
     ) {
@@ -109,10 +109,10 @@ namespace mathfp::linalg {
         if (!lu.isInvertible()) {
             return ::mathfp::unexpected(
                 ::mathfp::singular("matrix is singular", where)
-                .ctx(ctx_key::kRows, A.rows())
-                .ctx(ctx_key::kCols, A.cols())
+                .ctx(ctx_key::kRows , A.rows())
+                .ctx(ctx_key::kCols , A.cols())
                 .ctx(detail::kMethod, "solve_lu")
-                .ctx("rank", lu.rank()));
+                .ctx("rank"         , lu.rank()));
         }
 
         Vec<Scalar> x = lu.solve(b);
@@ -123,7 +123,7 @@ namespace mathfp::linalg {
     // Useful when A is near-singular; still returns solution but can be ill-conditioned.
     template <class Scalar>
     MATHFP_NODISCARD inline ::mathfp::Expected<Vec<Scalar>> solve_qr(
-        MatRef<Scalar> A
+          MatRef<Scalar> A
         , VecRef<Scalar> b
         , std::source_location where = std::source_location::current()
     ) {
@@ -136,9 +136,9 @@ namespace mathfp::linalg {
         if (r < A.cols()) {
             return ::mathfp::unexpected(
                 ::mathfp::singular("matrix is rank-deficient", where)
-                .ctx(ctx_key::kRows, A.rows())
-                .ctx(ctx_key::kCols, A.cols())
-                .ctx("rank", r)
+                .ctx(ctx_key::kRows , A.rows())
+                .ctx(ctx_key::kCols , A.cols())
+                .ctx("rank"         , r)
                 .ctx(detail::kMethod, "solve_qr"));
         }
 
@@ -149,29 +149,29 @@ namespace mathfp::linalg {
     // -------------------- Sparse: SPD solve via SimplicialLLT --------------------
     template <class Scalar, int Options = Eigen::ColMajor, class StorageIndex = int>
     MATHFP_NODISCARD inline ::mathfp::Expected<Vec<Scalar>> solve_sparse_spd(
-        const SpMat<Scalar, Options, StorageIndex>& A
+          const SpMat<Scalar, Options, StorageIndex>& A
         , VecRef<Scalar> b
         , std::source_location where = std::source_location::current()
     ) {
         if (A.rows() <= 0 || A.cols() <= 0) {
             return ::mathfp::unexpected(
                 ::mathfp::invalid_arg("sparse matrix must be non-empty", where)
-                .ctx(ctx_key::kRows, A.rows())
-                .ctx(ctx_key::kCols, A.cols())
+                .ctx(ctx_key::kRows , A.rows())
+                .ctx(ctx_key::kCols , A.cols())
                 .ctx(detail::kMethod, "solve_sparse_spd"));
         }
         if (A.rows() != A.cols()) {
             return ::mathfp::unexpected(
                 ::mathfp::invalid_arg("matrix must be square", where)
-                .ctx(ctx_key::kRows, A.rows())
-                .ctx(ctx_key::kCols, A.cols())
+                .ctx(ctx_key::kRows , A.rows())
+                .ctx(ctx_key::kCols , A.cols())
                 .ctx(detail::kMethod, "solve_sparse_spd"));
         }
         if (b.size() != A.cols()) {
             return ::mathfp::unexpected(
                 ::mathfp::invalid_arg("dimension mismatch", where)
-                .ctx("b.size", b.size())
-                .ctx("A.cols", A.cols())
+                .ctx("b.size"       , b.size())
+                .ctx("A.cols"       , A.cols())
                 .ctx(detail::kMethod, "solve_sparse_spd"));
         }
 
@@ -180,8 +180,8 @@ namespace mathfp::linalg {
         if (llt.info() != Eigen::Success) {
             return ::mathfp::unexpected(
                 detail::map_eigen_info(llt.info(), "SimplicialLLT failed", where)
-                .ctx(ctx_key::kRows, A.rows())
-                .ctx(ctx_key::kCols, A.cols())
+                .ctx(ctx_key::kRows , A.rows())
+                .ctx(ctx_key::kCols , A.cols())
                 .ctx(detail::kMethod, "solve_sparse_spd"));
         }
 
@@ -197,29 +197,29 @@ namespace mathfp::linalg {
     // -------------------- Sparse: general direct solve via SparseLU --------------
     template <class Scalar, int Options = Eigen::ColMajor, class StorageIndex = int>
     MATHFP_NODISCARD inline ::mathfp::Expected<Vec<Scalar>> solve_sparse_lu(
-        const SpMat<Scalar, Options, StorageIndex>& A
+          const SpMat<Scalar, Options, StorageIndex>& A
         , VecRef<Scalar> b
         , std::source_location where = std::source_location::current()
     ) {
         if (A.rows() <= 0 || A.cols() <= 0) {
             return ::mathfp::unexpected(
                 ::mathfp::invalid_arg("sparse matrix must be non-empty", where)
-                .ctx(ctx_key::kRows, A.rows())
-                .ctx(ctx_key::kCols, A.cols())
+                .ctx(ctx_key::kRows , A.rows())
+                .ctx(ctx_key::kCols , A.cols())
                 .ctx(detail::kMethod, "solve_sparse_lu"));
         }
         if (A.rows() != A.cols()) {
             return ::mathfp::unexpected(
                 ::mathfp::invalid_arg("matrix must be square", where)
-                .ctx(ctx_key::kRows, A.rows())
-                .ctx(ctx_key::kCols, A.cols())
+                .ctx(ctx_key::kRows , A.rows())
+                .ctx(ctx_key::kCols , A.cols())
                 .ctx(detail::kMethod, "solve_sparse_lu"));
         }
         if (b.size() != A.cols()) {
             return ::mathfp::unexpected(
                 ::mathfp::invalid_arg("dimension mismatch", where)
-                .ctx("b.size", b.size())
-                .ctx("A.cols", A.cols())
+                .ctx("b.size"       , b.size())
+                .ctx("A.cols"       , A.cols())
                 .ctx(detail::kMethod, "solve_sparse_lu"));
         }
 
@@ -232,8 +232,8 @@ namespace mathfp::linalg {
             return ::mathfp::unexpected(
                 detail::map_eigen_info(lu.info(), "SparseLU factorization failed", where)
                 .ctx(detail::kMethod, "solve_sparse_lu")
-                .ctx(ctx_key::kRows, A.rows())
-                .ctx(ctx_key::kCols, A.cols()));
+                .ctx(ctx_key::kRows , A.rows())
+                .ctx(ctx_key::kCols , A.cols()));
         }
 
         Vec<Scalar> x = lu.solve(b);
@@ -250,7 +250,7 @@ namespace mathfp::linalg {
     // For SPD matrices. NonConvergence with iter/tol/residual context.
     template <class Scalar, int Options = Eigen::ColMajor, class StorageIndex = int>
     MATHFP_NODISCARD inline ::mathfp::Expected<Vec<Scalar>> solve_sparse_cg(
-        const SpMat<Scalar, Options, StorageIndex>& A
+          const SpMat<Scalar, Options, StorageIndex>& A
         , VecRef<Scalar> b
         , IterativeOptions opt = {}
         , std::source_location where = std::source_location::current()
@@ -258,31 +258,31 @@ namespace mathfp::linalg {
         if (A.rows() <= 0 || A.cols() <= 0) {
             return ::mathfp::unexpected(
                 ::mathfp::invalid_arg("sparse matrix must be non-empty", where)
-                .ctx(ctx_key::kRows, A.rows()).ctx(ctx_key::kCols, A.cols())
+                .ctx(ctx_key::kRows , A.rows()).ctx(ctx_key::kCols, A.cols())
                 .ctx(detail::kMethod, "solve_sparse_cg"));
         }
         if (A.rows() != A.cols()) {
             return ::mathfp::unexpected(
                 ::mathfp::invalid_arg("matrix must be square", where)
-                .ctx(ctx_key::kRows, A.rows()).ctx(ctx_key::kCols, A.cols())
+                .ctx(ctx_key::kRows , A.rows()).ctx(ctx_key::kCols, A.cols())
                 .ctx(detail::kMethod, "solve_sparse_cg"));
         }
         if (b.size() != A.cols()) {
             return ::mathfp::unexpected(
                 ::mathfp::invalid_arg("dimension mismatch", where)
-                .ctx("b.size", b.size()).ctx("A.cols", A.cols())
+                .ctx("b.size"       , b.size()).ctx("A.cols", A.cols())
                 .ctx(detail::kMethod, "solve_sparse_cg"));
         }
         if (opt.max_iter <= 0) {
             return ::mathfp::unexpected(
                 ::mathfp::invalid_arg("max_iter must be positive", where)
                 .ctx(ctx_key::kMaxIter, opt.max_iter)
-                .ctx(detail::kMethod, "solve_sparse_cg"));
+                .ctx(detail::kMethod  , "solve_sparse_cg"));
         }
         if (!(opt.tol > 0.0)) {
             return ::mathfp::unexpected(
                 ::mathfp::invalid_arg("tol must be positive", where)
-                .ctx(ctx_key::kTol, opt.tol)
+                .ctx(ctx_key::kTol  , opt.tol)
                 .ctx(detail::kMethod, "solve_sparse_cg"));
         }
 
@@ -307,18 +307,18 @@ namespace mathfp::linalg {
         if (cg.info() == Eigen::NoConvergence) {
             return ::mathfp::unexpected(
                 ::mathfp::non_convergence("iterative solver did not converge", where)
-                .ctx(detail::kMethod, "solve_sparse_cg")
-                .ctx(ctx_key::kIter, cg.iterations())
-                .ctx(ctx_key::kMaxIter, opt.max_iter)
-                .ctx(ctx_key::kTol, opt.tol)
+                .ctx(detail::kMethod   , "solve_sparse_cg")
+                .ctx(ctx_key::kIter    , cg.iterations())
+                .ctx(ctx_key::kMaxIter , opt.max_iter)
+                .ctx(ctx_key::kTol     , opt.tol)
                 .ctx(ctx_key::kResidual, cg.error())
                 .ctx(detail::kEigenInfo, detail::eigen_info_to_string(cg.info())));
         }
 
         return ::mathfp::unexpected(
             detail::map_eigen_info(cg.info(), "ConjugateGradient solve failed", where)
-            .ctx(detail::kMethod, "solve_sparse_cg")
-            .ctx(ctx_key::kIter, cg.iterations())
+            .ctx(detail::kMethod   , "solve_sparse_cg")
+            .ctx(ctx_key::kIter    , cg.iterations())
             .ctx(ctx_key::kResidual, cg.error()));
     }
 
@@ -326,7 +326,7 @@ namespace mathfp::linalg {
     // For general matrices.
     template <class Scalar, int Options = Eigen::ColMajor, class StorageIndex = int>
     MATHFP_NODISCARD inline ::mathfp::Expected<Vec<Scalar>> solve_sparse_bicgstab(
-        const SpMat<Scalar, Options, StorageIndex>& A
+          const SpMat<Scalar, Options, StorageIndex>& A
         , VecRef<Scalar> b
         , IterativeOptions opt = {}
         , std::source_location where = std::source_location::current()
@@ -334,31 +334,31 @@ namespace mathfp::linalg {
         if (A.rows() <= 0 || A.cols() <= 0) {
             return ::mathfp::unexpected(
                 ::mathfp::invalid_arg("sparse matrix must be non-empty", where)
-                .ctx(ctx_key::kRows, A.rows()).ctx(ctx_key::kCols, A.cols())
+                .ctx(ctx_key::kRows , A.rows()).ctx(ctx_key::kCols, A.cols())
                 .ctx(detail::kMethod, "solve_sparse_bicgstab"));
         }
         if (A.rows() != A.cols()) {
             return ::mathfp::unexpected(
                 ::mathfp::invalid_arg("matrix must be square", where)
-                .ctx(ctx_key::kRows, A.rows()).ctx(ctx_key::kCols, A.cols())
+                .ctx(ctx_key::kRows , A.rows()).ctx(ctx_key::kCols, A.cols())
                 .ctx(detail::kMethod, "solve_sparse_bicgstab"));
         }
         if (b.size() != A.cols()) {
             return ::mathfp::unexpected(
                 ::mathfp::invalid_arg("dimension mismatch", where)
-                .ctx("b.size", b.size()).ctx("A.cols", A.cols())
+                .ctx("b.size"       , b.size()).ctx("A.cols", A.cols())
                 .ctx(detail::kMethod, "solve_sparse_bicgstab"));
         }
         if (opt.max_iter <= 0) {
             return ::mathfp::unexpected(
                 ::mathfp::invalid_arg("max_iter must be positive", where)
                 .ctx(ctx_key::kMaxIter, opt.max_iter)
-                .ctx(detail::kMethod, "solve_sparse_bicgstab"));
+                .ctx(detail::kMethod  , "solve_sparse_bicgstab"));
         }
         if (!(opt.tol > 0.0)) {
             return ::mathfp::unexpected(
                 ::mathfp::invalid_arg("tol must be positive", where)
-                .ctx(ctx_key::kTol, opt.tol)
+                .ctx(ctx_key::kTol  , opt.tol)
                 .ctx(detail::kMethod, "solve_sparse_bicgstab"));
         }
 
@@ -382,18 +382,18 @@ namespace mathfp::linalg {
         if (bicg.info() == Eigen::NoConvergence) {
             return ::mathfp::unexpected(
                 ::mathfp::non_convergence("iterative solver did not converge", where)
-                .ctx(detail::kMethod, "solve_sparse_bicgstab")
-                .ctx(ctx_key::kIter, bicg.iterations())
-                .ctx(ctx_key::kMaxIter, opt.max_iter)
-                .ctx(ctx_key::kTol, opt.tol)
+                .ctx(detail::kMethod   , "solve_sparse_bicgstab")
+                .ctx(ctx_key::kIter    , bicg.iterations())
+                .ctx(ctx_key::kMaxIter , opt.max_iter)
+                .ctx(ctx_key::kTol     , opt.tol)
                 .ctx(ctx_key::kResidual, bicg.error())
                 .ctx(detail::kEigenInfo, detail::eigen_info_to_string(bicg.info())));
         }
 
         return ::mathfp::unexpected(
             detail::map_eigen_info(bicg.info(), "BiCGSTAB solve failed", where)
-            .ctx(detail::kMethod, "solve_sparse_bicgstab")
-            .ctx(ctx_key::kIter, bicg.iterations())
+            .ctx(detail::kMethod   , "solve_sparse_bicgstab")
+            .ctx(ctx_key::kIter    , bicg.iterations())
             .ctx(ctx_key::kResidual, bicg.error()));
     }
 

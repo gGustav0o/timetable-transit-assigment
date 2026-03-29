@@ -21,10 +21,10 @@ namespace timetable::domain::preprocessing {
      *  - Otherwise length defaults to 0 (no length data available).
      */
     mathfp::Expected<std::vector<RouteSegment>> build_line_route_segments(
-        const std::vector<Route>& routes
+          const std::vector<Route>&  routes
         , const std::vector<Trip>& trips
         , const std::vector<Stop>& stops
-        , const PreprocessParams& params
+        , const PreprocessParams&  params
     );
 
      /**
@@ -34,8 +34,8 @@ namespace timetable::domain::preprocessing {
      * are removed in a stable manner.
      */
     mathfp::Expected<std::vector<RouteSegment>> build_walk_route_segments(
-        const std::vector<WalkLink>& walk_links
-        , const PreprocessParams& params
+          const std::vector<WalkLink>& walk_links
+        , const PreprocessParams&    params
     );
 
 }  // namespace timetable::domain::preprocessing

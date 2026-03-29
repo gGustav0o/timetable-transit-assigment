@@ -11,17 +11,17 @@
 
 namespace timetable::infra {
 
-	class LogBuffer {
-	public:
-		explicit LogBuffer(std::size_t capacity);
+    class LogBuffer {
+    public:
+        explicit LogBuffer(std::size_t capacity);
 
-		void push(LogEntry entry);
-		std::vector<LogEntry> snapshot() const;
+        void push(LogEntry entry);
+        std::vector<LogEntry> snapshot() const;
 
-	private:
-		const std::size_t                capacity_;
-		mutable std::mutex               mutex_;
-		boost::circular_buffer<LogEntry> buffer_;
-	};
+    private:
+        const std::size_t                capacity_;
+        mutable std::mutex               mutex_;
+        boost::circular_buffer<LogEntry> buffer_;
+    };
 
 }  // namespace timetable::infra

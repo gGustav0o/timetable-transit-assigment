@@ -12,7 +12,7 @@
 namespace timetable::domain::assignment {
 
     mathfp::Expected<mathfp::Unit> validate_choice_step_output(
-        const ConnectionChoiceResult& choice_result
+          const ConnectionChoiceResult& choice_result
         , const ConnectionSearchResult& search_result
     ) {
         if (search_result.connections.empty() && choice_result.connections.empty()) {
@@ -29,8 +29,8 @@ namespace timetable::domain::assignment {
                 return mathfp::unexpected(
                     mathfp::internal_error("choice output contains a connection that was not present in search output")
                         .ctx("choice_index", static_cast<std::int64_t>(i))
-                        .ctx("origin", connection.origin.get())
-                        .ctx("destination", connection.destination.get())
+                        .ctx("origin"      , connection.origin.get())
+                        .ctx("destination" , connection.destination.get())
                 );
             }
         }
@@ -41,8 +41,8 @@ namespace timetable::domain::assignment {
             if (search_count > 0 && !choice_groups.contains(od)) {
                 return mathfp::unexpected(
                     mathfp::internal_error("choice step removed every connection from a non-empty OD group")
-                        .ctx("origin", od.origin.get())
-                        .ctx("destination", od.destination.get())
+                        .ctx("origin"      , od.origin.get())
+                        .ctx("destination" , od.destination.get())
                         .ctx("search_count", static_cast<std::int64_t>(search_count))
                 );
             }

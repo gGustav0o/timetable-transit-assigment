@@ -34,7 +34,7 @@ namespace mathfp::graph {
     struct WeightedEdge final {
         VertexId u;
         VertexId v;
-        Weight w;
+        Weight   w;
     };
 
     // -------------------- Build policy -------------------------------------------
@@ -58,7 +58,7 @@ namespace mathfp::graph {
 
         template <class G>
         MATHFP_NODISCARD inline ::mathfp::Expected<::mathfp::Unit> ensure_vertex_count(
-            G& g
+              G& g
             , std::size_t n
             , std::source_location = std::source_location::current()
         ) {
@@ -85,16 +85,16 @@ namespace mathfp::graph {
 
         template <class Weight>
         MATHFP_NODISCARD inline ::mathfp::Expected<::mathfp::Unit> validate_edge_ids(
-            const WeightedEdge<Weight>& e
-            , BuildPolicy policy
-            , std::size_t num_vertices
-            , std::source_location where
+              const WeightedEdge<Weight>& e
+            , BuildPolicy                 policy
+            , std::size_t                 num_vertices
+            , std::source_location        where
         ) {
             if (!::mathfp::is_valid(e.u) || !::mathfp::is_valid(e.v)) {
                 return ::mathfp::unexpected(
                     ::mathfp::invalid_arg("edge contains invalid vertex id", where)
-                    .ctx("u", ::mathfp::to_usize(e.u))
-                    .ctx("v", ::mathfp::to_usize(e.v))
+                    .ctx("u"    , ::mathfp::to_usize(e.u))
+                    .ctx("v"    , ::mathfp::to_usize(e.v))
                     .ctx(kPolicy, to_string(policy)));
             }
 
@@ -104,10 +104,10 @@ namespace mathfp::graph {
                 if (u >= num_vertices || v >= num_vertices) {
                     return ::mathfp::unexpected(
                         ::mathfp::invalid_arg("vertex id out of range", where)
-                        .ctx("u", u)
-                        .ctx("v", v)
+                        .ctx("u"           , u)
+                        .ctx("v"           , v)
                         .ctx("num_vertices", num_vertices)
-                        .ctx(kPolicy, to_string(policy)));
+                        .ctx(kPolicy       , to_string(policy)));
                 }
             }
             return ::mathfp::kUnit;
@@ -117,7 +117,7 @@ namespace mathfp::graph {
 
     template <class G, class Weight, std::ranges::input_range R>
     MATHFP_NODISCARD inline ::mathfp::Expected<G> build_from_edges(
-        std::size_t num_vertices_hint
+          std::size_t num_vertices_hint
         , R&& edges
         , BuildPolicy policy = BuildPolicy::Strict
         , std::source_location where = std::source_location::current()
@@ -126,7 +126,7 @@ namespace mathfp::graph {
             return ::mathfp::unexpected(
                 ::mathfp::invalid_arg("num_vertices_hint must be positive in Strict mode", where)
                 .ctx("num_vertices_hint", num_vertices_hint)
-                .ctx(detail::kPolicy, detail::to_string(policy)));
+                .ctx(detail::kPolicy    , detail::to_string(policy)));
         }
 
         G g;
@@ -158,8 +158,8 @@ namespace mathfp::graph {
                 if (!ok) {
                     return ::mathfp::unexpected(
                         ::mathfp::internal_error("boost::add_edge failed", where)
-                        .ctx("u", ::mathfp::to_usize(e.u))
-                        .ctx("v", ::mathfp::to_usize(e.v))
+                        .ctx("u"            , ::mathfp::to_usize(e.u))
+                        .ctx("v"            , ::mathfp::to_usize(e.v))
                         .ctx(detail::kPolicy, detail::to_string(policy)));
                 }
 
@@ -176,8 +176,8 @@ namespace mathfp::graph {
                     if (!::mathfp::is_valid(e.u) || !::mathfp::is_valid(e.v)) {
                         return ::mathfp::unexpected(
                             ::mathfp::invalid_arg("edge contains invalid vertex id", where)
-                            .ctx("u", ::mathfp::to_usize(e.u))
-                            .ctx("v", ::mathfp::to_usize(e.v))
+                            .ctx("u"            , ::mathfp::to_usize(e.u))
+                            .ctx("v"            , ::mathfp::to_usize(e.v))
                             .ctx(detail::kPolicy, detail::to_string(policy)));
                     }
                     max_id = std::max(max_id, std::max(::mathfp::to_usize(e.u), ::mathfp::to_usize(e.v)));
@@ -200,8 +200,8 @@ namespace mathfp::graph {
                 if (!ok) {
                     return ::mathfp::unexpected(
                         ::mathfp::internal_error("boost::add_edge failed", where)
-                        .ctx("u", ::mathfp::to_usize(e.u))
-                        .ctx("v", ::mathfp::to_usize(e.v))
+                        .ctx("u"            , ::mathfp::to_usize(e.u))
+                        .ctx("v"            , ::mathfp::to_usize(e.v))
                         .ctx(detail::kPolicy, detail::to_string(policy)));
                 }
 
@@ -214,7 +214,7 @@ namespace mathfp::graph {
 
     template <class G, class Weight, std::ranges::input_range R>
     MATHFP_NODISCARD inline ::mathfp::Expected<G> build_from_edges_infer_vertices(
-        R&& edges
+          R&& edges
         , std::source_location where = std::source_location::current()
     ) requires std::same_as<std::remove_cvref_t<std::ranges::range_value_t<R>>, WeightedEdge<Weight>> {
         return build_from_edges<G, Weight>(0, std::forward<R>(edges), BuildPolicy::Grow, where);

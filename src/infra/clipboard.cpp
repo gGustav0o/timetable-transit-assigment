@@ -32,12 +32,12 @@ namespace timetable::infra {
                             .ctx("win32_error", static_cast<std::int64_t>(::GetLastError()))
                     );
                 }
-                auto clipboard = ScopedClipboard{};
+                auto clipboard    = ScopedClipboard{};
                 clipboard.active_ = true;
                 return clipboard;
             }
 
-            ScopedClipboard(const ScopedClipboard&) = delete;
+            ScopedClipboard(const ScopedClipboard&)            = delete;
             ScopedClipboard& operator=(const ScopedClipboard&) = delete;
 
             ScopedClipboard(ScopedClipboard&& other) noexcept
@@ -72,7 +72,7 @@ namespace timetable::infra {
                 : handle_(handle) {
             }
 
-            ScopedGlobalMemory(const ScopedGlobalMemory&) = delete;
+            ScopedGlobalMemory(const ScopedGlobalMemory&)            = delete;
             ScopedGlobalMemory& operator=(const ScopedGlobalMemory&) = delete;
 
             ScopedGlobalMemory(ScopedGlobalMemory&& other) noexcept
@@ -114,7 +114,7 @@ namespace timetable::infra {
 
             const auto source_size = static_cast<int>(text.size());
             const auto wide_size = ::MultiByteToWideChar(
-                CP_UTF8
+                  CP_UTF8
                 , MB_ERR_INVALID_CHARS
                 , text.data()
                 , source_size
@@ -131,7 +131,7 @@ namespace timetable::infra {
 
             std::wstring wide(static_cast<std::size_t>(wide_size), L'\0');
             const auto converted = ::MultiByteToWideChar(
-                CP_UTF8
+                  CP_UTF8
                 , MB_ERR_INVALID_CHARS
                 , text.data()
                 , source_size
@@ -142,7 +142,7 @@ namespace timetable::infra {
                 return mathfp::unexpected(
                     mathfp::internal_error("clipboard UTF-16 conversion produced inconsistent size")
                         .ctx("expected_size", static_cast<std::int64_t>(wide_size))
-                        .ctx("actual_size", static_cast<std::int64_t>(converted))
+                        .ctx("actual_size"  , static_cast<std::int64_t>(converted))
                 );
             }
 
@@ -153,7 +153,7 @@ namespace timetable::infra {
             std::wstring_view text
         ) {
             const auto code_units = text.size() + 1;
-            const auto bytes = code_units * sizeof(wchar_t);
+            const auto bytes      = code_units * sizeof(wchar_t);
             auto memory = ScopedGlobalMemory{
                 ::GlobalAlloc(GMEM_MOVEABLE, bytes)
             };
@@ -161,7 +161,7 @@ namespace timetable::infra {
                 return mathfp::unexpected(
                     mathfp::internal_error("failed to allocate clipboard payload")
                         .ctx("win32_error", static_cast<std::int64_t>(::GetLastError()))
-                        .ctx("bytes", static_cast<std::int64_t>(bytes))
+                        .ctx("bytes"      , static_cast<std::int64_t>(bytes))
                 );
             }
 
@@ -197,7 +197,7 @@ namespace timetable::infra {
 
         MATHFP_TRY_LET(std::wstring, wide_text, utf8_to_utf16(text));
         MATHFP_TRY_LET(
-            ScopedGlobalMemory
+              ScopedGlobalMemory
             , payload
             , make_unicode_clipboard_payload(wide_text)
         );

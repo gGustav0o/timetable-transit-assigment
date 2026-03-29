@@ -32,8 +32,8 @@ namespace mathfp::graph {
 
     template <class Weight>
     struct DijkstraResultT final {
-        std::vector<Weight> distance{};     // inf if unreachable
-        std::vector<VertexId> parent{};     // invalid if unreachable or start
+        std::vector<Weight>   distance{}; // inf if unreachable
+        std::vector<VertexId> parent{}; // invalid if unreachable or start
     };
 
     namespace detail {
@@ -76,7 +76,7 @@ namespace mathfp::graph {
 
         template <class G>
         MATHFP_NODISCARD inline ::mathfp::Expected<::mathfp::Unit> validate_start(
-            const G& g
+              const G&                             g
             , VertexId start, std::source_location where
         ) {
             const auto n = vertex_count(g);
@@ -84,8 +84,8 @@ namespace mathfp::graph {
                 return ::mathfp::unexpected(
                     ::mathfp::invalid_arg("graph must be non-empty", where)
                     .ctx("num_vertices", n)
-                    .ctx("num_edges", edge_count(g))
-                    .ctx(kMethod, "dijkstra"));
+                    .ctx("num_edges"   , edge_count(g))
+                    .ctx(kMethod       , "dijkstra"));
             }
             if (!::mathfp::is_valid(start)) {
                 return ::mathfp::unexpected(
@@ -96,16 +96,16 @@ namespace mathfp::graph {
             if (s >= n) {
                 return ::mathfp::unexpected(
                     ::mathfp::invalid_arg("start vertex id out of range", where)
-                    .ctx("start", s)
+                    .ctx("start"       , s)
                     .ctx("num_vertices", n)
-                    .ctx(kMethod, "dijkstra"));
+                    .ctx(kMethod       , "dijkstra"));
             }
             return ::mathfp::kUnit;
         }
 
         template <class G>
         MATHFP_NODISCARD inline ::mathfp::Expected<::mathfp::Unit> validate_weights_for_dijkstra(
-            const G& g
+              const G& g
             , std::source_location where
         ) {
             using W = WeightType<G>;
@@ -113,22 +113,22 @@ namespace mathfp::graph {
             auto [eit, eend] = boost::edges(g);
             for (; eit != eend; ++eit) {
                 const auto e = *eit;
-                const W w = static_cast<W>(weight(g, e));
+                const W w    = static_cast<W>(weight(g, e));
 
                 if (!is_finite(w)) {
                     return ::mathfp::unexpected(
                         ::mathfp::domain_error("edge weight is NaN/Inf", where)
-                        .ctx("u", ::mathfp::to_usize(source_id(g, e)))
-                        .ctx("v", ::mathfp::to_usize(target_id(g, e)))
-                        .ctx("w", w)
+                        .ctx("u"    , ::mathfp::to_usize(source_id(g, e)))
+                        .ctx("v"    , ::mathfp::to_usize(target_id(g, e)))
+                        .ctx("w"    , w)
                         .ctx(kMethod, "dijkstra"));
                 }
                 if (is_negative(w)) {
                     return ::mathfp::unexpected(
                         ::mathfp::invalid_arg("negative edge weight is not allowed for dijkstra", where)
-                        .ctx("u", ::mathfp::to_usize(source_id(g, e)))
-                        .ctx("v", ::mathfp::to_usize(target_id(g, e)))
-                        .ctx("w", w)
+                        .ctx("u"    , ::mathfp::to_usize(source_id(g, e)))
+                        .ctx("v"    , ::mathfp::to_usize(target_id(g, e)))
+                        .ctx("w"    , w)
                         .ctx(kMethod, "dijkstra"));
                 }
             }
@@ -145,7 +145,7 @@ namespace mathfp::graph {
     // - parent[v] = predecessor vertex id in shortest path tree (invalid if unreachable or start)
     template <class G>
     MATHFP_NODISCARD inline ::mathfp::Expected<DijkstraResult<G>> dijkstra(
-        const G& g
+          const G& g
         , VertexId start
         , std::source_location where = std::source_location::current()
     ) {
@@ -155,9 +155,9 @@ namespace mathfp::graph {
         using V = Vertex<G>;
         using W = WeightType<G>;
 
-        const auto n = vertex_count(g);
+        const auto n     = vertex_count(g);
         const auto s_idx = ::mathfp::to_usize(start);
-        const V s = static_cast<V>(s_idx);
+        const V s        = static_cast<V>(s_idx);
 
         std::vector<W> dist(n, detail::inf_value<W>());
         std::vector<V> pred(n, s);
@@ -166,7 +166,7 @@ namespace mathfp::graph {
 
         auto dist_map = boost::make_iterator_property_map(dist.begin(), index_map);
         auto pred_map = boost::make_iterator_property_map(pred.begin(), index_map);
-        auto w_map = boost::get(boost::edge_weight, g);
+        auto w_map    = boost::get(boost::edge_weight, g);
 
         boost::dijkstra_shortest_paths(
             g, s,
@@ -174,7 +174,7 @@ namespace mathfp::graph {
 
         DijkstraResult<G> res;
         res.distance = std::move(dist);
-        res.parent.assign(n, ::mathfp::invalid_index<VertexIdTag>());
+        res.parent  .assign(n, ::mathfp::invalid_index<VertexIdTag>());
 
         const auto inf = detail::inf_value<W>();
         for (std::size_t i = 0; i < n; ++i) {
@@ -186,9 +186,9 @@ namespace mathfp::graph {
                 res.parent[i] = ::mathfp::invalid_index<VertexIdTag>();
                 continue;
             }
-            const V pv = pred[i];
+            const V pv     = pred[i];
             const auto pid = vertex_id(g, pv);
-            // Если алгоритм оставил предка как "self", это либо start, либо странный случай.
+            // пїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ "self", пїЅпїЅпїЅ пїЅпїЅпїЅпїЅ start, пїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ.
             if (::mathfp::to_usize(pid) == i) {
                 res.parent[i] = ::mathfp::invalid_index<VertexIdTag>();
             }

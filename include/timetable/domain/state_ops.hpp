@@ -12,9 +12,9 @@ namespace timetable::domain::state_ops {
 
     template <typename State, typename Range, typename Step>
     [[nodiscard]] mathfp::Expected<State> fold(
-        State state
+          State   state
         , Range&& range
-        , Step&& step
+        , Step&&  step
     ) {
         for (auto&& input : range) {
             auto next_state = step(std::move(state), input);
@@ -29,9 +29,9 @@ namespace timetable::domain::state_ops {
 
     template <typename State, typename Step>
     [[nodiscard]] mathfp::Expected<State> fold_indexed(
-        State state
+          State       state
         , std::size_t count
-        , Step&& step
+        , Step&&      step
     ) {
         for (std::size_t index = 0; index < count; ++index) {
             auto next_state = step(std::move(state), index);

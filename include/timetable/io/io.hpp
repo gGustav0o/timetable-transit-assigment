@@ -9,45 +9,45 @@
 
 namespace timetable::io {
 
-	// Deprecated compatibility input.
-	// This path is not maintained against the actively evolving assignment logic.
-	// Required files in data dir include stops.csv, trips.csv, stop_times.csv
-	// and walk_links.csv, od.csv, params.json.
-	struct DataDirSpec {
-		std::filesystem::path root;
-	};
+    // Deprecated compatibility input.
+    // This path is not maintained against the actively evolving assignment logic.
+    // Required files in data dir include stops.csv, trips.csv, stop_times.csv
+    // and walk_links.csv, od.csv, params.json.
+    struct DataDirSpec {
+        std::filesystem::path root;
+    };
 
-	// Primary maintained input path.
-	// Pair layout directory:
-	// - connection_segments_input.csv
-	// - params.txt
-	struct PairDataDirSpec {
-		std::filesystem::path root;
-	};
+    // Primary maintained input path.
+    // Pair layout directory:
+    // - connection_segments_input.csv
+    // - params.txt
+    struct PairDataDirSpec {
+        std::filesystem::path root;
+    };
 
-	// Deprecated compatibility input.
-	// This path is not maintained against the actively evolving assignment logic.
-	struct DataFileSpec {
-		std::filesystem::path path;
-	};
+    // Deprecated compatibility input.
+    // This path is not maintained against the actively evolving assignment logic.
+    struct DataFileSpec {
+        std::filesystem::path path;
+    };
 
-	enum class DataSourceKind {
-		DataDir
-		, PairDataDir
-		, SingleFile
-	};
+    enum class DataSourceKind {
+          DataDir
+        , PairDataDir
+        , SingleFile
+    };
 
-	struct DataSourceSpec {
-		DataSourceKind kind = DataSourceKind::PairDataDir;
-		DataDirSpec    dir;
-		PairDataDirSpec pair_dir;
-		DataFileSpec   file;
-	};
+    struct DataSourceSpec {
+        DataSourceKind  kind = DataSourceKind::PairDataDir;
+        DataDirSpec     dir;
+        PairDataDirSpec pair_dir;
+        DataFileSpec    file;
+    };
 
-	class DataSource {
-	public:
-		virtual ~DataSource() = default;
-		virtual mathfp::Expected<timetable::domain::AssignmentInput> load() const = 0;
-	};
+    class DataSource {
+    public:
+        virtual ~DataSource()                                                     = default;
+        virtual mathfp::Expected<timetable::domain::AssignmentInput> load() const = 0;
+    };
 
 }  // namespace timetable::io

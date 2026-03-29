@@ -16,9 +16,9 @@
 namespace timetable::domain::statistics {
 
     [[nodiscard]] inline mathfp::Expected<mathfp::Unit> ensure_nonempty(
-        std::span<const double> values
-        , std::string_view quantity
-        , std::string_view statistic
+          std::span<const double> values
+        , std::string_view        quantity
+        , std::string_view        statistic
     ) {
         if (values.empty()) {
             return mathfp::unexpected(
@@ -36,8 +36,8 @@ namespace timetable::domain::statistics {
     }
 
     [[nodiscard]] inline mathfp::Expected<mathfp::Unit> ensure_finite(
-        std::span<const double> values
-        , std::string_view quantity
+          std::span<const double> values
+        , std::string_view        quantity
     ) {
         for (const auto value : values) {
             if (!std::isfinite(value)) {
@@ -52,8 +52,8 @@ namespace timetable::domain::statistics {
     }
 
     [[nodiscard]] inline mathfp::Expected<double> mean(
-        std::span<const double> values
-        , std::string_view quantity = "value"
+          std::span<const double> values
+        , std::string_view        quantity = "value"
     ) {
         MATHFP_TRY(ensure_nonempty(values, quantity, "mean"));
         MATHFP_TRY(ensure_finite(values, quantity));
@@ -67,8 +67,8 @@ namespace timetable::domain::statistics {
     }
 
     [[nodiscard]] inline mathfp::Expected<double> minimum(
-        std::span<const double> values
-        , std::string_view quantity = "value"
+          std::span<const double> values
+        , std::string_view        quantity = "value"
     ) {
         MATHFP_TRY(ensure_nonempty(values, quantity, "min"));
         MATHFP_TRY(ensure_finite(values, quantity));
@@ -84,11 +84,11 @@ namespace timetable::domain::statistics {
     }
 
     [[nodiscard]] inline double nth_order_statistic(
-        std::vector<double> values
-        , std::size_t idx
+          std::vector<double> values
+        , std::size_t         idx
     ) {
         std::nth_element(
-            values.begin()
+              values.begin()
             , values.begin() + static_cast<std::ptrdiff_t>(idx)
             , values.end()
         );
@@ -96,8 +96,8 @@ namespace timetable::domain::statistics {
     }
 
     [[nodiscard]] inline mathfp::Expected<double> median(
-        std::vector<double> values
-        , std::string_view quantity = "value"
+          std::vector<double> values
+        , std::string_view    quantity = "value"
     ) {
         MATHFP_TRY(ensure_nonempty(values, quantity, "median"));
         MATHFP_TRY(ensure_finite(values, quantity));
@@ -113,8 +113,8 @@ namespace timetable::domain::statistics {
     }
 
     [[nodiscard]] inline mathfp::Expected<double> p95(
-        std::vector<double> values
-        , std::string_view quantity = "value"
+          std::vector<double> values
+        , std::string_view    quantity = "value"
     ) {
         MATHFP_TRY(ensure_nonempty(values, quantity, "p95"));
         MATHFP_TRY(ensure_finite(values, quantity));

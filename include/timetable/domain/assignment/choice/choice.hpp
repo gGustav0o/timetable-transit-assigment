@@ -17,8 +17,8 @@ namespace timetable::domain::assignment {
      * @brief Apply choice criteria to remove dominated/illogical connections.
      */
     mathfp::Expected<ConnectionChoiceResult> choose_connections(
-        const ConnectionSearchResult& search_result
-        , const SearchParams& params
+          const ConnectionSearchResult& search_result
+        , const SearchParams&         params
     );
 
 }  // namespace timetable::domain::assignment

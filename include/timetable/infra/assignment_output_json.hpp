@@ -24,8 +24,8 @@ namespace timetable::infra {
      * @brief Write the canonical assignment result as a lossless JSON file.
      */
     mathfp::Expected<mathfp::Unit> write_assignment_output_json(
-        const timetable::domain::AssignmentOutput& output
-        , const std::filesystem::path& path
+          const timetable::domain::AssignmentOutput& output
+        , const std::filesystem::path&               path
     );
 
 }  // namespace timetable::infra

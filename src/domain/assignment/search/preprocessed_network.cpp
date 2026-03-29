@@ -35,50 +35,50 @@ namespace timetable::domain::assignment {
         }
 
         struct RouteSegmentKey final {
-            RouteTopologyKind                   topology_kind{};
-            std::optional<EndpointKey>          walk_from{};
-            std::optional<EndpointKey>          walk_to{};
-            std::optional<StopOccurrenceKey>    line_from{};
-            std::optional<StopOccurrenceKey>    line_to{};
-            std::optional<std::int64_t>         line_id{};
-            std::vector<WalkLinkId>             path{};
+            RouteTopologyKind                topology_kind{};
+            std::optional<EndpointKey>       walk_from{};
+            std::optional<EndpointKey>       walk_to{};
+            std::optional<StopOccurrenceKey> line_from{};
+            std::optional<StopOccurrenceKey> line_to{};
+            std::optional<std::int64_t>      line_id{};
+            std::vector<WalkLinkId>          path{};
 
             auto operator<=>(const RouteSegmentKey&) const = default;
         };
 
         struct ConnectionSegmentKey final {
-            std::int64_t route_segment{};
+            std::int64_t                route_segment{};
             std::optional<std::int64_t> trip{};
             std::optional<std::int64_t> from_index{};
             std::optional<std::int64_t> to_index{};
-            std::optional<double> departure{};
-            std::optional<double> arrival{};
-            std::optional<double> fare{};
+            std::optional<double>       departure{};
+            std::optional<double>       arrival{};
+            std::optional<double>       fare{};
 
             auto operator<=>(const ConnectionSegmentKey&) const = default;
         };
 
         struct CanonicalRouteSegments final {
-            std::vector<RouteSegment> routes{};
+            std::vector<RouteSegment>                        routes{};
             std::unordered_map<std::int64_t, RouteSegmentId> old_to_new_ids{};
         };
 
         RouteSegmentKey route_segment_key(const RouteSegment& segment) {
             if (const auto* walk = walk_topology_of(segment)) {
                 return RouteSegmentKey{
-                    .topology_kind = RouteTopologyKind::Walk
-                    , .walk_from = to_endpoint_key(walk->from)
-                    , .walk_to = to_endpoint_key(walk->to)
-                    , .path = walk->path
+                      .topology_kind = RouteTopologyKind::Walk
+                    , .walk_from     = to_endpoint_key(walk->from)
+                    , .walk_to       = to_endpoint_key(walk->to)
+                    , .path          = walk->path
                 };
             }
 
             const auto* line = line_topology_of(segment);
             return RouteSegmentKey{
-                .topology_kind = RouteTopologyKind::Line
-                , .line_from = occurrence_key(line->from)
-                , .line_to = occurrence_key(line->to)
-                , .line_id = line->line.get()
+                  .topology_kind = RouteTopologyKind::Line
+                , .line_from     = occurrence_key(line->from)
+                , .line_to       = occurrence_key(line->to)
+                , .line_id       = line->line.get()
             };
         }
 
@@ -88,7 +88,7 @@ namespace timetable::domain::assignment {
             std::vector<RouteSegmentKey> keys;
             keys.reserve(segments.size());
             std::transform(
-                segments.begin()
+                  segments.begin()
                 , segments.end()
                 , std::back_inserter(keys)
                 , route_segment_key
@@ -129,13 +129,13 @@ namespace timetable::domain::assignment {
             const ConnectionSegment& segment
         ) {
             return ConnectionSegmentKey{
-                .route_segment = segment.route_segment.get()
-                , .trip = segment.trip ? std::optional<std::int64_t>{ segment.trip->get() } : std::nullopt
-                , .from_index = segment.from_index ? std::optional<std::int64_t>{ segment.from_index->get() } : std::nullopt
-                , .to_index = segment.to_index ? std::optional<std::int64_t>{ segment.to_index->get() } : std::nullopt
-                , .departure = segment.departure ? std::optional<double>{ segment.departure->value() } : std::nullopt
-                , .arrival = segment.arrival ? std::optional<double>{ segment.arrival->value() } : std::nullopt
-                , .fare = segment.fare
+                  .route_segment = segment.route_segment.get()
+                , .trip          = segment.trip       ? std::optional<std::int64_t>{ segment.trip      ->get()   } : std::nullopt
+                , .from_index    = segment.from_index ? std::optional<std::int64_t>{ segment.from_index->get()   } : std::nullopt
+                , .to_index      = segment.to_index   ? std::optional<std::int64_t>{ segment.to_index  ->get()   } : std::nullopt
+                , .departure     = segment.departure  ? std::optional<double>      { segment.departure ->value() } : std::nullopt
+                , .arrival       = segment.arrival    ? std::optional<double>      { segment.arrival   ->value() } : std::nullopt
+                , .fare          = segment.fare
             };
         }
 
@@ -145,7 +145,7 @@ namespace timetable::domain::assignment {
             std::vector<ConnectionSegmentKey> keys;
             keys.reserve(segments.size());
             std::transform(
-                segments.begin()
+                  segments.begin()
                 , segments.end()
                 , std::back_inserter(keys)
                 , connection_segment_key
@@ -182,7 +182,7 @@ namespace timetable::domain::assignment {
         }
 
         mathfp::Expected<std::vector<RouteSegment>> build_route_segments(
-            const InputModel& input
+              const InputModel&       input
             , const PreprocessParams& params
         ) {
             using timetable::infra::LogLevel;
@@ -193,7 +193,7 @@ namespace timetable::domain::assignment {
             log_input_sizes(input);
 
             MATHFP_TRY_LET(
-                std::vector<RouteSegment>
+                  std::vector<RouteSegment>
                 , line_segments
                 , preprocessing::build_line_route_segments(
                     input.routes, input.trips, input.stops, params
@@ -201,7 +201,7 @@ namespace timetable::domain::assignment {
             );
             both("preprocessing: building walk segments");
             MATHFP_TRY_LET(
-                std::vector<RouteSegment>
+                  std::vector<RouteSegment>
                 , walk_segments
                 , preprocessing::build_walk_route_segments(
                     input.walk_links, params
@@ -209,7 +209,7 @@ namespace timetable::domain::assignment {
             );
             log(
                 fmt::format(
-                    "route segments: line = {:>8}  walk = {:>8}  total = {:>8}"
+                      "route segments: line = {:>8}  walk = {:>8}  total = {:>8}"
                     , line_segments.size()
                     , walk_segments.size()
                     , line_segments.size() + walk_segments.size()
@@ -220,12 +220,12 @@ namespace timetable::domain::assignment {
             std::vector<RouteSegment> route_segments;
             route_segments.reserve(line_segments.size() + walk_segments.size());
             route_segments.insert(
-                route_segments.end()
+                  route_segments.end()
                 , std::make_move_iterator(line_segments.begin())
                 , std::make_move_iterator(line_segments.end())
             );
             route_segments.insert(
-                route_segments.end()
+                  route_segments.end()
                 , std::make_move_iterator(walk_segments.begin())
                 , std::make_move_iterator(walk_segments.end())
             );
@@ -234,7 +234,7 @@ namespace timetable::domain::assignment {
             }
             log(
                 fmt::format(
-                    "route segments: stable_ordering = {}"
+                      "route segments: stable_ordering = {}"
                     , params.stable_ordering ? "true" : "false"
                 )
                 , LogLevel::Info
@@ -244,9 +244,9 @@ namespace timetable::domain::assignment {
         }
 
         mathfp::Expected<std::vector<ConnectionSegment>> build_connection_segments(
-            const std::vector<RouteSegment>& route_segments
-            , const InputModel& input
-            , const PreprocessParams& params
+              const std::vector<RouteSegment>& route_segments
+            , const InputModel&                input
+            , const PreprocessParams&          params
         ) {
             using timetable::infra::LogLevel;
             using timetable::infra::progress::both;
@@ -254,7 +254,7 @@ namespace timetable::domain::assignment {
 
             both("preprocessing: building connection segments");
             MATHFP_TRY_LET(
-                std::vector<ConnectionSegment>
+                  std::vector<ConnectionSegment>
                 , connection_segments
                 , preprocessing::build_connection_segments(
                     route_segments, input.lines, input.routes, input.trips, params
@@ -262,7 +262,7 @@ namespace timetable::domain::assignment {
             );
             log(
                 fmt::format(
-                    "connection segments: total = {:>8}"
+                      "connection segments: total = {:>8}"
                     , connection_segments.size()
                 )
                 , LogLevel::Info
@@ -272,7 +272,7 @@ namespace timetable::domain::assignment {
 
         mathfp::Expected<std::pair<preprocessing::RouteSegmentIndex, preprocessing::ConnectionSegmentIndex>>
         build_indices(
-            const std::vector<RouteSegment>& route_segments
+              const std::vector<RouteSegment>&      route_segments
             , const std::vector<ConnectionSegment>& connection_segments
         ) {
             using timetable::infra::LogLevel;
@@ -281,12 +281,12 @@ namespace timetable::domain::assignment {
 
             both("preprocessing: building indices");
             MATHFP_TRY_LET(
-                preprocessing::RouteSegmentIndex
+                  preprocessing::RouteSegmentIndex
                 , route_index
                 , preprocessing::build_route_segment_index(route_segments)
             );
             MATHFP_TRY_LET(
-                preprocessing::ConnectionSegmentIndex
+                  preprocessing::ConnectionSegmentIndex
                 , connection_index
                 , preprocessing::build_connection_segment_index(
                     connection_segments, route_segments
@@ -318,14 +318,14 @@ namespace timetable::domain::assignment {
         }
 
         mathfp::Expected<CanonicalRouteSegments> canonicalize_route_segments(
-            std::vector<RouteSegment> route_segments
-            , bool allow_empty
+              std::vector<RouteSegment> route_segments
+            , bool                      allow_empty
         ) {
             MATHFP_TRY(validate_route_segments(route_segments, allow_empty));
             MATHFP_TRY(validate_unique_route_segment_ids(route_segments));
 
             CanonicalRouteSegments out;
-            out.routes = std::move(route_segments);
+            out.routes         = std::move(route_segments);
             out.old_to_new_ids.reserve(out.routes.size());
             for (std::size_t i = 0; i < out.routes.size(); ++i) {
                 const auto old_id = out.routes[i].id.get();
@@ -338,10 +338,10 @@ namespace timetable::domain::assignment {
         }
 
         mathfp::Expected<std::vector<ConnectionSegment>> canonicalize_connection_segments(
-            std::vector<ConnectionSegment> connection_segments
-            , std::span<const RouteSegment> canonical_route_segments
+              std::vector<ConnectionSegment>                          connection_segments
+            , std::span<const RouteSegment>                           canonical_route_segments
             , const std::unordered_map<std::int64_t, RouteSegmentId>& route_id_map
-            , bool allow_empty
+            , bool                                                    allow_empty
         ) {
             for (std::size_t i = 0; i < connection_segments.size(); ++i) {
                 const auto remapped = route_id_map.find(connection_segments[i].route_segment.get());
@@ -349,7 +349,7 @@ namespace timetable::domain::assignment {
                     return mathfp::unexpected(
                         mathfp::invalid_arg("connection segment references unknown route segment")
                             .ctx("connection_segment_id", connection_segments[i].id.get())
-                            .ctx("route_segment_id", connection_segments[i].route_segment.get())
+                            .ctx("route_segment_id"     , connection_segments[i].route_segment.get())
                     );
                 }
                 connection_segments[i].route_segment = remapped->second;
@@ -359,7 +359,7 @@ namespace timetable::domain::assignment {
             }
 
             MATHFP_TRY(validate_connection_segments(
-                connection_segments
+                  connection_segments
                 , canonical_route_segments
                 , allow_empty
             ));
@@ -368,20 +368,20 @@ namespace timetable::domain::assignment {
         }
 
         mathfp::Expected<PreprocessedNetwork> finalize_preprocessed_network(
-            std::vector<RouteSegment> route_segments
+              std::vector<RouteSegment>      route_segments
             , std::vector<ConnectionSegment> connection_segments
-            , bool allow_empty
+            , bool                           allow_empty
         ) {
             MATHFP_TRY_LET(
-                CanonicalRouteSegments
+                  CanonicalRouteSegments
                 , canonical_routes
                 , canonicalize_route_segments(std::move(route_segments), allow_empty)
             );
             MATHFP_TRY_LET(
-                std::vector<ConnectionSegment>
+                  std::vector<ConnectionSegment>
                 , canonical_connection_segments
                 , canonicalize_connection_segments(
-                    std::move(connection_segments)
+                      std::move(connection_segments)
                     , canonical_routes.routes
                     , canonical_routes.old_to_new_ids
                     , allow_empty
@@ -393,7 +393,7 @@ namespace timetable::domain::assignment {
                 , preprocessing::ConnectionSegmentIndex
             >;
             MATHFP_TRY_LET(
-                SegmentIndices
+                  SegmentIndices
                 , indices
                 , build_indices(canonical_routes.routes, canonical_connection_segments)
             );
@@ -401,7 +401,7 @@ namespace timetable::domain::assignment {
             timetable::infra::progress::both("preprocessing: done");
 
             return PreprocessedNetwork{
-                .route_segments        = std::move(canonical_routes.routes)
+                  .route_segments      = std::move(canonical_routes.routes)
                 , .connection_segments = std::move(canonical_connection_segments)
                 , .route_index         = std::move(indices.first)
                 , .connection_index    = std::move(indices.second)
@@ -411,29 +411,29 @@ namespace timetable::domain::assignment {
     }  // namespace
 
     mathfp::Expected<PreprocessedNetwork> build_preprocessed_network(
-        const InputModel& input
+          const InputModel&       input
         , const PreprocessParams& params
     ) {
         MATHFP_TRY_LET(
-            std::vector<RouteSegment>
+              std::vector<RouteSegment>
             , route_segments
             , build_route_segments(input, params)
         );
         MATHFP_TRY_LET(
-            std::vector<ConnectionSegment>
+              std::vector<ConnectionSegment>
             , connection_segments
             , build_connection_segments(route_segments, input, params)
         );
 
         return finalize_preprocessed_network(
-            std::move(route_segments)
+              std::move(route_segments)
             , std::move(connection_segments)
             , true
         );
     }
 
     mathfp::Expected<PreprocessedNetwork> build_preprocessed_network_from_segments(
-        std::vector<RouteSegment> route_segments
+          std::vector<RouteSegment>      route_segments
         , std::vector<ConnectionSegment> connection_segments
     ) {
         using timetable::infra::LogLevel;
@@ -443,7 +443,7 @@ namespace timetable::domain::assignment {
         both("preprocessing: building indices");
         log(
             fmt::format(
-                "preprocessing input: route_segments = {:>8}  connection_segments = {:>8}"
+                  "preprocessing input: route_segments = {:>8}  connection_segments = {:>8}"
                 , route_segments.size()
                 , connection_segments.size()
             )
@@ -451,7 +451,7 @@ namespace timetable::domain::assignment {
         );
 
         return finalize_preprocessed_network(
-            std::move(route_segments)
+              std::move(route_segments)
             , std::move(connection_segments)
             , false
         );
@@ -465,8 +465,8 @@ namespace timetable::domain::assignment {
     }
 
     mathfp::Expected<mathfp::Unit> validate_route_segments(
-        const std::vector<RouteSegment>& segments
-        , bool allow_empty
+          const std::vector<RouteSegment>& segments
+        , bool                             allow_empty
     ) {
         if (segments.empty() && !allow_empty) {
             return mathfp::unexpected(
@@ -480,15 +480,15 @@ namespace timetable::domain::assignment {
                 .ctx("topology_kind", static_cast<std::int64_t>(duplicate->topology_kind));
             if (duplicate->line_id.has_value()) {
                 error = std::move(error)
-                    .ctx("line_id", *duplicate->line_id)
-                    .ctx("from_stop_id", duplicate->line_from->stop.get())
+                    .ctx("line_id"      , *duplicate->line_id)
+                    .ctx("from_stop_id" , duplicate->line_from->stop.get())
                     .ctx("from_position", duplicate->line_from->position.get())
-                    .ctx("to_stop_id", duplicate->line_to->stop.get())
-                    .ctx("to_position", duplicate->line_to->position.get());
+                    .ctx("to_stop_id"   , duplicate->line_to->stop.get())
+                    .ctx("to_position"  , duplicate->line_to->position.get());
             } else {
                 error = std::move(error)
-                    .ctx("from", duplicate->walk_from->id)
-                    .ctx("to", duplicate->walk_to->id)
+                    .ctx("from"     , duplicate->walk_from->id)
+                    .ctx("to"       , duplicate->walk_to->id)
                     .ctx("path_size", static_cast<std::int64_t>(duplicate->path.size()));
             }
             return mathfp::unexpected(std::move(error));
@@ -498,9 +498,9 @@ namespace timetable::domain::assignment {
     }
 
     mathfp::Expected<mathfp::Unit> validate_connection_segments(
-        const std::vector<ConnectionSegment>& segments
-        , std::span<const RouteSegment> route_segments
-        , bool allow_empty
+          const std::vector<ConnectionSegment>& segments
+        , std::span<const RouteSegment>         route_segments
+        , bool                                  allow_empty
     ) {
         if (segments.empty() && !allow_empty) {
             return mathfp::unexpected(
@@ -548,7 +548,7 @@ namespace timetable::domain::assignment {
                 return mathfp::unexpected(
                     mathfp::invalid_arg("connection segment route reference out of range")
                         .ctx("connection_segment_id", segment.id.get())
-                        .ctx("route_segment_id", segment.route_segment.get())
+                        .ctx("route_segment_id"     , segment.route_segment.get())
                 );
             }
             const auto* route_segment = canonical_routes_by_id[route_index];
@@ -556,15 +556,15 @@ namespace timetable::domain::assignment {
                 return mathfp::unexpected(
                     mathfp::invalid_arg("connection segment references missing canonical route segment")
                         .ctx("connection_segment_id", segment.id.get())
-                        .ctx("route_segment_id", segment.route_segment.get())
+                        .ctx("route_segment_id"     , segment.route_segment.get())
                 );
             }
 
             MATHFP_TRY_LET(
-                ConnectionSegment
+                  ConnectionSegment
                 , validated_segment
                 , preprocessing::make_connection_segment(
-                    segment.id
+                      segment.id
                     , *route_segment
                     , segment.trip
                     , segment.from_index
@@ -589,8 +589,8 @@ namespace timetable::domain::assignment {
     }
 
     double compute_fare_scale(
-        std::span<const ConnectionSegment> segments
-        , const FareNormalization& normalization
+          std::span<const ConnectionSegment> segments
+        , const FareNormalization&           normalization
     ) {
         using Kind = FareNormalization::Kind;
         using timetable::infra::LogLevel;
@@ -615,7 +615,7 @@ namespace timetable::domain::assignment {
             const auto scale_result = statistics::mean(fares, "fare");
             if (!scale_result) {
                 log(
-                    fmt::format("fare normalization: mean failed: {}", scale_result.error().message())
+                      fmt::format("fare normalization: mean failed: {}", scale_result.error().message())
                     , LogLevel::Warning
                 );
                 return 1.0;
@@ -629,7 +629,7 @@ namespace timetable::domain::assignment {
             const auto scale_result = statistics::median(std::move(fares), "fare");
             if (!scale_result) {
                 log(
-                    fmt::format("fare normalization: median failed: {}", scale_result.error().message())
+                      fmt::format("fare normalization: median failed: {}", scale_result.error().message())
                     , LogLevel::Warning
                 );
                 return 1.0;
@@ -643,7 +643,7 @@ namespace timetable::domain::assignment {
             const auto scale_result = statistics::p95(std::move(fares), "fare");
             if (!scale_result) {
                 log(
-                    fmt::format("fare normalization: p95 failed: {}", scale_result.error().message())
+                      fmt::format("fare normalization: p95 failed: {}", scale_result.error().message())
                     , LogLevel::Warning
                 );
                 return 1.0;

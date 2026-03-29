@@ -11,7 +11,7 @@ namespace timetable::domain::assignment::projection {
     namespace {
 
         struct ConnectionShareAggregate final {
-            double assigned_passengers{};
+            double      assigned_passengers{};
             std::size_t share_count{};
         };
 
@@ -54,8 +54,8 @@ namespace timetable::domain::assignment::projection {
         }
 
         void update_best_time(
-            std::optional<Time>& current
-            , Time candidate
+              std::optional<Time>& current
+            , Time                 candidate
         ) {
             if (!current.has_value() || candidate.value() < current->value()) {
                 current = candidate;
@@ -63,8 +63,8 @@ namespace timetable::domain::assignment::projection {
         }
 
         void update_best_scalar(
-            std::optional<double>& current
-            , double candidate
+              std::optional<double>& current
+            , double                 candidate
         ) {
             if (!current.has_value() || candidate < *current) {
                 current = candidate;
@@ -72,8 +72,8 @@ namespace timetable::domain::assignment::projection {
         }
 
         void update_best_transfers(
-            std::optional<TransferCount>& current
-            , TransferCount candidate
+              std::optional<TransferCount>& current
+            , TransferCount                 candidate
         ) {
             if (!current.has_value() || candidate.get() < current->get()) {
                 current = candidate;
@@ -90,7 +90,7 @@ namespace timetable::domain::assignment::projection {
             const auto& share_aggregates = *share_aggregates_result;
 
             AssignmentOdSummary summary{
-                .origin                     = od_result.origin
+                  .origin                   = od_result.origin
                 , .destination              = od_result.destination
                 , .search_connection_count  = od_result.search_connection_count
                 , .chosen_connection_count  = od_result.chosen_connection_count
@@ -118,7 +118,7 @@ namespace timetable::domain::assignment::projection {
 
                 summary.connections.push_back(
                     AssignmentConnectionSummary{
-                        .index                 = AssignmentConnectionRef{ static_cast<std::int64_t>(i) }
+                          .index               = AssignmentConnectionRef{ static_cast<std::int64_t>(i) }
                         , .departure           = connection.departure
                         , .arrival             = connection.arrival
                         , .journey_time        = connection.journey_time
@@ -141,7 +141,7 @@ namespace timetable::domain::assignment::projection {
         const AssignmentOutput& output
     ) {
         AssignmentResultSummary summary{
-            .totals              = output.summary
+              .totals            = output.summary
             , .interval_count    = 0
             , .nonempty_od_count = 0
             , .od_results        = {}

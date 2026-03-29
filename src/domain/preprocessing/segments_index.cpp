@@ -174,7 +174,7 @@ namespace timetable::domain::preprocessing {
             std::vector<RouteSegRef> refs;
             refs.reserve(segments.size());
             std::transform(
-                segments.begin(), segments.end()
+                  segments.begin(), segments.end()
                 , std::back_inserter(refs)
                 , [](const RouteSegment& s) {
                     return RouteSegRef{ s.id, &s };
@@ -206,11 +206,11 @@ namespace timetable::domain::preprocessing {
         }
 
         const RouteSegment* find_route_segment(
-            const std::vector<RouteSegRef>& refs
-            , RouteSegmentId id
+              const std::vector<RouteSegRef>& refs
+            , RouteSegmentId                  id
         ) {
             const auto it = std::lower_bound(
-                refs.begin()
+                  refs.begin()
                 , refs.end()
                 , id.get()
                 , [](const RouteSegRef& ref, std::int64_t value) {
@@ -223,7 +223,7 @@ namespace timetable::domain::preprocessing {
         }
 
         mathfp::Expected<ConnectionSegRef> make_connection_ref(
-            const ConnectionSegment& segment
+              const ConnectionSegment&        segment
             , const std::vector<RouteSegRef>& route_refs
         ) {
             const auto* route = find_route_segment(route_refs, segment.route_segment);
@@ -238,7 +238,7 @@ namespace timetable::domain::preprocessing {
                 return mathfp::unexpected(
                     mathfp::invalid_arg("connection segment mode does not match route topology")
                     .ctx("connection_segment_id", segment.id.get())
-                    .ctx("route_segment_id", route->id.get())
+                    .ctx("route_segment_id"     , route->id.get())
                 );
             }
 
@@ -246,16 +246,16 @@ namespace timetable::domain::preprocessing {
         }
 
         mathfp::Expected<PartitionedConnectionRefs> partition_connection_refs(
-            std::span<const ConnectionSegment> segments
-            , const std::vector<RouteSegRef>& route_refs
+              std::span<const ConnectionSegment> segments
+            , const std::vector<RouteSegRef>&    route_refs
         ) {
             PartitionedConnectionRefs out;
             out.timed.reserve(segments.size());
-            out.walk.reserve(segments.size());
+            out.walk .reserve(segments.size());
 
             for (const auto& segment : segments) {
                 MATHFP_TRY_LET(
-                    ConnectionSegRef
+                      ConnectionSegRef
                     , ref
                     , make_connection_ref(segment, route_refs)
                 );
@@ -273,8 +273,8 @@ namespace timetable::domain::preprocessing {
 
         template <class RefRange, class Key, class FromKeyFn>
         BucketIndex<Key> build_buckets(
-            const RefRange& sorted_refs
-            , FromKeyFn&& from_key
+              const RefRange& sorted_refs
+            , FromKeyFn&&     from_key
         ) {
             BucketIndex<Key> index;
             index.offsets.reserve(sorted_refs.size() + 1);
@@ -295,12 +295,12 @@ namespace timetable::domain::preprocessing {
             LineRouteIndexData data;
             data.order.reserve(line_refs.size());
             std::transform(
-                line_refs.begin(), line_refs.end()
+                  line_refs.begin(), line_refs.end()
                 , std::back_inserter(data.order)
                 , [](const RouteSegRef& ref) { return ref.id; }
             );
             data.bucket_index = build_buckets<std::vector<RouteSegRef>, StopOccurrenceKey>(
-                line_refs
+                  line_refs
                 , [](const RouteSegRef& ref) { return occurrence_key(line_topology_of(*ref.ptr)->from); }
             );
             return data;
@@ -312,12 +312,12 @@ namespace timetable::domain::preprocessing {
             WalkRouteIndexData data;
             data.order.reserve(walk_refs.size());
             std::transform(
-                walk_refs.begin(), walk_refs.end()
+                  walk_refs.begin(), walk_refs.end()
                 , std::back_inserter(data.order)
                 , [](const RouteSegRef& ref) { return ref.id; }
             );
             data.bucket_index = build_buckets<std::vector<RouteSegRef>, EndpointKey>(
-                walk_refs
+                  walk_refs
                 , [](const RouteSegRef& ref) { return physical_from_key(*ref.ptr); }
             );
             return data;
@@ -327,20 +327,20 @@ namespace timetable::domain::preprocessing {
             const std::vector<ConnectionSegRef>& timed_refs
         ) {
             TimedConnectionIndexData data;
-            data.order.reserve(timed_refs.size());
+            data.order     .reserve(timed_refs.size());
             data.departures.reserve(timed_refs.size());
             std::transform(
-                timed_refs.begin(), timed_refs.end()
+                  timed_refs.begin(), timed_refs.end()
                 , std::back_inserter(data.order)
                 , [](const ConnectionSegRef& ref) { return ref.id; }
             );
             std::transform(
-                timed_refs.begin(), timed_refs.end()
+                  timed_refs.begin(), timed_refs.end()
                 , std::back_inserter(data.departures)
                 , [](const ConnectionSegRef& ref) { return *ref.ptr->departure; }
             );
             data.bucket_index = build_buckets<std::vector<ConnectionSegRef>, StopOccurrenceKey>(
-                timed_refs
+                  timed_refs
                 , [](const ConnectionSegRef& ref) { return occurrence_key(line_topology_of(*ref.route)->from); }
             );
             return data;
@@ -352,20 +352,20 @@ namespace timetable::domain::preprocessing {
             std::sort(timed_refs.begin(), timed_refs.end(), boarding_ref_less);
 
             BoardingConnectionIndexData data;
-            data.order.reserve(timed_refs.size());
+            data.order     .reserve(timed_refs.size());
             data.departures.reserve(timed_refs.size());
             std::transform(
-                timed_refs.begin(), timed_refs.end()
+                  timed_refs.begin(), timed_refs.end()
                 , std::back_inserter(data.order)
                 , [](const ConnectionSegRef& ref) { return ref.id; }
             );
             std::transform(
-                timed_refs.begin(), timed_refs.end()
+                  timed_refs.begin(), timed_refs.end()
                 , std::back_inserter(data.departures)
                 , [](const ConnectionSegRef& ref) { return *ref.ptr->departure; }
             );
             data.bucket_index = build_buckets<std::vector<ConnectionSegRef>, StopId>(
-                timed_refs
+                  timed_refs
                 , [](const ConnectionSegRef& ref) { return line_topology_of(*ref.route)->from.stop; }
             );
             return data;
@@ -377,12 +377,12 @@ namespace timetable::domain::preprocessing {
             WalkConnectionIndexData data;
             data.order.reserve(walk_refs.size());
             std::transform(
-                walk_refs.begin(), walk_refs.end()
+                  walk_refs.begin(), walk_refs.end()
                 , std::back_inserter(data.order)
                 , [](const ConnectionSegRef& ref) { return ref.id; }
             );
             data.bucket_index = build_buckets<std::vector<ConnectionSegRef>, EndpointKey>(
-                walk_refs
+                  walk_refs
                 , [](const ConnectionSegRef& ref) { return physical_from_key(*ref.route); }
             );
             return data;
@@ -390,8 +390,8 @@ namespace timetable::domain::preprocessing {
 
         template <class Key>
         std::optional<std::size_t> find_bucket_impl(
-            std::span<const Key> buckets
-            , const Key& key
+              std::span<const Key> buckets
+            , const Key&           key
         ) {
             const auto it = std::lower_bound(buckets.begin(), buckets.end(), key);
             if (it == buckets.end() || *it != key)
@@ -411,21 +411,21 @@ namespace timetable::domain::preprocessing {
         both("preprocessing: route segment index");
         log(
             fmt::format(
-                "route index input: route_segments = {:>8}"
+                  "route index input: route_segments = {:>8}"
                 , segments.size()
             )
             , LogLevel::Info
         );
 
-        auto refs = partition_route_refs(segments);
+        auto refs       = partition_route_refs(segments);
         auto line_index = fill_line_route_index(refs.line);
         auto walk_index = fill_walk_route_index(refs.walk);
 
         RouteSegmentIndex index{
-            .line_order = std::move(line_index.order)
+              .line_order   = std::move(line_index.order)
             , .line_buckets = std::move(line_index.bucket_index.buckets)
             , .line_offsets = std::move(line_index.bucket_index.offsets)
-            , .walk_order = std::move(walk_index.order)
+            , .walk_order   = std::move(walk_index.order)
             , .walk_buckets = std::move(walk_index.bucket_index.buckets)
             , .walk_offsets = std::move(walk_index.bucket_index.offsets)
         };
@@ -447,8 +447,8 @@ namespace timetable::domain::preprocessing {
     }
 
     mathfp::Expected<ConnectionSegmentIndex> build_connection_segment_index(
-        std::span<const ConnectionSegment> segments
-        , std::span<const RouteSegment> route_segments
+          std::span<const ConnectionSegment> segments
+        , std::span<const RouteSegment>      route_segments
     ) {
         using timetable::infra::LogLevel;
         using timetable::infra::progress::both;
@@ -457,7 +457,7 @@ namespace timetable::domain::preprocessing {
         both("preprocessing: connection segment index");
         log(
             fmt::format(
-                "connection index input: connection_segments = {:>8}  route_segments = {:>8}"
+                  "connection index input: connection_segments = {:>8}  route_segments = {:>8}"
                 , segments.size()
                 , route_segments.size()
             )
@@ -466,27 +466,27 @@ namespace timetable::domain::preprocessing {
 
         const auto route_refs = route_seg_refs_by_id(route_segments);
         MATHFP_TRY_LET(
-            PartitionedConnectionRefs
+              PartitionedConnectionRefs
             , refs
             , partition_connection_refs(segments, route_refs)
         );
 
-        auto timed_index = fill_timed_connection_index(refs.timed);
+        auto timed_index    = fill_timed_connection_index(refs.timed);
         auto boarding_index = fill_boarding_connection_index(refs.timed);
-        auto walk_index = fill_walk_connection_index(refs.walk);
+        auto walk_index     = fill_walk_connection_index(refs.walk);
 
         ConnectionSegmentIndex index{
-            .timed_order = std::move(timed_index.order)
-            , .timed_departures = std::move(timed_index.departures)
-            , .timed_buckets = std::move(timed_index.bucket_index.buckets)
-            , .timed_offsets = std::move(timed_index.bucket_index.offsets)
-            , .boarding_order = std::move(boarding_index.order)
-            , .boarding_departures = std::move(boarding_index.departures)
+              .timed_order           = std::move(timed_index.order)
+            , .timed_departures      = std::move(timed_index.departures)
+            , .timed_buckets         = std::move(timed_index.bucket_index.buckets)
+            , .timed_offsets         = std::move(timed_index.bucket_index.offsets)
+            , .boarding_order        = std::move(boarding_index.order)
+            , .boarding_departures   = std::move(boarding_index.departures)
             , .boarding_stop_buckets = std::move(boarding_index.bucket_index.buckets)
-            , .boarding_offsets = std::move(boarding_index.bucket_index.offsets)
-            , .walk_order = std::move(walk_index.order)
-            , .walk_buckets = std::move(walk_index.bucket_index.buckets)
-            , .walk_offsets = std::move(walk_index.bucket_index.offsets)
+            , .boarding_offsets      = std::move(boarding_index.bucket_index.offsets)
+            , .walk_order            = std::move(walk_index.order)
+            , .walk_buckets          = std::move(walk_index.bucket_index.buckets)
+            , .walk_offsets          = std::move(walk_index.bucket_index.offsets)
         };
 
         log(
@@ -509,50 +509,50 @@ namespace timetable::domain::preprocessing {
     }
 
     std::optional<std::size_t> find_bucket(
-        std::span<const EndpointKey> buckets
-        , const EndpointKey& key
+          std::span<const EndpointKey> buckets
+        , const EndpointKey&           key
     ) {
         return find_bucket_impl(buckets, key);
     }
 
     std::optional<std::size_t> find_bucket(
-        std::span<const StopOccurrenceKey> buckets
-        , const StopOccurrenceKey& key
+          std::span<const StopOccurrenceKey> buckets
+        , const StopOccurrenceKey&           key
     ) {
         return find_bucket_impl(buckets, key);
     }
 
     std::optional<std::size_t> find_bucket(
-        std::span<const StopId> buckets
-        , StopId key
+          std::span<const StopId> buckets
+        , StopId                  key
     ) {
         return find_bucket_impl(buckets, key);
     }
 
     SegmentLookup lookup_from(
-        const RouteSegmentIndex& route_index
+          const RouteSegmentIndex&      route_index
         , const ConnectionSegmentIndex& connection_index
-        , EndpointKey physical_from
+        , EndpointKey                   physical_from
     ) {
         SegmentLookup out;
 
         if (auto idx = find_bucket(route_index.walk_buckets, physical_from)) {
-            const auto i = *idx;
+            const auto i     = *idx;
             const auto start = route_index.walk_offsets[i];
-            const auto end = route_index.walk_offsets[i + 1];
+            const auto end   = route_index.walk_offsets[i + 1];
             out.walk_route = std::span<const RouteSegmentId>(
-                route_index.walk_order.data() + start
-                , end - start
+                  route_index.walk_order.data() + start
+                , end -                           start
             );
         }
 
         if (auto idx = find_bucket(connection_index.walk_buckets, physical_from)) {
-            const auto i = *idx;
+            const auto i     = *idx;
             const auto start = connection_index.walk_offsets[i];
-            const auto end = connection_index.walk_offsets[i + 1];
+            const auto end   = connection_index.walk_offsets[i + 1];
             out.walk_connections = std::span<const ConnectionSegmentId>(
-                connection_index.walk_order.data() + start
-                , end - start
+                  connection_index.walk_order.data() + start
+                , end -                                start
             );
         }
 
@@ -560,30 +560,30 @@ namespace timetable::domain::preprocessing {
     }
 
     SegmentLookup lookup_from(
-        const RouteSegmentIndex& route_index
+          const RouteSegmentIndex&      route_index
         , const ConnectionSegmentIndex& connection_index
-        , StopOccurrenceKey timed_from
-        , EndpointKey physical_from
+        , StopOccurrenceKey             timed_from
+        , EndpointKey                   physical_from
     ) {
         auto out = lookup_from(route_index, connection_index, physical_from);
 
         if (auto idx = find_bucket(route_index.line_buckets, timed_from)) {
-            const auto i = *idx;
+            const auto i     = *idx;
             const auto start = route_index.line_offsets[i];
-            const auto end = route_index.line_offsets[i + 1];
+            const auto end   = route_index.line_offsets[i + 1];
             out.line_route = std::span<const RouteSegmentId>(
-                route_index.line_order.data() + start
-                , end - start
+                  route_index.line_order.data() + start
+                , end -                           start
             );
         }
 
         if (auto idx = find_bucket(connection_index.timed_buckets, timed_from)) {
-            const auto i = *idx;
+            const auto i     = *idx;
             const auto start = connection_index.timed_offsets[i];
-            const auto end = connection_index.timed_offsets[i + 1];
+            const auto end   = connection_index.timed_offsets[i + 1];
             out.timed_connections = std::span<const ConnectionSegmentId>(
-                connection_index.timed_order.data() + start
-                , end - start
+                  connection_index.timed_order.data() + start
+                , end -                                 start
             );
         }
 
@@ -591,21 +591,21 @@ namespace timetable::domain::preprocessing {
     }
 
     std::optional<ConnectionSegmentId> next_connection_from(
-        const ConnectionSegmentIndex& connection_index
-        , StopOccurrenceKey from
-        , Time time
+          const ConnectionSegmentIndex& connection_index
+        , StopOccurrenceKey             from
+        , Time                          time
     ) {
         const auto bucket = find_bucket(connection_index.timed_buckets, from);
         if (!bucket)
             return std::nullopt;
 
-        const auto i = *bucket;
+        const auto i     = *bucket;
         const auto start = connection_index.timed_offsets[i];
-        const auto end = connection_index.timed_offsets[i + 1];
+        const auto end   = connection_index.timed_offsets[i + 1];
         if (start >= end)
             return std::nullopt;
 
-        const auto begin = connection_index.timed_departures.begin() + static_cast<std::ptrdiff_t>(start);
+        const auto begin  = connection_index.timed_departures.begin() + static_cast<std::ptrdiff_t>(start);
         const auto finish = connection_index.timed_departures.begin() + static_cast<std::ptrdiff_t>(end);
 
         const auto it = std::lower_bound(begin, finish, time, [](const Time& a, const Time& b) {

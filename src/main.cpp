@@ -12,34 +12,33 @@
 
 namespace {
 
-	mathfp::Expected<mathfp::Unit> run_app(int argc, char** argv) {
-		using mathfp::fp::pipe::and_then;
-		using mathfp::fp::pipe::map;
+    mathfp::Expected<mathfp::Unit> run_app(int argc, char** argv) {
+        using mathfp::fp::pipe::and_then;
+        using mathfp::fp::pipe::map;
 
-		timetable::app::AppConfig config;
+        timetable::app::AppConfig config;
 
-		auto run_with_data_source = [&](std::unique_ptr<timetable::io::DataSource> ds) {
-			return timetable::app::run(config, *ds);
-		};
+        auto run_with_data_source = [&](std::unique_ptr<timetable::io::DataSource> ds) {
+            return timetable::app::run(config, *ds);
+        };
 
-		return
-			timetable::app::parse_cli(argc, argv)
-			| map([](timetable::app::CliInput cli) { return cli.source; })
-			| and_then(timetable::infra::make_data_source)
-			| and_then(run_with_data_source);
-	}
+        return timetable::app::parse_cli(argc, argv)
+            | map([](timetable::app::CliInput cli) { return cli.source; })
+            | and_then(timetable::infra::make_data_source)
+            | and_then(run_with_data_source);
+    }
 
 }  // namespace
 
 int main(int argc, char** argv) {
-	auto result = run_app(argc, argv);
-	if (!result) {
-		(void)timetable::infra::flush_logging();
-		if (!timetable::infra::logging_started()) {
-			fmt::print(stderr, "{}\n", timetable::app::format_error(result.error()));
-		}
-		return 1;
-	}
-	(void)timetable::infra::flush_logging();
-	return 0;
+    auto result = run_app(argc, argv);
+    if (!result) {
+        (void)timetable::infra::flush_logging();
+        if (!timetable::infra::logging_started()) {
+            fmt::print(stderr, "{}\n", timetable::app::format_error(result.error()));
+        }
+        return 1;
+    }
+    (void)timetable::infra::flush_logging();
+    return 0;
 }

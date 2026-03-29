@@ -20,14 +20,14 @@ namespace timetable::domain::assignment {
         }
 
         bool is_first_timed_branch_segment(
-            const BranchState& state
+              const BranchState&       state
             , const ConnectionSegment& candidate
         ) noexcept {
             return is_first_branch_segment(state) && is_timed_segment(candidate);
         }
 
         bool violates_same_trip_rule(
-            const BranchState& state
+              const BranchState&       state
             , const ConnectionSegment& candidate
         ) noexcept {
             return state.last_segment
@@ -39,10 +39,10 @@ namespace timetable::domain::assignment {
         }
 
         bool same_transfer_stop(
-            const RouteSegment& current
+              const RouteSegment& current
             , const RouteSegment& candidate
         ) noexcept {
-            const auto current_to = physical_to_endpoint(current);
+            const auto current_to     = physical_to_endpoint(current);
             const auto candidate_from = physical_from_endpoint(candidate);
             if (!is_stop_endpoint(current_to) || !is_stop_endpoint(candidate_from)) {
                 return false;
@@ -51,9 +51,9 @@ namespace timetable::domain::assignment {
         }
 
         bool is_repeated_stop_reboarding_transfer(
-            const BranchState& state
+              const BranchState&       state
             , const ConnectionSegment& candidate
-            , const RouteSegment& candidate_route_segment
+            , const RouteSegment&      candidate_route_segment
         ) noexcept {
             if (!state.last_segment || !state.last_route_segment) {
                 return false;
@@ -75,9 +75,9 @@ namespace timetable::domain::assignment {
         }
 
         bool violates_same_line_transfer_rule(
-            const BranchState& state
+              const BranchState&       state
             , const ConnectionSegment& candidate
-            , const RouteSegment& candidate_route_segment
+            , const RouteSegment&      candidate_route_segment
         ) noexcept {
             if (!state.last_segment || !state.last_route_segment) {
                 return false;
@@ -89,14 +89,14 @@ namespace timetable::domain::assignment {
         }
 
         Time transfer_wait_time(
-            Time current_arrival_time
+              Time                     current_arrival_time
             , const ConnectionSegment& candidate
         ) noexcept {
             return Time{ candidate.departure->value() - current_arrival_time.value() };
         }
 
         bool wait_time_within_limits(
-            Time wait_time
+              Time                  wait_time
             , const TransferLimits& limits
         ) noexcept {
             return wait_time.value() >= limits.min_transfer_wait.value()
@@ -104,9 +104,9 @@ namespace timetable::domain::assignment {
         }
 
         bool start_wait_allowed(
-            const BranchState& state
+              const BranchState&       state
             , const ConnectionSegment& candidate
-            , const TransferLimits& limits
+            , const TransferLimits&    limits
         ) noexcept {
             if (!is_first_timed_branch_segment(state, candidate)) {
                 return true;
@@ -121,9 +121,9 @@ namespace timetable::domain::assignment {
         }
 
         bool transfer_count_within_limits(
-            const BranchState& state
+              const BranchState&       state
             , const ConnectionSegment& candidate
-            , const TransferLimits& limits
+            , const TransferLimits&    limits
         ) noexcept {
             if (is_first_branch_segment(state) || is_walk_segment(candidate)) {
                 return true;
@@ -139,10 +139,10 @@ namespace timetable::domain::assignment {
     }  // namespace
 
     bool is_branch_extension_feasible(
-        const BranchState& state
+          const BranchState&       state
         , const ConnectionSegment& candidate
-        , const RouteSegment& candidate_route_segment
-        , const TransferLimits& limits
+        , const RouteSegment&      candidate_route_segment
+        , const TransferLimits&    limits
     ) noexcept {
         if (!start_wait_allowed(state, candidate, limits)) {
             return false;

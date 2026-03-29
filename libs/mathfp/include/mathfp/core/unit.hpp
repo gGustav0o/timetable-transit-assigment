@@ -5,7 +5,7 @@
 namespace mathfp {
 
 struct Unit {
-  constexpr Unit() noexcept = default;
+  constexpr Unit() noexcept                              = default;
   constexpr friend auto operator<=>(Unit, Unit) noexcept = default;
 };
 

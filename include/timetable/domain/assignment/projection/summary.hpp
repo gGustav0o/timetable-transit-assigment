@@ -19,33 +19,33 @@ namespace timetable::domain::assignment::projection {
      */
     struct AssignmentConnectionSummary final {
         AssignmentConnectionRef index{};
-        Time departure{};
-        Time arrival{};
-        Time journey_time{};
-        Time transfer_time{};
-        TransferCount transfers{};
-        double fare{};
-        double search_impedance{};
-        double assigned_passengers{};
-        std::size_t share_count{};
+        Time                    departure{};
+        Time                    arrival{};
+        Time                    journey_time{};
+        Time                    transfer_time{};
+        TransferCount           transfers{};
+        double                  fare{};
+        double                  search_impedance{};
+        double                  assigned_passengers{};
+        std::size_t             share_count{};
     };
 
     /**
      * @brief Compact per-OD summary derived from the canonical result.
      */
     struct AssignmentOdSummary final {
-        ZoneId origin{};
-        ZoneId destination{};
-        std::size_t search_connection_count{};
-        std::size_t chosen_connection_count{};
-        std::size_t interval_count{};
-        std::size_t share_count{};
-        double total_demand_passengers{};
-        double assigned_passengers{};
-        std::optional<Time> fastest_journey_time{};
-        std::optional<double> lowest_fare{};
-        std::optional<TransferCount> minimum_transfers{};
-        std::optional<double> minimum_search_impedance{};
+        ZoneId                                   origin{};
+        ZoneId                                   destination{};
+        std::size_t                              search_connection_count{};
+        std::size_t                              chosen_connection_count{};
+        std::size_t                              interval_count{};
+        std::size_t                              share_count{};
+        double                                   total_demand_passengers{};
+        double                                   assigned_passengers{};
+        std::optional<Time>                      fastest_journey_time{};
+        std::optional<double>                    lowest_fare{};
+        std::optional<TransferCount>             minimum_transfers{};
+        std::optional<double>                    minimum_search_impedance{};
         std::vector<AssignmentConnectionSummary> connections{};
     };
 
@@ -57,9 +57,9 @@ namespace timetable::domain::assignment::projection {
      * AssignmentOutput.
      */
     struct AssignmentResultSummary final {
-        AssignmentOutput::Summary totals{};
-        std::size_t interval_count{};
-        std::size_t nonempty_od_count{};
+        AssignmentOutput::Summary        totals{};
+        std::size_t                      interval_count{};
+        std::size_t                      nonempty_od_count{};
         std::vector<AssignmentOdSummary> od_results{};
     };
 

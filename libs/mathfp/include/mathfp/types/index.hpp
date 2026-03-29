@@ -43,7 +43,7 @@ namespace mathfp {
 
     template <class Tag, std::integral I>
     MATHFP_NODISCARD inline Expected<Index<Tag>> make_index(
-        I i
+          I                   i
         , std::source_location where = std::source_location::current()
     ) {
         if constexpr (std::is_signed_v<I>) {

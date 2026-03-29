@@ -25,7 +25,7 @@ namespace timetable::domain {
      */
     struct FareNormalization final {
         enum class Kind : std::uint8_t {
-            None
+              None
             , Mean
             , Median
             , P95
@@ -37,9 +37,9 @@ namespace timetable::domain {
     };
 
     struct SearchImpedance final {
-        Dimless a_journey_time{};
-        Dimless a_transfers{};
-        Dimless a_fare{};
+        Dimless           a_journey_time{};
+        Dimless           a_transfers{};
+        Dimless           a_fare{};
         FareNormalization fare_normalization{};
     };
 
@@ -48,10 +48,10 @@ namespace timetable::domain {
      */
     struct TransferLimits final {
         TransferCount max_transfers{};
-        Time min_transfer_wait{};
-        Time max_transfer_wait{};
-        bool allow_start_wait{};
-        bool allow_end_wait{};
+        Time          min_transfer_wait{};
+        Time          max_transfer_wait{};
+        bool          allow_start_wait{};
+        bool          allow_end_wait{};
     };
 
     /**
@@ -125,21 +125,21 @@ namespace timetable::domain {
      * - lower_quality_scale is used for s_y / s_z when the base connection c is inferior
      */
     struct SplitParams final {
-        Dimless q_time{};
-        Dimless q_departure{};
-        Dimless q_fare{};
+        Dimless                     q_time{};
+        Dimless                     q_departure{};
+        Dimless                     q_fare{};
         PerceivedJourneyTimeWeights perceived_journey_time{};
-        TemporalUtilityWeights temporal_utility{};
-        Dimless beta{};
-        Dimless boxcox_t{};
-        Dimless gamma{};
-        Dimless temporal_similarity_scale{};
-        Dimless higher_quality_scale{};
-        Dimless lower_quality_scale{};
+        TemporalUtilityWeights      temporal_utility{};
+        Dimless                     beta{};
+        Dimless                     boxcox_t{};
+        Dimless                     gamma{};
+        Dimless                     temporal_similarity_scale{};
+        Dimless                     higher_quality_scale{};
+        Dimless                     lower_quality_scale{};
     };
 
     enum class WalkCostKind : std::uint8_t {
-        Time
+          Time
         , Length
         , Weighted
     };
@@ -150,22 +150,22 @@ namespace timetable::domain {
     };
 
     enum class TimeAggregationKind : std::uint8_t {
-        Mean
+          Mean
         , Median
         , Minimum
     };
 
     struct PreprocessParams final {
-        WalkCostKind walk_cost_kind{ WalkCostKind::Time };
-        WalkCostWeights walk_cost{};
+        WalkCostKind         walk_cost_kind{ WalkCostKind::Time };
+        WalkCostWeights      walk_cost{};
         std::optional<Speed> line_speed{};
-        bool strict_trips{ true };
-        bool allow_overnight{ false };
-        bool overnight_add_24h{ true };
-        bool strict_stop_times{ true };
-        TimeAggregationKind time_aggregation{ TimeAggregationKind::Mean };
-        bool deduplicate_walk_segments{ true };
-        bool stable_ordering{ true };
+        bool                 strict_trips{ true };
+        bool                 allow_overnight{ false };
+        bool                 overnight_add_24h{ true };
+        bool                 strict_stop_times{ true };
+        TimeAggregationKind  time_aggregation{ TimeAggregationKind::Mean };
+        bool                 deduplicate_walk_segments{ true };
+        bool                 stable_ordering{ true };
     };
 
     /**
@@ -173,11 +173,11 @@ namespace timetable::domain {
      */
     struct SearchParams final {
         PreprocessParams preprocess{};
-        SearchImpedance impedance{};
-        TransferLimits transfers{};
+        SearchImpedance  impedance{};
+        TransferLimits   transfers{};
         SearchTolerances search_tolerances{};
         ChoiceTolerances choice_tolerances{};
-        SplitParams split{};
+        SplitParams      split{};
     };
 
 }  // namespace timetable::domain

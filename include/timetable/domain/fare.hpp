@@ -26,7 +26,7 @@ namespace timetable::domain {
         if (!std::isfinite(fare.ride_fare)) {
             const char* message = "line fare is not finite";
             return validation::fail(
-                message
+                  message
                 , mathfp::invalid_arg(message).ctx("ride_fare", fare.ride_fare)
             );
         }
@@ -34,7 +34,7 @@ namespace timetable::domain {
         if (fare.ride_fare < 0.0) {
             const char* message = "line fare must be non-negative";
             return validation::fail(
-                message
+                  message
                 , mathfp::invalid_arg(message).ctx("ride_fare", fare.ride_fare)
             );
         }

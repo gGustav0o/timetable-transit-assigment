@@ -28,7 +28,7 @@ namespace timetable::domain {
     >;
 
     enum class RouteTopologyKind : std::uint8_t {
-        Line
+          Line
         , Walk
     };
 

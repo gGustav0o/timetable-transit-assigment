@@ -50,8 +50,8 @@ namespace mathfp::graph {
         if (!boost::is_directed_acyclic_graph(g)) {
             return ::mathfp::unexpected(
                 ::mathfp::domain_error("graph contains a cycle (not a DAG)", where)
-                .ctx("num_vertices", n)
-                .ctx("num_edges", edge_count(g))
+                .ctx("num_vertices" , n)
+                .ctx("num_edges"    , edge_count(g))
                 .ctx(detail::kMethod, "toposort"));
         }
 

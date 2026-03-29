@@ -81,14 +81,14 @@ namespace timetable::infra {
 
         private:
             enum class FrameKind : std::uint8_t {
-                Object
+                  Object
                 , Array
             };
 
             struct Frame final {
                 FrameKind kind{};
-                bool first{ true };
-                bool expecting_value{ false };
+                bool      first{ true };
+                bool      expecting_value{ false };
             };
 
             void begin_value() {
@@ -122,7 +122,7 @@ namespace timetable::infra {
                         default:
                             if (static_cast<unsigned char>(ch) < 0x20) {
                                 fmt::format_to(
-                                    std::back_inserter(buffer_)
+                                      std::back_inserter(buffer_)
                                     , "\\u{:04x}"
                                     , static_cast<unsigned int>(static_cast<unsigned char>(ch))
                                 );
@@ -135,34 +135,34 @@ namespace timetable::infra {
                 buffer_.push_back('"');
             }
 
-            std::string buffer_{};
+            std::string        buffer_{};
             std::vector<Frame> stack_{};
         };
 
         template <class StrongId>
         void write_strong_id(
-            JsonWriter& writer
-            , StrongId id
+              JsonWriter& writer
+            , StrongId    id
         ) {
             writer.integer(id.get());
         }
 
         void write_time(
-            JsonWriter& writer
+              JsonWriter&             writer
             , timetable::domain::Time value
         ) {
             writer.number(value.value());
         }
 
         void write_length(
-            JsonWriter& writer
+              JsonWriter&               writer
             , timetable::domain::Length value
         ) {
             writer.number(value.value());
         }
 
         void write_optional_time(
-            JsonWriter& writer
+              JsonWriter&                                   writer
             , const std::optional<timetable::domain::Time>& value
         ) {
             if (!value.has_value()) {
@@ -173,7 +173,7 @@ namespace timetable::infra {
         }
 
         void write_optional_double(
-            JsonWriter& writer
+              JsonWriter&                  writer
             , const std::optional<double>& value
         ) {
             if (!value.has_value()) {
@@ -185,7 +185,7 @@ namespace timetable::infra {
 
         template <class StrongId>
         void write_optional_strong_id(
-            JsonWriter& writer
+              JsonWriter&                    writer
             , const std::optional<StrongId>& value
         ) {
             if (!value.has_value()) {
@@ -196,7 +196,7 @@ namespace timetable::infra {
         }
 
         void write_endpoint(
-            JsonWriter& writer
+              JsonWriter&                            writer
             , const timetable::domain::WalkEndpoint& endpoint
         ) {
             writer.begin_object();
@@ -215,7 +215,7 @@ namespace timetable::infra {
         }
 
         void write_stop_occurrence(
-            JsonWriter& writer
+              JsonWriter&                              writer
             , const timetable::domain::StopOccurrence& occurrence
         ) {
             writer.begin_object();
@@ -227,7 +227,7 @@ namespace timetable::infra {
         }
 
         void write_route_segment(
-            JsonWriter& writer
+              JsonWriter&                            writer
             , const timetable::domain::RouteSegment& route_segment
         ) {
             writer.begin_object();
@@ -271,7 +271,7 @@ namespace timetable::infra {
         }
 
         void write_connection_segment(
-            JsonWriter& writer
+              JsonWriter&                                 writer
             , const timetable::domain::ConnectionSegment& connection_segment
         ) {
             writer.begin_object();
@@ -295,7 +295,7 @@ namespace timetable::infra {
         }
 
         void write_path_segment(
-            JsonWriter& writer
+              JsonWriter&                                     writer
             , const timetable::domain::AssignmentPathSegment& path_segment
         ) {
             writer.begin_object();
@@ -307,7 +307,7 @@ namespace timetable::infra {
         }
 
         void write_discovered_connection(
-            JsonWriter& writer
+              JsonWriter&                                                writer
             , const timetable::domain::assignment::DiscoveredConnection& connection
         ) {
             writer.begin_object();
@@ -339,7 +339,7 @@ namespace timetable::infra {
         }
 
         void write_assignment_connection(
-            JsonWriter& writer
+              JsonWriter&                                    writer
             , const timetable::domain::AssignmentConnection& connection
         ) {
             writer.begin_object();
@@ -355,7 +355,7 @@ namespace timetable::infra {
         }
 
         void write_time_interval(
-            JsonWriter& writer
+              JsonWriter&                            writer
             , const timetable::domain::TimeInterval& interval
         ) {
             writer.begin_object();
@@ -369,7 +369,7 @@ namespace timetable::infra {
         }
 
         void write_interval_share(
-            JsonWriter& writer
+              JsonWriter&                                       writer
             , const timetable::domain::AssignmentIntervalShare& share
         ) {
             writer.begin_object();
@@ -387,7 +387,7 @@ namespace timetable::infra {
         }
 
         void write_demand_interval(
-            JsonWriter& writer
+              JsonWriter&                                        writer
             , const timetable::domain::AssignmentDemandInterval& interval
         ) {
             writer.begin_object();
@@ -407,7 +407,7 @@ namespace timetable::infra {
         }
 
         void write_od_result(
-            JsonWriter& writer
+              JsonWriter&                                  writer
             , const timetable::domain::AssignmentOdResult& od_result
         ) {
             writer.begin_object();
@@ -439,7 +439,7 @@ namespace timetable::infra {
         }
 
         void write_output_summary(
-            JsonWriter& writer
+              JsonWriter&                                         writer
             , const timetable::domain::AssignmentOutput::Summary& summary
         ) {
             writer.begin_object();
@@ -491,8 +491,8 @@ namespace timetable::infra {
     }
 
     mathfp::Expected<mathfp::Unit> write_assignment_output_json(
-        const timetable::domain::AssignmentOutput& output
-        , const std::filesystem::path& path
+          const timetable::domain::AssignmentOutput& output
+        , const std::filesystem::path&               path
     ) {
         std::error_code ec;
         if (const auto parent = path.parent_path(); !parent.empty()) {
@@ -500,7 +500,7 @@ namespace timetable::infra {
             if (ec) {
                 return mathfp::unexpected(
                     mathfp::invalid_arg("failed to create output directory")
-                        .ctx("path", parent.string())
+                        .ctx("path"        , parent.string())
                         .ctx("system_error", ec.message())
                 );
             }

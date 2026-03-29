@@ -15,31 +15,31 @@ namespace timetable::domain::assignment {
     );
 
     mathfp::Expected<mathfp::Unit> validate_preprocessing_step_output(
-        const PreprocessedNetwork& network
-        , const SearchParams& params
+          const PreprocessedNetwork& network
+        , const SearchParams&      params
     );
 
     mathfp::Expected<mathfp::Unit> validate_search_step_output(
-        const ConnectionSearchResult& result
-        , const PreprocessedNetwork& network
-        , double fare_scale
-        , const SearchParams& params
+          const ConnectionSearchResult& result
+        , const PreprocessedNetwork&  network
+        , double                      fare_scale
+        , const SearchParams&         params
     );
 
     mathfp::Expected<mathfp::Unit> validate_choice_step_output(
-        const ConnectionChoiceResult& choice_result
+          const ConnectionChoiceResult&   choice_result
         , const ConnectionSearchResult& search_result
     );
 
     mathfp::Expected<mathfp::Unit> validate_split_step_input(
-        const ConnectionChoiceResult& choice_result
-        , const InputModel& input
+          const ConnectionChoiceResult& choice_result
+        , const InputModel&           input
     );
 
     mathfp::Expected<mathfp::Unit> validate_split_step_output(
-        const DemandSplitResult& split_result
+          const DemandSplitResult&        split_result
         , const ConnectionChoiceResult& choice_result
-        , const InputModel& input
+        , const InputModel&             input
     );
 
 }  // namespace timetable::domain::assignment

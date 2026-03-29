@@ -23,7 +23,7 @@
 namespace mathfp::linalg {
 
     enum class DuplicatePolicy : unsigned char {
-        Sum    // Eigen default behavior: duplicates are summed (or with custom functor)
+          Sum    // Eigen default behavior: duplicates are summed (or with custom functor)
         , Last   // keep last (implemented by custom merge functor: overwrite)
         , Error  // reject duplicates
     };
@@ -88,18 +88,18 @@ namespace mathfp::linalg {
         , std::ranges::input_range Triplets
     >
     MATHFP_NODISCARD inline ::mathfp::Expected<SpMat<Scalar, Options, StorageIndex>> build_sparse(
-        EigenIndex rows
-        , EigenIndex cols
-        , Triplets&& triplets
-        , DuplicatePolicy policy = DuplicatePolicy::Sum
+          EigenIndex           rows
+        , EigenIndex           cols
+        , Triplets&&           triplets
+        , DuplicatePolicy      policy = DuplicatePolicy::Sum
         , std::source_location where = std::source_location::current()
     ) requires std::same_as<std::remove_cvref_t<std::ranges::range_value_t<Triplets>>, Triplet<Scalar, StorageIndex>>
     {
         if (rows <= 0 || cols <= 0) {
             return ::mathfp::unexpected(
                 ::mathfp::invalid_arg("sparse matrix shape must be positive", where)
-                .ctx(ctx_key::kRows, rows)
-                .ctx(ctx_key::kCols, cols)
+                .ctx(ctx_key::kRows , rows)
+                .ctx(ctx_key::kCols , cols)
                 .ctx(detail::kPolicy, detail::to_string(policy)));
         }
 
@@ -122,11 +122,11 @@ namespace mathfp::linalg {
             if (!ok_r || !ok_c) {
                 return ::mathfp::unexpected(
                     ::mathfp::invalid_arg("triplet index out of bounds", where)
-                    .ctx("triplet.row", r)
-                    .ctx("triplet.col", c)
-                    .ctx(ctx_key::kRows, rows)
-                    .ctx(ctx_key::kCols, cols)
-                    .ctx("nnz_seen", nnz)
+                    .ctx("triplet.row"  , r)
+                    .ctx("triplet.col"  , c)
+                    .ctx(ctx_key::kRows , rows)
+                    .ctx(ctx_key::kCols , cols)
+                    .ctx("nnz_seen"     , nnz)
                     .ctx(detail::kPolicy, detail::to_string(policy)));
             }
 
@@ -135,9 +135,9 @@ namespace mathfp::linalg {
                 if (!seen.insert(key).second) {
                     return ::mathfp::unexpected(
                         ::mathfp::invalid_arg("duplicate triplet entry", where)
-                        .ctx("row", r)
-                        .ctx("col", c)
-                        .ctx("nnz_seen", nnz)
+                        .ctx("row"          , r)
+                        .ctx("col"          , c)
+                        .ctx("nnz_seen"     , nnz)
                         .ctx(detail::kPolicy, detail::to_string(policy)));
                 }
             }

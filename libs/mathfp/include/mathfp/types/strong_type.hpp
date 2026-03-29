@@ -99,7 +99,7 @@ namespace mathfp {
             friend constexpr Derived operator++(Derived& x, int)
                 requires requires { x.get(); ++x.get_mut(); }
             {
-                auto old = x;
+                auto   old = x;
                 ++x;
                 return old;
             }
@@ -111,7 +111,7 @@ namespace mathfp {
     class StrongType : public Skills<StrongType<T, Tag, Skills...>>... {
     public:
         using ValueType = T;
-        using TagType = Tag;
+        using TagType   = Tag;
 
         constexpr StrongType() = default;
 

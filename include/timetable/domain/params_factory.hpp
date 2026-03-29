@@ -14,18 +14,18 @@ namespace timetable::domain {
     namespace detail {
 
         inline mathfp::Expected<mathfp::Unit> ensure_nonnegative_search_impedance_inputs(
-            Dimless a_journey_time
+              Dimless   a_journey_time
             , Dimless a_transfers
             , Dimless a_fare
         ) {
             MATHFP_TRY(validation::ensure_nonneg(a_journey_time, "a_journey_time"));
-            MATHFP_TRY(validation::ensure_nonneg(a_transfers, "a_transfers"));
-            MATHFP_TRY(validation::ensure_nonneg(a_fare, "a_fare"));
+            MATHFP_TRY(validation::ensure_nonneg(a_transfers   , "a_transfers"));
+            MATHFP_TRY(validation::ensure_nonneg(a_fare        , "a_fare"));
             return mathfp::kUnit;
         }
 
         inline mathfp::Expected<mathfp::Unit> ensure_nonnegative_tolerance_inputs(
-            Dimless imp_mult
+              Dimless   imp_mult
             , Dimless imp_add
             , Dimless jt_mult
             , Dimless jt_add
@@ -33,26 +33,26 @@ namespace timetable::domain {
             , Dimless nt_add
         ) {
             MATHFP_TRY(validation::ensure_nonneg(imp_mult, "imp_mult"));
-            MATHFP_TRY(validation::ensure_nonneg(imp_add, "imp_add"));
-            MATHFP_TRY(validation::ensure_nonneg(jt_mult, "jt_mult"));
-            MATHFP_TRY(validation::ensure_nonneg(jt_add, "jt_add"));
-            MATHFP_TRY(validation::ensure_nonneg(nt_mult, "nt_mult"));
-            MATHFP_TRY(validation::ensure_nonneg(nt_add, "nt_add"));
+            MATHFP_TRY(validation::ensure_nonneg(imp_add , "imp_add"));
+            MATHFP_TRY(validation::ensure_nonneg(jt_mult , "jt_mult"));
+            MATHFP_TRY(validation::ensure_nonneg(jt_add  , "jt_add"));
+            MATHFP_TRY(validation::ensure_nonneg(nt_mult , "nt_mult"));
+            MATHFP_TRY(validation::ensure_nonneg(nt_add  , "nt_add"));
             return mathfp::kUnit;
         }
 
         inline mathfp::Expected<mathfp::Unit> ensure_nonnegative_split_weights(
-            Dimless q_time
+              Dimless   q_time
             , Dimless q_departure
             , Dimless q_fare
             , Dimless boxcox_t
             , Dimless gamma
         ) {
-            MATHFP_TRY(validation::ensure_nonneg(q_time, "q_time"));
+            MATHFP_TRY(validation::ensure_nonneg(q_time     , "q_time"));
             MATHFP_TRY(validation::ensure_nonneg(q_departure, "q_departure"));
-            MATHFP_TRY(validation::ensure_nonneg(q_fare, "q_fare"));
-            MATHFP_TRY(validation::ensure_nonneg(boxcox_t, "boxcox_t"));
-            MATHFP_TRY(validation::ensure_nonneg(gamma, "gamma"));
+            MATHFP_TRY(validation::ensure_nonneg(q_fare     , "q_fare"));
+            MATHFP_TRY(validation::ensure_nonneg(boxcox_t   , "boxcox_t"));
+            MATHFP_TRY(validation::ensure_nonneg(gamma      , "gamma"));
             return mathfp::kUnit;
         }
 
@@ -84,7 +84,7 @@ namespace timetable::domain {
         }
 
         inline mathfp::Expected<mathfp::Unit> ensure_positive_split_scales(
-            Dimless beta
+              Dimless   beta
             , Dimless temporal_similarity_scale
             , Dimless higher_quality_scale
             , Dimless lower_quality_scale
@@ -111,7 +111,7 @@ namespace timetable::domain {
         }
 
         inline mathfp::Expected<mathfp::Unit> ensure_weighted_walk_cost_has_positive_weight(
-            WalkCostKind walk_cost_kind
+              WalkCostKind      walk_cost_kind
             , WalkCostWeights walk_cost
         ) {
             if (walk_cost_kind != WalkCostKind::Weighted) {
@@ -142,7 +142,7 @@ namespace timetable::domain {
             if (max_transfers.get() < 0) {
                 const char* message = "max_transfers must be non-negative";
                 return validation::fail(
-                    message
+                      message
                     , mathfp::invalid_arg(message)
                         .ctx("max_transfers", max_transfers.get())
                 );
@@ -151,13 +151,13 @@ namespace timetable::domain {
         }
 
         inline mathfp::Expected<mathfp::Unit> ensure_transfer_waits_ordered(
-            Time min_transfer_wait
+              Time   min_transfer_wait
             , Time max_transfer_wait
         ) {
             if (min_transfer_wait.value() > max_transfer_wait.value()) {
                 const char* message = "min_transfer_wait must be <= max_transfer_wait";
                 return validation::fail(
-                    message
+                      message
                     , mathfp::invalid_arg(message)
                         .ctx("min_transfer_wait", min_transfer_wait.value())
                         .ctx("max_transfer_wait", max_transfer_wait.value())
@@ -168,7 +168,7 @@ namespace timetable::domain {
 
         template <class Tolerance>
         inline mathfp::Expected<Tolerance> make_tolerance_bundle(
-            Dimless imp_mult
+              Dimless   imp_mult
             , Dimless imp_add
             , Dimless jt_mult
             , Dimless jt_add
@@ -179,28 +179,28 @@ namespace timetable::domain {
                 imp_mult, imp_add, jt_mult, jt_add, nt_mult, nt_add
             ));
             return Tolerance{
-                .imp_mult  = imp_mult
-                , .imp_add = imp_add
-                , .jt_mult = jt_mult
-                , .jt_add  = jt_add
-                , .nt_mult = nt_mult
-                , .nt_add  = nt_add
+                  .imp_mult = imp_mult
+                , .imp_add  = imp_add
+                , .jt_mult  = jt_mult
+                , .jt_add   = jt_add
+                , .nt_mult  = nt_mult
+                , .nt_add   = nt_add
             };
         }
 
     }  // namespace detail
 
     inline mathfp::Expected<SearchImpedance> make_search_impedance(
-        Dimless a_journey_time
-        , Dimless a_transfers
-        , Dimless a_fare
+          Dimless             a_journey_time
+        , Dimless           a_transfers
+        , Dimless           a_fare
         , FareNormalization fare_normalization = {}
     ) {
         MATHFP_TRY(detail::ensure_nonnegative_search_impedance_inputs(
             a_journey_time, a_transfers, a_fare
         ));
         return SearchImpedance{
-            .a_journey_time       = a_journey_time
+              .a_journey_time     = a_journey_time
             , .a_transfers        = a_transfers
             , .a_fare             = a_fare
             , .fare_normalization = fare_normalization
@@ -208,11 +208,11 @@ namespace timetable::domain {
     }
 
     inline mathfp::Expected<TransferLimits> make_transfer_limits(
-        TransferCount max_transfers
-        , Time min_transfer_wait
-        , Time max_transfer_wait
-        , bool allow_start_wait
-        , bool allow_end_wait
+          TransferCount max_transfers
+        , Time          min_transfer_wait
+        , Time          max_transfer_wait
+        , bool          allow_start_wait
+        , bool          allow_end_wait
     ) {
         MATHFP_TRY(detail::ensure_max_transfers_nonnegative(max_transfers));
         MATHFP_TRY(validation::ensure_nonneg(min_transfer_wait, "min_transfer_wait"));
@@ -222,7 +222,7 @@ namespace timetable::domain {
         ));
 
         return TransferLimits{
-            .max_transfers       = max_transfers
+              .max_transfers     = max_transfers
             , .min_transfer_wait = min_transfer_wait
             , .max_transfer_wait = max_transfer_wait
             , .allow_start_wait  = allow_start_wait
@@ -231,7 +231,7 @@ namespace timetable::domain {
     }
 
     inline mathfp::Expected<SearchTolerances> make_search_tolerances(
-        Dimless imp_mult
+          Dimless imp_mult
         , Dimless imp_add
         , Dimless jt_mult
         , Dimless jt_add
@@ -244,7 +244,7 @@ namespace timetable::domain {
     }
 
     inline mathfp::Expected<ChoiceTolerances> make_choice_tolerances(
-        Dimless imp_mult
+          Dimless imp_mult
         , Dimless imp_add
         , Dimless jt_mult
         , Dimless jt_add
@@ -257,17 +257,17 @@ namespace timetable::domain {
     }
 
     inline mathfp::Expected<SplitParams> make_split_params(
-        Dimless q_time
-        , Dimless q_departure
-        , Dimless q_fare
+          Dimless                     q_time
+        , Dimless                     q_departure
+        , Dimless                     q_fare
         , PerceivedJourneyTimeWeights perceived_journey_time
-        , TemporalUtilityWeights temporal_utility
-        , Dimless beta
-        , Dimless boxcox_t
-        , Dimless gamma
-        , Dimless temporal_similarity_scale
-        , Dimless higher_quality_scale
-        , Dimless lower_quality_scale
+        , TemporalUtilityWeights      temporal_utility
+        , Dimless                     beta
+        , Dimless                     boxcox_t
+        , Dimless                     gamma
+        , Dimless                     temporal_similarity_scale
+        , Dimless                     higher_quality_scale
+        , Dimless                     lower_quality_scale
     ) {
         MATHFP_TRY(detail::ensure_nonnegative_split_weights(
             q_time, q_departure, q_fare, boxcox_t, gamma
@@ -279,21 +279,21 @@ namespace timetable::domain {
             temporal_utility
         ));
         MATHFP_TRY(detail::ensure_positive_split_scales(
-            beta
+              beta
             , temporal_similarity_scale
             , higher_quality_scale
             , lower_quality_scale
         ));
 
         return SplitParams{
-            .q_time        = q_time
-            , .q_departure = q_departure
-            , .q_fare      = q_fare
-            , .perceived_journey_time = perceived_journey_time
-            , .temporal_utility       = temporal_utility
-            , .beta        = beta
-            , .boxcox_t    = boxcox_t
-            , .gamma       = gamma
+              .q_time                    = q_time
+            , .q_departure               = q_departure
+            , .q_fare                    = q_fare
+            , .perceived_journey_time    = perceived_journey_time
+            , .temporal_utility          = temporal_utility
+            , .beta                      = beta
+            , .boxcox_t                  = boxcox_t
+            , .gamma                     = gamma
             , .temporal_similarity_scale = temporal_similarity_scale
             , .higher_quality_scale      = higher_quality_scale
             , .lower_quality_scale       = lower_quality_scale
@@ -301,16 +301,16 @@ namespace timetable::domain {
     }
 
     inline mathfp::Expected<PreprocessParams> make_preprocess_params(
-        WalkCostKind walk_cost_kind
-        , WalkCostWeights walk_cost
+          WalkCostKind         walk_cost_kind
+        , WalkCostWeights      walk_cost
         , std::optional<Speed> line_speed
-        , bool strict_trips
-        , bool allow_overnight
-        , bool overnight_add_24h
-        , bool strict_stop_times
-        , TimeAggregationKind time_aggregation
-        , bool deduplicate_walk_segments
-        , bool stable_ordering
+        , bool                 strict_trips
+        , bool                 allow_overnight
+        , bool                 overnight_add_24h
+        , bool                 strict_stop_times
+        , TimeAggregationKind  time_aggregation
+        , bool                 deduplicate_walk_segments
+        , bool                 stable_ordering
     ) {
         MATHFP_TRY(detail::ensure_walk_cost_weights_nonnegative(walk_cost));
         MATHFP_TRY(detail::ensure_weighted_walk_cost_has_positive_weight(
@@ -319,7 +319,7 @@ namespace timetable::domain {
         MATHFP_TRY(detail::ensure_optional_line_speed_positive(line_speed));
 
         return PreprocessParams{
-            .walk_cost_kind              = walk_cost_kind
+              .walk_cost_kind            = walk_cost_kind
             , .walk_cost                 = walk_cost
             , .line_speed                = line_speed
             , .strict_trips              = strict_trips
@@ -333,15 +333,15 @@ namespace timetable::domain {
     }
 
     inline mathfp::Expected<SearchParams> make_search_params(
-        PreprocessParams preprocess
-        , SearchImpedance impedance
-        , TransferLimits transfers
+          PreprocessParams preprocess
+        , SearchImpedance  impedance
+        , TransferLimits   transfers
         , SearchTolerances search_tolerances
         , ChoiceTolerances choice_tolerances
-        , SplitParams split
+        , SplitParams      split
     ) {
         return SearchParams{
-            .preprocess          = std::move(preprocess)
+              .preprocess        = std::move(preprocess)
             , .impedance         = std::move(impedance)
             , .transfers         = std::move(transfers)
             , .search_tolerances = std::move(search_tolerances)

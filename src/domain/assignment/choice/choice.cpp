@@ -18,33 +18,33 @@ namespace timetable::domain::assignment {
     namespace {
 
         struct ChoiceGroupStats final {
-            double min_impedance{ std::numeric_limits<double>::infinity() };
+            double min_impedance   { std::numeric_limits<double>::infinity() };
             double min_journey_time{ std::numeric_limits<double>::infinity() };
-            double min_transfers{ std::numeric_limits<double>::infinity() };
+            double min_transfers   { std::numeric_limits<double>::infinity() };
         };
 
         bool choice_dominates(
-            const DiscoveredConnection& lhs
+              const DiscoveredConnection& lhs
             , const DiscoveredConnection& rhs
         ) noexcept {
             const auto no_worse =
-                lhs.departure.value() >= rhs.departure.value()
-                && lhs.arrival.value() <= rhs.arrival.value()
-                && lhs.impedance <= rhs.impedance
-                && lhs.transfers.get() <= rhs.transfers.get();
+                   lhs.departure.value() >= rhs.departure.value()
+                && lhs.arrival  .value() <= rhs.arrival  .value()
+                && lhs.impedance         <= rhs.impedance
+                && lhs.transfers.get()   <= rhs.transfers.get();
 
             const auto strictly_better =
-                lhs.departure.value() > rhs.departure.value()
-                || lhs.arrival.value() < rhs.arrival.value()
-                || lhs.impedance < rhs.impedance
-                || lhs.transfers.get() < rhs.transfers.get();
+                   lhs.departure.value() > rhs.departure.value()
+                || lhs.arrival  .value() < rhs.arrival  .value()
+                || lhs.impedance         < rhs.impedance
+                || lhs.transfers.get()   < rhs.transfers.get();
 
             return no_worse && strictly_better;
         }
 
         bool is_choice_relevant(
-            std::span<const DiscoveredConnection> connections
-            , std::size_t candidate_index
+              std::span<const DiscoveredConnection> connections
+            , std::size_t                           candidate_index
         ) noexcept {
             const auto& candidate = connections[candidate_index];
             for (std::size_t i = 0; i < connections.size(); ++i) {
@@ -63,13 +63,13 @@ namespace timetable::domain::assignment {
         ) noexcept {
             ChoiceGroupStats stats;
             for (const auto& connection : connections) {
-                stats.min_impedance = std::min(stats.min_impedance, connection.impedance);
+                stats.min_impedance    = std::min(stats.min_impedance, connection.impedance);
                 stats.min_journey_time = std::min(
-                    stats.min_journey_time
+                      stats.min_journey_time
                     , connection.journey_time.value()
                 );
                 stats.min_transfers = std::min(
-                    stats.min_transfers
+                      stats.min_transfers
                     , static_cast<double>(connection.transfers.get())
                 );
             }
@@ -77,24 +77,24 @@ namespace timetable::domain::assignment {
         }
 
         bool within_choice_tolerances(
-            const DiscoveredConnection& connection
-            , const ChoiceGroupStats& stats
-            , const ChoiceTolerances& tolerances
+              const DiscoveredConnection& connection
+            , const ChoiceGroupStats&     stats
+            , const ChoiceTolerances&     tolerances
         ) noexcept {
             return connection.impedance
-                    <= mathfp::units::as_dimless(tolerances.imp_mult) * stats.min_impedance
-                        + mathfp::units::as_dimless(tolerances.imp_add)
+                       <= mathfp::units::as_dimless(tolerances.imp_mult) * stats.min_impedance
+                           + mathfp::units::as_dimless(tolerances.imp_add)
                 && connection.journey_time.value()
-                    <= mathfp::units::as_dimless(tolerances.jt_mult) * stats.min_journey_time
-                        + mathfp::units::as_dimless(tolerances.jt_add)
+                       <= mathfp::units::as_dimless(tolerances.jt_mult) * stats.min_journey_time
+                           + mathfp::units::as_dimless(tolerances.jt_add)
                 && static_cast<double>(connection.transfers.get())
-                    <= mathfp::units::as_dimless(tolerances.nt_mult) * stats.min_transfers
-                        + mathfp::units::as_dimless(tolerances.nt_add);
+                       <= mathfp::units::as_dimless(tolerances.nt_mult) * stats.min_transfers
+                           + mathfp::units::as_dimless(tolerances.nt_add);
         }
 
         std::vector<DiscoveredConnection> filter_choice_group(
-            std::vector<DiscoveredConnection> connections
-            , const ChoiceTolerances& tolerances
+              std::vector<DiscoveredConnection> connections
+            , const ChoiceTolerances&           tolerances
         ) {
             std::vector<DiscoveredConnection> relevant;
             relevant.reserve(connections.size());
@@ -114,7 +114,7 @@ namespace timetable::domain::assignment {
             }
 
             std::sort(
-                chosen.begin()
+                  chosen.begin()
                 , chosen.end()
                 , [](const DiscoveredConnection& lhs, const DiscoveredConnection& rhs) {
                     if (lhs.departure != rhs.departure) {
@@ -139,8 +139,8 @@ namespace timetable::domain::assignment {
     }  // namespace
 
     mathfp::Expected<ConnectionChoiceResult> choose_connections(
-        const ConnectionSearchResult& search_result
-        , const SearchParams& params
+          const ConnectionSearchResult& search_result
+        , const SearchParams&           params
     ) {
         using timetable::infra::LogLevel;
         using timetable::infra::progress::both;
@@ -149,7 +149,7 @@ namespace timetable::domain::assignment {
         both("choice: pruning connections");
         log(
             fmt::format(
-                "choice input: connections = {:>8}"
+                  "choice input: connections = {:>8}"
                 , search_result.connections.size()
             )
             , LogLevel::Info
@@ -171,7 +171,7 @@ namespace timetable::domain::assignment {
                 , LogLevel::Info
             );
             result.connections.insert(
-                result.connections.end()
+                  result.connections.end()
                 , std::make_move_iterator(chosen.begin())
                 , std::make_move_iterator(chosen.end())
             );
@@ -179,7 +179,7 @@ namespace timetable::domain::assignment {
 
         log(
             fmt::format(
-                "choice result: groups = {:>6}  connections = {:>8}"
+                  "choice result: groups = {:>6}  connections = {:>8}"
                 , groups.size()
                 , result.connections.size()
             )

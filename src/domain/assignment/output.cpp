@@ -4,20 +4,20 @@
 
 namespace timetable::domain::assignment {
 
-	mathfp::Expected<AssignmentOutput> build_assignment_output(
-		const InputModel& input
-		, const PreprocessedNetwork& network
-		, const ConnectionSearchResult& search_result
-		, const ConnectionChoiceResult& choice_result
-		, const DemandSplitResult& split_result
-	) {
-		return detail::build_assignment_output_impl(
-			input
-			, network
-			, search_result
-			, choice_result
-			, split_result
-		);
-	}
+    mathfp::Expected<AssignmentOutput> build_assignment_output(
+          const InputModel&             input
+        , const PreprocessedNetwork&    network
+        , const ConnectionSearchResult& search_result
+        , const ConnectionChoiceResult& choice_result
+        , const DemandSplitResult&      split_result
+    ) {
+        return detail::build_assignment_output_impl(
+              input
+            , network
+            , search_result
+            , choice_result
+            , split_result
+        );
+    }
 
 }  // namespace timetable::domain::assignment

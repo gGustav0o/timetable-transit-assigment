@@ -88,7 +88,7 @@ namespace timetable::domain {
     }
 
     [[nodiscard]] inline bool same_line(
-        const RouteSegment& lhs
+          const RouteSegment& lhs
         , const RouteSegment& rhs
     ) noexcept {
         const auto lhs_line = line_of(lhs);
@@ -119,14 +119,14 @@ namespace timetable::domain {
     }
 
     [[nodiscard]] inline bool route_topology_matches_connection_mode(
-        const RouteSegment& route_segment
+          const RouteSegment&      route_segment
         , const ConnectionSegment& connection_segment
     ) noexcept {
         return is_line(route_segment) == is_timed_connection(connection_segment);
     }
 
     [[nodiscard]] inline bool share_trip_reference(
-        const ConnectionSegment& lhs
+          const ConnectionSegment& lhs
         , const ConnectionSegment& rhs
     ) noexcept {
         return lhs.trip.has_value()
@@ -135,7 +135,7 @@ namespace timetable::domain {
     }
 
     [[nodiscard]] inline bool transfer_reuses_same_trip(
-        const ConnectionSegment& current
+          const ConnectionSegment& current
         , const ConnectionSegment& successor
     ) noexcept {
         return share_trip_reference(current, successor);

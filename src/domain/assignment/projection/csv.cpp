@@ -14,7 +14,7 @@ namespace timetable::domain::assignment::projection {
     namespace {
 
         mathfp::Expected<mathfp::Unit> ensure_matching_od_summary(
-            const AssignmentOdResult& od_result
+              const AssignmentOdResult&  od_result
             , const AssignmentOdSummary& summary
         ) {
             if (od_result.origin != summary.origin
@@ -45,7 +45,7 @@ namespace timetable::domain::assignment::projection {
             const AssignmentOdSummary& summary
         ) {
             return AssignmentOdSummaryCsvRow{
-                .origin                     = summary.origin
+                  .origin                   = summary.origin
                 , .destination              = summary.destination
                 , .search_connection_count  = summary.search_connection_count
                 , .chosen_connection_count  = summary.chosen_connection_count
@@ -61,10 +61,10 @@ namespace timetable::domain::assignment::projection {
         }
 
         mathfp::Expected<AssignmentConnectionCsvRow> build_connection_row(
-            const AssignmentOdResult& od_result
+              const AssignmentOdResult&          od_result
             , const AssignmentConnectionSummary& summary
-            , const AssignmentConnection& connection
-            , AssignmentConnectionRef expected_index
+            , const AssignmentConnection&        connection
+            , AssignmentConnectionRef            expected_index
         ) {
             const auto raw_index = summary.index.get();
             if (raw_index < 0) {
@@ -87,7 +87,7 @@ namespace timetable::domain::assignment::projection {
             }
 
             return AssignmentConnectionCsvRow{
-                .origin                = od_result.origin
+                  .origin              = od_result.origin
                 , .destination         = od_result.destination
                 , .connection_index    = summary.index
                 , .departure           = summary.departure
@@ -112,7 +112,7 @@ namespace timetable::domain::assignment::projection {
                 for (const auto& share : interval.shares) {
                     rows.push_back(
                         AssignmentShareCsvRow{
-                            .origin                         = od_result.origin
+                              .origin                       = od_result.origin
                             , .destination                  = od_result.destination
                             , .interval_id                  = interval.interval.id
                             , .interval_start               = interval.interval.start
@@ -153,16 +153,16 @@ namespace timetable::domain::assignment::projection {
         }
 
         AssignmentSegmentCsvRow build_segment_row(
-            const AssignmentOdResult& od_result
-            , AssignmentConnectionRef connection_index
-            , std::size_t path_segment_index
+              const AssignmentOdResult&    od_result
+            , AssignmentConnectionRef      connection_index
+            , std::size_t                  path_segment_index
             , const AssignmentPathSegment& segment
         ) {
             const auto physical_from = physical_from_key(segment.route_segment);
             const auto physical_to   = physical_to_key(segment.route_segment);
 
             AssignmentSegmentCsvRow row{
-                .origin                  = od_result.origin
+                  .origin                = od_result.origin
                 , .destination           = od_result.destination
                 , .connection_index      = connection_index
                 , .path_segment_index    = path_segment_index
@@ -194,7 +194,7 @@ namespace timetable::domain::assignment::projection {
                 return row;
             }
 
-            const auto* line = line_topology_of(segment.route_segment);
+            const auto* line       = line_topology_of(segment.route_segment);
             row.line_id            = line->line;
             row.line_from_stop_id  = line->from.stop;
             row.line_from_position = line->from.position;
@@ -204,8 +204,8 @@ namespace timetable::domain::assignment::projection {
         }
 
         std::vector<AssignmentSegmentCsvRow> build_segment_rows(
-            const AssignmentOdResult& od_result
-            , AssignmentConnectionRef connection_index
+              const AssignmentOdResult&   od_result
+            , AssignmentConnectionRef     connection_index
             , const AssignmentConnection& connection
         ) {
             std::vector<AssignmentSegmentCsvRow> rows{};
@@ -214,7 +214,7 @@ namespace timetable::domain::assignment::projection {
             for (std::size_t i = 0; i < connection.segments.size(); ++i) {
                 rows.push_back(
                     build_segment_row(
-                        od_result
+                          od_result
                         , connection_index
                         , i
                         , connection.segments[i]
@@ -226,8 +226,8 @@ namespace timetable::domain::assignment::projection {
         }
 
         mathfp::Expected<mathfp::Unit> append_connection_projection_rows(
-            AssignmentCsvProjection& projection
-            , const AssignmentOdResult& od_result
+              AssignmentCsvProjection&   projection
+            , const AssignmentOdResult&  od_result
             , const AssignmentOdSummary& od_summary
         ) {
             for (std::size_t connection_index = 0; connection_index < od_result.connections.size(); ++connection_index) {
@@ -236,10 +236,10 @@ namespace timetable::domain::assignment::projection {
                 };
 
                 MATHFP_TRY_LET(
-                    AssignmentConnectionCsvRow
+                      AssignmentConnectionCsvRow
                     , connection_row
                     , build_connection_row(
-                        od_result
+                          od_result
                         , od_summary.connections[connection_index]
                         , od_result.connections[connection_index]
                         , connection_ref
@@ -248,12 +248,12 @@ namespace timetable::domain::assignment::projection {
                 projection.connection_rows.push_back(std::move(connection_row));
 
                 auto segment_rows = build_segment_rows(
-                    od_result
+                      od_result
                     , connection_ref
                     , od_result.connections[connection_index]
                 );
                 projection.segment_rows.insert(
-                    projection.segment_rows.end()
+                      projection.segment_rows.end()
                     , segment_rows.begin()
                     , segment_rows.end()
                 );
@@ -263,20 +263,20 @@ namespace timetable::domain::assignment::projection {
         }
 
         void append_share_projection_rows(
-            AssignmentCsvProjection& projection
+              AssignmentCsvProjection&  projection
             , const AssignmentOdResult& od_result
         ) {
             auto share_rows = build_share_rows(od_result);
             projection.share_rows.insert(
-                projection.share_rows.end()
+                  projection.share_rows.end()
                 , share_rows.begin()
                 , share_rows.end()
             );
         }
 
         mathfp::Expected<mathfp::Unit> append_od_projection_rows(
-            AssignmentCsvProjection& projection
-            , const AssignmentOdResult& od_result
+              AssignmentCsvProjection&   projection
+            , const AssignmentOdResult&  od_result
             , const AssignmentOdSummary& od_summary
         ) {
             MATHFP_TRY(ensure_matching_od_summary(od_result, od_summary));
@@ -292,7 +292,7 @@ namespace timetable::domain::assignment::projection {
         const AssignmentOutput& output
     ) {
         MATHFP_TRY_LET(
-            AssignmentResultSummary
+              AssignmentResultSummary
             , summary
             , build_assignment_result_summary(output)
         );
@@ -310,11 +310,11 @@ namespace timetable::domain::assignment::projection {
         AssignmentCsvProjection projection{};
         projection.od_summary_rows.reserve(summary.od_results.size());
         projection.connection_rows.reserve(output.summary.chosen_connection_count);
-        projection.share_rows.reserve(output.summary.demand_share_count);
-        projection.segment_rows.reserve(segment_row_count);
+        projection.share_rows     .reserve(output.summary.demand_share_count);
+        projection.segment_rows   .reserve(segment_row_count);
 
         for (std::size_t od_index = 0; od_index < output.od_results.size(); ++od_index) {
-            const auto& od_result = output.od_results[od_index];
+            const auto& od_result  = output.od_results[od_index];
             const auto& od_summary = summary.od_results[od_index];
             MATHFP_TRY(append_od_projection_rows(projection, od_result, od_summary));
         }

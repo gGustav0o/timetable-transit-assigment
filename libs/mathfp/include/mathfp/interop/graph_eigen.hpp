@@ -67,7 +67,7 @@ namespace mathfp::interop {
 
         template <class G>
         MATHFP_NODISCARD inline ::mathfp::Expected<::mathfp::Unit> ensure_graph_nonempty_or_allow_empty(
-            const G&
+              const G&
             , bool
             , std::source_location
         ) {
@@ -83,14 +83,14 @@ namespace mathfp::interop {
     // -------------------- Adjacency (sparse) -------------------------------------
     template <class Scalar = double, class G>
     MATHFP_NODISCARD inline ::mathfp::Expected<::mathfp::linalg::SpMat<Scalar>> adjacency_sparse(
-        const G& g
-        , bool symmetrize_undirected = true
+          const G&             g
+        , bool                 symmetrize_undirected = true
         , std::source_location where = std::source_location::current()
     ) {
         MATHFP_TRY(detail::ensure_graph_nonempty_or_allow_empty(g, true, where));
 
         const auto n = detail::n_vertices_eigen(g);
-        using Trip = ::mathfp::linalg::Triplet<Scalar>;
+        using Trip   = ::mathfp::linalg::Triplet<Scalar>;
 
         std::vector<Trip> t;
         t.reserve(static_cast<std::size_t>(::mathfp::graph::edge_count(g)) *
@@ -102,18 +102,18 @@ namespace mathfp::interop {
 
             const auto u_id = ::mathfp::graph::source_id(g, e);
             const auto v_id = ::mathfp::graph::target_id(g, e);
-            const auto ui = static_cast<Eigen::Index>(::mathfp::to_usize(u_id));
-            const auto vi = static_cast<Eigen::Index>(::mathfp::to_usize(v_id));
+            const auto ui   = static_cast<Eigen::Index>(::mathfp::to_usize(u_id));
+            const auto vi   = static_cast<Eigen::Index>(::mathfp::to_usize(v_id));
 
             const auto w_raw = ::mathfp::graph::weight(g, e);
-            const Scalar w = static_cast<Scalar>(w_raw);
+            const Scalar w   = static_cast<Scalar>(w_raw);
 
             if (!detail::is_finite(w)) {
                 return ::mathfp::unexpected(
                     ::mathfp::domain_error("edge weight is NaN/Inf", where)
-                    .ctx("u", ::mathfp::to_usize(u_id))
-                    .ctx("v", ::mathfp::to_usize(v_id))
-                    .ctx("w", w)
+                    .ctx("u"            , ::mathfp::to_usize(u_id))
+                    .ctx("v"            , ::mathfp::to_usize(v_id))
+                    .ctx("w"            , w)
                     .ctx(detail::kMethod, "adjacency_sparse"));
             }
 
@@ -132,7 +132,7 @@ namespace mathfp::interop {
     // -------------------- Laplacian (combinatorial, undirected) ------------------
     template <class Scalar = double, class G>
     MATHFP_NODISCARD inline ::mathfp::Expected<::mathfp::linalg::SpMat<Scalar>> laplacian_sparse(
-        const G& g
+          const G& g
         , std::source_location where = std::source_location::current()
     ) {
         if constexpr (!detail::is_undirected_v<G>) {
@@ -142,7 +142,7 @@ namespace mathfp::interop {
         }
 
         const auto n = detail::n_vertices_eigen(g);
-        using Trip = ::mathfp::linalg::Triplet<Scalar>;
+        using Trip   = ::mathfp::linalg::Triplet<Scalar>;
 
         // degree accumulators
         std::vector<Scalar> deg(static_cast<std::size_t>(n), Scalar{ 0 });
@@ -157,33 +157,33 @@ namespace mathfp::interop {
 
             const auto u_id = ::mathfp::graph::source_id(g, e);
             const auto v_id = ::mathfp::graph::target_id(g, e);
-            const auto ui = static_cast<Eigen::Index>(::mathfp::to_usize(u_id));
-            const auto vi = static_cast<Eigen::Index>(::mathfp::to_usize(v_id));
+            const auto ui   = static_cast<Eigen::Index>(::mathfp::to_usize(u_id));
+            const auto vi   = static_cast<Eigen::Index>(::mathfp::to_usize(v_id));
 
             const auto w_raw = ::mathfp::graph::weight(g, e);
-            const Scalar w = static_cast<Scalar>(w_raw);
+            const Scalar w   = static_cast<Scalar>(w_raw);
 
             if (!detail::is_finite(w)) {
                 return ::mathfp::unexpected(
                     ::mathfp::domain_error("edge weight is NaN/Inf", where)
-                    .ctx("u", ::mathfp::to_usize(u_id))
-                    .ctx("v", ::mathfp::to_usize(v_id))
-                    .ctx("w", w)
+                    .ctx("u"            , ::mathfp::to_usize(u_id))
+                    .ctx("v"            , ::mathfp::to_usize(v_id))
+                    .ctx("w"            , w)
                     .ctx(detail::kMethod, "laplacian_sparse"));
             }
             if (detail::is_negative(w)) {
                 return ::mathfp::unexpected(
                     ::mathfp::invalid_arg("negative weight is not allowed for Laplacian", where)
-                    .ctx("u", ::mathfp::to_usize(u_id))
-                    .ctx("v", ::mathfp::to_usize(v_id))
-                    .ctx("w", w)
+                    .ctx("u"            , ::mathfp::to_usize(u_id))
+                    .ctx("v"            , ::mathfp::to_usize(v_id))
+                    .ctx("w"            , w)
                     .ctx(detail::kMethod, "laplacian_sparse"));
             }
             if (ui == vi) {
                 return ::mathfp::unexpected(
                     ::mathfp::invalid_arg("self-loops are not allowed for Laplacian", where)
-                    .ctx("v", ::mathfp::to_usize(u_id))
-                    .ctx("w", w)
+                    .ctx("v"            , ::mathfp::to_usize(u_id))
+                    .ctx("w"            , w)
                     .ctx(detail::kMethod, "laplacian_sparse"));
             }
 

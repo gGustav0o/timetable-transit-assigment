@@ -8,30 +8,30 @@
 
 namespace timetable::domain::assignment::detail {
 
-	mathfp::Expected<const TimeInterval*> find_interval(
-		const InputModel& input
-		, IntervalId interval_id
-	);
+    mathfp::Expected<const TimeInterval*> find_interval(
+          const InputModel& input
+        , IntervalId        interval_id
+    );
 
-	mathfp::Expected<AssignmentConnection> build_assignment_connection(
-		const DiscoveredConnection& connection
-		, const PreprocessedNetwork& network
-	);
+    mathfp::Expected<AssignmentConnection> build_assignment_connection(
+          const DiscoveredConnection& connection
+        , const PreprocessedNetwork&  network
+    );
 
-	mathfp::Expected<mathfp::Unit> validate_od_result_semantics(
-		const AssignmentOdResult& od_result
-	);
+    mathfp::Expected<mathfp::Unit> validate_od_result_semantics(
+        const AssignmentOdResult& od_result
+    );
 
-	mathfp::Expected<mathfp::Unit> validate_output_summary_semantics(
-		const AssignmentOutput& output
-	);
+    mathfp::Expected<mathfp::Unit> validate_output_summary_semantics(
+        const AssignmentOutput& output
+    );
 
-	mathfp::Expected<AssignmentOutput> build_assignment_output_impl(
-		const InputModel& input
-		, const PreprocessedNetwork& network
-		, const ConnectionSearchResult& search_result
-		, const ConnectionChoiceResult& choice_result
-		, const DemandSplitResult& split_result
-	);
+    mathfp::Expected<AssignmentOutput> build_assignment_output_impl(
+          const InputModel&             input
+        , const PreprocessedNetwork&    network
+        , const ConnectionSearchResult& search_result
+        , const ConnectionChoiceResult& choice_result
+        , const DemandSplitResult&      split_result
+    );
 
 }  // namespace timetable::domain::assignment::detail

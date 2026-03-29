@@ -25,8 +25,8 @@ namespace timetable::infra {
 
         std::mutex g_console_copy_shortcuts_mutex;
         std::size_t g_console_copy_shortcuts_refcount = 0;
-        HANDLE g_console_input = INVALID_HANDLE_VALUE;
-        DWORD g_original_console_mode = 0;
+        HANDLE g_console_input                        = INVALID_HANDLE_VALUE;
+        DWORD g_original_console_mode                 = 0;
 
         mathfp::Expected<mathfp::Unit> acquire_console_copy_shortcuts() {
             std::lock_guard lock(g_console_copy_shortcuts_mutex);
@@ -47,24 +47,24 @@ namespace timetable::infra {
                     );
                 }
 
-                g_console_input = input;
+                g_console_input         = input;
                 g_original_console_mode = mode;
 
                 const auto copy_friendly_mode = mode & ~ENABLE_PROCESSED_INPUT;
                 if (!::SetConsoleMode(input, copy_friendly_mode)) {
-                    g_console_input = INVALID_HANDLE_VALUE;
+                    g_console_input         = INVALID_HANDLE_VALUE;
                     g_original_console_mode = 0;
                     return mathfp::unexpected(
                         mathfp::internal_error("failed to install copy-friendly console input mode")
-                            .ctx("win32_error", static_cast<std::int64_t>(::GetLastError()))
-                            .ctx("original_mode", static_cast<std::int64_t>(mode))
+                            .ctx("win32_error"   , static_cast<std::int64_t>(::GetLastError()))
+                            .ctx("original_mode" , static_cast<std::int64_t>(mode))
                             .ctx("requested_mode", static_cast<std::int64_t>(copy_friendly_mode))
                     );
                 }
 
                 if (!::SetConsoleCtrlHandler(suppress_copy_shortcut_interrupt, TRUE)) {
                     (void)::SetConsoleMode(input, mode);
-                    g_console_input = INVALID_HANDLE_VALUE;
+                    g_console_input         = INVALID_HANDLE_VALUE;
                     g_original_console_mode = 0;
                     return mathfp::unexpected(
                         mathfp::internal_error("failed to install console copy shortcut guard")
@@ -89,7 +89,7 @@ namespace timetable::infra {
                 if (g_console_input != INVALID_HANDLE_VALUE) {
                     (void)::SetConsoleMode(g_console_input, g_original_console_mode);
                 }
-                g_console_input = INVALID_HANDLE_VALUE;
+                g_console_input         = INVALID_HANDLE_VALUE;
                 g_original_console_mode = 0;
             }
         }

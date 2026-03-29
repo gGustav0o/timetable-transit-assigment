@@ -10,17 +10,17 @@
 
 namespace timetable::app {
 
-	struct AppConfig {
-		std::size_t               worker_count         = 0;
-		std::size_t               log_capacity         = 5'000;
-		std::chrono::milliseconds log_refresh_interval { 150 };
-		std::filesystem::path     log_dir              = "logs";
-		bool                      enable_console_sink  = false;
-	};
+    struct AppConfig {
+        std::size_t               worker_count         = 0;
+        std::size_t               log_capacity         = 5'000;
+        std::chrono::milliseconds log_refresh_interval { 150 };
+        std::filesystem::path     log_dir              = "logs";
+        bool                      enable_console_sink  = false;
+    };
 
-	mathfp::Expected<mathfp::Unit> run(
-		const AppConfig& config
-		, const io::DataSource& data_source
-	);
+    mathfp::Expected<mathfp::Unit> run(
+          const AppConfig&        config
+        , const io::DataSource& data_source
+    );
 
 }  // namespace timetable::app

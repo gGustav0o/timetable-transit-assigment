@@ -46,25 +46,25 @@ namespace timetable::ui {
     UiResultSnapshot make_unavailable_result_snapshot() {
         return UiResultSnapshot{
             .lines = {
-                "Assignment result is unavailable."
+                  "Assignment result is unavailable."
                 , "See the status and logs panels for diagnostics."
             }
         };
     }
 
     mathfp::Expected<UiResultSnapshot> build_result_snapshot(
-        const timetable::domain::AssignmentOutput& output
-        , const UiResultSnapshotOptions& options
+          const timetable::domain::AssignmentOutput& output
+        , const UiResultSnapshotOptions&             options
     ) {
         MATHFP_TRY_LET(
-            std::string
+              std::string
             , text
             , timetable::domain::assignment::projection::format_assignment_output_summary(
-                output
+                  output
                 , timetable::domain::assignment::projection::AssignmentTextSummaryOptions{
-                    .max_od_results = options.max_od_results
+                      .max_od_results         = options.max_od_results
                     , .max_connections_per_od = options.max_connections_per_od
-                    , .include_empty_ods = options.include_empty_ods
+                    , .include_empty_ods      = options.include_empty_ods
                 }
             )
         );

@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include <type_traits>
 #include <concepts>
@@ -13,25 +13,25 @@
 
 namespace mathfp::detail {
 
-	template <class... Ts>
-	struct Overloaded : Ts... {
-		using Ts::operator()...;
-	};
+    template <class... Ts>
+    struct Overloaded : Ts... {
+        using Ts::operator()...;
+    };
 
-	template <class... Ts>
-	Overloaded(Ts...) -> Overloaded<Ts...>;
+    template <class... Ts>
+    Overloaded(Ts...) -> Overloaded<Ts...>;
 
-	template <class>
-	inline constexpr bool kAlwaysFalse = false;
+    template <class>
+    inline constexpr bool kAlwaysFalse = false;
 
 } // namespace detail
 
 namespace mathfp {
 
-	template <class... Ts>
-	MATHFP_NODISCARD constexpr auto overloaded(Ts&&... ts) {
-		return detail::Overloaded<std::decay_t<Ts>...>{std::forward<Ts>(ts)...};
-	}
+    template <class... Ts>
+    MATHFP_NODISCARD constexpr auto overloaded(Ts&&... ts) {
+        return detail::Overloaded<std::decay_t<Ts>...>{std::forward<Ts>(ts)...};
+    }
 
     MATHFP_NODISCARD inline Expected<Unit> ensure(bool ok, Error err) {
         if (!ok) return unexpected(std::move(err));
@@ -40,14 +40,14 @@ namespace mathfp {
 
     template <class A, class B>
     MATHFP_NODISCARD inline Expected<Unit> ensure_eq(
-        const A& a
+          const A& a
         , const B& b
         , std::string_view a_name
         , std::string_view b_name
         , std::source_location where = std::source_location::current())
         requires (std::is_arithmetic_v<A> && std::is_arithmetic_v<B>)
     {
-        using C = std::common_type_t<A, B>;
+        using C    = std::common_type_t<A, B>;
         const C ac = static_cast<C>(a);
         const C bc = static_cast<C>(b);
         if (mathfp::almost_equal(ac, bc)) return kUnit;
@@ -59,7 +59,7 @@ namespace mathfp {
 
     template <class A, class B>
     MATHFP_NODISCARD inline Expected<Unit> ensure_eq(
-        const A& a
+          const A& a
         , const B& b
         , std::string_view a_name
         , std::string_view b_name
@@ -76,14 +76,14 @@ namespace mathfp {
 
     template <class A, class B>
     MATHFP_NODISCARD inline Expected<Unit> ensure_le(
-        const A& a
+          const A& a
         , const B& b
         , std::string_view a_name
         , std::string_view b_name
         , std::source_location where = std::source_location::current())
         requires (std::is_arithmetic_v<A> && std::is_arithmetic_v<B>)
     {
-        using C = std::common_type_t<A, B>;
+        using C    = std::common_type_t<A, B>;
         const C ac = static_cast<C>(a);
         const C bc = static_cast<C>(b);
         if (mathfp::leq_tol(ac, bc)) return kUnit;
@@ -95,7 +95,7 @@ namespace mathfp {
 
     template <class A, class B>
     MATHFP_NODISCARD inline Expected<Unit> ensure_le(
-        const A& a
+          const A& a
         , const B& b
         , std::string_view a_name
         , std::string_view b_name
@@ -112,14 +112,14 @@ namespace mathfp {
 
     template <class A, class B>
     MATHFP_NODISCARD inline Expected<Unit> ensure_ge(
-        const A& a
+          const A& a
         , const B& b
         , std::string_view a_name
         , std::string_view b_name
         , std::source_location where = std::source_location::current())
         requires (std::is_arithmetic_v<A> && std::is_arithmetic_v<B>)
     {
-        using C = std::common_type_t<A, B>;
+        using C    = std::common_type_t<A, B>;
         const C ac = static_cast<C>(a);
         const C bc = static_cast<C>(b);
         if (mathfp::leq_tol(bc, ac)) return kUnit;
@@ -131,7 +131,7 @@ namespace mathfp {
 
     template <class A, class B>
     MATHFP_NODISCARD inline Expected<Unit> ensure_ge(
-        const A& a
+          const A& a
         , const B& b
         , std::string_view a_name
         , std::string_view b_name
@@ -148,14 +148,14 @@ namespace mathfp {
 
     template <class A, class B>
     MATHFP_NODISCARD inline Expected<Unit> ensure_lt(
-        const A& a
+          const A& a
         , const B& b
         , std::string_view a_name
         , std::string_view b_name
         , std::source_location where = std::source_location::current())
         requires (std::is_arithmetic_v<A> && std::is_arithmetic_v<B>)
     {
-        using C = std::common_type_t<A, B>;
+        using C    = std::common_type_t<A, B>;
         const C ac = static_cast<C>(a);
         const C bc = static_cast<C>(b);
         if ((ac < bc) && !mathfp::almost_equal(ac, bc)) return kUnit;
@@ -167,7 +167,7 @@ namespace mathfp {
 
     template <class A, class B>
     MATHFP_NODISCARD inline Expected<Unit> ensure_lt(
-        const A& a
+          const A& a
         , const B& b
         , std::string_view a_name
         , std::string_view b_name
@@ -184,14 +184,14 @@ namespace mathfp {
 
     template <class A, class B>
     MATHFP_NODISCARD inline Expected<Unit> ensure_gt(
-        const A& a
+          const A& a
         , const B& b
         , std::string_view a_name
         , std::string_view b_name
         , std::source_location where = std::source_location::current())
         requires (std::is_arithmetic_v<A> && std::is_arithmetic_v<B>)
     {
-        using C = std::common_type_t<A, B>;
+        using C    = std::common_type_t<A, B>;
         const C ac = static_cast<C>(a);
         const C bc = static_cast<C>(b);
         if ((ac > bc) && !mathfp::almost_equal(ac, bc)) return kUnit;
@@ -203,7 +203,7 @@ namespace mathfp {
 
     template <class A, class B>
     MATHFP_NODISCARD inline Expected<Unit> ensure_gt(
-        const A& a
+          const A& a
         , const B& b
         , std::string_view a_name
         , std::string_view b_name
@@ -221,7 +221,7 @@ namespace mathfp {
     // Частые "математические" проверки: ноль, положительность и т.п.
     template <class T>
     MATHFP_NODISCARD inline Expected<Unit> ensure_nonzero(
-        const T& x
+          const T& x
         , std::string_view name
         , std::source_location where = std::source_location::current())
         requires std::is_arithmetic_v<T>
@@ -232,7 +232,7 @@ namespace mathfp {
 
     template <class T>
     MATHFP_NODISCARD inline Expected<Unit> ensure_nonzero(
-        const T& x
+          const T& x
         , std::string_view name
         , std::source_location where = std::source_location::current())
         requires requires { x == T{ 0 }; }
@@ -244,7 +244,7 @@ namespace mathfp {
 
     template <class T>
     MATHFP_NODISCARD inline Expected<Unit> ensure_positive(
-        const T& x
+          const T& x
         , std::string_view name
         , std::source_location where = std::source_location::current())
         requires std::is_arithmetic_v<T>
@@ -255,7 +255,7 @@ namespace mathfp {
 
     template <class T>
     MATHFP_NODISCARD inline Expected<Unit> ensure_positive(
-        const T& x
+          const T& x
         , std::string_view name
         , std::source_location where = std::source_location::current())
         requires requires { x > T{ 0 }; }

@@ -27,11 +27,11 @@ namespace timetable::domain::preprocessing {
 
     namespace {
 
-        using Pair                       = std::pair<std::size_t, std::size_t>;
-        using ConsecutiveOccurrenceKey   = std::pair<StopOccurrence, StopOccurrence>;
-        using ConsecutiveEdgeDurations   = std::map<ConsecutiveOccurrenceKey, std::vector<double>>;
-        using EdgeMetrics                = std::pair<std::vector<Time>, std::vector<Length>>;
-        using TripsByRoute               = std::map<RouteId, std::vector<const Trip*>>;
+        using Pair                     = std::pair<std::size_t, std::size_t>;
+        using ConsecutiveOccurrenceKey = std::pair<StopOccurrence, StopOccurrence>;
+        using ConsecutiveEdgeDurations = std::map<ConsecutiveOccurrenceKey, std::vector<double>>;
+        using EdgeMetrics              = std::pair<std::vector<Time>, std::vector<Length>>;
+        using TripsByRoute             = std::map<RouteId, std::vector<const Trip*>>;
 
         struct PairHash final {
             std::size_t operator()(const Pair& p) const noexcept {
@@ -43,33 +43,33 @@ namespace timetable::domain::preprocessing {
         };
 
         mathfp::Expected<mathfp::Unit> ensure_nonneg_duration(
-            const Time& duration
-            , StopId from
-            , StopId to
+              const Time& duration
+            , StopId      from
+            , StopId      to
         ) {
             const auto v = duration.value();
             if (!std::isfinite(v))
                 return mathfp::unexpected(
                     mathfp::domain_error("non-finite duration")
                     .ctx("from", from.get())
-                    .ctx("to", to.get())
+                    .ctx("to"  , to.get())
                 );
             if (v < 0.0)
                 return mathfp::unexpected(
                     mathfp::invalid_arg("negative duration")
-                    .ctx("from", from.get())
-                    .ctx("to", to.get())
+                    .ctx("from"    , from.get())
+                    .ctx("to"      , to.get())
                     .ctx("duration", v)
                 );
             return mathfp::kUnit;
         }
 
         StopOccurrence route_occurrence(
-            const Route& route
-            , std::size_t index
+              const Route& route
+            , std::size_t  index
         ) {
             return StopOccurrence{
-                .stop = route.stops[index]
+                  .stop     = route.stops[index]
                 , .position = RoutePosition{ static_cast<std::int64_t>(index) }
             };
         }
@@ -90,7 +90,7 @@ namespace timetable::domain::preprocessing {
         }
 
         mathfp::Expected<Time> aggregate_time(
-            std::vector<double> values
+              std::vector<double> values
             , TimeAggregationKind kind
         ) {
             switch (kind) {
@@ -117,8 +117,8 @@ namespace timetable::domain::preprocessing {
         }
 
         TripsByRoute ordered_route_trips(
-            TripsByRoute trips_by_route
-            , bool stable_ordering
+              TripsByRoute trips_by_route
+            , bool         stable_ordering
         ) {
             if (!stable_ordering)
                 return trips_by_route;
@@ -131,13 +131,13 @@ namespace timetable::domain::preprocessing {
         }
 
         std::vector<const Route*> ordered_routes(
-            const std::vector<Route>& routes
-            , bool stable_ordering
+              const std::vector<Route>& routes
+            , bool                      stable_ordering
         ) {
             std::vector<const Route*> route_order;
             route_order.reserve(routes.size());
             std::transform(
-                routes.begin()
+                  routes.begin()
                 , routes.end()
                 , std::back_inserter(route_order)
                 , [](const Route& r) { return &r; }
@@ -151,13 +151,13 @@ namespace timetable::domain::preprocessing {
         }
 
         mathfp::Expected<std::optional<Time>> consecutive_stop_duration(
-            const Trip& trip
+              const Trip&    trip
             , StopOccurrence from
             , StopOccurrence to
-            , RouteId route_id
+            , RouteId        route_id
         ) {
             const auto from_index = static_cast<std::size_t>(from.position.get());
-            const auto to_index = static_cast<std::size_t>(to.position.get());
+            const auto to_index   = static_cast<std::size_t>(to.position.get());
 
             if (to_index <= from_index || to_index >= trip.times.size()) {
                 return std::optional<Time>{};
@@ -167,17 +167,17 @@ namespace timetable::domain::preprocessing {
                 return std::optional<Time>{};
             }
 
-            const auto& dep = trip.times[from_index].departure;
-            const auto& arr = trip.times[to_index].arrival;
+            const auto& dep     = trip.times[from_index].departure;
+            const auto& arr     = trip.times[to_index].arrival;
             const auto duration = Time{ arr.value() - dep.value() };
             if (!ensure_nonneg_duration(duration, from.stop, to.stop)) {
                 return mathfp::unexpected(
                     mathfp::invalid_arg("invalid trip timing for consecutive stops")
-                    .ctx("route_id", route_id.get())
-                    .ctx("from_stop_id", from.stop.get())
+                    .ctx("route_id"     , route_id.get())
+                    .ctx("from_stop_id" , from.stop.get())
                     .ctx("from_position", from.position.get())
-                    .ctx("to_stop_id", to.stop.get())
-                    .ctx("to_position", to.position.get())
+                    .ctx("to_stop_id"   , to.stop.get())
+                    .ctx("to_position"  , to.position.get())
                 );
             }
 
@@ -185,19 +185,19 @@ namespace timetable::domain::preprocessing {
         }
 
         mathfp::Expected<mathfp::Unit> append_trip_durations(
-            ConsecutiveEdgeDurations& durations
-            , const Route& route
-            , const Trip& trip
+              ConsecutiveEdgeDurations& durations
+            , const Route&              route
+            , const Trip&               trip
         ) {
             const auto& route_stops = route.stops;
             for (std::size_t k = 0; k + 1 < route_stops.size(); ++k) {
                 const auto from = route_occurrence(route, k);
-                const auto to = route_occurrence(route, k + 1);
+                const auto to   = route_occurrence(route, k + 1);
                 MATHFP_TRY_LET(
-                    std::optional<Time>
+                      std::optional<Time>
                     , duration
                     , consecutive_stop_duration(
-                        trip
+                          trip
                         , from
                         , to
                         , route.id
@@ -212,7 +212,7 @@ namespace timetable::domain::preprocessing {
         }
 
         mathfp::Expected<ConsecutiveEdgeDurations> collect_durations(
-            const Route& route
+              const Route&                    route
             , const std::vector<const Trip*>& trips
         ) {
             ConsecutiveEdgeDurations durations;
@@ -225,9 +225,9 @@ namespace timetable::domain::preprocessing {
         }
 
         mathfp::Expected<EdgeMetrics> build_edge_metrics(
-            const Route& route
+              const Route&                    route
             , const ConsecutiveEdgeDurations& durations
-            , const PreprocessParams& params
+            , const PreprocessParams&         params
         ) {
             const auto& r_stops = route.stops;
             std::vector<Time> edge_time(r_stops.size() - 1, Time{ 0.0 });
@@ -235,31 +235,31 @@ namespace timetable::domain::preprocessing {
 
             for (std::size_t k = 0; k + 1 < r_stops.size(); ++k) {
                 const auto from = route_occurrence(route, k);
-                const auto to = route_occurrence(route, k + 1);
-                const auto it = durations.find({ from, to });
+                const auto to   = route_occurrence(route, k + 1);
+                const auto it   = durations.find({ from, to });
                 if (it == durations.end()) {
                     if (params.strict_stop_times) {
                         return mathfp::unexpected(
                             mathfp::invalid_arg("missing running time for consecutive stop occurrences")
-                            .ctx("route_id", route.id.get())
-                            .ctx("from_stop_id", from.stop.get())
+                            .ctx("route_id"     , route.id.get())
+                            .ctx("from_stop_id" , from.stop.get())
                             .ctx("from_position", from.position.get())
-                            .ctx("to_stop_id", to.stop.get())
-                            .ctx("to_position", to.position.get())
+                            .ctx("to_stop_id"   , to.stop.get())
+                            .ctx("to_position"  , to.position.get())
                         );
                     }
                     return mathfp::unexpected(mathfp::invalid_arg("skip"));
                 }
 
                 MATHFP_TRY_LET(
-                    Time
+                      Time
                     , m
                     , aggregate_time(it->second, params.time_aggregation)
                 );
                 edge_time[k] = m;
                 if (params.line_speed) {
                     const auto len = (*params.line_speed) * edge_time[k];
-                    edge_len[k] = Length{ len.value() };
+                    edge_len[k]    = Length{ len.value() };
                 } else {
                     edge_len[k] = Length{ 0.0 };
                 }
@@ -271,7 +271,7 @@ namespace timetable::domain::preprocessing {
         }
 
         std::pair<std::vector<Time>, std::vector<Length>> build_cumulative_metrics(
-            const std::vector<Time>& edge_time
+              const std::vector<Time>&   edge_time
             , const std::vector<Length>& edge_len
         ) {
             const auto n = edge_time.size() + 1;
@@ -279,7 +279,7 @@ namespace timetable::domain::preprocessing {
             std::vector<Length> cum_len(n, Length{ 0.0 });
             for (std::size_t i = 1; i < n; ++i) {
                 cum_time[i] = Time{ cum_time[i - 1].value() + edge_time[i - 1].value() };
-                cum_len[i] = Length{ cum_len[i - 1].value() + edge_len[i - 1].value() };
+                cum_len[i]  = Length{ cum_len[i - 1].value() + edge_len[i - 1].value() };
             }
             return { std::move(cum_time), std::move(cum_len) };
         }
@@ -290,16 +290,16 @@ namespace timetable::domain::preprocessing {
         };
 
         struct WalkGraphData final {
-            std::vector<WalkEndpoint> endpoints{};
-            std::unordered_map<EndpointKey, std::size_t> index_by_key{};
-            std::unordered_map<Pair, BestEdge, PairHash> best_edges{};
+            std::vector<WalkEndpoint>                       endpoints{};
+            std::unordered_map<EndpointKey, std::size_t>    index_by_key{};
+            std::unordered_map<Pair, BestEdge, PairHash>    best_edges{};
             std::unordered_map<WalkLinkId, const WalkLink*> link_by_id{};
         };
 
         struct CanonicalWalkEndpoints final {
-            std::vector<WalkEndpoint> endpoints{};
+            std::vector<WalkEndpoint>                    endpoints{};
             std::unordered_map<EndpointKey, std::size_t> index_by_key{};
-            std::vector<std::size_t> old_to_new{};
+            std::vector<std::size_t>                     old_to_new{};
         };
 
         struct WalkKey final {
@@ -311,13 +311,13 @@ namespace timetable::domain::preprocessing {
         };
 
         std::vector<const WalkLink*> make_walk_link_order(
-            const std::vector<WalkLink>& walk_links
-            , bool stable_ordering
+              const std::vector<WalkLink>& walk_links
+            , bool                         stable_ordering
         ) {
             std::vector<const WalkLink*> order;
             order.reserve(walk_links.size());
             std::transform(
-                walk_links.begin()
+                  walk_links.begin()
                 , walk_links.end()
                 , std::back_inserter(order)
                 , [](const WalkLink& link) { return &link; }
@@ -331,7 +331,7 @@ namespace timetable::domain::preprocessing {
         }
 
         mathfp::Expected<double> compute_walk_weight(
-            const WalkLink& link
+              const WalkLink&         link
             , const PreprocessParams& params
         ) {
             double w = 0.0;
@@ -356,7 +356,7 @@ namespace timetable::domain::preprocessing {
                 return mathfp::unexpected(
                     mathfp::invalid_arg("walk link weight is negative")
                     .ctx("walk_link_id", link.id.get())
-                    .ctx("walk_weight", w)
+                    .ctx("walk_weight" , w)
                 );
             return w;
         }
@@ -366,21 +366,21 @@ namespace timetable::domain::preprocessing {
         ) {
             WalkGraphData data;
             data.index_by_key.reserve(walk_links.size() * 2);
-            data.best_edges.reserve(walk_links.size());
-            data.link_by_id.reserve(walk_links.size());
+            data.best_edges  .reserve(walk_links.size());
+            data.link_by_id  .reserve(walk_links.size());
             return data;
         }
 
         std::size_t get_or_add_endpoint(
-            WalkGraphData& data
+              WalkGraphData&      data
             , const WalkEndpoint& endpoint
         ) {
             const auto key = to_endpoint_key(endpoint);
-            const auto it = data.index_by_key.find(key);
+            const auto it  = data.index_by_key.find(key);
             if (it != data.index_by_key.end())
                 return it->second;
             const auto idx = data.endpoints.size();
-            data.endpoints.push_back(endpoint);
+            data.endpoints   .push_back(endpoint);
             data.index_by_key.emplace(key, idx);
             return idx;
         }
@@ -398,13 +398,13 @@ namespace timetable::domain::preprocessing {
             });
 
             CanonicalWalkEndpoints canonical;
-            canonical.endpoints.reserve(endpoints.size());
+            canonical.endpoints   .reserve(endpoints.size());
             canonical.index_by_key.reserve(endpoints.size());
-            canonical.old_to_new.resize(endpoints.size());
+            canonical.old_to_new  .resize(endpoints.size());
 
             for (std::size_t new_index = 0; new_index < ordered_keys.size(); ++new_index) {
                 const auto old_index = ordered_keys[new_index].second;
-                canonical.endpoints.push_back(endpoints[old_index]);
+                canonical.endpoints   .push_back(endpoints[old_index]);
                 canonical.index_by_key.emplace(ordered_keys[new_index].first, new_index);
                 canonical.old_to_new[old_index] = new_index;
             }
@@ -413,14 +413,14 @@ namespace timetable::domain::preprocessing {
         }
 
         std::unordered_map<Pair, BestEdge, PairHash> remap_best_edges(
-            const std::unordered_map<Pair, BestEdge, PairHash>& best_edges
-            , const std::vector<std::size_t>& old_to_new
+              const std::unordered_map<Pair, BestEdge, PairHash>& best_edges
+            , const std::vector<std::size_t>&                     old_to_new
         ) {
             std::unordered_map<Pair, BestEdge, PairHash> remapped;
             remapped.reserve(best_edges.size());
             for (const auto& [pair, edge] : best_edges) {
                 remapped.emplace(
-                    Pair{ old_to_new[pair.first], old_to_new[pair.second] }
+                      Pair{ old_to_new[pair.first], old_to_new[pair.second] }
                     , edge
                 );
             }
@@ -428,10 +428,10 @@ namespace timetable::domain::preprocessing {
         }
 
         mathfp::Expected<WalkGraphData> build_walk_graph_data(
-            const std::vector<WalkLink>& walk_links
-            , const PreprocessParams& params
+              const std::vector<WalkLink>& walk_links
+            , const PreprocessParams&      params
         ) {
-            auto data = init_walk_graph_storage(walk_links);
+            auto data             = init_walk_graph_storage(walk_links);
             const auto link_order = make_walk_link_order(walk_links, params.stable_ordering);
 
             for (const auto* link_ptr : link_order) {
@@ -439,7 +439,7 @@ namespace timetable::domain::preprocessing {
                 data.link_by_id.emplace(link.id, &link);
 
                 MATHFP_TRY_LET(
-                    double
+                      double
                     , w
                     , compute_walk_weight(link, params)
                 );
@@ -455,9 +455,9 @@ namespace timetable::domain::preprocessing {
             }
 
             if (params.stable_ordering) {
-                auto canonical = canonicalize_walk_endpoints(data.endpoints);
-                data.best_edges = remap_best_edges(data.best_edges, canonical.old_to_new);
-                data.endpoints = std::move(canonical.endpoints);
+                auto canonical    = canonicalize_walk_endpoints(data.endpoints);
+                data.best_edges   = remap_best_edges(data.best_edges, canonical.old_to_new);
+                data.endpoints    = std::move(canonical.endpoints);
                 data.index_by_key = std::move(canonical.index_by_key);
             }
 
@@ -465,9 +465,9 @@ namespace timetable::domain::preprocessing {
         }
 
         mathfp::Expected<std::optional<std::vector<WalkLinkId>>> recover_path(
-            const WalkGraphData& data
-            , std::size_t s
-            , std::size_t t
+              const WalkGraphData&                        data
+            , std::size_t                                 s
+            , std::size_t                                 t
             , const std::vector<mathfp::graph::VertexId>& parent
         ) {
             std::vector<WalkLinkId> path;
@@ -483,7 +483,7 @@ namespace timetable::domain::preprocessing {
                     return mathfp::unexpected(
                         mathfp::internal_error("missing walk edge for shortest path")
                         .ctx("from", static_cast<std::int64_t>(p))
-                        .ctx("to", static_cast<std::int64_t>(cur))
+                        .ctx("to"  , static_cast<std::int64_t>(cur))
                     );
                 path.push_back(it->second.id);
                 cur = p;
@@ -493,7 +493,7 @@ namespace timetable::domain::preprocessing {
         }
 
         std::pair<Length, Time> accumulate_walk_metrics(
-            const WalkGraphData& data
+              const WalkGraphData&           data
             , const std::vector<WalkLinkId>& path
         ) {
             Length total_len{ 0.0 };
@@ -502,7 +502,7 @@ namespace timetable::domain::preprocessing {
                 const auto it = data.link_by_id.find(link_id);
                 if (it == data.link_by_id.end())
                     continue;
-                total_len = Length{ total_len.value() + it->second->length.value() };
+                total_len  = Length{ total_len.value() + it->second->length.value() };
                 total_time = Time{ total_time.value() + it->second->walk_time.value() };
             }
             return { total_len, total_time };
@@ -520,25 +520,25 @@ namespace timetable::domain::preprocessing {
         };
 
         OrderedLineGenerationInputs ordered_line_generation_inputs(
-            const std::vector<Route>& routes
-            , const std::vector<Trip>& trips
-            , bool stable_ordering
+              const std::vector<Route>& routes
+            , const std::vector<Trip>&  trips
+            , bool                      stable_ordering
         ) {
             // Deterministic RouteSegmentId assignment is defined here:
             // routes are generated in ordered_routes(...) order
             // and route-local trip data is aggregated from ordered_route_trips(...).
             return OrderedLineGenerationInputs{
-                .route_order = ordered_routes(routes, stable_ordering)
+                  .route_order    = ordered_routes(routes, stable_ordering)
                 , .trips_by_route = ordered_route_trips(
-                    group_trips_by_route(trips)
+                      group_trips_by_route(trips)
                     , stable_ordering
                 )
             };
         }
 
         mathfp::Expected<const std::vector<const Trip*>*> find_route_trips(
-            const Route& route
-            , const TripsByRoute& trips_by_route
+              const Route&         route
+            , const TripsByRoute&  trips_by_route
             , LineRouteBuildStats& stats
         ) {
             const auto it = trips_by_route.find(route.id);
@@ -554,10 +554,10 @@ namespace timetable::domain::preprocessing {
         }
 
         mathfp::Expected<std::vector<RouteSegment>> build_ordered_occurrence_line_route_segments(
-            const Route& route
-            , const std::vector<Time>& cumulative_time
+              const Route&               route
+            , const std::vector<Time>&   cumulative_time
             , const std::vector<Length>& cumulative_length
-            , std::int64_t& next_id
+            , std::int64_t&              next_id
         ) {
             const auto& route_stops = route.stops;
             std::vector<RouteSegment> segments;
@@ -572,12 +572,12 @@ namespace timetable::domain::preprocessing {
                         cumulative_length[j].value() - cumulative_length[i].value()
                     };
                     const auto from = route_occurrence(route, i);
-                    const auto to = route_occurrence(route, j);
+                    const auto to   = route_occurrence(route, j);
                     MATHFP_TRY_LET(
-                        RouteSegment
+                          RouteSegment
                         , segment
                         , make_route_segment(
-                            RouteSegmentId{ next_id++ }
+                              RouteSegmentId{ next_id++ }
                             , from
                             , to
                             , length
@@ -593,11 +593,11 @@ namespace timetable::domain::preprocessing {
         }
 
         mathfp::Expected<std::vector<RouteSegment>> build_line_route_segments_for_route(
-            const Route& route
-            , const TripsByRoute& trips_by_route
+              const Route&            route
+            , const TripsByRoute&     trips_by_route
             , const PreprocessParams& params
-            , std::int64_t& next_id
-            , LineRouteBuildStats& stats
+            , std::int64_t&           next_id
+            , LineRouteBuildStats&    stats
         ) {
             if (route.stops.size() < 2) {
                 ++stats.skipped_short_routes;
@@ -605,12 +605,12 @@ namespace timetable::domain::preprocessing {
             }
 
             MATHFP_TRY_LET(
-                const std::vector<const Trip*>*
+                  const std::vector<const Trip*>*
                 , route_trips
                 , find_route_trips(route, trips_by_route, stats)
             );
             MATHFP_TRY_LET(
-                ConsecutiveEdgeDurations
+                  ConsecutiveEdgeDurations
                 , durations
                 , collect_durations(route, *route_trips)
             );
@@ -624,8 +624,8 @@ namespace timetable::domain::preprocessing {
                 return std::vector<RouteSegment>{};
             }
 
-            const auto& edge_time = edge_metrics->first;
-            const auto& edge_len = edge_metrics->second;
+            const auto& edge_time          = edge_metrics->first;
+            const auto& edge_len           = edge_metrics->second;
             const auto [cum_time, cum_len] = build_cumulative_metrics(edge_time, edge_len);
 
             return build_ordered_occurrence_line_route_segments(
@@ -634,15 +634,15 @@ namespace timetable::domain::preprocessing {
         }
 
         void log_line_route_segment_stats(
-            const std::vector<RouteSegment>& segments
-            , const LineRouteBuildStats& stats
+              const std::vector<RouteSegment>& segments
+            , const LineRouteBuildStats&       stats
         ) {
             using timetable::infra::LogLevel;
             using timetable::infra::progress::log;
 
             log(
                 fmt::format(
-                    "line segments: total = {:>8}  skipped_short_routes = {:>6}  skipped_missing_trips = {:>6}  skipped_stop_times = {:>6}"
+                      "line segments: total = {:>8}  skipped_short_routes = {:>6}  skipped_missing_trips = {:>6}  skipped_stop_times = {:>6}"
                     , segments.size()
                     , stats.skipped_short_routes
                     , stats.skipped_missing_trips
@@ -655,10 +655,10 @@ namespace timetable::domain::preprocessing {
     }  // namespace
 
     mathfp::Expected<std::vector<RouteSegment>> build_line_route_segments(
-        const std::vector<Route>& routes
-        , const std::vector<Trip>& trips
-        , const std::vector<Stop>& stops
-        , const PreprocessParams& params
+          const std::vector<Route>& routes
+        , const std::vector<Trip>&  trips
+        , const std::vector<Stop>&  stops
+        , const PreprocessParams&   params
     ) {
         // TODO: Either use stops for explicit route/stop validation here or drop the
         // parameter from this path once the intended contract is finalized.
@@ -670,7 +670,7 @@ namespace timetable::domain::preprocessing {
         both("preprocessing: line route segments");
         log(
             fmt::format(
-                "line segments input: routes = {:>6}  trips = {:>6}  stops = {:>6}"
+                  "line segments input: routes = {:>6}  trips = {:>6}  stops = {:>6}"
                 , routes.size()
                 , trips.size()
                 , stops.size()
@@ -687,7 +687,7 @@ namespace timetable::domain::preprocessing {
         // line-segment preprocessing becomes a hotspot on large inputs.
         log(
             fmt::format(
-                "line segments params: stable_ordering = {}  strict_stop_times = {}  time_aggregation = {}"
+                  "line segments params: stable_ordering = {}  strict_stop_times = {}  time_aggregation = {}"
                 , params.stable_ordering   ? "true" : "false"
                 , params.strict_stop_times ? "true" : "false"
                 , static_cast<int>(params.time_aggregation)
@@ -699,10 +699,10 @@ namespace timetable::domain::preprocessing {
 
         for (const auto* route : ordered_inputs.route_order) {
             MATHFP_TRY_LET(
-                std::vector<RouteSegment>
+                  std::vector<RouteSegment>
                 , route_segments
                 , build_line_route_segments_for_route(
-                    *route
+                      *route
                     , ordered_inputs.trips_by_route
                     , params
                     , next_id
@@ -710,7 +710,7 @@ namespace timetable::domain::preprocessing {
                 )
             );
             out.insert(
-                out.end()
+                  out.end()
                 , std::make_move_iterator(route_segments.begin())
                 , std::make_move_iterator(route_segments.end())
             );
@@ -723,8 +723,8 @@ namespace timetable::domain::preprocessing {
     }
 
     mathfp::Expected<std::vector<RouteSegment>> build_walk_route_segments(
-        const std::vector<WalkLink>& walk_links
-        , const PreprocessParams& params
+          const std::vector<WalkLink>& walk_links
+        , const PreprocessParams&      params
     ) {
         using timetable::infra::LogLevel;
         using timetable::infra::progress::both;
@@ -737,13 +737,13 @@ namespace timetable::domain::preprocessing {
         std::vector<WalkKey> seen_keys;
 
         MATHFP_TRY_LET(
-            WalkGraphData
+              WalkGraphData
             , data
             , build_walk_graph_data(walk_links, params)
         );
         log(
             fmt::format(
-                "walk segments input: walk_links = {:>6}  endpoints = {:>6}  edges = {:>6}"
+                  "walk segments input: walk_links = {:>6}  endpoints = {:>6}  edges = {:>6}"
                 , walk_links.size()
                 , data.endpoints.size()
                 , data.best_edges.size()
@@ -752,7 +752,7 @@ namespace timetable::domain::preprocessing {
         );
         log(
             fmt::format(
-                "walk segments params: stable_ordering = {}  deduplicate = {}  cost_kind = {}"
+                  "walk segments params: stable_ordering = {}  deduplicate = {}  cost_kind = {}"
                 , params.stable_ordering           ? "true" : "false"
                 , params.deduplicate_walk_segments ? "true" : "false"
                 , static_cast<int>(params.walk_cost_kind)
@@ -774,13 +774,13 @@ namespace timetable::domain::preprocessing {
         std::size_t skipped_unreachable = 0;
         std::size_t skipped_duplicate   = 0;
 
-        using WalkGraph = mathfp::graph::DiGraph<double>;
+        using WalkGraph      = mathfp::graph::DiGraph<double>;
         using DijkstraResult = mathfp::graph::DijkstraResult<WalkGraph>;
 
         for (std::size_t s = 0; s < data.endpoints.size(); ++s) {
             const auto start = mathfp::Index<mathfp::graph::VertexIdTag>(s);
             MATHFP_TRY_LET(
-                DijkstraResult
+                  DijkstraResult
                 , res
                 , mathfp::graph::dijkstra(g, start)
             );
@@ -797,17 +797,17 @@ namespace timetable::domain::preprocessing {
                     continue;
                 }
                 MATHFP_TRY_LET(
-                    std::optional<std::vector<WalkLinkId>>
+                      std::optional<std::vector<WalkLinkId>>
                     , maybe_path
                     , recover_path(data, s, t, parent)
                 );
                 if (!maybe_path.has_value())
                     continue;
 
-                auto path_vec = std::move(*maybe_path);
+                auto path_vec                      = std::move(*maybe_path);
                 const auto [total_len, total_time] = accumulate_walk_metrics(data, path_vec);
                 WalkKey key{
-                    to_endpoint_key(data.endpoints[s])
+                      to_endpoint_key(data.endpoints[s])
                     , to_endpoint_key(data.endpoints[t])
                     , path_vec
                 };
@@ -822,10 +822,10 @@ namespace timetable::domain::preprocessing {
                 }
 
                 MATHFP_TRY_LET(
-                    RouteSegment
+                      RouteSegment
                     , segment
                     , make_route_segment(
-                        RouteSegmentId{ next_id++ }
+                          RouteSegmentId{ next_id++ }
                         , data.endpoints[s]
                         , data.endpoints[t]
                         , total_len
@@ -839,7 +839,7 @@ namespace timetable::domain::preprocessing {
 
         log(
             fmt::format(
-                "walk segments: total = {:>8}  skipped_unreachable = {:>8}  skipped_duplicate = {:>8}"
+                  "walk segments: total = {:>8}  skipped_unreachable = {:>8}  skipped_duplicate = {:>8}"
                 , out.size()
                 , skipped_unreachable
                 , skipped_duplicate

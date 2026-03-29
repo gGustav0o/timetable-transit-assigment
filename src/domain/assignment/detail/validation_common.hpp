@@ -51,8 +51,8 @@ namespace timetable::domain::assignment::detail::validation {
     }
 
     inline mathfp::Expected<mathfp::Unit> validate_unique_connection_traces(
-        std::span<const DiscoveredConnection> connections
-        , std::string_view where
+          std::span<const DiscoveredConnection> connections
+        , std::string_view                      where
     ) {
         std::map<ConnectionTraceKey, std::size_t> seen;
         for (std::size_t i = 0; i < connections.size(); ++i) {
@@ -60,11 +60,11 @@ namespace timetable::domain::assignment::detail::validation {
             if (const auto [it, inserted] = seen.emplace(std::move(key), i); !inserted) {
                 return mathfp::unexpected(
                     mathfp::internal_error("duplicate connection trace detected")
-                        .ctx("stage", std::string(where))
-                        .ctx("first_index", static_cast<std::int64_t>(it->second))
+                        .ctx("stage"          , std::string(where))
+                        .ctx("first_index"    , static_cast<std::int64_t>(it->second))
                         .ctx("duplicate_index", static_cast<std::int64_t>(i))
-                        .ctx("origin", connections[i].origin.get())
-                        .ctx("destination", connections[i].destination.get())
+                        .ctx("origin"         , connections[i].origin.get())
+                        .ctx("destination"    , connections[i].destination.get())
                 );
             }
         }

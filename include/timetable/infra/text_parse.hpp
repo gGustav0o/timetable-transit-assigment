@@ -12,7 +12,7 @@
 namespace timetable::infra::text_parse {
 
     enum class NumericParseFailure : std::uint8_t {
-        Empty
+          Empty
         , Invalid
         , Range
     };
@@ -21,7 +21,7 @@ namespace timetable::infra::text_parse {
         std::string_view text
     ) {
         std::size_t begin = 0;
-        std::size_t end = text.size();
+        std::size_t end   = text.size();
 
         while (begin < end
             && std::isspace(static_cast<unsigned char>(text[begin]))) {
@@ -48,11 +48,11 @@ namespace timetable::infra::text_parse {
     template <typename T, typename ParseFn>
     [[nodiscard]] std::variant<std::pair<T, const char*>, NumericParseFailure>
     parse_numeric_prefix(
-        const char* begin
-        , ParseFn&& parse
+          const char* begin
+        , ParseFn&&   parse
     ) {
-        errno = 0;
-        char* end = nullptr;
+        errno            = 0;
+        char* end        = nullptr;
         const auto value = parse(begin, &end);
 
         if (end == begin) {
@@ -68,15 +68,15 @@ namespace timetable::infra::text_parse {
 
     template <typename T, typename ParseFn>
     [[nodiscard]] std::variant<T, NumericParseFailure> parse_numeric_token(
-        std::string_view text
-        , ParseFn&& parse
+          std::string_view text
+        , ParseFn&&        parse
     ) {
         const auto trimmed = trim_ascii(text);
         if (trimmed.empty()) {
             return NumericParseFailure::Empty;
         }
 
-        const auto token = std::string(trimmed);
+        const auto token  = std::string(trimmed);
         const auto result = parse_numeric_prefix<T>(token.c_str(), std::forward<ParseFn>(parse));
         if (const auto* failure = std::get_if<NumericParseFailure>(&result)) {
             return *failure;

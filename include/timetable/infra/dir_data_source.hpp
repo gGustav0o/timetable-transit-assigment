@@ -8,8 +8,8 @@
 
 namespace timetable::infra {
 
-	mathfp::Expected<std::unique_ptr<io::DataSource>> make_dir_data_source(
-		io::DataDirSpec spec
-	);
+    mathfp::Expected<std::unique_ptr<io::DataSource>> make_dir_data_source(
+        io::DataDirSpec spec
+    );
 
 }  // namespace timetable::infra

@@ -11,60 +11,57 @@
 
 namespace timetable::infra {
 
-	namespace {
+    namespace {
 
-		class SingleFileDataSource final : public io::DataSource {
-		public:
-			explicit SingleFileDataSource(io::DataFileSpec spec) : spec_(std::move(spec)) {}
+        class SingleFileDataSource final : public io::DataSource {
+        public:
+            explicit SingleFileDataSource(io::DataFileSpec spec) : spec_(std::move(spec)) {}
 
-			mathfp::Expected<timetable::domain::AssignmentInput> load() const override {
-				using mathfp::fp::pipe::and_then;
-				using timetable::infra::LogLevel;
-				using timetable::infra::progress::log;
-				using timetable::infra::progress::status;
+            mathfp::Expected<timetable::domain::AssignmentInput> load() const override {
+                using mathfp::fp::pipe::and_then;
+                using mathfp::fp::pipe::inspect;
+                using timetable::infra::LogLevel;
+                using timetable::infra::progress::log;
+                using timetable::infra::progress::status;
 
-				status("parsing: deprecated single-file input selected", LogLevel::Warning);
-				log(
-					"single-file TXT input is deprecated, is not maintained against the current program logic, and may diverge from actively updated behavior"
-					, LogLevel::Warning
-				);
-				status("parsing: start");
-				return
-					txt::parse_segments_file(spec_.path)
-					| and_then([](timetable::infra::SegmentColumns columns) {
-						return build_presegmented_assignment_input(std::move(columns));
-					})
-					| and_then([](timetable::domain::AssignmentInput input) {
-						timetable::infra::progress::status("parsing: single-file input ready");
-						return mathfp::Expected<timetable::domain::AssignmentInput>(std::move(input));
-					});
-			}
+                status("parsing: deprecated single-file input selected", LogLevel::Warning);
+                log(
+                      "single-file TXT input is deprecated, is not maintained against the current program logic, and may diverge from actively updated behavior"
+                    , LogLevel::Warning
+                );
+                status("parsing: start");
+                return txt::parse_segments_file(spec_.path)
+                    | and_then(build_default_presegmented_assignment_input)
+                    | inspect([](const timetable::domain::AssignmentInput&) {
+                        timetable::infra::progress::status("parsing: single-file input ready");
+                    });
+            }
 
-		private:
-			io::DataFileSpec spec_;
-		};
+        private:
+            io::DataFileSpec spec_;
+        };
 
-	}  // namespace
+    }  // namespace
 
-	mathfp::Expected<std::unique_ptr<io::DataSource>> make_single_file_data_source(
-		io::DataFileSpec spec
-	) {
-		if (spec.path.empty())
-			return mathfp::unexpected(mathfp::invalid_arg("data file path is empty"));
+    mathfp::Expected<std::unique_ptr<io::DataSource>> make_single_file_data_source(
+        io::DataFileSpec spec
+    ) {
+        if (spec.path.empty())
+            return mathfp::unexpected(mathfp::invalid_arg("data file path is empty"));
 
-		if (!std::filesystem::exists(spec.path))
-			return mathfp::unexpected(
-				mathfp::invalid_arg("data file does not exist")
-				.ctx("path", spec.path.string())
-			);
+        if (!std::filesystem::exists(spec.path))
+            return mathfp::unexpected(
+                mathfp::invalid_arg("data file does not exist")
+                .ctx("path", spec.path.string())
+            );
 
-		if (!std::filesystem::is_regular_file(spec.path))
-			return mathfp::unexpected(
-				mathfp::invalid_arg("data file is not a regular file")
-				.ctx("path", spec.path.string())
-			);
+        if (!std::filesystem::is_regular_file(spec.path))
+            return mathfp::unexpected(
+                mathfp::invalid_arg("data file is not a regular file")
+                .ctx("path", spec.path.string())
+            );
 
-		return std::make_unique<SingleFileDataSource>(std::move(spec));
-	}
+        return std::make_unique<SingleFileDataSource>(std::move(spec));
+    }
 
 }  // namespace timetable::infra

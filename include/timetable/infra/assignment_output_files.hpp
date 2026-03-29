@@ -46,8 +46,8 @@ namespace timetable::infra {
      * configured log directory.
      */
     mathfp::Expected<AssignmentOutputPaths> write_assignment_output_files(
-        const timetable::domain::AssignmentOutput& output
-        , const std::filesystem::path& log_dir
+          const timetable::domain::AssignmentOutput& output
+        , const std::filesystem::path&               log_dir
     );
 
 }  // namespace timetable::infra

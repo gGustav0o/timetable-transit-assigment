@@ -6,10 +6,10 @@
 
 namespace timetable::app {
 
-	struct CliInput {
-		io::DataSourceSpec source;
-	};
+    struct CliInput {
+        io::DataSourceSpec source;
+    };
 
-	mathfp::Expected<CliInput> parse_cli(int argc, char** argv);
+    mathfp::Expected<CliInput> parse_cli(int argc, char** argv);
 
 }  // namespace timetable::app

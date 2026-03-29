@@ -17,15 +17,15 @@ namespace timetable::ui {
     struct UiResultSnapshotOptions final {
         std::size_t max_od_results{ 8 };
         std::size_t max_connections_per_od{ 4 };
-        bool include_empty_ods{ false };
+        bool        include_empty_ods{ false };
     };
 
     UiResultSnapshot make_pending_result_snapshot();
     UiResultSnapshot make_unavailable_result_snapshot();
 
     mathfp::Expected<UiResultSnapshot> build_result_snapshot(
-        const timetable::domain::AssignmentOutput& output
-        , const UiResultSnapshotOptions& options = {}
+          const timetable::domain::AssignmentOutput& output
+        , const UiResultSnapshotOptions&             options = {}
     );
 
 }  // namespace timetable::ui

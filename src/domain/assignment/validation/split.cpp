@@ -20,7 +20,7 @@ namespace timetable::domain::assignment {
     namespace {
 
         [[nodiscard]] bool intervals_overlap(
-            const TimeInterval& lhs
+              const TimeInterval& lhs
             , const TimeInterval& rhs
         ) noexcept {
             return lhs.start.value() < rhs.end.value()
@@ -48,12 +48,12 @@ namespace timetable::domain::assignment {
         }
 
         mathfp::Expected<std::map<detail::validation::DemandKey, const DemandEntry*>> validate_and_index_demand_entries(
-            const InputModel& input
+              const InputModel&                     input
             , std::span<const DiscoveredConnection> choice_connections
-            , bool emit_warnings
+            , bool                                  emit_warnings
         ) {
-            const auto intervals = build_interval_map(input);
-            const auto zones = build_zone_map(input);
+            const auto intervals     = build_interval_map(input);
+            const auto zones         = build_zone_map(input);
             const auto choice_counts = detail::validation::count_connections_by_od(choice_connections);
 
             std::map<detail::validation::DemandKey, const DemandEntry*> demand_by_key;
@@ -61,16 +61,16 @@ namespace timetable::domain::assignment {
                 if (!std::isfinite(demand.passengers) || demand.passengers < 0.0) {
                     return mathfp::unexpected(
                         mathfp::invalid_arg("demand passengers must be finite and non-negative")
-                            .ctx("origin", demand.origin.get())
+                            .ctx("origin"     , demand.origin.get())
                             .ctx("destination", demand.destination.get())
                             .ctx("interval_id", demand.interval.get())
-                            .ctx("passengers", demand.passengers)
+                            .ctx("passengers" , demand.passengers)
                     );
                 }
                 if (!intervals.contains(demand.interval)) {
                     return mathfp::unexpected(
                         mathfp::invalid_arg("demand references unknown time interval")
-                            .ctx("origin", demand.origin.get())
+                            .ctx("origin"     , demand.origin.get())
                             .ctx("destination", demand.destination.get())
                             .ctx("interval_id", demand.interval.get())
                     );
@@ -78,7 +78,7 @@ namespace timetable::domain::assignment {
                 if (!zones.contains(demand.origin) || !zones.contains(demand.destination)) {
                     return mathfp::unexpected(
                         mathfp::invalid_arg("demand references unknown zone")
-                            .ctx("origin", demand.origin.get())
+                            .ctx("origin"     , demand.origin.get())
                             .ctx("destination", demand.destination.get())
                             .ctx("interval_id", demand.interval.get())
                     );
@@ -88,7 +88,7 @@ namespace timetable::domain::assignment {
                 if (!demand_by_key.emplace(key, &demand).second) {
                     return mathfp::unexpected(
                         mathfp::invalid_arg("duplicate demand entry for the same origin/destination/interval")
-                            .ctx("origin", demand.origin.get())
+                            .ctx("origin"     , demand.origin.get())
                             .ctx("destination", demand.destination.get())
                             .ctx("interval_id", demand.interval.get())
                     );
@@ -96,14 +96,14 @@ namespace timetable::domain::assignment {
 
                 if (emit_warnings && demand.origin == demand.destination) {
                     detail::validation::warn(fmt::format(
-                        "split input: demand entry has identical origin and destination zone {} for interval {}"
+                          "split input: demand entry has identical origin and destination zone {} for interval {}"
                         , demand.origin.get()
                         , demand.interval.get()
                     ));
                 }
                 if (emit_warnings && mathfp::almost_zero(demand.passengers)) {
                     detail::validation::warn(fmt::format(
-                        "split input: demand entry origin={} destination={} interval={} has zero passengers"
+                          "split input: demand entry origin={} destination={} interval={} has zero passengers"
                         , demand.origin.get()
                         , demand.destination.get()
                         , demand.interval.get()
@@ -113,7 +113,7 @@ namespace timetable::domain::assignment {
                     && !choice_counts.contains(detail::validation::OdKey{ demand.origin, demand.destination })
                     && demand.passengers > 0.0) {
                     detail::validation::warn(fmt::format(
-                        "split input: no chosen connections for demand origin={} destination={} interval={}"
+                          "split input: no chosen connections for demand origin={} destination={} interval={}"
                         , demand.origin.get()
                         , demand.destination.get()
                         , demand.interval.get()
@@ -127,8 +127,8 @@ namespace timetable::domain::assignment {
     }  // namespace
 
     mathfp::Expected<mathfp::Unit> validate_split_step_input(
-        const ConnectionChoiceResult& choice_result
-        , const InputModel& input
+          const ConnectionChoiceResult& choice_result
+        , const InputModel&             input
     ) {
         if (input.intervals.empty()) {
             return mathfp::unexpected(
@@ -153,8 +153,8 @@ namespace timetable::domain::assignment {
                 return mathfp::unexpected(
                     mathfp::invalid_arg("time interval must satisfy start < end")
                         .ctx("interval_id", interval.id.get())
-                        .ctx("start", interval.start.value())
-                        .ctx("end", interval.end.value())
+                        .ctx("start"      , interval.start.value())
+                        .ctx("end"        , interval.end.value())
                 );
             }
         }
@@ -165,7 +165,7 @@ namespace timetable::domain::assignment {
                 const auto& rhs = input.intervals[j];
                 if (intervals_overlap(lhs, rhs)) {
                     detail::validation::warn(fmt::format(
-                        "split input: intervals {} and {} overlap in time"
+                          "split input: intervals {} and {} overlap in time"
                         , lhs.id.get()
                         , rhs.id.get()
                     ));
@@ -182,13 +182,13 @@ namespace timetable::domain::assignment {
     }
 
     mathfp::Expected<mathfp::Unit> validate_split_step_output(
-        const DemandSplitResult& split_result
+          const DemandSplitResult&      split_result
         , const ConnectionChoiceResult& choice_result
-        , const InputModel& input
+        , const InputModel&             input
     ) {
         const auto choice_trace_map = detail::validation::trace_index_map(choice_result.connections);
         const auto demand_by_key_result = validate_and_index_demand_entries(
-            input
+              input
             , choice_result.connections
             , false
         );
@@ -196,7 +196,7 @@ namespace timetable::domain::assignment {
             return mathfp::unexpected(std::move(demand_by_key_result.error()));
         }
         const auto& demand_by_key = *demand_by_key_result;
-        const auto choice_counts = detail::validation::count_connections_by_od(choice_result.connections);
+        const auto choice_counts  = detail::validation::count_connections_by_od(choice_result.connections);
 
         std::map<detail::validation::DemandKey, double> probability_sum_by_key;
         std::map<detail::validation::DemandKey, double> passengers_sum_by_key;
@@ -204,16 +204,16 @@ namespace timetable::domain::assignment {
         for (std::size_t i = 0; i < split_result.shares.size(); ++i) {
             const auto& share = split_result.shares[i];
             const auto key = detail::validation::DemandKey{
-                .origin = share.origin
+                  .origin      = share.origin
                 , .destination = share.destination
-                , .interval = share.interval
+                , .interval    = share.interval
             };
 
             if (!demand_by_key.contains(key)) {
                 return mathfp::unexpected(
                     mathfp::internal_error("split output contains a share without matching demand entry")
                         .ctx("share_index", static_cast<std::int64_t>(i))
-                        .ctx("origin", share.origin.get())
+                        .ctx("origin"     , share.origin.get())
                         .ctx("destination", share.destination.get())
                         .ctx("interval_id", share.interval.get())
                 );
@@ -222,7 +222,7 @@ namespace timetable::domain::assignment {
                 return mathfp::unexpected(
                     mathfp::internal_error("split output contains a connection that was not present in choice output")
                         .ctx("share_index", static_cast<std::int64_t>(i))
-                        .ctx("origin", share.origin.get())
+                        .ctx("origin"     , share.origin.get())
                         .ctx("destination", share.destination.get())
                         .ctx("interval_id", share.interval.get())
                 );
@@ -233,10 +233,10 @@ namespace timetable::domain::assignment {
                 || !detail::validation::is_finite_non_negative(share.split_impedance)) {
                 return mathfp::unexpected(
                     mathfp::invalid_arg("split output contains non-finite or out-of-range share metrics")
-                        .ctx("share_index", static_cast<std::int64_t>(i))
-                        .ctx("passengers", share.passengers)
-                        .ctx("probability", share.probability)
-                        .ctx("independence", share.independence)
+                        .ctx("share_index"    , static_cast<std::int64_t>(i))
+                        .ctx("passengers"     , share.passengers)
+                        .ctx("probability"    , share.probability)
+                        .ctx("independence"   , share.independence)
                         .ctx("split_impedance", share.split_impedance)
                 );
             }
@@ -247,7 +247,7 @@ namespace timetable::domain::assignment {
 
         for (const auto& [key, demand] : demand_by_key) {
             const auto has_available_choice = choice_counts.contains(detail::validation::OdKey{
-                .origin = key.origin
+                  .origin      = key.origin
                 , .destination = key.destination
             });
             if (!has_available_choice || demand->passengers <= 0.0) {
@@ -257,30 +257,30 @@ namespace timetable::domain::assignment {
             if (!probability_sum_by_key.contains(key)) {
                 return mathfp::unexpected(
                     mathfp::internal_error("split output is missing shares for a demand entry with available chosen connections")
-                        .ctx("origin", key.origin.get())
+                        .ctx("origin"     , key.origin.get())
                         .ctx("destination", key.destination.get())
                         .ctx("interval_id", key.interval.get())
                 );
             }
 
             const auto probability_sum = probability_sum_by_key[key];
-            const auto passengers_sum = passengers_sum_by_key[key];
+            const auto passengers_sum  = passengers_sum_by_key[key];
             if (!detail::validation::almost_equal_scalar(probability_sum, 1.0)) {
                 return mathfp::unexpected(
                     mathfp::internal_error("split probabilities do not sum to one")
-                        .ctx("origin", key.origin.get())
-                        .ctx("destination", key.destination.get())
-                        .ctx("interval_id", key.interval.get())
+                        .ctx("origin"         , key.origin.get())
+                        .ctx("destination"    , key.destination.get())
+                        .ctx("interval_id"    , key.interval.get())
                         .ctx("probability_sum", probability_sum)
                 );
             }
             if (!detail::validation::almost_equal_scalar(passengers_sum, demand->passengers)) {
                 return mathfp::unexpected(
                     mathfp::internal_error("split passengers do not conserve demand")
-                        .ctx("origin", key.origin.get())
-                        .ctx("destination", key.destination.get())
-                        .ctx("interval_id", key.interval.get())
-                        .ctx("passengers_sum", passengers_sum)
+                        .ctx("origin"           , key.origin.get())
+                        .ctx("destination"      , key.destination.get())
+                        .ctx("interval_id"      , key.interval.get())
+                        .ctx("passengers_sum"   , passengers_sum)
                         .ctx("demand_passengers", demand->passengers)
                 );
             }

@@ -22,9 +22,9 @@ namespace timetable::domain::preprocessing {
         std::vector<StopOccurrenceKey> line_buckets{};
         std::vector<std::size_t>       line_offsets{};
 
-        std::vector<RouteSegmentId> walk_order{};
-        std::vector<EndpointKey>    walk_buckets{};
-        std::vector<std::size_t>    walk_offsets{};
+        std::vector<RouteSegmentId>    walk_order{};
+        std::vector<EndpointKey>       walk_buckets{};
+        std::vector<std::size_t>       walk_offsets{};
     };
 
     /**
@@ -100,60 +100,60 @@ namespace timetable::domain::preprocessing {
      * @brief Build sorted connection segment indices (timed + walk groups).
      */
     mathfp::Expected<ConnectionSegmentIndex> build_connection_segment_index(
-        std::span<const ConnectionSegment> segments
-        , std::span<const RouteSegment> route_segments
+          std::span<const ConnectionSegment> segments
+        , std::span<const RouteSegment>    route_segments
     );
 
     /**
      * @brief Find bucket index for a physical endpoint key (if present).
      */
     std::optional<std::size_t> find_bucket(
-        std::span<const EndpointKey> buckets
-        , const EndpointKey& key
+          std::span<const EndpointKey> buckets
+        , const EndpointKey&         key
     );
 
     /**
      * @brief Find bucket index for an occurrence key (if present).
      */
     std::optional<std::size_t> find_bucket(
-        std::span<const StopOccurrenceKey> buckets
-        , const StopOccurrenceKey& key
+          std::span<const StopOccurrenceKey> buckets
+        , const StopOccurrenceKey&         key
     );
 
     /**
      * @brief Find bucket index for a physical stop (if present).
      */
     std::optional<std::size_t> find_bucket(
-        std::span<const StopId> buckets
-        , StopId key
+          std::span<const StopId> buckets
+        , StopId                key
     );
 
     /**
      * @brief Lookup physical-space walk ranges by physical origin endpoint.
      */
     SegmentLookup lookup_from(
-        const RouteSegmentIndex& route_index
+          const RouteSegmentIndex&        route_index
         , const ConnectionSegmentIndex& connection_index
-        , EndpointKey physical_from
+        , EndpointKey                   physical_from
     );
 
     /**
      * @brief Lookup physical walk ranges plus exact occurrence-space ranges.
      */
     SegmentLookup lookup_from(
-        const RouteSegmentIndex& route_index
+          const RouteSegmentIndex&        route_index
         , const ConnectionSegmentIndex& connection_index
-        , StopOccurrenceKey timed_from
-        , EndpointKey physical_from
+        , StopOccurrenceKey             timed_from
+        , EndpointKey                   physical_from
     );
 
     /**
      * @brief Find the next timed connection segment from an occurrence at or after a time.
      */
     std::optional<ConnectionSegmentId> next_connection_from(
-        const ConnectionSegmentIndex& connection_index
-        , StopOccurrenceKey from
-        , Time time
+          const ConnectionSegmentIndex& connection_index
+        , StopOccurrenceKey           from
+        , Time                        time
     );
 
 }  // namespace timetable::domain::preprocessing

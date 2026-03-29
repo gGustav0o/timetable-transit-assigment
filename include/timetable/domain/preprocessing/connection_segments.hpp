@@ -22,11 +22,11 @@ namespace timetable::domain::preprocessing {
      * it follows the sorted route_segments order and per-line trip order.
      */
     mathfp::Expected<std::vector<ConnectionSegment>> build_connection_segments(
-        const std::vector<RouteSegment>& route_segments
-        , const std::vector<Line>& lines
-        , const std::vector<Route>& routes
-        , const std::vector<Trip>& trips
-        , const PreprocessParams& params
+          const std::vector<RouteSegment>& route_segments
+        , const std::vector<Line>&       lines
+        , const std::vector<Route>&      routes
+        , const std::vector<Trip>&       trips
+        , const PreprocessParams&        params
     );
 
 }  // namespace timetable::domain::preprocessing

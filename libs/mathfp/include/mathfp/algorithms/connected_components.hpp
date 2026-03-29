@@ -26,7 +26,7 @@ namespace mathfp::graph {
 
     struct ConnectedComponentsResult final {
         std::vector<std::size_t> component{};
-        std::size_t count = 0;
+        std::size_t              count = 0;
     };
 
     namespace detail {
@@ -40,8 +40,8 @@ namespace mathfp::graph {
 
     template <class G>
     MATHFP_NODISCARD inline ::mathfp::Expected<ConnectedComponentsResult> connected_components(
-        const G& g
-        ,std::source_location where = std::source_location::current()
+          const G&             g
+        , std::source_location where = std::source_location::current()
     ) {
         if constexpr (detail::is_directed_v<G>) {
             return ::mathfp::unexpected(
@@ -59,7 +59,7 @@ namespace mathfp::graph {
         }
 
         auto index_map = boost::get(boost::vertex_index, g);
-        auto comp_map = boost::make_iterator_property_map(res.component.begin(), index_map);
+        auto comp_map  = boost::make_iterator_property_map(res.component.begin(), index_map);
 
         res.count = static_cast<std::size_t>(boost::connected_components(g, comp_map));
 

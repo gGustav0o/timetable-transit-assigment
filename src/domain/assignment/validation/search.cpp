@@ -17,39 +17,39 @@ namespace timetable::domain::assignment {
     namespace {
 
         struct EvaluatedConnectionTrace final {
-            EndpointKey start{};
-            EndpointKey finish{};
-            Time departure{};
-            Time arrival{};
-            Time journey_time{};
-            Time transfer_time{};
+            EndpointKey   start{};
+            EndpointKey   finish{};
+            Time          departure{};
+            Time          arrival{};
+            Time          journey_time{};
+            Time          transfer_time{};
             TransferCount transfers{};
-            double fare{};
+            double        fare{};
         };
 
         const RouteSegment& route_segment_at(
-            const PreprocessedNetwork& network
-            , RouteSegmentId id
+              const PreprocessedNetwork& network
+            , RouteSegmentId             id
         ) {
             return network.route_segments.at(static_cast<std::size_t>(id.get()));
         }
 
         const ConnectionSegment& connection_segment_at(
-            const PreprocessedNetwork& network
-            , ConnectionSegmentId id
+              const PreprocessedNetwork& network
+            , ConnectionSegmentId        id
         ) {
             return network.connection_segments.at(static_cast<std::size_t>(id.get()));
         }
 
         [[nodiscard]] double expected_search_impedance(
-            Time journey_time
-            , TransferCount transfers
-            , double fare
-            , double fare_scale
+              Time                journey_time
+            , TransferCount       transfers
+            , double              fare
+            , double              fare_scale
             , const SearchParams& params
         ) noexcept {
             return connection_impedance_value(
-                journey_time
+                  journey_time
                 , transfers
                 , fare
                 , params.impedance
@@ -58,15 +58,15 @@ namespace timetable::domain::assignment {
         }
 
         mathfp::Expected<mathfp::Unit> validate_discovered_connection_basic(
-            const DiscoveredConnection& connection
-            , std::size_t index
+              const DiscoveredConnection& connection
+            , std::size_t                 index
         ) {
             if (connection.origin == connection.destination) {
                 return mathfp::unexpected(
                     mathfp::invalid_arg("connection origin and destination must be distinct")
                         .ctx("connection_index", static_cast<std::int64_t>(index))
-                        .ctx("origin", connection.origin.get())
-                        .ctx("destination", connection.destination.get())
+                        .ctx("origin"          , connection.origin.get())
+                        .ctx("destination"     , connection.destination.get())
                 );
             }
             if (connection.segments.empty()) {
@@ -75,9 +75,9 @@ namespace timetable::domain::assignment {
                         .ctx("connection_index", static_cast<std::int64_t>(index))
                 );
             }
-            if (!detail::validation::is_finite_non_negative(connection.departure.value())
-                || !detail::validation::is_finite_non_negative(connection.arrival.value())
-                || !detail::validation::is_finite_non_negative(connection.journey_time.value())
+            if (   !detail::validation::is_finite_non_negative(connection.departure    .value())
+                || !detail::validation::is_finite_non_negative(connection.arrival      .value())
+                || !detail::validation::is_finite_non_negative(connection.journey_time .value())
                 || !detail::validation::is_finite_non_negative(connection.transfer_time.value())
                 || !detail::validation::is_finite_non_negative(connection.fare)
                 || !std::isfinite(connection.impedance)) {
@@ -90,12 +90,12 @@ namespace timetable::domain::assignment {
                 return mathfp::unexpected(
                     mathfp::invalid_arg("connection arrival precedes departure")
                         .ctx("connection_index", static_cast<std::int64_t>(index))
-                        .ctx("departure", connection.departure.value())
-                        .ctx("arrival", connection.arrival.value())
+                        .ctx("departure"       , connection.departure.value())
+                        .ctx("arrival"         , connection.arrival.value())
                 );
             }
             if (!detail::validation::almost_equal_scalar(
-                connection.journey_time.value()
+                  connection.journey_time.value()
                 , connection.arrival.value() - connection.departure.value()
             )) {
                 return mathfp::unexpected(
@@ -105,7 +105,7 @@ namespace timetable::domain::assignment {
             }
             if (connection.transfer_time.value() > connection.journey_time.value()
                 && !detail::validation::almost_equal_scalar(
-                    connection.transfer_time.value()
+                      connection.transfer_time.value()
                     , connection.journey_time.value()
                 )) {
                 return mathfp::unexpected(
@@ -117,60 +117,60 @@ namespace timetable::domain::assignment {
                 return mathfp::unexpected(
                     mathfp::invalid_arg("connection transfer count must be non-negative")
                         .ctx("connection_index", static_cast<std::int64_t>(index))
-                        .ctx("transfers", static_cast<std::int64_t>(connection.transfers.get()))
+                        .ctx("transfers"       , static_cast<std::int64_t>(connection.transfers.get()))
                 );
             }
             return mathfp::kUnit;
         }
 
         mathfp::Expected<EvaluatedConnectionTrace> evaluate_connection_trace(
-            const DiscoveredConnection& connection
-            , const PreprocessedNetwork& network
-            , std::size_t index
+              const DiscoveredConnection& connection
+            , const PreprocessedNetwork&  network
+            , std::size_t                 index
         ) {
-            std::optional<Time> departure{};
-            std::optional<Time> current_time{};
+            std::optional<Time>        departure{};
+            std::optional<Time>        current_time{};
             std::optional<EndpointKey> previous_to{};
-            EndpointKey start{};
-            EndpointKey finish{};
+            EndpointKey                start{};
+            EndpointKey                finish{};
             Time access_walk{ 0.0 };
             Time transfer_time{ 0.0 };
             TransferCount transfers{ 0 };
-            double fare = 0.0;
+            double fare            = 0.0;
             bool has_timed_segment = false;
 
             for (std::size_t i = 0; i < connection.segments.size(); ++i) {
-                const auto segment_id = connection.segments[i];
+                const auto segment_id    = connection.segments[i];
                 const auto segment_index = static_cast<std::size_t>(segment_id.get());
                 if (segment_index >= network.connection_segments.size()) {
                     return mathfp::unexpected(
                         mathfp::invalid_arg("connection references unknown connection segment")
-                            .ctx("connection_index", static_cast<std::int64_t>(index))
-                            .ctx("segment_position", static_cast<std::int64_t>(i))
+                            .ctx("connection_index"     , static_cast<std::int64_t>(index))
+                            .ctx("segment_position"     , static_cast<std::int64_t>(i))
                             .ctx("connection_segment_id", segment_id.get())
                     );
                 }
 
-                const auto& segment = connection_segment_at(network, segment_id);
+                const auto& segment       = connection_segment_at(network, segment_id);
                 const auto& route_segment = route_segment_at(network, segment.route_segment);
-                const auto from = physical_from_key(route_segment);
-                const auto to = physical_to_key(route_segment);
+                const auto from           = physical_from_key(route_segment);
+                const auto to             = physical_to_key(route_segment);
 
                 if (i == 0) {
                     start = from;
                 } else if (*previous_to != from) {
                     return mathfp::unexpected(
                         mathfp::invalid_arg("connection segment trace is not physically contiguous")
-                            .ctx("connection_index", static_cast<std::int64_t>(index))
-                            .ctx("segment_position", static_cast<std::int64_t>(i))
-                            .ctx("previous_to_kind", static_cast<std::int64_t>(previous_to->kind))
-                            .ctx("previous_to_id", previous_to->id)
+                            .ctx("connection_index" , static_cast<std::int64_t>(index))
+                            .ctx("segment_position" , static_cast<std::int64_t>(i))
+                            .ctx("previous_to_kind" , static_cast<std::int64_t>(previous_to->kind))
+                            .ctx("previous_to_id"   , previous_to->id)
                             .ctx("current_from_kind", static_cast<std::int64_t>(from.kind))
-                            .ctx("current_from_id", from.id)
+                            .ctx("current_from_id"  , from.id)
                     );
                 }
                 previous_to = to;
-                finish = to;
+                finish      = to;
 
                 if (is_walk_connection(segment)) {
                     if (!current_time.has_value()) {
@@ -189,8 +189,8 @@ namespace timetable::domain::assignment {
                 if (!segment.departure.has_value() || !segment.arrival.has_value()) {
                     return mathfp::unexpected(
                         mathfp::internal_error("timed connection segment is missing schedule times")
-                            .ctx("connection_index", static_cast<std::int64_t>(index))
-                            .ctx("segment_position", static_cast<std::int64_t>(i))
+                            .ctx("connection_index"     , static_cast<std::int64_t>(index))
+                            .ctx("segment_position"     , static_cast<std::int64_t>(i))
                             .ctx("connection_segment_id", segment.id.get())
                     );
                 }
@@ -226,36 +226,36 @@ namespace timetable::domain::assignment {
             }
 
             return EvaluatedConnectionTrace{
-                .start = start
-                , .finish = finish
-                , .departure = *departure
-                , .arrival = *current_time
-                , .journey_time = Time{ current_time->value() - departure->value() }
+                  .start         = start
+                , .finish        = finish
+                , .departure     = *departure
+                , .arrival       = *current_time
+                , .journey_time  = Time{ current_time->value() - departure->value() }
                 , .transfer_time = transfer_time
-                , .transfers = transfers
-                , .fare = fare
+                , .transfers     = transfers
+                , .fare          = fare
             };
         }
 
         mathfp::Expected<mathfp::Unit> validate_evaluated_connection_against_declared(
-            const DiscoveredConnection& connection
+              const DiscoveredConnection&     connection
             , const EvaluatedConnectionTrace& evaluated
-            , double fare_scale
-            , const SearchParams& params
-            , std::size_t index
+            , double                          fare_scale
+            , const SearchParams&             params
+            , std::size_t                     index
         ) {
             if (evaluated.start.kind != EndpointKind::Zone || evaluated.start.id != connection.origin.get()) {
                 return mathfp::unexpected(
                     mathfp::invalid_arg("connection trace does not start at declared origin zone")
                         .ctx("connection_index", static_cast<std::int64_t>(index))
-                        .ctx("origin", connection.origin.get())
+                        .ctx("origin"          , connection.origin.get())
                 );
             }
             if (evaluated.finish.kind != EndpointKind::Zone || evaluated.finish.id != connection.destination.get()) {
                 return mathfp::unexpected(
                     mathfp::invalid_arg("connection trace does not end at declared destination zone")
                         .ctx("connection_index", static_cast<std::int64_t>(index))
-                        .ctx("destination", connection.destination.get())
+                        .ctx("destination"     , connection.destination.get())
                 );
             }
             if (!detail::validation::almost_equal_time(connection.departure, evaluated.departure)
@@ -266,16 +266,16 @@ namespace timetable::domain::assignment {
                 || !detail::validation::almost_equal_scalar(connection.fare, evaluated.fare)) {
                 return mathfp::unexpected(
                     mathfp::internal_error("declared connection metrics disagree with segment trace")
-                        .ctx("connection_index", static_cast<std::int64_t>(index))
-                        .ctx("declared_departure", connection.departure.value())
+                        .ctx("connection_index"   , static_cast<std::int64_t>(index))
+                        .ctx("declared_departure" , connection.departure.value())
                         .ctx("evaluated_departure", evaluated.departure.value())
-                        .ctx("declared_arrival", connection.arrival.value())
-                        .ctx("evaluated_arrival", evaluated.arrival.value())
+                        .ctx("declared_arrival"   , connection.arrival.value())
+                        .ctx("evaluated_arrival"  , evaluated.arrival.value())
                 );
             }
 
             const auto impedance = expected_search_impedance(
-                evaluated.journey_time
+                  evaluated.journey_time
                 , evaluated.transfers
                 , evaluated.fare
                 , fare_scale
@@ -284,8 +284,8 @@ namespace timetable::domain::assignment {
             if (!detail::validation::almost_equal_scalar(connection.impedance, impedance)) {
                 return mathfp::unexpected(
                     mathfp::internal_error("declared connection impedance disagrees with search formula")
-                        .ctx("connection_index", static_cast<std::int64_t>(index))
-                        .ctx("declared_impedance", connection.impedance)
+                        .ctx("connection_index"   , static_cast<std::int64_t>(index))
+                        .ctx("declared_impedance" , connection.impedance)
                         .ctx("evaluated_impedance", impedance)
                 );
             }
@@ -296,10 +296,10 @@ namespace timetable::domain::assignment {
     }  // namespace
 
     mathfp::Expected<mathfp::Unit> validate_search_step_output(
-        const ConnectionSearchResult& result
-        , const PreprocessedNetwork& network
-        , double fare_scale
-        , const SearchParams& params
+          const ConnectionSearchResult& result
+        , const PreprocessedNetwork&    network
+        , double                        fare_scale
+        , const SearchParams&           params
     ) {
         if (!(fare_scale > 0.0) || !std::isfinite(fare_scale)) {
             return mathfp::unexpected(
@@ -318,12 +318,12 @@ namespace timetable::domain::assignment {
             const auto& connection = result.connections[i];
             MATHFP_TRY(validate_discovered_connection_basic(connection, i));
             MATHFP_TRY_LET(
-                EvaluatedConnectionTrace
+                  EvaluatedConnectionTrace
                 , evaluated
                 , evaluate_connection_trace(connection, network, i)
             );
             MATHFP_TRY(validate_evaluated_connection_against_declared(
-                connection
+                  connection
                 , evaluated
                 , fare_scale
                 , params

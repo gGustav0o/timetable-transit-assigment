@@ -13,7 +13,7 @@ namespace mathfp::ranges {
 
         template <class TupleA, class TupleB, std::size_t... Is>
         MATHFP_NODISCARD constexpr bool any_iterator_at_end_impl(
-            const TupleA& current
+              const TupleA& current
             , const TupleB& end
             , std::index_sequence<Is...>
         ) {
@@ -22,11 +22,11 @@ namespace mathfp::ranges {
 
         template <class TupleA, class TupleB>
         MATHFP_NODISCARD constexpr bool any_iterator_at_end(
-            const TupleA& current
+              const TupleA& current
             , const TupleB& end
         ) {
             return any_iterator_at_end_impl(
-                current
+                  current
                 , end
                 , std::make_index_sequence<std::tuple_size_v<std::remove_reference_t<TupleA>>>{}
             );
@@ -46,7 +46,7 @@ namespace mathfp::ranges {
 
     template <class... Rs>
     class ZipRange final {
-        using RangeTuple = std::tuple<Rs*...>;
+        using RangeTuple    = std::tuple<Rs*...>;
         using IteratorTuple = std::tuple<decltype(std::begin(std::declval<Rs&>()))...>;
         using SentinelTuple = std::tuple<decltype(std::end(std::declval<Rs&>()))...>;
 
@@ -60,9 +60,9 @@ namespace mathfp::ranges {
             using difference_type = std::ptrdiff_t;
 
             iterator(
-                IteratorTuple current
+                  IteratorTuple current
                 , SentinelTuple end
-                , bool done
+                , bool          done
             )
                 : current_(std::move(current))
                 , end_(std::move(end))
@@ -106,11 +106,11 @@ namespace mathfp::ranges {
         };
 
         MATHFP_NODISCARD iterator begin() {
-            auto end = make_end_tuple();
-            auto begin = make_begin_tuple();
+            auto end        = make_end_tuple();
+            auto begin      = make_begin_tuple();
             const auto done = detail::any_iterator_at_end(begin, end);
             return iterator{
-                std::move(begin)
+                  std::move(begin)
                 , end
                 , done
             };
@@ -122,11 +122,11 @@ namespace mathfp::ranges {
         }
 
         MATHFP_NODISCARD iterator begin() const {
-            auto end = make_end_tuple();
-            auto begin = make_begin_tuple();
+            auto end        = make_end_tuple();
+            auto begin      = make_begin_tuple();
             const auto done = detail::any_iterator_at_end(begin, end);
             return iterator{
-                std::move(begin)
+                  std::move(begin)
                 , end
                 , done
             };
@@ -166,7 +166,7 @@ namespace mathfp::ranges {
 
     template <class F, class... Rs>
     class ZipWithRange final {
-        using Function = std::decay_t<F>;
+        using Function    = std::decay_t<F>;
         using ZippedRange = ZipRange<Rs...>;
 
     public:
@@ -180,8 +180,8 @@ namespace mathfp::ranges {
 
         public:
             iterator(
-                BaseIterator current
-                , Function* fn
+                  BaseIterator current
+                , Function*    fn
             )
                 : current_(std::move(current))
                 , fn_(fn) {

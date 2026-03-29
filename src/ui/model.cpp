@@ -2,24 +2,24 @@
 
 namespace timetable::ui {
 
-	UiSnapshot UiModel::snapshot() const {
-		std::lock_guard lock(mutex_);
-		return UiSnapshot{ status_lines_, result_, log_lines_ };
-	}
+    UiSnapshot UiModel::snapshot() const {
+        std::lock_guard lock(mutex_);
+        return UiSnapshot{ status_lines_, result_, log_lines_ };
+    }
 
-	void UiModel::set_status_lines(std::vector<infra::LogEntry> lines) {
-		std::lock_guard lock(mutex_);
-		status_lines_ = std::move(lines);
-	}
+    void UiModel::set_status_lines(std::vector<infra::LogEntry> lines) {
+        std::lock_guard lock(mutex_);
+        status_lines_ = std::move(lines);
+    }
 
-	void UiModel::set_result_snapshot(UiResultSnapshot snapshot) {
-		std::lock_guard lock(mutex_);
-		result_ = std::move(snapshot);
-	}
+    void UiModel::set_result_snapshot(UiResultSnapshot snapshot) {
+        std::lock_guard lock(mutex_);
+        result_ = std::move(snapshot);
+    }
 
-	void UiModel::set_log_lines(std::vector<infra::LogEntry> lines) {
-		std::lock_guard lock(mutex_);
-		log_lines_ = std::move(lines);
-	}
+    void UiModel::set_log_lines(std::vector<infra::LogEntry> lines) {
+        std::lock_guard lock(mutex_);
+        log_lines_ = std::move(lines);
+    }
 
 }  // namespace timetable::ui

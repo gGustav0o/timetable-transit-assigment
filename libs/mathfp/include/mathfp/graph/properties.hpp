@@ -30,7 +30,7 @@ namespace mathfp::graph {
 
     template <class G>
     MATHFP_NODISCARD inline VertexId vertex_id(const G& g, Vertex<G> v) {
-        // vertex_index map гарантирован для adjacency_list(vecS,vecS,...) и почти всех sane графов.
+        // vertex_index map пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ adjacency_list(vecS,vecS,...) пїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅ sane пїЅпїЅпїЅпїЅпїЅпїЅ.
         const auto idx = static_cast<std::size_t>(boost::get(boost::vertex_index, g, v));
         return VertexId(idx);
     }
@@ -51,7 +51,7 @@ namespace mathfp::graph {
         if (i >= n) {
             return ::mathfp::unexpected(
                 ::mathfp::invalid_arg("vertex id out of range", where)
-                .ctx("v", i)
+                .ctx("v"           , i)
                 .ctx("num_vertices", n));
         }
 
@@ -108,7 +108,7 @@ namespace mathfp::graph {
 
     template <class G>
     MATHFP_NODISCARD inline ::mathfp::Expected<::mathfp::Unit> ensure_nonempty_graph(
-        const G& g
+          const G& g
         , std::source_location where = std::source_location::current()
     ) {
         const auto n = vertex_count(g);
@@ -117,7 +117,7 @@ namespace mathfp::graph {
         return ::mathfp::unexpected(
             ::mathfp::invalid_arg("graph must be non-empty", where)
             .ctx("num_vertices", n)
-            .ctx("num_edges", edge_count(g)));
+            .ctx("num_edges"   , edge_count(g)));
     }
 
 }  // namespace mathfp::graph
