@@ -23,26 +23,31 @@ namespace timetable::ui {
 	namespace {
 
 		constexpr auto kUiRefreshInterval = std::chrono::milliseconds(100);
-		constexpr int kMinWrapWidth = 20;
-		constexpr int kMinStatusHeight = 3;
-		constexpr int kMaxStatusHeight = 8;
+		constexpr int kMinWrapWidth      = 20;
+		constexpr int kMinStatusHeight   = 3;
 		constexpr int kPanelBorderHeight = 2;
+		constexpr int kMinResultHeight   = 6;
+		constexpr int kMaxResultHeight   = 16;
+		constexpr int kMinLogsHeight     = 4;
 
 		enum class FocusPanel {
-			Status,
-			Logs
+			Status
+			, Result
+			, Logs
 		};
 
 		struct UiState final {
-			int status_scroll = 0;
-			int logs_scroll = 0;
-			FocusPanel focus = FocusPanel::Logs;
+			int status_scroll     = 0;
+			int result_scroll     = 0;
+			int logs_scroll       = 0;
 			int last_status_lines = 0;
-			int last_log_lines = 0;
+			int last_result_lines = 0;
+			int last_log_lines    = 0;
+			FocusPanel focus = FocusPanel::Logs;
 		};
 
 		struct ScrollTracking final {
-			int offset = 0;
+			int offset     = 0;
 			int last_total = 0;
 		};
 
@@ -88,8 +93,8 @@ namespace timetable::ui {
 				std::size_t offset = 0;
 				while (offset < token.size()) {
 					const auto chunk = std::min<std::size_t>(
-						static_cast<std::size_t>(width),
-						token.size() - offset
+						static_cast<std::size_t>(width)
+						, token.size() - offset
 					);
 					if (!current.empty()) {
 						flush_wrapped_line(lines, current);
@@ -208,13 +213,13 @@ namespace timetable::ui {
 		) {
 			if (total > last_total) {
 				return ScrollTracking{
-					.offset = max_scroll(total, height),
-					.last_total = total
+					.offset = max_scroll(total, height)
+					, .last_total = total
 				};
 			}
 			return ScrollTracking{
-				.offset = offset,
-				.last_total = total
+				.offset = offset
+				, .last_total = total
 			};
 		}
 
@@ -229,8 +234,22 @@ namespace timetable::ui {
 			ScrollTracking scroll_tracking{};
 		};
 
+		struct PanelHeights final {
+			int status{};
+			int result{};
+			int logs{};
+		};
+
 		std::string_view panel_name(FocusPanel panel) noexcept {
-			return panel == FocusPanel::Logs ? "logs" : "status";
+			switch (panel) {
+				case FocusPanel::Status:
+					return "status";
+				case FocusPanel::Result:
+					return "result";
+				case FocusPanel::Logs:
+					return "logs";
+			}
+			return "logs";
 		}
 
 		std::string_view log_level_label(infra::LogLevel level) noexcept {
@@ -251,10 +270,25 @@ namespace timetable::ui {
 			const UiSnapshot& snapshot
 			, FocusPanel panel
 		) noexcept {
-			if (panel == FocusPanel::Logs) {
-				return snapshot.log_lines;
+			switch (panel) {
+				case FocusPanel::Status:
+					return snapshot.status_lines;
+				case FocusPanel::Logs:
+					return snapshot.log_lines;
+				case FocusPanel::Result:
+					break;
 			}
-			return snapshot.status_lines;
+			return {};
+		}
+
+		std::span<const std::string> focused_result_lines(
+			const UiSnapshot& snapshot
+			, FocusPanel panel
+		) noexcept {
+			if (panel == FocusPanel::Result) {
+				return snapshot.result.lines;
+			}
+			return {};
 		}
 
 		std::string serialize_log_entries_for_clipboard(
@@ -278,6 +312,18 @@ namespace timetable::ui {
 			const UiSnapshot& snapshot
 			, FocusPanel panel
 		) {
+			if (panel == FocusPanel::Result) {
+				std::string text;
+				const auto lines = focused_result_lines(snapshot, panel);
+				for (std::size_t i = 0; i < lines.size(); ++i) {
+					text.append(lines[i]);
+					if (i + 1 < lines.size()) {
+						text.push_back('\n');
+					}
+				}
+				return infra::copy_text_to_clipboard(text);
+			}
+
 			return infra::copy_text_to_clipboard(
 				serialize_log_entries_for_clipboard(focused_panel_lines(snapshot, panel))
 			);
@@ -296,6 +342,25 @@ namespace timetable::ui {
 			};
 		}
 
+		WrappedPanelContent prepare_wrapped_panel_content(
+			const std::vector<std::string>& lines
+			, int wrap_width
+		) {
+			std::vector<ftxui::Element> out;
+			for (const auto& line : lines) {
+				auto wrapped = wrap_text(line, wrap_width);
+				for (auto& chunk : wrapped) {
+					out.push_back(ftxui::text(std::move(chunk)));
+				}
+			}
+			if (out.empty()) {
+				out.push_back(ftxui::text("-"));
+			}
+			return WrappedPanelContent{
+				.lines = std::move(out)
+			};
+		}
+
 		PanelViewport prepare_panel_viewport(
 			WrappedPanelContent content
 			, int panel_height
@@ -303,23 +368,23 @@ namespace timetable::ui {
 		) {
 			const auto content_height = std::max(1, panel_height - kPanelBorderHeight);
 			auto tracked = auto_scroll(
-				scroll_tracking.offset,
-				static_cast<int>(content.lines.size()),
-				content_height,
-				scroll_tracking.last_total
+				scroll_tracking.offset
+				, static_cast<int>(content.lines.size())
+				, content_height
+				, scroll_tracking.last_total
 			);
 			const auto clamped_offset = clamp_scroll(
-				tracked.offset,
-				static_cast<int>(content.lines.size()),
-				content_height
+				tracked.offset
+				, static_cast<int>(content.lines.size())
+				, content_height
 			);
 
 			return PanelViewport{
-				.visible_lines = slice_elements(content.lines, clamped_offset, content_height),
-				.content_height = content_height,
-				.scroll_tracking = ScrollTracking{
-					.offset = clamped_offset,
-					.last_total = tracked.last_total
+				.visible_lines = slice_elements(content.lines, clamped_offset, content_height)
+				, .content_height = content_height
+				, .scroll_tracking = ScrollTracking{
+					.offset = clamped_offset
+					, .last_total = tracked.last_total
 				}
 			};
 		}
@@ -346,6 +411,36 @@ namespace timetable::ui {
 			);
 		}
 
+		PanelHeights compute_panel_heights(
+			int total_height
+		) {
+			PanelHeights heights{
+				.status = std::clamp(total_height / 6, kMinStatusHeight, 6)
+				, .result = std::clamp(total_height / 3, kMinResultHeight, kMaxResultHeight)
+				, .logs = 0
+			};
+
+			heights.logs = total_height - heights.status - heights.result - 2;
+			if (heights.logs < kMinLogsHeight) {
+				heights.result = std::max(
+					kMinResultHeight
+					, heights.result - (kMinLogsHeight - heights.logs)
+				);
+				heights.logs = total_height - heights.status - heights.result - 2;
+			}
+
+			if (heights.logs < kMinLogsHeight) {
+				heights.status = std::max(
+					kMinStatusHeight
+					, heights.status - (kMinLogsHeight - heights.logs)
+				);
+				heights.logs = total_height - heights.status - heights.result - 2;
+			}
+
+			heights.logs = std::max(kMinLogsHeight, heights.logs);
+			return heights;
+		}
+
 		bool is_exit_event(const ftxui::Event& event) {
 			return event == ftxui::Event::Character('q')
 				|| event == ftxui::Event::Escape
@@ -362,9 +457,17 @@ namespace timetable::ui {
 		}
 
 		UiState toggle_focus(UiState state) {
-			state.focus = (state.focus == FocusPanel::Logs)
-				? FocusPanel::Status
-				: FocusPanel::Logs;
+			switch (state.focus) {
+				case FocusPanel::Status:
+					state.focus = FocusPanel::Result;
+					break;
+				case FocusPanel::Result:
+					state.focus = FocusPanel::Logs;
+					break;
+				case FocusPanel::Logs:
+					state.focus = FocusPanel::Status;
+					break;
+			}
 			return state;
 		}
 
@@ -394,6 +497,11 @@ namespace timetable::ui {
 
 			if (state.focus == FocusPanel::Logs) {
 				state.logs_scroll += delta;
+				return state;
+			}
+
+			if (state.focus == FocusPanel::Result) {
+				state.result_scroll += delta;
 				return state;
 			}
 
@@ -506,54 +614,106 @@ namespace timetable::ui {
 				std::move(content)
 				, panel_height
 				, ScrollTracking{
-					.offset = scroll,
-					.last_total = last_total
+					.offset = scroll
+					, .last_total = last_total
 				}
 			);
 			return BuiltPanel{
 				.element = render_panel_window(
 					make_panel_title(title, focused)
 					, std::move(viewport.visible_lines)
-				),
-				.scroll_tracking = viewport.scroll_tracking
+				)
+				, .scroll_tracking = viewport.scroll_tracking
 			};
+		}
+
+		BuiltPanel build_panel(
+			const char* title
+			, const std::vector<std::string>& lines
+			, int wrap_width
+			, int panel_height
+			, int scroll
+			, bool focused
+			, int last_total
+		) {
+			auto content = prepare_wrapped_panel_content(lines, wrap_width);
+			auto viewport = prepare_panel_viewport(
+				std::move(content)
+				, panel_height
+				, ScrollTracking{
+					.offset = scroll
+					, .last_total = last_total
+				}
+			);
+			return BuiltPanel{
+				.element = render_panel_window(
+					make_panel_title(title, focused)
+					, std::move(viewport.visible_lines)
+				)
+				, .scroll_tracking = viewport.scroll_tracking
+			};
+		}
+
+		void apply_scroll_tracking(
+			int& scroll
+			, int& last_total
+			, const BuiltPanel& panel
+		) {
+			scroll = panel.scroll_tracking.offset;
+			last_total = panel.scroll_tracking.last_total;
 		}
 
 		ftxui::Component make_renderer(const UiModel& model, UiState& state) {
 			return ftxui::Renderer([&] {
-				const auto snapshot = model.snapshot();
-				const auto size = ftxui::Terminal::Size();
-				const auto width = std::max(kMinWrapWidth, size.dimx - 6);
-				const auto total_height = std::max(10, size.dimy - 4);
-				const auto status_height = std::clamp(
-					total_height / 4,
-					kMinStatusHeight,
-					kMaxStatusHeight
-				);
-				const auto logs_height = std::max(3, total_height - status_height - 1);
+				const auto snapshot     = model.snapshot();
+				const auto size         = ftxui::Terminal::Size();
+				const auto width        = std::max(kMinWrapWidth, size.dimx - 6);
+				const auto total_height = std::max(16, size.dimy - 4);
+				const auto heights      = compute_panel_heights(total_height);
 
 				auto status_panel = build_panel(
-					"Status", snapshot.status_lines, width, status_height,
-					state.status_scroll, state.focus == FocusPanel::Status,
-					state.last_status_lines
+					"Status", snapshot.status_lines, width, heights.status
+					, state.status_scroll, state.focus == FocusPanel::Status
+					, state.last_status_lines
 				);
 				auto status_box = std::move(status_panel.element)
-					| ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, status_height);
-				state.status_scroll = status_panel.scroll_tracking.offset;
-				state.last_status_lines = status_panel.scroll_tracking.last_total;
+					| ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, heights.status);
+				apply_scroll_tracking(
+					state.status_scroll
+					, state.last_status_lines
+					, status_panel
+				);
+
+				auto result_panel = build_panel(
+					"Result", snapshot.result.lines, width, heights.result
+					, state.result_scroll, state.focus == FocusPanel::Result
+					, state.last_result_lines
+				);
+				auto result_box = std::move(result_panel.element)
+					| ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, heights.result);
+				apply_scroll_tracking(
+					state.result_scroll
+					, state.last_result_lines
+					, result_panel
+				);
 
 				auto logs_panel = build_panel(
-					"Logs", snapshot.log_lines, width, logs_height,
-					state.logs_scroll, state.focus == FocusPanel::Logs,
-					state.last_log_lines
+					"Logs", snapshot.log_lines, width, heights.logs
+					, state.logs_scroll, state.focus == FocusPanel::Logs
+					, state.last_log_lines
 				);
 				auto logs_box = std::move(logs_panel.element)
-					| ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, logs_height);
-				state.logs_scroll = logs_panel.scroll_tracking.offset;
-				state.last_log_lines = logs_panel.scroll_tracking.last_total;
+					| ftxui::size(ftxui::HEIGHT, ftxui::EQUAL, heights.logs);
+				apply_scroll_tracking(
+					state.logs_scroll
+					, state.last_log_lines
+					, logs_panel
+				);
 
 				return ftxui::vbox({
 						   status_box
+						   , ftxui::separator()
+						   , result_box
 						   , ftxui::separator()
 						   , logs_box
 					})

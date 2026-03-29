@@ -1,112 +1,243 @@
 #pragma once
 
 #include <cstddef>
+#include <iterator>
 #include <tuple>
 #include <type_traits>
 #include <utility>
 
 #include <mathfp/compiler_attributes.hpp>
-#include <mathfp/ranges/boost.hpp>
 
 namespace mathfp::ranges {
     namespace detail {
 
-        template <class BoostTuple, std::size_t... Is>
-        MATHFP_NODISCARD constexpr auto boost_tuple_to_std_tuple_impl(BoostTuple&& t, std::index_sequence<Is...>) {
-            return std::tuple<decltype(boost::get<Is>(std::forward<BoostTuple>(t)))...>{
-                boost::get<Is>(std::forward<BoostTuple>(t))...};
+        template <class TupleA, class TupleB, std::size_t... Is>
+        MATHFP_NODISCARD constexpr bool any_iterator_at_end_impl(
+            const TupleA& current
+            , const TupleB& end
+            , std::index_sequence<Is...>
+        ) {
+            return ((std::get<Is>(current) == std::get<Is>(end)) || ...);
         }
 
-        template <std::size_t N, class BoostTuple>
-        MATHFP_NODISCARD constexpr auto boost_tuple_to_std_tuple(BoostTuple&& t) {
-            return boost_tuple_to_std_tuple_impl(std::forward<BoostTuple>(t), std::make_index_sequence<N>{});
+        template <class TupleA, class TupleB>
+        MATHFP_NODISCARD constexpr bool any_iterator_at_end(
+            const TupleA& current
+            , const TupleB& end
+        ) {
+            return any_iterator_at_end_impl(
+                current
+                , end
+                , std::make_index_sequence<std::tuple_size_v<std::remove_reference_t<TupleA>>>{}
+            );
+        }
+
+        template <class Tuple>
+        MATHFP_NODISCARD constexpr auto dereference_tuple(const Tuple& iterators) {
+            return std::apply(
+                [](const auto&... it) {
+                    return std::tuple<decltype(*it)...>{ *it... };
+                }
+                , iterators
+            );
         }
 
     }  // namespace detail
 
-    template <class CombinedRange, std::size_t N>
+    template <class... Rs>
     class ZipRange final {
+        using RangeTuple = std::tuple<Rs*...>;
+        using IteratorTuple = std::tuple<decltype(std::begin(std::declval<Rs&>()))...>;
+        using SentinelTuple = std::tuple<decltype(std::end(std::declval<Rs&>()))...>;
+
     public:
-        explicit ZipRange(CombinedRange cr) : cr_(std::move(cr)) {}
+        explicit ZipRange(Rs&... ranges)
+            : ranges_{ &ranges... } {
+        }
 
         class iterator final {
-            using base_iterator = decltype(std::begin(std::declval<CombinedRange&>()));
         public:
             using difference_type = std::ptrdiff_t;
 
-            explicit iterator(base_iterator it) : it_(std::move(it)) {}
+            iterator(
+                IteratorTuple current
+                , SentinelTuple end
+                , bool done
+            )
+                : current_(std::move(current))
+                , end_(std::move(end))
+                , done_(done) {
+            }
 
             iterator& operator++() {
-                ++it_;
+                std::apply(
+                    [](auto&... it) {
+                        (++it, ...);
+                    }
+                    , current_
+                );
+                done_ = detail::any_iterator_at_end(current_, end_);
                 return *this;
             }
 
-            void operator++(int) { ++(*this); }
-
-            MATHFP_NODISCARD friend bool operator==(const iterator& a, const iterator& b) {
-                return a.it_ == b.it_;
+            void operator++(int) {
+                ++(*this);
             }
-            MATHFP_NODISCARD friend bool operator!=(const iterator& a, const iterator& b) {
-                return !(a == b);
+
+            MATHFP_NODISCARD bool operator==(const iterator& other) const {
+                if (done_ && other.done_) {
+                    return true;
+                }
+                return current_ == other.current_;
+            }
+
+            MATHFP_NODISCARD bool operator!=(const iterator& other) const {
+                return !(*this == other);
             }
 
             MATHFP_NODISCARD auto operator*() const {
-                auto&& bt = *it_;
-                return detail::boost_tuple_to_std_tuple<N>(bt);
+                return detail::dereference_tuple(current_);
             }
 
         private:
-            base_iterator it_;
+            IteratorTuple current_;
+            SentinelTuple end_;
+            bool done_{ true };
         };
 
-        MATHFP_NODISCARD iterator begin() { return iterator{ std::begin(cr_) }; }
-        MATHFP_NODISCARD iterator end() { return iterator{ std::end(cr_) }; }
+        MATHFP_NODISCARD iterator begin() {
+            auto end = make_end_tuple();
+            auto begin = make_begin_tuple();
+            const auto done = detail::any_iterator_at_end(begin, end);
+            return iterator{
+                std::move(begin)
+                , end
+                , done
+            };
+        }
 
-        MATHFP_NODISCARD iterator begin() const { return iterator{ std::begin(cr_) }; }
-        MATHFP_NODISCARD iterator end() const { return iterator{ std::end(cr_) }; }
+        MATHFP_NODISCARD iterator end() {
+            auto end = make_end_tuple();
+            return iterator{ end, end, true };
+        }
+
+        MATHFP_NODISCARD iterator begin() const {
+            auto end = make_end_tuple();
+            auto begin = make_begin_tuple();
+            const auto done = detail::any_iterator_at_end(begin, end);
+            return iterator{
+                std::move(begin)
+                , end
+                , done
+            };
+        }
+
+        MATHFP_NODISCARD iterator end() const {
+            auto end = make_end_tuple();
+            return iterator{ end, end, true };
+        }
 
     private:
-        CombinedRange cr_;
+        MATHFP_NODISCARD IteratorTuple make_begin_tuple() const {
+            return std::apply(
+                [](auto*... ranges) {
+                    return IteratorTuple{ std::begin(*ranges)... };
+                }
+                , ranges_
+            );
+        }
+
+        MATHFP_NODISCARD SentinelTuple make_end_tuple() const {
+            return std::apply(
+                [](auto*... ranges) {
+                    return SentinelTuple{ std::end(*ranges)... };
+                }
+                , ranges_
+            );
+        }
+
+        RangeTuple ranges_{};
     };
 
     template <class... Rs>
     MATHFP_NODISCARD inline auto zip(Rs&... rs) {
-        auto combined = boost::combine(rs...);
-        using CombinedRange = decltype(combined);
-        return ZipRange<CombinedRange, sizeof...(Rs)>(std::move(combined));
+        return ZipRange<Rs...>(rs...);
     }
 
     template <class F, class... Rs>
-    MATHFP_NODISCARD inline auto zip_with(F&& f, Rs&... rs) {
-        struct Range final {
-            using Z = decltype(zip(rs...));
-            Z z;
-            std::decay_t<F> fn;
+    class ZipWithRange final {
+        using Function = std::decay_t<F>;
+        using ZippedRange = ZipRange<Rs...>;
 
-            class iterator final {
-                using base_it = decltype(std::declval<Z&>().begin());
-            public:
-                explicit iterator(base_it it, std::decay_t<F>* fn) : it_(it), fn_(fn) {}
-                iterator& operator++() { ++it_; return *this; }
-                void operator++(int) { ++(*this); }
+    public:
+        ZipWithRange(F&& function, Rs&... ranges)
+            : zipped_(ranges...)
+            , fn_(std::forward<F>(function)) {
+        }
 
-                MATHFP_NODISCARD friend bool operator==(const iterator& a, const iterator& b) { return a.it_ == b.it_; }
-                MATHFP_NODISCARD friend bool operator!=(const iterator& a, const iterator& b) { return !(a == b); }
+        class iterator final {
+            using BaseIterator = typename ZippedRange::iterator;
 
-                MATHFP_NODISCARD decltype(auto) operator*() const {
-                    auto tup = *it_;
-                    return std::apply(*fn_, tup);
-                }
-            private:
-                base_it it_;
-                std::decay_t<F>* fn_;
-            };
+        public:
+            iterator(
+                BaseIterator current
+                , Function* fn
+            )
+                : current_(std::move(current))
+                , fn_(fn) {
+            }
 
-            MATHFP_NODISCARD iterator begin() { return iterator{ z.begin(), &fn }; }
-            MATHFP_NODISCARD iterator end() { return iterator{ z.end(), &fn }; }
+            iterator& operator++() {
+                ++current_;
+                return *this;
+            }
+
+            void operator++(int) {
+                ++(*this);
+            }
+
+            MATHFP_NODISCARD bool operator==(const iterator& other) const {
+                return current_ == other.current_;
+            }
+
+            MATHFP_NODISCARD bool operator!=(const iterator& other) const {
+                return !(*this == other);
+            }
+
+            MATHFP_NODISCARD decltype(auto) operator*() const {
+                auto tuple = *current_;
+                return std::apply(*fn_, tuple);
+            }
+
+        private:
+            BaseIterator current_;
+            Function* fn_{ nullptr };
         };
 
-        return Range{ zip(rs...), std::forward<F>(f) };
+        MATHFP_NODISCARD iterator begin() {
+            return iterator{ zipped_.begin(), &fn_ };
+        }
+
+        MATHFP_NODISCARD iterator end() {
+            return iterator{ zipped_.end(), &fn_ };
+        }
+
+        MATHFP_NODISCARD iterator begin() const {
+            return iterator{ zipped_.begin(), const_cast<Function*>(&fn_) };
+        }
+
+        MATHFP_NODISCARD iterator end() const {
+            return iterator{ zipped_.end(), const_cast<Function*>(&fn_) };
+        }
+
+    private:
+        ZippedRange zipped_;
+        Function fn_;
+    };
+
+    template <class F, class... Rs>
+    MATHFP_NODISCARD inline auto zip_with(F&& f, Rs&... rs) {
+        return ZipWithRange<F, Rs...>(std::forward<F>(f), rs...);
     }
 
 }  // namespace mathfp::ranges

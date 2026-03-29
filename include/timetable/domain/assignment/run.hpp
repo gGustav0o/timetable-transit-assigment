@@ -4,7 +4,6 @@
 
 #include "timetable/domain/assignment.hpp"
 #include "timetable/domain/assignment/output.hpp"
-#include "timetable/domain/assignment/pipeline.hpp"
 
 namespace timetable::domain::assignment {
 

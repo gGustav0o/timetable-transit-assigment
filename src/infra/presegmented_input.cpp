@@ -28,39 +28,42 @@ namespace timetable::infra {
 
 	namespace {
 
-		constexpr std::int64_t kMissingId = -1;
-		constexpr std::size_t kStopReserveDiv = 2;
-		constexpr std::size_t kLineReserveDiv = 4;
-		constexpr std::size_t kExtraZoneReserveDiv = 16;
-		constexpr std::size_t kReservePadding = 1;
-		constexpr std::size_t kProgressStep = 100'000;
+		constexpr std::int64_t     kMissingId           = -1;
 
-		constexpr std::string_view kCtxActual = "actual";
-		constexpr std::string_view kCtxArr = "arr";
-		constexpr std::string_view kCtxColumn = "column";
-		constexpr std::string_view kCtxCount = "count";
-		constexpr std::string_view kCtxDep = "dep";
-		constexpr std::string_view kCtxExpected = "expected";
-		constexpr std::string_view kCtxField = "field";
-		constexpr std::string_view kCtxFromIndex = "from_index";
-		constexpr std::string_view kCtxFromStopId = "from_stop_id";
-		constexpr std::string_view kCtxFromZoneId = "from_zone_id";
-		constexpr std::string_view kCtxIndex = "index";
-		constexpr std::string_view kCtxLength = "length";
-		constexpr std::string_view kCtxLineId = "line_id";
-		constexpr std::string_view kCtxProfileId = "profile_id";
-		constexpr std::string_view kCtxSample = "sample";
-		constexpr std::string_view kCtxStopId = "stop_id";
-		constexpr std::string_view kCtxTime = "time";
-		constexpr std::string_view kCtxToIndex = "to_index";
-		constexpr std::string_view kCtxToStopId = "to_stop_id";
-		constexpr std::string_view kCtxToZoneId = "to_zone_id";
-		constexpr std::string_view kCtxTripId = "trip_id";
-		constexpr std::string_view kCtxZoneId = "zone_id";
+		constexpr std::size_t      kStopReserveDiv      = 2;
+		constexpr std::size_t      kLineReserveDiv      = 4;
+		constexpr std::size_t      kExtraZoneReserveDiv = 16;
+		constexpr std::size_t      kReservePadding      = 1;
+		constexpr std::size_t      kProgressStep        = 100'000;
 
-		constexpr std::string_view kFieldFare = "fare";
-		constexpr std::string_view kFieldFrom = "from";
-		constexpr std::string_view kFieldTo = "to";
+		constexpr std::string_view kCtxActual           = "actual";
+		constexpr std::string_view kCtxArr              = "arr";
+		constexpr std::string_view kCtxColumn           = "column";
+		constexpr std::string_view kCtxCount            = "count";
+		constexpr std::string_view kCtxDep              = "dep";
+		constexpr std::string_view kCtxExpected         = "expected";
+		constexpr std::string_view kCtxField            = "field";
+		constexpr std::string_view kCtxFromIndex        = "from_index";
+		constexpr std::string_view kCtxFromStopId       = "from_stop_id";
+		constexpr std::string_view kCtxFromZoneId       = "from_zone_id";
+		constexpr std::string_view kCtxIndex            = "index";
+		constexpr std::string_view kCtxLength           = "length";
+		constexpr std::string_view kCtxLineId           = "line_id";
+		constexpr std::string_view kCtxProfileId        = "profile_id";
+		constexpr std::string_view kCtxSample           = "sample";
+		constexpr std::string_view kCtxStopId           = "stop_id";
+		constexpr std::string_view kCtxTime             = "time";
+		constexpr std::string_view kCtxToIndex          = "to_index";
+		constexpr std::string_view kCtxToStopId         = "to_stop_id";
+		constexpr std::string_view kCtxToZoneId         = "to_zone_id";
+		constexpr std::string_view kCtxTripId           = "trip_id";
+		constexpr std::string_view kCtxZoneId           = "zone_id";
+
+		constexpr std::string_view kFieldFare           = "fare";
+		constexpr std::string_view kFieldFrom           = "from";
+		constexpr std::string_view kFieldTo             = "to";
+
+		using RawIdSet = std::unordered_set<std::int64_t>;
 
 		struct LineRouteKey final {
 			timetable::domain::StopOccurrenceKey from{};
@@ -101,10 +104,10 @@ namespace timetable::infra {
 		};
 
 		struct BuildState final {
-			std::unordered_set<std::int64_t> zones_set{};
-			std::unordered_set<std::int64_t> stop_ids{};
-			std::unordered_set<std::int64_t> line_ids{};
-			std::unordered_set<std::int64_t> extra_zone_ids{};
+			RawIdSet zones_set{};
+			RawIdSet stop_ids{};
+			RawIdSet line_ids{};
+			RawIdSet extra_zone_ids{};
 			std::unordered_map<LineRouteKey, LineRouteEntry, LineRouteKeyHash> line_routes{};
 			std::vector<timetable::domain::RouteSegment> route_segments{};
 			std::vector<timetable::domain::ConnectionSegment> connection_segments{};
@@ -241,10 +244,10 @@ namespace timetable::infra {
 			return n;
 		}
 
-		mathfp::Expected<std::unordered_set<std::int64_t>> build_declared_zone_set(
+		mathfp::Expected<RawIdSet> build_declared_zone_set(
 			const std::vector<std::int64_t>& zone_ids
 		) {
-			std::unordered_set<std::int64_t> zones_set;
+			RawIdSet zones_set;
 			zones_set.reserve(zone_ids.size());
 			for (std::size_t i = 0; i < zone_ids.size(); ++i) {
 				const auto id = zone_ids[i];
@@ -268,7 +271,7 @@ namespace timetable::infra {
 
 		BuildState make_build_state(
 			std::size_t segment_count
-			, std::unordered_set<std::int64_t> zones_set
+			, RawIdSet zones_set
 		) {
 			BuildState state;
 			state.zones_set = std::move(zones_set);
@@ -558,12 +561,12 @@ namespace timetable::infra {
 					);
 				}
 				from_occurrence = StopOccurrence{
-					.stop = std::get<StopId>(from_endpoint),
-					.position = RoutePosition{ row.from_index }
+					.stop = std::get<StopId>(from_endpoint)
+					, .position = RoutePosition{ row.from_index }
 				};
 				to_occurrence = StopOccurrence{
-					.stop = std::get<StopId>(to_endpoint),
-					.position = RoutePosition{ row.to_index }
+					.stop = std::get<StopId>(to_endpoint)
+					, .position = RoutePosition{ row.to_index }
 				};
 				MATHFP_TRY(ensure_time_matches_departure_arrival(
 					row.time_sec
@@ -684,15 +687,15 @@ namespace timetable::infra {
 			}
 
 			const LineRouteKey key{
-				.from = timetable::domain::occurrence_key(*semantics.from_occurrence),
-				.to = timetable::domain::occurrence_key(*semantics.to_occurrence),
-				.line_id = row.profile
+				.from = timetable::domain::occurrence_key(*semantics.from_occurrence)
+				, .to = timetable::domain::occurrence_key(*semantics.to_occurrence)
+				, .line_id = row.profile
 			};
 
 			if (const auto it = state.line_routes.find(key); it != state.line_routes.end()) {
 				const auto actual_metrics = LineRouteMetrics{
-					.length_km = row.length_km,
-					.time_sec = row.time_sec
+					.length_km = row.length_km
+					, .time_sec = row.time_sec
 				};
 				if (!line_route_metrics_equal(it->second.metrics, actual_metrics)) {
 					return mathfp::unexpected(
@@ -738,8 +741,8 @@ namespace timetable::infra {
 			state.route_segments.push_back(std::move(route));
 			const auto route_segment_index = state.route_segments.size() - 1;
 			state.line_routes.emplace(
-				key,
-				LineRouteEntry{
+				key
+				, LineRouteEntry{
 					.route_segment_index = route_segment_index
 					, .metrics = LineRouteMetrics{
 						.length_km = row.length_km
@@ -930,19 +933,19 @@ namespace timetable::infra {
 			fmt::format(
 				"parsing: validated columns; segments = {}"
 				, n
-			),
-			LogLevel::Info
+			)
+			, LogLevel::Info
 		);
 		log("parsing: building zones, stops, lines", LogLevel::Info);
-		MATHFP_TRY_LET(std::unordered_set<std::int64_t>, zones_set, build_declared_zone_set(columns.zone_ids));
+		MATHFP_TRY_LET(RawIdSet, zones_set, build_declared_zone_set(columns.zone_ids));
 		auto state = make_build_state(n, std::move(zones_set));
 
 		log(
 			fmt::format(
 				"parsing: zone_ids = {}"
 				, state.zones_set.size()
-			),
-			LogLevel::Info
+			)
+			, LogLevel::Info
 		);
 		log("parsing: building segments", LogLevel::Info);
 		status("parsing: building segments (0%)");
@@ -977,16 +980,16 @@ namespace timetable::infra {
 				, state.stats.timed_segments
 				, state.stats.untimed_segments
 				, state.stats.dropped_overnight
-			),
-			LogLevel::Info
+			)
+			, LogLevel::Info
 		);
 		if (state.stats.dropped_overnight > 0) {
 			log(
 				fmt::format(
 					"parsing: dropped {} overnight timed segments"
 					, state.stats.dropped_overnight
-				),
-				LogLevel::Warning
+				)
+				, LogLevel::Warning
 			);
 		}
 
@@ -1001,8 +1004,8 @@ namespace timetable::infra {
 				, input.zones.size()
 				, input.stops.size()
 				, input.lines.size()
-			),
-			LogLevel::Info
+			)
+			, LogLevel::Info
 		);
 		status("parsing: completed");
 

@@ -22,6 +22,10 @@ add_executable(timetable-transit-assigment
   src/app/cli.cpp
   src/domain/assignment/choice/choice.cpp
   src/domain/assignment/output.cpp
+  src/domain/assignment/pipeline.cpp
+  src/domain/assignment/projection/csv.cpp
+  src/domain/assignment/projection/summary.cpp
+  src/domain/assignment/projection/text_summary.cpp
   src/domain/assignment/search/branch_state.cpp
   src/domain/assignment/search/preprocessed_network.cpp
   src/domain/assignment/search/search.cpp
@@ -32,6 +36,10 @@ add_executable(timetable-transit-assigment
   src/domain/preprocessing/connection_segments.cpp
   src/domain/preprocessing/route_segments.cpp
   src/infra/clipboard.cpp
+  src/infra/assignment_output_csv.cpp
+  src/infra/assignment_output_files.cpp
+  src/infra/assignment_output_json.cpp
+  src/infra/assignment_output_text.cpp
   src/infra/data_sources.cpp
   src/infra/file_data_source.cpp
   src/infra/log_buffer.cpp
@@ -45,6 +53,8 @@ add_executable(timetable-transit-assigment
   src/infra/txt_single_file_segments.cpp
   src/infra/ui_log_sink.cpp
   src/ui/model.cpp
+  src/ui/result_bus.cpp
+  src/ui/result_snapshot.cpp
   src/ui/ui.cpp
   include/timetable/timetable.hpp
 )

@@ -34,10 +34,12 @@ namespace {
 int main(int argc, char** argv) {
 	auto result = run_app(argc, argv);
 	if (!result) {
+		(void)timetable::infra::flush_logging();
 		if (!timetable::infra::logging_started()) {
 			fmt::print(stderr, "{}\n", timetable::app::format_error(result.error()));
 		}
 		return 1;
 	}
+	(void)timetable::infra::flush_logging();
 	return 0;
 }

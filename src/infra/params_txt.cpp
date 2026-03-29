@@ -44,6 +44,12 @@ namespace timetable::infra::params_txt {
 			std::string_view path{};
 		};
 
+		template <std::size_t N>
+		using DoubleArray = std::array<double, N>;
+
+		template <std::size_t N>
+		using ObjectArray = std::array<const Object*, N>;
+
 		struct ParsedToleranceBundle final {
 			timetable::domain::SearchTolerances search{};
 			timetable::domain::ChoiceTolerances choice{};
@@ -247,16 +253,16 @@ namespace timetable::infra::params_txt {
 			struct kw_none  : TAO_PEGTL_STRING("None") {};
 
 			struct value;
-			struct member : pegtl::seq<ws, key_string, ws, colon, ws, value> {};
+			struct member      : pegtl::seq<ws, key_string, ws, colon, ws, value> {};
 			struct member_tail : pegtl::seq<ws, comma, ws> {};
-			struct members : pegtl::list_must<member, member_tail> {};
-			struct object : pegtl::seq<object_begin, ws, pegtl::opt<members>, ws, object_end> {};
+			struct members     : pegtl::list_must<member, member_tail> {};
+			struct object      : pegtl::seq<object_begin, ws, pegtl::opt<members>, ws, object_end> {};
 
-			struct elements : pegtl::list_must<value, member_tail> {};
-			struct array : pegtl::seq<array_begin, ws, pegtl::opt<elements>, ws, array_end> {};
+			struct elements    : pegtl::list_must<value, member_tail> {};
+			struct array       : pegtl::seq<array_begin, ws, pegtl::opt<elements>, ws, array_end> {};
 
-			struct value : pegtl::sor<object, array, value_string, number, kw_true, kw_false, kw_none> {};
-			struct start : pegtl::must<ws, value, ws, pegtl::eof> {};
+			struct value       : pegtl::sor<object, array, value_string, number, kw_true, kw_false, kw_none> {};
+			struct start       : pegtl::must<ws, value, ws, pegtl::eof> {};
 
 		}  // namespace grammar
 
@@ -306,8 +312,8 @@ namespace timetable::infra::params_txt {
 					, in
 					, [&](ParserState current) {
 						return with_object_key(
-							std::move(current),
-							decode_quoted_string(in.string_view())
+							std::move(current)
+							, decode_quoted_string(in.string_view())
 						);
 					}
 				);
@@ -323,8 +329,8 @@ namespace timetable::infra::params_txt {
 					, in
 					, [&](ParserState current) {
 						return with_pushed_value(
-							std::move(current),
-							Value{ decode_quoted_string(in.string_view()) }
+							std::move(current)
+							, Value{ decode_quoted_string(in.string_view()) }
 						);
 					}
 				);
@@ -524,7 +530,7 @@ namespace timetable::infra::params_txt {
 		}
 
 		template <std::size_t N>
-		mathfp::Expected<std::array<const Object*, N>> read_object_array(
+		mathfp::Expected<ObjectArray<N>> read_object_array(
 			const Object& obj
 			, const std::array<FieldSpec, N>& specs
 		) {
@@ -539,7 +545,7 @@ namespace timetable::infra::params_txt {
 		}
 
 		template <std::size_t N>
-		mathfp::Expected<std::array<double, N>> read_number_array(
+		mathfp::Expected<DoubleArray<N>> read_number_array(
 			const Object& obj
 			, const std::array<FieldSpec, N>& specs
 		) {
@@ -559,18 +565,18 @@ namespace timetable::infra::params_txt {
 			using namespace timetable::domain;
 
 			constexpr auto specs = std::array{
-				FieldSpec{ "minSearchImpFactor", "root.searchPara.ToleranceConstraints" },
-				FieldSpec{ "minSearchImpAbs", "root.searchPara.ToleranceConstraints" },
-				FieldSpec{ "minJourneyTimeFactor", "root.searchPara.ToleranceConstraints" },
-				FieldSpec{ "minJourneyTimeAbs", "root.searchPara.ToleranceConstraints" },
-				FieldSpec{ "minNumberTransfersFactor", "root.searchPara.ToleranceConstraints" },
-				FieldSpec{ "minNumberTransfersAbs", "root.searchPara.ToleranceConstraints" }
+				FieldSpec  { "minSearchImpFactor"      , "root.searchPara.ToleranceConstraints" }
+				, FieldSpec{ "minSearchImpAbs"         , "root.searchPara.ToleranceConstraints" }
+				, FieldSpec{ "minJourneyTimeFactor"    , "root.searchPara.ToleranceConstraints" }
+				, FieldSpec{ "minJourneyTimeAbs"       , "root.searchPara.ToleranceConstraints" }
+				, FieldSpec{ "minNumberTransfersFactor", "root.searchPara.ToleranceConstraints" }
+				, FieldSpec{ "minNumberTransfersAbs"   , "root.searchPara.ToleranceConstraints" }
 			};
 
-			MATHFP_TRY_LET(std::array<double, 6>, values, read_number_array(search_tol, specs));
+			MATHFP_TRY_LET(DoubleArray<6>, values, read_number_array(search_tol, specs));
 			const auto [imp_mult, imp_add, jt_mult, jt_add, nt_mult, nt_add] = values;
 			return make_search_tolerances(
-				Dimless{ imp_mult }
+				Dimless  { imp_mult }
 				, Dimless{ imp_add }
 				, Dimless{ jt_mult }
 				, Dimless{ jt_add }
@@ -585,18 +591,18 @@ namespace timetable::infra::params_txt {
 			using namespace timetable::domain;
 
 			constexpr auto specs = std::array{
-				FieldSpec{ "minSearchImpFactor", "root.choicePara.ToleranceConstraints" },
-				FieldSpec{ "minSearchImpAbs", "root.choicePara.ToleranceConstraints" },
-				FieldSpec{ "minJourneyTimeFactor", "root.choicePara.ToleranceConstraints" },
-				FieldSpec{ "minJourneyTimeAbs", "root.choicePara.ToleranceConstraints" },
-				FieldSpec{ "minNumberTransfersFactor", "root.choicePara.ToleranceConstraints" },
-				FieldSpec{ "minNumberTransfersAbs", "root.choicePara.ToleranceConstraints" }
+				FieldSpec  { "minSearchImpFactor"      , "root.choicePara.ToleranceConstraints" }
+				, FieldSpec{ "minSearchImpAbs"         , "root.choicePara.ToleranceConstraints" }
+				, FieldSpec{ "minJourneyTimeFactor"    , "root.choicePara.ToleranceConstraints" }
+				, FieldSpec{ "minJourneyTimeAbs"       , "root.choicePara.ToleranceConstraints" }
+				, FieldSpec{ "minNumberTransfersFactor", "root.choicePara.ToleranceConstraints" }
+				, FieldSpec{ "minNumberTransfersAbs"   , "root.choicePara.ToleranceConstraints" }
 			};
 
-			MATHFP_TRY_LET(std::array<double, 6>, values, read_number_array(choice_tol, specs));
+			MATHFP_TRY_LET(DoubleArray<6>, values, read_number_array(choice_tol, specs));
 			const auto [imp_mult, imp_add, jt_mult, jt_add, nt_mult, nt_add] = values;
 			return make_choice_tolerances(
-				Dimless{ imp_mult }
+				Dimless  { imp_mult }
 				, Dimless{ imp_add }
 				, Dimless{ jt_mult }
 				, Dimless{ jt_add }
@@ -615,14 +621,16 @@ namespace timetable::infra::params_txt {
 				FieldSpec{ "maxNumTransfers", "root.searchPara" }
 			};
 			constexpr auto temporal_specs = std::array{
-				FieldSpec{ "minTWT", "root.searchPara.TemporalSuitability" },
-				FieldSpec{ "maxTWT", "root.searchPara.TemporalSuitability" }
+				FieldSpec  { "minTWT", "root.searchPara.TemporalSuitability" }
+				, FieldSpec{ "maxTWT", "root.searchPara.TemporalSuitability" }
 			};
 
-			MATHFP_TRY_LET(std::array<double, 1>, search_values, read_number_array(search_para, search_specs));
-			MATHFP_TRY_LET(std::array<double, 2>, temporal_values, read_number_array(temporal, temporal_specs));
-			const auto [max_transfers] = search_values;
+			MATHFP_TRY_LET(DoubleArray<1>, search_values  , read_number_array(search_para, search_specs));
+			MATHFP_TRY_LET(DoubleArray<2>, temporal_values, read_number_array(temporal, temporal_specs));
+
+			const auto [max_transfers]    = search_values;
 			const auto [min_twt, max_twt] = temporal_values;
+
 			return make_transfer_limits(
 				TransferCount{ static_cast<std::int32_t>(max_transfers) }
 				, Time{ min_twt }
@@ -638,15 +646,15 @@ namespace timetable::infra::params_txt {
 			using namespace timetable::domain;
 
 			constexpr auto specs = std::array{
-				FieldSpec{ "inVehTimeFactor", "root.searchPara.SearchImp" },
-				FieldSpec{ "numTransfersFactor", "root.searchPara.SearchImp" },
-				FieldSpec{ "supplementsFactor", "root.searchPara.SearchImp" }
+				FieldSpec  { "inVehTimeFactor"   , "root.searchPara.SearchImp" }
+				, FieldSpec{ "numTransfersFactor", "root.searchPara.SearchImp" }
+				, FieldSpec{ "supplementsFactor" , "root.searchPara.SearchImp" }
 			};
 
-			MATHFP_TRY_LET(std::array<double, 3>, values, read_number_array(search_imp, specs));
+			MATHFP_TRY_LET(DoubleArray<3>, values, read_number_array(search_imp, specs));
 			const auto [in_veh_factor, transfers_factor, supplements_factor] = values;
 			return make_search_impedance(
-				Dimless{ in_veh_factor }
+				Dimless  { in_veh_factor }
 				, Dimless{ transfers_factor }
 				, Dimless{ supplements_factor }
 			);
@@ -658,7 +666,7 @@ namespace timetable::infra::params_txt {
 			return make_preprocess_params(
 				WalkCostKind::Time
 				, WalkCostWeights{
-					.w_time = Dimless{ 1.0 }
+					.w_time     = Dimless{ 1.0 }
 					, .w_length = Dimless{ 0.0 }
 				}
 				, std::nullopt
@@ -683,9 +691,9 @@ namespace timetable::infra::params_txt {
 			};
 
 			constexpr auto specs = std::array{
-				ChoiceModelSpec{ "Kirchhoff", "KirchhoffExp" },
-				ChoiceModelSpec{ "Logit", "logitExp" },
-				ChoiceModelSpec{ "Lohse", "LohseExp" }
+				ChoiceModelSpec  { "Kirchhoff", "KirchhoffExp" }
+				, ChoiceModelSpec{ "Logit"    , "logitExp" }
+				, ChoiceModelSpec{ "Lohse"    , "LohseExp" }
 			};
 
 			const auto it = std::find_if(
@@ -714,30 +722,31 @@ namespace timetable::infra::params_txt {
 			using namespace timetable::domain;
 
 			constexpr auto split_imp_specs = std::array{
-				FieldSpec{ "perceivedJourneyTimeFactor", "root.splitPara.SplitImp" },
-				FieldSpec{ "temporalUtilityFactor_early", "root.splitPara.SplitImp" },
-				FieldSpec{ "temporalUtilityFactor_late", "root.splitPara.SplitImp" },
-				FieldSpec{ "fareFactor", "root.splitPara.SplitImp" }
+				FieldSpec  { "perceivedJourneyTimeFactor" , "root.splitPara.SplitImp" }
+				, FieldSpec{ "temporalUtilityFactor_early", "root.splitPara.SplitImp" }
+				, FieldSpec{ "temporalUtilityFactor_late" , "root.splitPara.SplitImp" }
+				, FieldSpec{ "fareFactor"                 , "root.splitPara.SplitImp" }
 			};
 			constexpr auto split_pjt_specs = std::array{
-				FieldSpec{ "inVehTimeFactor", "root.splitPara.SplitImp.PerceivedJourneyTime" },
-				FieldSpec{ "transferWaitTimeFactor", "root.splitPara.SplitImp.PerceivedJourneyTime" },
-				FieldSpec{ "numTransfersFactor", "root.splitPara.SplitImp.PerceivedJourneyTime" }
+				FieldSpec  { "inVehTimeFactor"       , "root.splitPara.SplitImp.PerceivedJourneyTime" }
+				, FieldSpec{ "transferWaitTimeFactor", "root.splitPara.SplitImp.PerceivedJourneyTime" }
+				, FieldSpec{ "numTransfersFactor"    , "root.splitPara.SplitImp.PerceivedJourneyTime" }
 			};
 			constexpr auto indep_specs = std::array{
-				FieldSpec{ "gamma", "root.splitPara.Independence" },
-				FieldSpec{ "indepMaxDelta", "root.splitPara.Independence" },
-				FieldSpec{ "indepHigherQualityCoeff", "root.splitPara.Independence" },
-				FieldSpec{ "indepLowerQualityCoeff", "root.splitPara.Independence" }
+				FieldSpec  { "gamma"                  , "root.splitPara.Independence" }
+				, FieldSpec{ "indepMaxDelta"          , "root.splitPara.Independence" }
+				, FieldSpec{ "indepHigherQualityCoeff", "root.splitPara.Independence" }
+				, FieldSpec{ "indepLowerQualityCoeff" , "root.splitPara.Independence" }
 			};
 			constexpr auto split_para_specs = std::array{
 				FieldSpec{ "BoxCoxExp", "root.splitPara" }
 			};
 
-			MATHFP_TRY_LET(std::array<double, 4>, split_imp_values, read_number_array(split_imp, split_imp_specs));
-			MATHFP_TRY_LET(std::array<double, 3>, split_pjt_values, read_number_array(split_pjt, split_pjt_specs));
-			MATHFP_TRY_LET(std::array<double, 4>, indep_values, read_number_array(indep, indep_specs));
-			MATHFP_TRY_LET(std::array<double, 1>, split_para_values, read_number_array(split_para, split_para_specs));
+			MATHFP_TRY_LET(DoubleArray<4>, split_imp_values , read_number_array(split_imp , split_imp_specs));
+			MATHFP_TRY_LET(DoubleArray<3>, split_pjt_values , read_number_array(split_pjt , split_pjt_specs));
+			MATHFP_TRY_LET(DoubleArray<4>, indep_values     , read_number_array(indep     , indep_specs));
+			MATHFP_TRY_LET(DoubleArray<1>, split_para_values, read_number_array(split_para, split_para_specs));
+
 			MATHFP_TRY_LET(double, beta, parse_choice_model_beta(split_para));
 
 			const auto [q_time, q_dep_early, q_dep_late, q_fare] = split_imp_values;
@@ -750,12 +759,12 @@ namespace timetable::infra::params_txt {
 				, Dimless{ 1.0 }
 				, Dimless{ q_fare }
 				, PerceivedJourneyTimeWeights{
-					.journey_time = Dimless{ pjt_journey_time }
-					, .transfer_time = Dimless{ pjt_transfer_time }
+					.journey_time     = Dimless{ pjt_journey_time }
+					, .transfer_time  = Dimless{ pjt_transfer_time }
 					, .transfer_count = Dimless{ pjt_transfer_count }
 				}
 				, TemporalUtilityWeights{
-					.early_departure = Dimless{ q_dep_early }
+					.early_departure  = Dimless{ q_dep_early }
 					, .late_departure = Dimless{ q_dep_late }
 				}
 				, Dimless{ beta }
@@ -773,39 +782,39 @@ namespace timetable::infra::params_txt {
 			using namespace timetable::domain;
 
 			constexpr auto root_specs = std::array{
-				FieldSpec{ "searchPara", "root" },
-				FieldSpec{ "choicePara", "root" },
-				FieldSpec{ "splitPara", "root" }
+				FieldSpec  { "searchPara", "root" }
+				, FieldSpec{ "choicePara", "root" }
+				, FieldSpec{ "splitPara" , "root" }
 			};
 			constexpr auto search_specs = std::array{
-				FieldSpec{ "ToleranceConstraints", "root.searchPara" },
-				FieldSpec{ "TemporalSuitability", "root.searchPara" },
-				FieldSpec{ "SearchImp", "root.searchPara" }
+				FieldSpec  { "ToleranceConstraints", "root.searchPara" }
+				, FieldSpec{ "TemporalSuitability" , "root.searchPara" }
+				, FieldSpec{ "SearchImp"           , "root.searchPara" }
 			};
 			constexpr auto choice_specs = std::array{
 				FieldSpec{ "ToleranceConstraints", "root.choicePara" }
 			};
 			constexpr auto split_specs = std::array{
-				FieldSpec{ "Independence", "root.splitPara" },
-				FieldSpec{ "SplitImp", "root.splitPara" }
+				FieldSpec  { "Independence", "root.splitPara" }
+				, FieldSpec{ "SplitImp"    , "root.splitPara" }
 			};
 			constexpr auto split_imp_specs = std::array{
 				FieldSpec{ "PerceivedJourneyTime", "root.splitPara.SplitImp" }
 			};
 
-			MATHFP_TRY_LET(std::array<const Object*, 3>, root_objects, read_object_array(root, root_specs));
+			MATHFP_TRY_LET(ObjectArray<3>, root_objects, read_object_array(root, root_specs));
 			const auto [search_para, choice_para, split_para] = root_objects;
 
-			MATHFP_TRY_LET(std::array<const Object*, 3>, search_objects, read_object_array(*search_para, search_specs));
+			MATHFP_TRY_LET(ObjectArray<3>, search_objects, read_object_array(*search_para, search_specs));
 			const auto [search_tol, temporal, search_imp] = search_objects;
 
-			MATHFP_TRY_LET(std::array<const Object*, 1>, choice_objects, read_object_array(*choice_para, choice_specs));
+			MATHFP_TRY_LET(ObjectArray<1>, choice_objects, read_object_array(*choice_para, choice_specs));
 			const auto [choice_tol] = choice_objects;
 
-			MATHFP_TRY_LET(std::array<const Object*, 2>, split_objects, read_object_array(*split_para, split_specs));
+			MATHFP_TRY_LET(ObjectArray<2>, split_objects, read_object_array(*split_para, split_specs));
 			const auto [indep, split_imp] = split_objects;
 
-			MATHFP_TRY_LET(std::array<const Object*, 1>, split_imp_objects, read_object_array(*split_imp, split_imp_specs));
+			MATHFP_TRY_LET(ObjectArray<1>, split_imp_objects, read_object_array(*split_imp, split_imp_specs));
 			const auto [split_pjt] = split_imp_objects;
 
 			MATHFP_TRY_LET(
@@ -822,6 +831,7 @@ namespace timetable::infra::params_txt {
 					, parse_choice_tolerances(*choice_tol)
 				)
 			);
+
 			MATHFP_TRY_LET(
 				ParsedSearchBundle
 				, search_bundle
@@ -876,8 +886,8 @@ namespace timetable::infra::params_txt {
 			fmt::format(
 				"parsing: params.txt loaded; bytes = {}"
 				, text.size()
-			),
-			LogLevel::Info
+			)
+			, LogLevel::Info
 		);
 
 		status("parsing: parsing params.txt syntax");
@@ -900,8 +910,8 @@ namespace timetable::infra::params_txt {
 				, params.transfers.max_transfers.get()
 				, params.transfers.allow_start_wait ? "true" : "false"
 				, params.transfers.allow_end_wait ? "true" : "false"
-			),
-			LogLevel::Info
+			)
+			, LogLevel::Info
 		);
 		status("parsing: params.txt parsed");
 		return params;

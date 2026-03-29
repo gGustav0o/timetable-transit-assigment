@@ -4,6 +4,7 @@
 #include <chrono>
 #include <filesystem>
 #include <ctime>
+#include <mutex>
 #include <vector>
 
 #include <mathfp/core/error.hpp>
@@ -22,7 +23,26 @@ namespace timetable::infra {
 		// monotone (false -> true) and intentionally never resets, but that policy
 		// should be made explicit in the subsystem contract rather than remaining
 		// an implicit helper for main.cpp.
-		std::atomic_bool g_logging_started = false;
+		std::atomic_bool g_logging_started        = false;
+		std::atomic_bool g_periodic_flush_started = false;
+
+		std::mutex g_logging_mutex;
+
+		spdlog::level::level_enum to_spdlog_level(
+			LogLevel level
+		) noexcept {
+			switch (level) {
+				case LogLevel::Debug:
+					return spdlog::level::debug;
+				case LogLevel::Info:
+					return spdlog::level::info;
+				case LogLevel::Warning:
+					return spdlog::level::warn;
+				case LogLevel::Error:
+					return spdlog::level::err;
+			}
+			return spdlog::level::err;
+		}
 
 		mathfp::Expected<mathfp::Unit> ensure_log_directory_ready(
 			const std::filesystem::path& log_dir
@@ -107,17 +127,29 @@ namespace timetable::infra {
 
 		mathfp::Expected<mathfp::Unit> activate_logging(
 			const std::shared_ptr<spdlog::logger>& logger
+			, const LoggingPolicy& policy
 		) {
 			if (!logger) {
 				return mathfp::unexpected(
 					mathfp::invalid_arg("cannot activate logging with null logger")
 				);
 			}
+
+			logger->flush_on(to_spdlog_level(policy.flush_on_level));
 			// TODO: Define repeated init_logging(...) semantics explicitly:
 			// whether replacing the default logger is allowed, expected, or should
 			// be rejected/reused for process-wide stability.
-			spdlog::set_default_logger(logger);
-			spdlog::set_pattern("[%H:%M:%S.%e] [%^%l%$] %v");
+			{
+				std::lock_guard lock(g_logging_mutex);
+				spdlog::set_default_logger(logger);
+				spdlog::set_pattern("[%H:%M:%S.%e] [%^%l%$] %v");
+			}
+
+			if (policy.periodic_flush_interval.count() > 0
+				&& !g_periodic_flush_started.exchange(true, std::memory_order_relaxed)) {
+				spdlog::flush_every(policy.periodic_flush_interval);
+			}
+
 			g_logging_started.store(true, std::memory_order_relaxed);
 			return mathfp::ok();
 		}
@@ -148,6 +180,7 @@ namespace timetable::infra {
 		std::size_t log_capacity
 		, const std::filesystem::path& log_dir
 		, bool enable_console_sink
+		, LoggingPolicy policy
 	) {
 		MATHFP_TRY_LET(
 			LoggingArtifacts
@@ -155,12 +188,29 @@ namespace timetable::infra {
 			, make_logging_artifacts(
 			log_capacity, log_dir, enable_console_sink
 		));
-		MATHFP_TRY(activate_logging(artifacts.context.logger));
+		MATHFP_TRY(activate_logging(artifacts.context.logger, policy));
 		artifacts.context.logger->info(
 			"log file: {}"
 			, artifacts.log_path.string()
 		);
 		return std::move(artifacts.context);
+	}
+
+	mathfp::Expected<mathfp::Unit> flush_logging() {
+		if (!logging_started()) {
+			return mathfp::ok();
+		}
+
+		std::lock_guard lock(g_logging_mutex);
+		const auto logger = spdlog::default_logger();
+		if (!logger) {
+			return mathfp::unexpected(
+				mathfp::internal_error("logging is marked active but default logger is missing")
+			);
+		}
+
+		logger->flush();
+		return mathfp::ok();
 	}
 
 	bool logging_started() noexcept {
