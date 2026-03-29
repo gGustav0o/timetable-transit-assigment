@@ -1,7 +1,8 @@
 #pragma once
 
-#include <cassert>
 #include <cmath>
+#include <string>
+#include <string_view>
 #include <utility>
 
 #include <mathfp/core/error.hpp>
@@ -17,12 +18,13 @@ namespace timetable::domain::validation {
         return std::isfinite(v);
     }
 
-    inline mathfp::Unexpected fail(
-        const char* assert_msg
+    [[nodiscard]] inline mathfp::Unexpected fail(
+        std::string_view invariant
         , mathfp::Error err
     ) {
-        assert(false && "validation failed");
-        return mathfp::unexpected(std::move(err).ctx("assert", assert_msg));
+        return mathfp::unexpected(
+            std::move(err).ctx("validation_invariant", std::string(invariant))
+        );
     }
 
     inline mathfp::Expected<mathfp::Unit> ensure_nonneg(

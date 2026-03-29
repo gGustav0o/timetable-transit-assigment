@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <utility>
 
+#include <mathfp/core/applicative.hpp>
 #include <mathfp/core/error.hpp>
 #include <mathfp/core/fp.hpp>
 #include <mathfp/core/try.hpp>
@@ -15,70 +16,86 @@
 namespace timetable::infra {
 
 	namespace {
+		struct DefaultToleranceBundle final {
+			timetable::domain::SearchTolerances search{};
+			timetable::domain::ChoiceTolerances choice{};
+		};
+
+		struct DefaultSearchBundle final {
+			timetable::domain::PreprocessParams preprocess{};
+			timetable::domain::SearchImpedance impedance{};
+			timetable::domain::TransferLimits transfers{};
+		};
+
 		mathfp::Expected<timetable::domain::SearchParams> make_pair_default_search_params() {
 			using namespace timetable::domain;
 
 			MATHFP_TRY_LET(
-				PreprocessParams
-				, preprocess
-				, make_preprocess_params(
-					WalkCostKind::Time
-					, WalkCostWeights{
-						.w_time = Dimless{ 1.0 }
-						, .w_length = Dimless{ 0.0 }
+				DefaultSearchBundle
+				, search_bundle
+				, mathfp::app::lift3(
+					[](PreprocessParams preprocess, SearchImpedance impedance, TransferLimits transfers) {
+						return DefaultSearchBundle{
+							.preprocess = std::move(preprocess)
+							, .impedance = std::move(impedance)
+							, .transfers = std::move(transfers)
+						};
 					}
-					, std::nullopt
-					, true
-					, false
-					, true
-					, true
-					, TimeAggregationKind::Mean
-					, true
-					, true
+					, make_preprocess_params(
+						WalkCostKind::Time
+						, WalkCostWeights{
+							.w_time = Dimless{ 1.0 }
+							, .w_length = Dimless{ 0.0 }
+						}
+						, std::nullopt
+						, true
+						, false
+						, true
+						, true
+						, TimeAggregationKind::Mean
+						, true
+						, true
+					)
+					, make_search_impedance(
+						Dimless{ 1.0 }
+						, Dimless{ 12.0 }
+						, Dimless{ 0.0 }
+					)
+					, make_transfer_limits(
+						TransferCount{ 5 }
+						, Time{ 0.0 }
+						, Time{ 30.0 }
+						, true
+						, true
+					)
 				)
 			);
 			MATHFP_TRY_LET(
-				SearchImpedance
-				, impedance
-				, make_search_impedance(
-					Dimless{ 1.0 }
-					, Dimless{ 12.0 }
-					, Dimless{ 0.0 }
-				)
-			);
-			MATHFP_TRY_LET(
-				TransferLimits
-				, transfers
-				, make_transfer_limits(
-					TransferCount{ 5 }
-					, Time{ 0.0 }
-					, Time{ 30.0 }
-					, true
-					, true
-				)
-			);
-			MATHFP_TRY_LET(
-				SearchTolerances
-				, search_tolerances
-				, make_search_tolerances(
-					Dimless{ 1.2 }
-					, Dimless{ 10.0 }
-					, Dimless{ 1.2 }
-					, Dimless{ 10.0 }
-					, Dimless{ 1.0 }
-					, Dimless{ 1.0 }
-				)
-			);
-			MATHFP_TRY_LET(
-				ChoiceTolerances
-				, choice_tolerances
-				, make_choice_tolerances(
-					Dimless{ 1.2 }
-					, Dimless{ 10.0 }
-					, Dimless{ 1.2 }
-					, Dimless{ 10.0 }
-					, Dimless{ 1.0 }
-					, Dimless{ 1.0 }
+				DefaultToleranceBundle
+				, tolerance_bundle
+				, mathfp::app::lift2(
+					[](SearchTolerances search, ChoiceTolerances choice) {
+						return DefaultToleranceBundle{
+							.search = std::move(search)
+							, .choice = std::move(choice)
+						};
+					}
+					, make_search_tolerances(
+						Dimless{ 1.2 }
+						, Dimless{ 10.0 }
+						, Dimless{ 1.2 }
+						, Dimless{ 10.0 }
+						, Dimless{ 1.0 }
+						, Dimless{ 1.0 }
+					)
+					, make_choice_tolerances(
+						Dimless{ 1.2 }
+						, Dimless{ 10.0 }
+						, Dimless{ 1.2 }
+						, Dimless{ 10.0 }
+						, Dimless{ 1.0 }
+						, Dimless{ 1.0 }
+					)
 				)
 			);
 			MATHFP_TRY_LET(
@@ -107,11 +124,11 @@ namespace timetable::infra {
 			);
 
 			return make_search_params(
-				std::move(preprocess)
-				, std::move(impedance)
-				, std::move(transfers)
-				, std::move(search_tolerances)
-				, std::move(choice_tolerances)
+				std::move(search_bundle.preprocess)
+				, std::move(search_bundle.impedance)
+				, std::move(search_bundle.transfers)
+				, std::move(tolerance_bundle.search)
+				, std::move(tolerance_bundle.choice)
 				, std::move(split)
 			);
 		}

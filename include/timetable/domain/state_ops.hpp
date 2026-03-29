@@ -7,26 +7,8 @@
 
 namespace timetable::domain::state_ops {
 
-    template <typename State, typename Step>
-    [[nodiscard]] auto transition(
-        State&& state
-        , Step&& step
-    ) -> decltype(step(std::forward<State>(state))) {
-        return step(std::forward<State>(state));
-    }
-
-    template <typename ExpectedState, typename Step>
-    [[nodiscard]] auto bind(
-        ExpectedState&& state
-        , Step&& step
-    ) -> decltype(step(std::move(*state))) {
-        auto current = std::forward<ExpectedState>(state);
-        if (!current) {
-            return mathfp::unexpected(current.error());
-        }
-
-        return step(std::move(*current));
-    }
+    // Stateful folds live here because they thread an evolving builder/state
+    // through a collection. Plain Expected composition should use mathfp::fp.
 
     template <typename State, typename Range, typename Step>
     [[nodiscard]] mathfp::Expected<State> fold(
@@ -60,20 +42,6 @@ namespace timetable::domain::state_ops {
         }
 
         return state;
-    }
-
-    template <typename State, typename Step, typename ThrowFn>
-    void transition_or_throw(
-        State& state
-        , Step&& step
-        , ThrowFn&& throw_error
-    ) {
-        auto next_state = transition(std::move(state), std::forward<Step>(step));
-        if (!next_state) {
-            throw_error(next_state.error());
-        }
-
-        state = std::move(*next_state);
     }
 
 }  // namespace timetable::domain::state_ops

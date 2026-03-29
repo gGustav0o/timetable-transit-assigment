@@ -9,10 +9,12 @@
 #include <utility>
 
 #include <boost/container_hash/hash.hpp>
+#include <boost/range/irange.hpp>
 
 #include <mathfp/core/error.hpp>
 #include <mathfp/core/try.hpp>
 #include <mathfp/core/unit.hpp>
+#include <mathfp/ranges/zip.hpp>
 
 #include <fmt/format.h>
 
@@ -279,26 +281,60 @@ namespace timetable::infra {
 			return state;
 		}
 
-		SegmentRowView segment_row_view(
-			const SegmentColumns& columns
-			, std::size_t index
+		template <class IndexRange>
+		auto indexed_segment_rows(
+			IndexRange& indices
+			, const SegmentColumns& columns
 		) {
-			return SegmentRowView{
-				.index = index
-				, .from_zone = columns.from_zone_id[index]
-				, .from_stop = columns.from_stop_id[index]
-				, .to_zone = columns.to_zone_id[index]
-				, .to_stop = columns.to_stop_id[index]
-				, .profile = columns.profile_id[index]
-				, .trip_id = columns.trip_id[index]
-				, .from_index = columns.from_index[index]
-				, .to_index = columns.to_index[index]
-				, .length_km = columns.length_km[index]
-				, .time_sec = columns.time_sec[index]
-				, .dep_sec = columns.dep_sec[index]
-				, .arr_sec = columns.arr_sec[index]
-				, .fare = columns.fare[index]
-			};
+			return mathfp::ranges::zip_with(
+				[](
+					std::size_t index
+					, std::int64_t from_zone
+					, std::int64_t from_stop
+					, std::int64_t to_zone
+					, std::int64_t to_stop
+					, std::int64_t profile
+					, std::int64_t trip_id
+					, std::int64_t from_index
+					, std::int64_t to_index
+					, double length_km
+					, double time_sec
+					, double dep_sec
+					, double arr_sec
+					, double fare
+				) {
+					return SegmentRowView{
+						.index = index
+						, .from_zone = from_zone
+						, .from_stop = from_stop
+						, .to_zone = to_zone
+						, .to_stop = to_stop
+						, .profile = profile
+						, .trip_id = trip_id
+						, .from_index = from_index
+						, .to_index = to_index
+						, .length_km = length_km
+						, .time_sec = time_sec
+						, .dep_sec = dep_sec
+						, .arr_sec = arr_sec
+						, .fare = fare
+					};
+				}
+				, indices
+				, columns.from_zone_id
+				, columns.from_stop_id
+				, columns.to_zone_id
+				, columns.to_stop_id
+				, columns.profile_id
+				, columns.trip_id
+				, columns.from_index
+				, columns.to_index
+				, columns.length_km
+				, columns.time_sec
+				, columns.dep_sec
+				, columns.arr_sec
+				, columns.fare
+			);
 		}
 
 		mathfp::Expected<mathfp::Unit> report_build_progress(
@@ -766,10 +802,8 @@ namespace timetable::infra {
 
 		mathfp::Expected<BuildState> process_segment_row(
 			BuildState state
-			, const SegmentColumns& columns
-			, std::size_t index
+			, SegmentRowView row
 		) {
-			const auto row = segment_row_view(columns, index);
 			if (const auto dropped = dropped_overnight_state(std::move(state), row); dropped.has_value()) {
 				return std::move(*dropped);
 			}
@@ -787,12 +821,11 @@ namespace timetable::infra {
 
 		mathfp::Expected<BuildState> process_segment_row_with_progress(
 			BuildState state
-			, const SegmentColumns& columns
+			, SegmentRowView row
 			, std::size_t count
-			, std::size_t index
 		) {
-			MATHFP_TRY(report_build_progress(index, count, state.stats));
-			return process_segment_row(std::move(state), columns, index);
+			MATHFP_TRY(report_build_progress(row.index, count, state.stats));
+			return process_segment_row(std::move(state), std::move(row));
 		}
 
 		mathfp::Expected<mathfp::Unit> validate_extra_zones(
@@ -913,18 +946,19 @@ namespace timetable::infra {
 		);
 		log("parsing: building segments", LogLevel::Info);
 		status("parsing: building segments (0%)");
+		auto row_indices = boost::irange<std::size_t>(std::size_t{ 0 }, n);
+		auto rows = indexed_segment_rows(row_indices, columns);
 		MATHFP_TRY_LET(
 			BuildState
 			, built_state
-			, timetable::domain::state_ops::fold_indexed(
+			, timetable::domain::state_ops::fold(
 				std::move(state)
-				, n
-				, [&](BuildState current, std::size_t i) {
+				, rows
+				, [&](BuildState current, SegmentRowView row) {
 					return process_segment_row_with_progress(
 						std::move(current)
-						, columns
+						, std::move(row)
 						, n
-						, i
 					);
 				}
 			)

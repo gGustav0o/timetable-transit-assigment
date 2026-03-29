@@ -9,6 +9,16 @@
 #include "timetable/domain/segments.hpp"
 
 namespace timetable::domain {
+	inline double normalized_fare_value(
+		double fare
+		, double fare_scale
+	) noexcept {
+		if (fare_scale <= 0.0) {
+			return 0.0;
+		}
+		return fare / fare_scale;
+	}
+
 	/**
 	 * @brief Normalized fare contribution for impedance calculations.
 	 *
@@ -21,7 +31,7 @@ namespace timetable::domain {
 		if (!segment.fare || fare_scale <= 0.0) {
 			return 0.0;
 		}
-		return *segment.fare / fare_scale;
+		return normalized_fare_value(*segment.fare, fare_scale);
 	}
 
 	inline std::tuple<double, double, double, double, double, double>
@@ -51,6 +61,23 @@ namespace timetable::domain {
 		, double fare
 	) noexcept {
 		return a_jt * jt + a_nt * nt + a_fare * fare;
+	}
+
+	inline double connection_impedance_value(
+		Time journey_time
+		, TransferCount transfers
+		, double fare
+		, const SearchImpedance& weights
+		, double fare_scale
+	) noexcept {
+		return linear_connection_impedance(
+			mathfp::units::as_dimless(weights.a_journey_time)
+			, mathfp::units::as_dimless(weights.a_transfers)
+			, mathfp::units::as_dimless(weights.a_fare)
+			, journey_time.value()
+			, static_cast<double>(transfers.get())
+			, normalized_fare_value(fare, fare_scale)
+		);
 	}
 
 	/**

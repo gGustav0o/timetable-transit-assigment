@@ -17,6 +17,8 @@ namespace timetable::infra::progress {
 		Sink log{};
 	};
 
+	// Process-wide progress diagnostics bus. When no sinks are installed, it
+	// degrades to no-op delivery rather than failing.
 	mathfp::Expected<mathfp::Unit> set_sinks(SinkState sinks);
 	mathfp::Expected<mathfp::Unit> set_status_sink(Sink sink);
 	mathfp::Expected<mathfp::Unit> set_log_sink(Sink sink);

@@ -176,7 +176,7 @@ namespace timetable::domain::preprocessing {
             , std::string_view message
         ) {
             if (!value.has_value()) {
-                return validation::fail(message.data(), mathfp::invalid_arg(message));
+                return validation::fail(message, mathfp::invalid_arg(message));
             }
 
             return mathfp::kUnit;
@@ -188,7 +188,7 @@ namespace timetable::domain::preprocessing {
             , std::string_view message
         ) {
             if (value.has_value()) {
-                return validation::fail(message.data(), mathfp::invalid_arg(message));
+                return validation::fail(message, mathfp::invalid_arg(message));
             }
 
             return mathfp::kUnit;

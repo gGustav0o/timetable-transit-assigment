@@ -120,13 +120,6 @@ namespace timetable::domain::assignment {
             };
         }
 
-        double normalized_fare(
-            double fare
-            , double fare_scale
-        ) noexcept {
-            return fare_scale > 0.0 ? fare / fare_scale : 0.0;
-        }
-
         double expected_search_impedance(
             Time journey_time
             , TransferCount transfers
@@ -134,13 +127,12 @@ namespace timetable::domain::assignment {
             , double fare_scale
             , const SearchParams& params
         ) noexcept {
-            return linear_connection_impedance(
-                mathfp::units::as_dimless(params.impedance.a_journey_time)
-                , mathfp::units::as_dimless(params.impedance.a_transfers)
-                , mathfp::units::as_dimless(params.impedance.a_fare)
-                , journey_time.value()
-                , static_cast<double>(transfers.get())
-                , normalized_fare(fare, fare_scale)
+            return connection_impedance_value(
+                journey_time
+                , transfers
+                , fare
+                , params.impedance
+                , fare_scale
             );
         }
 

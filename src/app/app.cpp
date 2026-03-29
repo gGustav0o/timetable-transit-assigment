@@ -214,51 +214,60 @@ namespace timetable::app {
 			);
 		}
 
-		auto log_error(
-			const std::shared_ptr<spdlog::logger>& logger
-			, std::string_view header
-		) {
-			return mathfp::fp::pipe::inspect_error([logger, header](const auto& err) {
-				if (logger) {
-					logger->error("{}:\n{}", header, timetable::app::format_error(err));
-				}
-			});
-		}
-
-		auto load_assignment_input(
-			const io::DataSource& data_source
-			, const std::shared_ptr<spdlog::logger>& logger
-		) {
-			return data_source.load() | log_error(logger, "input load failed");
-		}
-
-		auto run_assignment(
-			timetable::domain::AssignmentInput input
-			, const std::shared_ptr<spdlog::logger>& logger
-		) {
-			return
-				timetable::domain::assignment::run_timetable_assignment(std::move(input))
-				| log_error(logger, "assignment failed");
-		}
-
 		mathfp::Expected<mathfp::Unit> run_worker(
 			const io::DataSource& data_source
 			, const std::shared_ptr<spdlog::logger>& logger
 		) {
-			auto load_result = load_assignment_input(data_source, logger);
-			if (!load_result) {
-				report_failure("input load failed", load_result.error());
-				return mathfp::unexpected(load_result.error());
-			}
+			using mathfp::fp::pipe::and_then;
+			using mathfp::fp::pipe::inspect;
+			using mathfp::fp::pipe::inspect_error;
+			using mathfp::fp::pipe::map;
+			using mathfp::fp::pipe::map_error;
 
-			auto assignment_result = run_assignment(std::move(load_result.value()), logger);
-			if (!assignment_result) {
-				report_failure("assignment failed", assignment_result.error());
-				return mathfp::unexpected(assignment_result.error());
-			}
-
-			timetable::infra::progress::status("ready");
-			return mathfp::ok();
+			return
+				data_source.load()
+				| inspect_error([logger](const auto& err) {
+					if (logger) {
+						logger->error(
+							"input load failed:\n{}"
+							, timetable::app::format_error(err)
+						);
+					}
+				})
+				| inspect_error([](const auto& err) {
+					report_failure("input load failed", err);
+				})
+				| map_error([](mathfp::Error err) {
+					return std::move(err).ctx(
+						"orchestration_stage"
+						, std::string("input_load")
+					);
+				})
+				| and_then([&](timetable::domain::AssignmentInput input) {
+					return
+						timetable::domain::assignment::run_timetable_assignment(std::move(input))
+						| inspect_error([logger](const auto& err) {
+							if (logger) {
+								logger->error(
+									"assignment failed:\n{}"
+									, timetable::app::format_error(err)
+								);
+							}
+						})
+						| inspect_error([](const auto& err) {
+							report_failure("assignment failed", err);
+						})
+						| map_error([](mathfp::Error err) {
+							return std::move(err).ctx(
+								"orchestration_stage"
+								, std::string("assignment")
+							);
+						})
+						| inspect([](const auto&) {
+							timetable::infra::progress::status("ready");
+						})
+						| map([](const auto&) {});
+				});
 		}
 
 		std::thread start_worker_thread(
@@ -267,13 +276,17 @@ namespace timetable::app {
 			, WorkerResultBox& worker_result
 		) {
 			return std::thread([&] {
-				const auto set_result = worker_result.set(run_worker(data_source, logger));
-				if (!set_result && logger) {
-					logger->error(
-						"worker result handoff failed:\n{}",
-						timetable::app::format_error(set_result.error())
-					);
-				}
+				(void)(
+					worker_result.set(run_worker(data_source, logger))
+					| mathfp::fp::pipe::inspect_error([logger](const auto& err) {
+						if (logger) {
+							logger->error(
+								"worker result handoff failed:\n{}",
+								timetable::app::format_error(err)
+							);
+						}
+					})
+				);
 			});
 		}
 
@@ -295,11 +308,8 @@ namespace timetable::app {
 		auto logger = logging.logger;
 
 		ui::UiModel model;
-		auto progress_sinks_result = ScopedProgressSinks::make(model, logger);
-		if (!progress_sinks_result) {
-			return mathfp::unexpected(progress_sinks_result.error());
-		}
-		auto progress_sinks = std::move(*progress_sinks_result);
+		MATHFP_TRY_LET(ScopedProgressSinks, progress_sinks, ScopedProgressSinks::make(model, logger));
+		(void)progress_sinks;
 		WorkerResultBox worker_result;
 
 		timetable::infra::progress::status("waiting to start");
@@ -315,10 +325,7 @@ namespace timetable::app {
 			return ui::run(model, logger);
 		}();
 
-		auto worker_run_result = worker_result.take();
-		if (!worker_run_result) {
-			return mathfp::unexpected(worker_run_result.error());
-		}
+		MATHFP_TRY(worker_result.take());
 		return ui_result;
 	}
 
