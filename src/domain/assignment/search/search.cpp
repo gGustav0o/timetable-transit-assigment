@@ -92,7 +92,24 @@ namespace timetable::domain::assignment {
             const RouteSegment*              last_timed_route_segment{};
         };
 
+        struct OriginSearchStats final {
+            std::size_t expanded_branches{};
+            std::size_t generated_successors{};
+            std::size_t accepted_branches{};
+            std::size_t rejected_feasibility{};
+            std::size_t rejected_reboarding{};
+            std::size_t rejected_cycles{};
+            std::size_t rejected_transfer_limit{};
+            std::size_t rejected_dominance_or_tolerance{};
+            std::size_t completed_connections{};
+            std::size_t max_current_frontier{};
+            std::size_t max_next_frontier{};
+        };
+
         using NodeConnectionMap = std::unordered_map<SearchNodeKey, NodeConnectionSet, SearchNodeKeyHash>;
+
+        constexpr std::size_t kOriginProgressStep = 10;
+        constexpr std::size_t kSearchHeartbeatStep = 100'000;
 
         const RouteSegment& route_segment_at(
               const PreprocessedNetwork& network
@@ -676,9 +693,16 @@ namespace timetable::domain::assignment {
             , const PreprocessedNetwork& network
             , double                     fare_scale
             , const SearchParams&        params
+            , std::size_t                origin_index
+            , std::size_t                origin_count
         ) {
+            using timetable::infra::LogLevel;
+            using timetable::infra::progress::log;
+            using timetable::infra::progress::status;
+
             std::vector<DiscoveredConnection> found;
             NodeConnectionMap known_connections;
+            OriginSearchStats stats;
 
             std::deque<SearchBranch> current_frontier;
             std::deque<SearchBranch> next_frontier;
@@ -702,24 +726,77 @@ namespace timetable::domain::assignment {
                 }
             );
 
+            status(
+                fmt::format(
+                      "search: origin {}/{} zone={} frontier={} found={}"
+                    , origin_index + 1
+                    , origin_count
+                    , origin.get()
+                    , current_frontier.size()
+                    , found.size()
+                )
+            );
+
             while (!current_frontier.empty() || !next_frontier.empty()) {
                 if (current_frontier.empty()) {
                     current_frontier.swap(next_frontier);
                 }
 
+                stats.max_current_frontier = std::max(stats.max_current_frontier, current_frontier.size());
+                stats.max_next_frontier    = std::max(stats.max_next_frontier   , next_frontier   .size());
+
                 auto branch = std::move(current_frontier.front());
                 current_frontier.pop_front();
+                ++stats.expanded_branches;
+
+                if ((stats.expanded_branches % kSearchHeartbeatStep) == 0) {
+                    status(
+                        fmt::format(
+                              "search: origin {}/{} zone={} expanded={} accepted={} found={} frontier={}/{}"
+                            , origin_index + 1
+                            , origin_count
+                            , origin.get()
+                            , stats.expanded_branches
+                            , stats.accepted_branches
+                            , found.size()
+                            , current_frontier.size()
+                            , next_frontier.size()
+                        )
+                    );
+                    log(
+                        fmt::format(
+                              "search heartbeat: origin={:>4} expanded={:>8} generated={:>8}"
+                              " accepted={:>8} found={:>8} rejected(feasibility/reboarding/cycles/limit/dominance)={}/{}/{}/{}/{}"
+                              " frontier={}/{}"
+                            , origin.get()
+                            , stats.expanded_branches
+                            , stats.generated_successors
+                            , stats.accepted_branches
+                            , found.size()
+                            , stats.rejected_feasibility
+                            , stats.rejected_reboarding
+                            , stats.rejected_cycles
+                            , stats.rejected_transfer_limit
+                            , stats.rejected_dominance_or_tolerance
+                            , current_frontier.size()
+                            , next_frontier.size()
+                        )
+                        , LogLevel::Info
+                    );
+                }
 
                 if (is_complete_connection(branch)) {
                     if (const auto complete = complete_connection(
                         branch, network, params.impedance, params.transfers, fare_scale
                     ); complete.has_value()) {
                         found.push_back(std::move(*complete));
+                        ++stats.completed_connections;
                     }
                     continue;
                 }
 
                 for (const auto successor_id : successor_ids(network, branch, params.transfers)) {
+                    ++stats.generated_successors;
                     const auto& successor = connection_segment_at(network, successor_id);
                     const auto& successor_route_segment = route_segment_at(
                           network
@@ -731,6 +808,7 @@ namespace timetable::domain::assignment {
                         , successor_route_segment
                         , params.transfers
                     )) {
+                        ++stats.rejected_feasibility;
                         continue;
                     }
                     if (!improves_repeated_stop_reboarding(
@@ -739,15 +817,18 @@ namespace timetable::domain::assignment {
                         , successor
                         , successor_route_segment
                     )) {
+                        ++stats.rejected_reboarding;
                         continue;
                     }
 
                     auto candidate = extend_branch(branch, network, successor);
                     if (!candidate.has_value()) {
+                        ++stats.rejected_cycles;
                         continue;
                     }
 
                     if (candidate->transfers > params.transfers.max_transfers) {
+                        ++stats.rejected_transfer_limit;
                         continue;
                     }
 
@@ -757,8 +838,10 @@ namespace timetable::domain::assignment {
                         , params
                         , fare_scale
                     )) {
+                        ++stats.rejected_dominance_or_tolerance;
                         continue;
                     }
+                    ++stats.accepted_branches;
 
                     const auto same_level =
                         is_walk_connection(successor) || !branch.departure.has_value();
@@ -769,6 +852,28 @@ namespace timetable::domain::assignment {
                     }
                 }
             }
+
+            log(
+                fmt::format(
+                      "search origin done: {}/{} zone={} found={:>8} expanded={:>8} generated={:>8} accepted={:>8}"
+                      " rejected(feasibility/reboarding/cycles/limit/dominance)={}/{}/{}/{}/{} max_frontier={}/{}"
+                    , origin_index + 1
+                    , origin_count
+                    , origin.get()
+                    , found.size()
+                    , stats.expanded_branches
+                    , stats.generated_successors
+                    , stats.accepted_branches
+                    , stats.rejected_feasibility
+                    , stats.rejected_reboarding
+                    , stats.rejected_cycles
+                    , stats.rejected_transfer_limit
+                    , stats.rejected_dominance_or_tolerance
+                    , stats.max_current_frontier
+                    , stats.max_next_frontier
+                )
+                , LogLevel::Info
+            );
 
             return found;
         }
@@ -783,6 +888,7 @@ namespace timetable::domain::assignment {
         using timetable::infra::LogLevel;
         using timetable::infra::progress::both;
         using timetable::infra::progress::log;
+        using timetable::infra::progress::status;
 
         both("search: branch-and-bound");
         log(
@@ -799,11 +905,46 @@ namespace timetable::domain::assignment {
         const auto origins = search_origins(network);
         ConnectionSearchResult result;
 
-        for (const auto origin : origins) {
+        log(
+            fmt::format(
+                  "search setup: origins = {:>6}  fare_scale = {:.6f}"
+                , origins.size()
+                , fare_scale
+            )
+            , LogLevel::Info
+        );
+
+        if (origins.empty()) {
+            status("search: no origin zones available");
+        }
+
+        for (std::size_t i = 0; i < origins.size(); ++i) {
+            const auto origin = origins[i];
+            if (i == 0 || (i % kOriginProgressStep) == 0 || (i + 1) == origins.size()) {
+                status(
+                    fmt::format(
+                          "search: origin {}/{} zone={} total_found={}"
+                        , i + 1
+                        , origins.size()
+                        , origin.get()
+                        , result.connections.size()
+                    )
+                );
+            }
+            log(
+                fmt::format(
+                      "search origin start: {}/{} zone={} cumulative_found={}"
+                    , i + 1
+                    , origins.size()
+                    , origin.get()
+                    , result.connections.size()
+                )
+                , LogLevel::Info
+            );
             MATHFP_TRY_LET(
                   std::vector<DiscoveredConnection>
                 , origin_connections
-                , search_from_origin(origin, network, fare_scale, params)
+                , search_from_origin(origin, network, fare_scale, params, i, origins.size())
             );
             result.connections.insert(
                   result.connections.end()

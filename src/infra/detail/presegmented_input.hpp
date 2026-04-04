@@ -218,8 +218,8 @@ namespace timetable::infra::detail::presegmented_input {
         const SegmentRowView& row
     );
 
-    mathfp::Expected<BuildState> collect_model_entities(
-          BuildState              state
+    mathfp::Expected<mathfp::Unit> collect_model_entities(
+          BuildState&            state
         , const SegmentRowView&   row
         , const SegmentSemantics& semantics
     );

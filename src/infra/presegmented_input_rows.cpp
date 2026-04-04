@@ -124,15 +124,15 @@ namespace timetable::infra::detail::presegmented_input {
                 && row.arr_sec < row.dep_sec;
         }
 
-        std::optional<BuildState> dropped_overnight_state(
-              BuildState            state
+        [[nodiscard]] bool try_drop_overnight_timed_row(
+              BuildState&           state
             , const SegmentRowView& row
         ) {
             using timetable::infra::LogLevel;
             using timetable::infra::progress::log;
 
             if (!is_overnight_timed_row(row)) {
-                return std::nullopt;
+                return false;
             }
 
             ++state.stats.dropped_overnight;
@@ -147,7 +147,7 @@ namespace timetable::infra::detail::presegmented_input {
                 )
                 , LogLevel::Warning
             );
-            return state;
+            return true;
         }
 
     }  // namespace
@@ -296,8 +296,8 @@ namespace timetable::infra::detail::presegmented_input {
         };
     }
 
-    mathfp::Expected<BuildState> collect_model_entities(
-          BuildState              state
+    mathfp::Expected<mathfp::Unit> collect_model_entities(
+          BuildState&             state
         , const SegmentRowView&   row
         , const SegmentSemantics& semantics
     ) {
@@ -327,26 +327,26 @@ namespace timetable::infra::detail::presegmented_input {
         if (std::holds_alternative<StopId>(semantics.to_endpoint)) {
             state.stop_ids.insert(std::get<StopId>(semantics.to_endpoint).get());
         }
-        return state;
+        return mathfp::kUnit;
     }
 
     mathfp::Expected<BuildState> process_segment_row(
           BuildState     state
         , SegmentRowView row
     ) {
-        if (const auto dropped = dropped_overnight_state(std::move(state), row); dropped.has_value()) {
-            return std::move(*dropped);
+        if (try_drop_overnight_timed_row(state, row)) {
+            return state;
         }
 
         MATHFP_TRY_LET(SegmentSemantics, semantics, interpret_segment_row(row));
-        MATHFP_TRY_LET(BuildState, with_entities, collect_model_entities(std::move(state), row, semantics));
+        MATHFP_TRY(collect_model_entities(state, row, semantics));
         MATHFP_TRY_LET(
               std::size_t
             , route_segment_index
-            , build_route_segment_for_row(with_entities, row, semantics)
+            , build_route_segment_for_row(state, row, semantics)
         );
-        MATHFP_TRY(append_connection_segment_for_row(with_entities, row, semantics, route_segment_index));
-        return with_entities;
+        MATHFP_TRY(append_connection_segment_for_row(state, row, semantics, route_segment_index));
+        return state;
     }
 
 }  // namespace timetable::infra::detail::presegmented_input
