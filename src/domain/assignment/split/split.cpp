@@ -241,9 +241,10 @@ namespace timetable::domain::assignment {
             std::vector<double> independences;
             std::vector<double> split_impedances;
             std::vector<double> log_weights;
-            independences.reserve(connections.size());
+
+            independences   .reserve(connections.size());
             split_impedances.reserve(connections.size());
-            log_weights.reserve(connections.size());
+            log_weights     .reserve(connections.size());
 
             double max_log_weight = -std::numeric_limits<double>::infinity();
             for (std::size_t i = 0; i < connections.size(); ++i) {
@@ -264,9 +265,10 @@ namespace timetable::domain::assignment {
                 ))
                     - beta * transformed;
 
-                independences.push_back(independence);
+                independences   .push_back(independence);
                 split_impedances.push_back(imp);
-                log_weights.push_back(log_weight);
+                log_weights     .push_back(log_weight);
+
                 max_log_weight = std::max(max_log_weight, log_weight);
             }
 
