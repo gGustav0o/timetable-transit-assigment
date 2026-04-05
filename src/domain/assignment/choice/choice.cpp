@@ -95,6 +95,7 @@ namespace timetable::domain::assignment {
         std::vector<DiscoveredConnection> filter_choice_group(
               std::vector<DiscoveredConnection> connections
             , const ChoiceTolerances&           tolerances
+            , const ChoiceConfig&               config
         ) {
             std::vector<DiscoveredConnection> relevant;
             relevant.reserve(connections.size());
@@ -102,6 +103,29 @@ namespace timetable::domain::assignment {
                 if (is_choice_relevant(connections, i)) {
                     relevant.push_back(std::move(connections[i]));
                 }
+            }
+
+            if (config.rollout_stage == ChoiceRolloutStage::ExactOnly) {
+                std::sort(
+                      relevant.begin()
+                    , relevant.end()
+                    , [](const DiscoveredConnection& lhs, const DiscoveredConnection& rhs) {
+                        if (lhs.departure != rhs.departure) {
+                            return lhs.departure.value() < rhs.departure.value();
+                        }
+                        if (lhs.arrival != rhs.arrival) {
+                            return lhs.arrival.value() < rhs.arrival.value();
+                        }
+                        if (lhs.impedance != rhs.impedance) {
+                            return lhs.impedance < rhs.impedance;
+                        }
+                        if (lhs.transfers != rhs.transfers) {
+                            return lhs.transfers.get() < rhs.transfers.get();
+                        }
+                        return lhs.segments < rhs.segments;
+                    }
+                );
+                return relevant;
             }
 
             const auto stats = collect_choice_group_stats(relevant);
@@ -141,6 +165,7 @@ namespace timetable::domain::assignment {
     mathfp::Expected<ConnectionChoiceResult> choose_connections(
           const ConnectionSearchResult& search_result
         , const SearchParams&           params
+        , const ChoiceConfig&           config
     ) {
         using timetable::infra::LogLevel;
         using timetable::infra::progress::both;
@@ -149,8 +174,9 @@ namespace timetable::domain::assignment {
         both("choice: pruning connections");
         log(
             fmt::format(
-                  "choice input: connections = {:>8}"
+                  "choice input: connections = {:>8}  rollout_stage = {}"
                 , search_result.connections.size()
+                , static_cast<std::int64_t>(config.rollout_stage)
             )
             , LogLevel::Info
         );
@@ -158,7 +184,7 @@ namespace timetable::domain::assignment {
         ConnectionChoiceResult result;
         const auto groups = detail::grouping::group_connections_by_od(search_result.connections);
         for (const auto& [key, group_connections] : groups) {
-            auto chosen = filter_choice_group(group_connections, params.choice_tolerances);
+            auto chosen = filter_choice_group(group_connections, params.choice_tolerances, config);
             log(
                 fmt::format(
                     "choice group: origin = {:>6}  destination = {:>6}"

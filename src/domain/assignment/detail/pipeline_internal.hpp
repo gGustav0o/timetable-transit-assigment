@@ -9,6 +9,9 @@
 #include "timetable/domain/assignment/choice.hpp"
 #include "timetable/domain/assignment/preprocessed_network.hpp"
 #include "timetable/domain/assignment/search.hpp"
+#include "timetable/domain/assignment/search_pruning_diagnostics.hpp"
+#include "timetable/domain/assignment/search_pruning_plan.hpp"
+#include "timetable/domain/assignment/search_time_domain_plan.hpp"
 #include "timetable/domain/assignment/split.hpp"
 #include "timetable/domain/assignment/validation.hpp"
 #include "timetable/infra/progress_bus.hpp"
@@ -44,17 +47,61 @@ namespace timetable::domain::assignment::detail {
 
     inline mathfp::Expected<ConnectionSearchResult> run_validated_search_step(
           const PreprocessedNetwork& net
-        , const SearchParams&        params
+        , const AssignmentInput&     input
     ) {
+        using timetable::infra::LogLevel;
+        using timetable::infra::progress::log;
+
+        const auto& params = input.params;
         MATHFP_TRY(validate_preprocessing_step_output(net, params));
         const auto fare_scale = compute_fare_scale(
               net.connection_segments
             , params.impedance.fare_normalization
         );
+        MATHFP_TRY(validate_search_pruning_config(input.search_pruning));
+        log(
+            format_search_pruning_config_summary(summarize(input.search_pruning))
+            , LogLevel::Info
+        );
+        MATHFP_TRY_LET(
+              SearchPruningExecutionPlan
+            , search_pruning_execution
+            , plan_search_pruning_execution(
+                  input.search_pruning.model.requested_state_space
+                , input.search_pruning.runtime.rollout_stage
+                , params.search_tolerances
+            )
+        );
+        MATHFP_TRY(validate_search_pruning_execution_plan(
+              search_pruning_execution
+            , params.search_tolerances
+        ));
+        log(
+            format_search_pruning_execution_summary(summarize(search_pruning_execution))
+            , LogLevel::Info
+        );
+        MATHFP_TRY_LET(
+              std::optional<SearchTimeDomainExecution>
+            , search_time_domain_execution
+            , prepare_search_time_domain_execution(
+                  input.input
+                , input.search_time_domain.model.padding_policy
+                , params.split
+                , input.search_time_domain.runtime.architecture
+                , input.search_time_domain.runtime.rollout_stage
+                , input.search_time_domain.model.requested_mode
+            )
+        );
         MATHFP_TRY_LET(
               ConnectionSearchResult
             , search_result
-            , search_connections_branch_and_bound(net, fare_scale, params)
+            , search_connections_branch_and_bound(
+                  net
+                , fare_scale
+                , params
+                , &search_pruning_execution
+                , search_time_domain_execution ? &*search_time_domain_execution : nullptr
+            )
         );
         MATHFP_TRY(validate_search_step_output(
               search_result
@@ -68,11 +115,12 @@ namespace timetable::domain::assignment::detail {
     inline mathfp::Expected<ConnectionChoiceResult> run_validated_choice_step(
           const ConnectionSearchResult& search_result
         , const SearchParams&           params
+        , const ChoiceConfig&           config
     ) {
         MATHFP_TRY_LET(
               ConnectionChoiceResult
             , choice_result
-            , choose_connections(search_result, params)
+            , choose_connections(search_result, params, config)
         );
         MATHFP_TRY(validate_choice_step_output(choice_result, search_result));
         return mathfp::Expected<ConnectionChoiceResult>(std::move(choice_result));
@@ -113,12 +161,12 @@ namespace timetable::domain::assignment::detail {
         MATHFP_TRY_LET(
               ConnectionSearchResult
             , search_result
-            , run_validated_search_step(network, input.params)
+            , run_validated_search_step(network, input)
         );
         MATHFP_TRY_LET(
               ConnectionChoiceResult
             , choice_result
-            , run_validated_choice_step(search_result, input.params)
+            , run_validated_choice_step(search_result, input.params, input.choice)
         );
         MATHFP_TRY_LET(
               DemandSplitResult

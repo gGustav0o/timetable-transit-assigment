@@ -27,6 +27,14 @@ add_executable(timetable-transit-assigment
   src/domain/assignment/output_lookup.cpp
   src/domain/assignment/output_validation.cpp
   src/domain/assignment/pipeline.cpp
+  src/domain/assignment/search_pruning.cpp
+  src/domain/assignment/search_pruning_diagnostics.cpp
+  src/domain/assignment/search_pruning_plan.cpp
+  src/domain/assignment/search_time_domain.cpp
+  src/domain/assignment/search_time_domain_diagnostics.cpp
+  src/domain/assignment/search_time_domain_builder.cpp
+  src/domain/assignment/search_time_domain_execution.cpp
+  src/domain/assignment/search_time_domain_plan.cpp
   src/domain/assignment/projection/csv.cpp
   src/domain/assignment/projection/summary.cpp
   src/domain/assignment/projection/text_summary.cpp
@@ -37,6 +45,8 @@ add_executable(timetable-transit-assigment
   src/domain/assignment/split/split.cpp
   src/domain/assignment/validation/choice.cpp
   src/domain/assignment/validation/preprocessing.cpp
+  src/domain/assignment/validation/search_pruning.cpp
+  src/domain/assignment/validation/search_time_domain.cpp
   src/domain/assignment/validation/search.cpp
   src/domain/assignment/validation/split.cpp
   src/domain/preprocessing/segments_index.cpp

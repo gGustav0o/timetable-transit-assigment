@@ -6,7 +6,10 @@
 
 #include "timetable/domain/model.hpp"
 #include "timetable/domain/params.hpp"
+#include "timetable/domain/assignment/search_pruning_plan.hpp"
 #include "timetable/domain/assignment/search/preprocessed_network.hpp"
+#include "timetable/domain/assignment/search_time_domain_execution.hpp"
+#include <timetable/domain/segments.hpp>
 
 namespace timetable::domain::assignment {
 
@@ -31,9 +34,11 @@ namespace timetable::domain::assignment {
      * @brief Enumerate feasible connections using timetable-based branch & bound.
      */
     mathfp::Expected<ConnectionSearchResult> search_connections_branch_and_bound(
-          const PreprocessedNetwork& network
-        , double                   fare_scale
-        , const SearchParams&      params
+          const PreprocessedNetwork&        network
+        , double                            fare_scale
+        , const SearchParams&               params
+        , const SearchPruningExecutionPlan* pruning_execution     = nullptr
+        , const SearchTimeDomainExecution*  time_domain_execution = nullptr
     );
 
 }  // namespace timetable::domain::assignment

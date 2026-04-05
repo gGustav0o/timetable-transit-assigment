@@ -27,6 +27,54 @@ namespace timetable::infra {
             timetable::domain::TransferLimits   transfers{};
         };
 
+        mathfp::Expected<timetable::domain::assignment::SearchTimeDomainConfig> make_pair_default_search_time_domain_config() {
+            using namespace timetable::domain;
+            using namespace timetable::domain::assignment;
+
+            MATHFP_TRY_LET(
+                  SearchTimePaddingPolicy
+                , padding_policy
+                , make_fixed_search_time_padding_policy(
+                    SearchTimePadding{
+                          .before_start = Time{ 0.0 }
+                        , .after_end    = Time{ 0.0 }
+                    }
+                )
+            );
+
+            return SearchTimeDomainConfig{
+                  .model = SearchTimeDomainModelConfig{
+                      .requested_mode = SearchWindowMode::Global
+                    , .padding_policy = std::move(padding_policy)
+                  }
+                , .runtime = SearchTimeDomainRuntimeConfig{
+                      .architecture  = SearchArchitecture::OriginWideBranchAndBound
+                    , .rollout_stage = SearchTimeDomainRolloutStage::Disabled
+                  }
+            };
+        }
+
+        mathfp::Expected<timetable::domain::assignment::SearchPruningConfig> make_pair_default_search_pruning_config() {
+            using namespace timetable::domain::assignment;
+
+            return SearchPruningConfig{
+                  .model = SearchPruningModelConfig{
+                      .requested_state_space = SearchPruningStateSpace::CurrentPhysicalAndOccurrence
+                  }
+                , .runtime = SearchPruningRuntimeConfig{
+                      .rollout_stage = SearchPruningRolloutStage::Disabled
+                  }
+            };
+        }
+
+        mathfp::Expected<timetable::domain::assignment::ChoiceConfig> make_pair_default_choice_config() {
+            using namespace timetable::domain::assignment;
+
+            return ChoiceConfig{
+                .rollout_stage = ChoiceRolloutStage::ExactOnly
+            };
+        }
+
         mathfp::Expected<timetable::domain::SearchParams> make_pair_default_search_params() {
             using namespace timetable::domain;
 
@@ -63,8 +111,8 @@ namespace timetable::infra {
                     )
                     , make_transfer_limits(
                           TransferCount{ 5 }
-                        , Time{ 0.0 }
-                        , Time{ 30.0 }
+                        , Time         { 0.0 }
+                        , Time         { 30.0 }
                         , true
                         , true
                     )
@@ -156,7 +204,25 @@ namespace timetable::infra {
                             , params
                             , make_pair_default_search_params()
                         );
+                        MATHFP_TRY_LET(
+                              timetable::domain::assignment::ChoiceConfig
+                            , choice
+                            , make_pair_default_choice_config()
+                        );
+                        MATHFP_TRY_LET(
+                              timetable::domain::assignment::SearchPruningConfig
+                            , search_pruning
+                            , make_pair_default_search_pruning_config()
+                        );
+                        MATHFP_TRY_LET(
+                              timetable::domain::assignment::SearchTimeDomainConfig
+                            , search_time_domain
+                            , make_pair_default_search_time_domain_config()
+                        );
                         input.params = std::move(params);
+                        input.choice = std::move(choice);
+                        input.search_pruning = std::move(search_pruning);
+                        input.search_time_domain = std::move(search_time_domain);
                         status("parsing: pair input ready");
                         return mathfp::Expected<timetable::domain::AssignmentInput>(std::move(input));
                     });

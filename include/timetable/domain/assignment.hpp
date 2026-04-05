@@ -11,7 +11,10 @@
 #include "timetable/domain/params.hpp"
 #include "timetable/domain/segments.hpp"
 #include "timetable/domain/assignment/choice/choice.hpp"
+#include "timetable/domain/assignment/choice/choice_config.hpp"
 #include "timetable/domain/assignment/search/search.hpp"
+#include "timetable/domain/assignment/search_pruning_config.hpp"
+#include "timetable/domain/assignment/search_time_domain_config.hpp"
 
 namespace timetable::domain {
 
@@ -21,15 +24,18 @@ namespace timetable::domain {
             std::vector<ConnectionSegment> connection_segments{};
         };
 
-        InputModel                       input{};
-        SearchParams                     params{};
-        std::optional<PresegmentedInput> presegmented{};
+        InputModel                         input{};
+        SearchParams                       params{};
+        assignment::ChoiceConfig           choice{};
+        assignment::SearchPruningConfig    search_pruning{};
+        assignment::SearchTimeDomainConfig search_time_domain{};
+        std::optional<PresegmentedInput>   presegmented{};
     };
 
     struct AssignmentConnectionRefTag {};
 
     using AssignmentConnectionRef = mathfp::StrongType<
-        std::int64_t
+          std::int64_t
         , AssignmentConnectionRefTag
         , mathfp::strong_detail::EqualityComparable
         , mathfp::strong_detail::Ordered

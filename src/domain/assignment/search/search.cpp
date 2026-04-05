@@ -4,7 +4,6 @@
 #include <cstddef>
 #include <deque>
 #include <iterator>
-#include <limits>
 #include <optional>
 #include <unordered_map>
 #include <unordered_set>
@@ -17,6 +16,8 @@
 #include <fmt/format.h>
 
 #include "timetable/domain/endpoints.hpp"
+#include "timetable/domain/assignment/search_pruning.hpp"
+#include "timetable/domain/assignment/search_pruning_diagnostics.hpp"
 #include "timetable/domain/impedance.hpp"
 #include "timetable/domain/assignment/search/branch_state.hpp"
 #include "timetable/domain/preprocessing/segments_index.hpp"
@@ -26,45 +27,16 @@
 namespace timetable::domain::assignment {
     namespace {
 
-        struct PartialConnectionLabel final {
-            Time          departure{};
-            Time          arrival{};
-            Time          journey_time{};
-            // Sum of walk-segment durations accumulated along the partial connection.
-            Time          walk_time{};
-            TransferCount transfers{};
-            double        fare{};
-            double        impedance{};
-        };
-
-        struct NodeLocalSearchSummary final {
-            double min_impedance   { std::numeric_limits<double>::infinity() };
-            double min_journey_time{ std::numeric_limits<double>::infinity() };
-            // Paper-consistent node-local summary values retained alongside the
-            // current relevance/tolerance checks.
-            double min_walk_time   { std::numeric_limits<double>::infinity() };
-            double min_transfers   { std::numeric_limits<double>::infinity() };
-            double min_fare        { std::numeric_limits<double>::infinity() };
-        };
-
-        struct NodeConnectionSet final {
-            std::vector<PartialConnectionLabel> labels{};
-            NodeLocalSearchSummary              summary{};
-        };
-
-        struct SearchNodeKey final {
-            EndpointKey                      physical{};
-            std::optional<StopOccurrenceKey> occurrence{};
-
-            auto operator<=>(const SearchNodeKey&) const = default;
-        };
+        using PartialConnectionLabel = SearchPruningLabel;
+        using NodeConnectionSet      = SearchPruningLabelSet;
+        using SearchNodeKey          = SearchPruningStateKey;
 
         struct SearchNodeKeyHash final {
             std::size_t operator()(const SearchNodeKey& key) const noexcept {
                 std::size_t seed = 17u;
-                seed             = seed * 31u + std::hash<std::int64_t>{}(static_cast<std::int64_t>(key.physical.kind));
-                seed             = seed * 31u + std::hash<std::int64_t>{}(key.physical.id);
-                seed             = seed * 31u + std::hash<bool>{}(key.occurrence.has_value());
+                seed = seed * 31u + std::hash<std::int64_t>{}(static_cast<std::int64_t>(key.physical.kind));
+                seed = seed * 31u + std::hash<std::int64_t>{}(key.physical.id);
+                seed = seed * 31u + std::hash<bool>{}(key.occurrence.has_value());
                 if (key.occurrence.has_value()) {
                     seed = seed * 31u + std::hash<std::int64_t>{}(key.occurrence->stop.get());
                     seed = seed * 31u + std::hash<std::int64_t>{}(key.occurrence->position.get());
@@ -74,27 +46,28 @@ namespace timetable::domain::assignment {
         };
 
         struct SearchBranch final {
-            ZoneId                           origin{};
-            EndpointKey                      current_physical{};
-            std::optional<StopOccurrenceKey> current_occurrence{};
-            std::optional<Time>              departure{};
-            std::optional<Time>              current_time{};
+            ZoneId                             origin{};
+            EndpointKey                        current_physical{};
+            std::optional<StopOccurrenceKey>   current_occurrence{};
+            std::optional<Time>                departure{};
+            std::optional<Time>                current_time{};
             // Total accumulated walk duration over all walk segments seen so far.
-            Time                             walk_time{};
-            Time                             access_walk_time{};
-            Time                             transfer_time{};
-            TransferCount                    transfers{};
-            double                           fare{};
-            std::optional<std::size_t>       parent_branch{};
+            Time                               walk_time{};
+            Time                               access_walk_time{};
+            Time                               transfer_time{};
+            TransferCount                      transfers{};
+            double                             fare{};
+            std::optional<std::size_t>         parent_branch{};
             std::optional<ConnectionSegmentId> incoming_segment{};
-            const ConnectionSegment*         last_timed_segment{};
-            const RouteSegment*              last_timed_route_segment{};
+            const ConnectionSegment*           last_timed_segment{};
+            const RouteSegment*                last_timed_route_segment{};
         };
 
         struct OriginSearchStats final {
             std::size_t expanded_branches{};
             std::size_t generated_successors{};
             std::size_t accepted_branches{};
+            std::size_t rejected_time_domain{};
             std::size_t rejected_feasibility{};
             std::size_t rejected_reboarding{};
             std::size_t rejected_cycles{};
@@ -103,6 +76,7 @@ namespace timetable::domain::assignment {
             std::size_t completed_connections{};
             std::size_t max_current_frontier{};
             std::size_t max_next_frontier{};
+            SearchPruningRuntimeStats pruning{};
         };
 
         using NodeConnectionMap = std::unordered_map<SearchNodeKey, NodeConnectionSet, SearchNodeKeyHash>;
@@ -193,8 +167,8 @@ namespace timetable::domain::assignment {
         }
 
         bool branch_revisits_occurrence(
-              const BranchArena&     branches
-            , const SearchBranch&    branch
+              const BranchArena&  branches
+            , const SearchBranch& branch
             , StopOccurrenceKey   next
         ) {
             if (branch.current_occurrence.has_value() && branch.current_occurrence.value() == next) {
@@ -231,113 +205,38 @@ namespace timetable::domain::assignment {
             };
 
             return PartialConnectionLabel{
-                  .departure    = *branch.departure
-                , .arrival      = *branch.current_time
-                , .journey_time = journey_time
-                , .walk_time    = branch.walk_time
-                , .transfers    = branch.transfers
-                , .fare         = branch.fare
-                , .impedance    = branch_impedance_value(
-                      journey_time
-                    , branch.transfers
-                    , branch.fare
-                    , impedance
-                    , fare_scale
-                )
+                  .primitive = SearchPruningLabelPrimitive{
+                        .departure = *branch.departure
+                      , .arrival   = *branch.current_time
+                      , .transfers = branch.transfers
+                      , .fare      = branch.fare
+                  }
+                , .derived = SearchPruningLabelDerived{
+                        .journey_time = journey_time
+                      , .walk_time    = branch.walk_time
+                      , .impedance    = branch_impedance_value(
+                            journey_time
+                          , branch.transfers
+                          , branch.fare
+                          , impedance
+                          , fare_scale
+                        )
+                  }
             };
-        }
-
-        bool dominates(
-              const PartialConnectionLabel& lhs
-            , const PartialConnectionLabel& rhs
-        ) noexcept {
-            return lhs.departure.value() >= rhs.departure.value()
-                && lhs.arrival.value()   <= rhs.arrival.value()
-                && lhs.impedance          <= rhs.impedance
-                && lhs.transfers.get()    <= rhs.transfers.get();
-        }
-
-        bool is_relevant(
-              const PartialConnectionLabel& candidate
-            , const NodeConnectionSet&      known
-        ) noexcept {
-            for (const auto& existing : known.labels) {
-                if (dominates(existing, candidate)) {
-                    return false;
-                }
-            }
-            return true;
-        }
-
-        bool within_search_tolerances(
-              const PartialConnectionLabel& candidate
-            , const NodeLocalSearchSummary& summary
-            , const SearchTolerances&       tolerances
-            , const TransferLimits&         limits
-        ) noexcept {
-            return candidate.transfers <= limits.max_transfers
-                && candidate.impedance
-                       <= mathfp::units::as_dimless(tolerances.imp_mult) * summary.min_impedance
-                           + mathfp::units::as_dimless(tolerances.imp_add)
-                && candidate.journey_time.value()
-                       <= mathfp::units::as_dimless(tolerances.jt_mult) * summary.min_journey_time
-                           + mathfp::units::as_dimless(tolerances.jt_add)
-                && static_cast<double>(candidate.transfers.get())
-                       <= mathfp::units::as_dimless(tolerances.nt_mult) * summary.min_transfers
-                           + mathfp::units::as_dimless(tolerances.nt_add);
-        }
-
-        void update_node_local_search_summary(
-              NodeLocalSearchSummary&       summary
-            , const PartialConnectionLabel& label
-        ) noexcept {
-            summary.min_impedance    = std::min(summary.min_impedance, label.impedance);
-            summary.min_journey_time = std::min(summary.min_journey_time, label.journey_time.value());
-            summary.min_walk_time    = std::min(summary.min_walk_time, label.walk_time.value());
-            summary.min_transfers    = std::min(
-                  summary.min_transfers
-                , static_cast<double>(label.transfers.get())
-            );
-            summary.min_fare = std::min(summary.min_fare, label.fare);
-        }
-
-        NodeLocalSearchSummary summarize_labels(
-            std::span<const PartialConnectionLabel> labels
-        ) noexcept {
-            NodeLocalSearchSummary summary{};
-            for (const auto& label : labels) {
-                update_node_local_search_summary(summary, label);
-            }
-            return summary;
         }
 
         void insert_label(
               NodeConnectionMap&     known_connections
+            , const SearchPruningExecutionPlan& pruning_execution
             , SearchNodeKey          node
             , PartialConnectionLabel label
         ) {
             auto& known = known_connections[node];
-            known.labels.erase(
-                std::remove_if(
-                      known.labels.begin()
-                    , known.labels.end()
-                    , [&](const PartialConnectionLabel& existing) {
-                        return dominates(label, existing);
-                    }
-                )
-              , known.labels.end()
+            known = insert_search_pruning_label(
+                  pruning_execution
+                , std::move(known)
+                , std::move(label)
             );
-
-            const auto insertion = std::lower_bound(
-                  known.labels.begin()
-                , known.labels.end()
-                , label.arrival.value()
-                , [](const PartialConnectionLabel& lhs, double arrival_value) {
-                    return lhs.arrival.value() < arrival_value;
-                }
-            );
-            known.labels.insert(insertion, std::move(label));
-            known.summary = summarize_labels(known.labels);
         }
 
         std::optional<std::pair<std::size_t, std::size_t>> timed_bucket_range(
@@ -468,7 +367,8 @@ namespace timetable::domain::assignment {
             }
             if (!branch.last_timed_segment->trip.has_value()
                 || !branch.last_timed_segment->to_index.has_value()
-                || !successor.to_index.has_value()) {
+                || !successor.to_index.has_value()
+            ) {
                 return std::nullopt;
             }
 
@@ -481,8 +381,8 @@ namespace timetable::domain::assignment {
 
             const auto [start, end] = *range;
             for (std::size_t i = start; i < end; ++i) {
-                const auto connection_id = network.connection_index.timed_order[i];
-                const auto& continuation = connection_segment_at(network, connection_id);
+                const auto  connection_id              = network.connection_index.timed_order[i];
+                const auto& continuation               = connection_segment_at(network, connection_id);
                 const auto& continuation_route_segment = route_segment_at(
                       network
                     , continuation.route_segment
@@ -535,9 +435,9 @@ namespace timetable::domain::assignment {
             , ConnectionSegmentId segment_id
         ) {
             SearchBranch next = branch;
-            next.parent_branch     = branch_index;
-            next.incoming_segment  = segment_id;
-            next.current_physical  = physical_to_key(route_segment);
+            next.parent_branch      = branch_index;
+            next.incoming_segment   = segment_id;
+            next.current_physical   = physical_to_key(route_segment);
             next.current_occurrence = std::nullopt;
             next.walk_time          = Time{
                 branch.walk_time.value() + route_segment.run_time.value()
@@ -584,11 +484,11 @@ namespace timetable::domain::assignment {
                 next.transfers = TransferCount{ branch.transfers.get() + 1 };
             }
 
-            next.current_time            = *segment.arrival;
-            next.current_physical        = physical_to_key(route_segment);
-            next.current_occurrence      = next_occurrence;
-            next.fare                    = branch.fare + segment.fare.value_or(0.0);
-            next.last_timed_segment      = &segment;
+            next.current_time             = *segment.arrival;
+            next.current_physical         = physical_to_key(route_segment);
+            next.current_occurrence       = next_occurrence;
+            next.fare                     = branch.fare + segment.fare.value_or(0.0);
+            next.last_timed_segment       = &segment;
             next.last_timed_route_segment = &route_segment;
             return next;
         }
@@ -689,7 +589,7 @@ namespace timetable::domain::assignment {
                 }
             }
 
-            const auto destination = ZoneId{ branch.current_physical.id };
+            const auto destination  = ZoneId{ branch.current_physical.id };
             const auto journey_time = Time{
                 branch.current_time->value() - branch.departure->value()
             };
@@ -713,39 +613,64 @@ namespace timetable::domain::assignment {
             };
         }
 
-        bool accept_branch(
+        SearchPruningDecision retain_branch(
               const SearchBranch& branch
             , NodeConnectionMap&  known_connections
             , const SearchParams& params
+            , const SearchPruningExecutionPlan& pruning_execution
+            , SearchPruningRuntimeStats& pruning_stats
             , double              fare_scale
         ) {
             if (!branch.departure.has_value() || !branch.current_time.has_value()) {
-                return true;
+                return SearchPruningDecision{
+                      .layer    = SearchPruningLayer::Exact
+                    , .reason   = SearchPruningReason::Accepted
+                    , .accepted = true
+                };
             }
 
+            ++pruning_stats.evaluated_candidates;
             const auto label = make_partial_label(branch, params.impedance, fare_scale);
             const auto node  = search_node_key(branch);
             auto it          = known_connections.find(node);
             if (it == known_connections.end()) {
-                insert_label(known_connections, node, label);
-                return true;
+                if (stores_search_pruning_labels(pruning_execution)) {
+                    insert_label(known_connections, pruning_execution, node, label);
+                    ++pruning_stats.inserted_labels;
+                } else {
+                    ++pruning_stats.skipped_insertions;
+                }
+                ++pruning_stats.accepted_candidates;
+                return SearchPruningDecision{
+                      .layer    = SearchPruningLayer::Exact
+                    , .reason   = SearchPruningReason::Accepted
+                    , .accepted = true
+                };
             }
 
-            if (!is_relevant(label, it->second)) {
-                return false;
-            }
-
-            if (!within_search_tolerances(
-                  label
-                , it->second.summary
-                , params.search_tolerances
+            const auto decision = evaluate_search_pruning(
+                  pruning_execution
+                , label
+                , it->second
                 , params.transfers
-            )) {
-                return false;
+            );
+            if (!decision.accepted) {
+                if (decision.layer == SearchPruningLayer::Exact) {
+                    ++pruning_stats.rejected_exact;
+                } else {
+                    ++pruning_stats.rejected_approximate;
+                }
+                return decision;
             }
 
-            insert_label(known_connections, node, label);
-            return true;
+            if (stores_search_pruning_labels(pruning_execution)) {
+                insert_label(known_connections, pruning_execution, node, label);
+                ++pruning_stats.inserted_labels;
+            } else {
+                ++pruning_stats.skipped_insertions;
+            }
+            ++pruning_stats.accepted_candidates;
+            return decision;
         }
 
         BranchState feasibility_state(
@@ -767,6 +692,8 @@ namespace timetable::domain::assignment {
             , const PreprocessedNetwork& network
             , double                     fare_scale
             , const SearchParams&        params
+            , const SearchPruningExecutionPlan& pruning_execution
+            , const SearchTimeDomainExecution* time_domain_execution
             , std::size_t                origin_index
             , std::size_t                origin_count
         ) {
@@ -775,9 +702,14 @@ namespace timetable::domain::assignment {
             using timetable::infra::progress::status;
 
             std::vector<DiscoveredConnection> found;
-            NodeConnectionMap known_connections;
-            OriginSearchStats stats;
-            BranchArena branches;
+            NodeConnectionMap                 known_connections;
+            OriginSearchStats                 stats;
+            BranchArena                       branches;
+            const SearchTimeDomain*           first_departure_domain =
+                time_domain_execution != nullptr
+                    ? find_origin_search_time_domain(*time_domain_execution, origin)
+                    : nullptr;
+
             branches.reserve(network.connection_segments.size() / 4 + 1);
 
             std::deque<std::size_t> current_frontier;
@@ -840,24 +772,34 @@ namespace timetable::domain::assignment {
                             , next_frontier.size()
                         )
                     );
-                    log(
-                        fmt::format(
+                        log(
+                            fmt::format(
                               "search heartbeat: origin={:>4} expanded={:>8} generated={:>8}"
-                              " accepted={:>8} found={:>8} rejected(feasibility/reboarding/cycles/limit/dominance)={}/{}/{}/{}/{}"
+                              " accepted={:>8} found={:>8} rejected(time_domain/feasibility/reboarding/cycles/limit/dominance)={}/{}/{}/{}/{}/{}"
+                              " pruning(exact/approx/inserted/skipped)={}/{}/{}/{}"
                               " frontier={}/{}"
                             , origin.get()
                             , stats.expanded_branches
                             , stats.generated_successors
                             , stats.accepted_branches
                             , found.size()
+                            , stats.rejected_time_domain
                             , stats.rejected_feasibility
                             , stats.rejected_reboarding
                             , stats.rejected_cycles
                             , stats.rejected_transfer_limit
                             , stats.rejected_dominance_or_tolerance
+                            , stats.pruning.rejected_exact
+                            , stats.pruning.rejected_approximate
+                            , stats.pruning.inserted_labels
+                            , stats.pruning.skipped_insertions
                             , current_frontier.size()
-                            , next_frontier.size()
+                            , next_frontier   .size()
                         )
+                        , LogLevel::Info
+                    );
+                    log(
+                        format_search_pruning_runtime_stats(summarize(stats.pruning))
                         , LogLevel::Info
                     );
                 }
@@ -874,11 +816,18 @@ namespace timetable::domain::assignment {
 
                 for_each_successor(network, branch, params.transfers, [&](ConnectionSegmentId successor_id) {
                     ++stats.generated_successors;
-                    const auto& successor = connection_segment_at(network, successor_id);
+                    const auto& successor               = connection_segment_at(network, successor_id);
                     const auto& successor_route_segment = route_segment_at(
                           network
                         , successor.route_segment
                     );
+                    if (!branch.departure.has_value()
+                        && first_departure_domain != nullptr
+                        && (!successor.departure.has_value()
+                            || !contains(*first_departure_domain, *successor.departure))) {
+                        ++stats.rejected_time_domain;
+                        return;
+                    }
                     if (!is_branch_extension_feasible(
                           feasibility_state(branch)
                         , successor
@@ -909,12 +858,15 @@ namespace timetable::domain::assignment {
                         return;
                     }
 
-                    if (!accept_branch(
+                    const auto pruning_decision = retain_branch(
                           *candidate
                         , known_connections
                         , params
+                        , pruning_execution
+                        , stats.pruning
                         , fare_scale
-                    )) {
+                    );
+                    if (!pruning_decision.accepted) {
                         ++stats.rejected_dominance_or_tolerance;
                         return;
                     }
@@ -926,7 +878,7 @@ namespace timetable::domain::assignment {
                     if (same_level) {
                         current_frontier.push_back(candidate_index);
                     } else {
-                        next_frontier.push_back(candidate_index);
+                        next_frontier   .push_back(candidate_index);
                     }
                 });
             }
@@ -934,7 +886,7 @@ namespace timetable::domain::assignment {
             log(
                 fmt::format(
                       "search origin done: {}/{} zone={} found={:>8} expanded={:>8} generated={:>8} accepted={:>8}"
-                      " rejected(feasibility/reboarding/cycles/limit/dominance)={}/{}/{}/{}/{} max_frontier={}/{}"
+                      " rejected(time_domain/feasibility/reboarding/cycles/limit/dominance)={}/{}/{}/{}/{}/{} max_frontier={}/{}"
                     , origin_index + 1
                     , origin_count
                     , origin.get()
@@ -942,6 +894,7 @@ namespace timetable::domain::assignment {
                     , stats.expanded_branches
                     , stats.generated_successors
                     , stats.accepted_branches
+                    , stats.rejected_time_domain
                     , stats.rejected_feasibility
                     , stats.rejected_reboarding
                     , stats.rejected_cycles
@@ -950,6 +903,10 @@ namespace timetable::domain::assignment {
                     , stats.max_current_frontier
                     , stats.max_next_frontier
                 )
+                , LogLevel::Info
+            );
+            log(
+                format_search_pruning_runtime_stats(summarize(stats.pruning))
                 , LogLevel::Info
             );
 
@@ -962,6 +919,8 @@ namespace timetable::domain::assignment {
           const PreprocessedNetwork& network
         , double                     fare_scale
         , const SearchParams&        params
+        , const SearchPruningExecutionPlan* pruning_execution
+        , const SearchTimeDomainExecution* time_domain_execution
     ) {
         using timetable::infra::LogLevel;
         using timetable::infra::progress::both;
@@ -973,7 +932,7 @@ namespace timetable::domain::assignment {
             fmt::format(
                 "search input: route_segments = {:>8}  connection_segments = {:>8}"
                 "  max_transfers = {}"
-                , network.route_segments.size()
+                , network.route_segments     .size()
                 , network.connection_segments.size()
                 , params.transfers.max_transfers.get()
             )
@@ -982,13 +941,31 @@ namespace timetable::domain::assignment {
 
         const auto origins = search_origins(network);
         ConnectionSearchResult result;
+        MATHFP_TRY_LET(
+              SearchPruningExecutionPlan
+            , default_pruning_execution
+            , plan_search_pruning_execution(
+                  SearchPruningStateSpace::CurrentPhysicalAndOccurrence
+                , SearchPruningRolloutStage::Disabled
+                , params.search_tolerances
+            )
+        );
+        const auto& effective_pruning_execution =
+            pruning_execution != nullptr
+                ? *pruning_execution
+                : default_pruning_execution;
 
         log(
             fmt::format(
-                  "search setup: origins = {:>6}  fare_scale = {:.6f}"
+                "search setup: origins = {:>6}  fare_scale = {:.6f}  time_domain = {}"
                 , origins.size()
                 , fare_scale
+                , time_domain_execution != nullptr ? "enabled" : "disabled"
             )
+            , LogLevel::Info
+        );
+        log(
+            format_search_pruning_execution_summary(summarize(effective_pruning_execution))
             , LogLevel::Info
         );
 
@@ -1022,7 +999,16 @@ namespace timetable::domain::assignment {
             MATHFP_TRY_LET(
                   std::vector<DiscoveredConnection>
                 , origin_connections
-                , search_from_origin(origin, network, fare_scale, params, i, origins.size())
+                , search_from_origin(
+                      origin
+                    , network
+                    , fare_scale
+                    , params
+                    , effective_pruning_execution
+                    , time_domain_execution
+                    , i
+                    , origins.size()
+                )
             );
             result.connections.insert(
                   result.connections.end()
