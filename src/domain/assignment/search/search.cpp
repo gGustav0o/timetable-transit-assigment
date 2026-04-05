@@ -85,9 +85,8 @@ namespace timetable::domain::assignment {
             Time                             transfer_time{};
             TransferCount                    transfers{};
             double                           fare{};
-            std::vector<ConnectionSegmentId> segments{};
-            std::vector<EndpointKey>         visited_physical{};
-            std::vector<StopOccurrenceKey>   visited_occurrences{};
+            std::optional<std::size_t>       parent_branch{};
+            std::optional<ConnectionSegmentId> incoming_segment{};
             const ConnectionSegment*         last_timed_segment{};
             const RouteSegment*              last_timed_route_segment{};
         };
@@ -107,6 +106,7 @@ namespace timetable::domain::assignment {
         };
 
         using NodeConnectionMap = std::unordered_map<SearchNodeKey, NodeConnectionSet, SearchNodeKeyHash>;
+        using BranchArena = std::vector<SearchBranch>;
 
         constexpr std::size_t kOriginProgressStep = 10;
         constexpr std::size_t kSearchHeartbeatStep = 100'000;
@@ -172,19 +172,45 @@ namespace timetable::domain::assignment {
         }
 
         bool branch_revisits_physical(
-              const SearchBranch& branch
+              const BranchArena&  branches
+            , const SearchBranch& branch
             , EndpointKey         next
         ) {
-            return std::find(branch.visited_physical.begin(), branch.visited_physical.end(), next)
-                != branch.visited_physical.end();
+            if (branch.current_physical == next) {
+                return true;
+            }
+
+            auto cursor = branch.parent_branch;
+            while (cursor.has_value()) {
+                const auto& ancestor = branches[*cursor];
+                if (ancestor.current_physical == next) {
+                    return true;
+                }
+                cursor = ancestor.parent_branch;
+            }
+
+            return false;
         }
 
         bool branch_revisits_occurrence(
-              const SearchBranch& branch
+              const BranchArena&     branches
+            , const SearchBranch&    branch
             , StopOccurrenceKey   next
         ) {
-            return std::find(branch.visited_occurrences.begin(), branch.visited_occurrences.end(), next)
-                != branch.visited_occurrences.end();
+            if (branch.current_occurrence.has_value() && branch.current_occurrence.value() == next) {
+                return true;
+            }
+
+            auto cursor = branch.parent_branch;
+            while (cursor.has_value()) {
+                const auto& ancestor = branches[*cursor];
+                if (ancestor.current_occurrence.has_value() && ancestor.current_occurrence.value() == next) {
+                    return true;
+                }
+                cursor = ancestor.parent_branch;
+            }
+
+            return false;
         }
 
         bool is_complete_connection(
@@ -221,15 +247,22 @@ namespace timetable::domain::assignment {
             };
         }
 
+        bool dominates(
+              const PartialConnectionLabel& lhs
+            , const PartialConnectionLabel& rhs
+        ) noexcept {
+            return lhs.departure.value() >= rhs.departure.value()
+                && lhs.arrival.value()   <= rhs.arrival.value()
+                && lhs.impedance          <= rhs.impedance
+                && lhs.transfers.get()    <= rhs.transfers.get();
+        }
+
         bool is_relevant(
               const PartialConnectionLabel& candidate
             , const NodeConnectionSet&      known
         ) noexcept {
             for (const auto& existing : known.labels) {
-                if (   existing.departure.value() >= candidate.departure.value()
-                    && existing.arrival  .value() <= candidate.arrival  .value()
-                    && existing.impedance         <= candidate.impedance
-                    && existing.transfers.get()   <= candidate.transfers.get()) {
+                if (dominates(existing, candidate)) {
                     return false;
                 }
             }
@@ -268,13 +301,34 @@ namespace timetable::domain::assignment {
             summary.min_fare = std::min(summary.min_fare, label.fare);
         }
 
+        NodeLocalSearchSummary summarize_labels(
+            std::span<const PartialConnectionLabel> labels
+        ) noexcept {
+            NodeLocalSearchSummary summary{};
+            for (const auto& label : labels) {
+                update_node_local_search_summary(summary, label);
+            }
+            return summary;
+        }
+
         void insert_label(
               NodeConnectionMap&     known_connections
             , SearchNodeKey          node
             , PartialConnectionLabel label
         ) {
             auto& known = known_connections[node];
-            const auto it = std::lower_bound(
+            known.labels.erase(
+                std::remove_if(
+                      known.labels.begin()
+                    , known.labels.end()
+                    , [&](const PartialConnectionLabel& existing) {
+                        return dominates(label, existing);
+                    }
+                )
+              , known.labels.end()
+            );
+
+            const auto insertion = std::lower_bound(
                   known.labels.begin()
                 , known.labels.end()
                 , label.arrival.value()
@@ -282,8 +336,8 @@ namespace timetable::domain::assignment {
                     return lhs.arrival.value() < arrival_value;
                 }
             );
-            known.labels.insert(it, label);
-            update_node_local_search_summary(known.summary, label);
+            known.labels.insert(insertion, std::move(label));
+            known.summary = summarize_labels(known.labels);
         }
 
         std::optional<std::pair<std::size_t, std::size_t>> timed_bucket_range(
@@ -302,15 +356,16 @@ namespace timetable::domain::assignment {
             };
         }
 
-        std::vector<ConnectionSegmentId> timed_successors(
+        template <typename Visitor>
+        void for_each_timed_successor(
               const PreprocessedNetwork& network
             , EndpointKey                physical_from
             , std::optional<Time>        current_time
             , const TransferLimits&      limits
+            , Visitor&&                  visit
         ) {
-            std::vector<ConnectionSegmentId> out;
             if (physical_from.kind != EndpointKind::Stop) {
-                return out;
+                return;
             }
 
             const auto bucket = preprocessing::find_bucket(
@@ -318,23 +373,21 @@ namespace timetable::domain::assignment {
                 , StopId{ physical_from.id }
             );
             if (!bucket) {
-                return out;
+                return;
             }
 
             const auto bucket_index = *bucket;
             const auto start        = network.connection_index.boarding_offsets[bucket_index];
             const auto end          = network.connection_index.boarding_offsets[bucket_index + 1];
             if (start >= end) {
-                return out;
+                return;
             }
 
             if (!current_time.has_value()) {
-                out.insert(
-                      out.end()
-                    , network.connection_index.boarding_order.begin() + static_cast<std::ptrdiff_t>(start)
-                    , network.connection_index.boarding_order.begin() + static_cast<std::ptrdiff_t>(end)
-                );
-                return out;
+                for (std::size_t i = start; i < end; ++i) {
+                    visit(network.connection_index.boarding_order[i]);
+                }
+                return;
             }
 
             const auto earliest = Time{
@@ -356,18 +409,13 @@ namespace timetable::domain::assignment {
                 }
             );
 
-            for (auto it = begin; it != departures_end; ++it) {
+            auto idx = start + static_cast<std::size_t>(begin - departures_begin);
+            for (auto it = begin; it != departures_end; ++it, ++idx) {
                 if (it->value() > latest.value()) {
                     break;
                 }
-
-                const auto idx = static_cast<std::size_t>(
-                    std::distance(network.connection_index.boarding_departures.begin(), it)
-                );
-                out.push_back(network.connection_index.boarding_order[idx]);
+                visit(network.connection_index.boarding_order[idx]);
             }
-
-            return out;
         }
 
         bool is_same_line_transfer_candidate(
@@ -481,119 +529,145 @@ namespace timetable::domain::assignment {
         }
 
         SearchBranch extend_with_walk(
-              SearchBranch        branch
+              const SearchBranch& branch
+            , std::size_t         branch_index
             , const RouteSegment& route_segment
             , ConnectionSegmentId segment_id
         ) {
-            branch.current_physical   = physical_to_key(route_segment);
-            branch.current_occurrence = std::nullopt;
-            branch.walk_time          = Time{
+            SearchBranch next = branch;
+            next.parent_branch     = branch_index;
+            next.incoming_segment  = segment_id;
+            next.current_physical  = physical_to_key(route_segment);
+            next.current_occurrence = std::nullopt;
+            next.walk_time          = Time{
                 branch.walk_time.value() + route_segment.run_time.value()
             };
-            branch.segments        .push_back(segment_id);
-            branch.visited_physical.push_back(branch.current_physical);
 
             if (branch.departure.has_value()) {
-                branch.current_time = Time{
+                next.current_time = Time{
                     branch.current_time->value() + route_segment.run_time.value()
                 };
-                if (branch.current_physical.kind == EndpointKind::Stop) {
-                    branch.transfer_time = Time{
+                if (next.current_physical.kind == EndpointKind::Stop) {
+                    next.transfer_time = Time{
                         branch.transfer_time.value() + route_segment.run_time.value()
                     };
                 }
             } else {
-                branch.access_walk_time = Time{
+                next.access_walk_time = Time{
                     branch.access_walk_time.value() + route_segment.run_time.value()
                 };
             }
 
-            return branch;
+            return next;
         }
 
         SearchBranch extend_with_timed(
-              SearchBranch             branch
+              const SearchBranch&       branch
+            , std::size_t               branch_index
             , const ConnectionSegment& segment
             , const RouteSegment&      route_segment
         ) {
+            SearchBranch next = branch;
             const auto next_occurrence = occurrence_key(line_topology_of(route_segment)->to);
             const auto had_departure   = branch.departure.has_value();
+            next.parent_branch         = branch_index;
+            next.incoming_segment      = segment.id;
             if (!had_departure) {
-                branch.departure = Time{
+                next.departure = Time{
                     segment.departure->value() - branch.access_walk_time.value()
                 };
             } else {
-                branch.transfer_time = Time{
+                next.transfer_time = Time{
                     branch.transfer_time.value()
                     + (segment.departure->value() - branch.current_time->value())
                 };
-                branch.transfers = TransferCount{ branch.transfers.get() + 1 };
+                next.transfers = TransferCount{ branch.transfers.get() + 1 };
             }
 
-            branch.current_time       = *segment.arrival;
-            branch.current_physical   = physical_to_key(route_segment);
-            branch.current_occurrence = next_occurrence;
-            branch.fare += segment.fare.value_or(0.0);
-            branch.segments                .push_back(segment.id);
-            branch.visited_occurrences     .push_back(next_occurrence);
-            branch.last_timed_segment       = &segment;
-            branch.last_timed_route_segment = &route_segment;
-            return branch;
+            next.current_time            = *segment.arrival;
+            next.current_physical        = physical_to_key(route_segment);
+            next.current_occurrence      = next_occurrence;
+            next.fare                    = branch.fare + segment.fare.value_or(0.0);
+            next.last_timed_segment      = &segment;
+            next.last_timed_route_segment = &route_segment;
+            return next;
         }
 
         std::optional<SearchBranch> extend_branch(
-              SearchBranch               branch
+              const BranchArena&         branches
+            , std::size_t                branch_index
+            , const SearchBranch&        branch
             , const PreprocessedNetwork& network
             , const ConnectionSegment&   successor
         ) {
             const auto& route_segment = route_segment_at(network, successor.route_segment);
             if (is_walk_connection(successor)) {
                 const auto next_physical = physical_to_key(route_segment);
-                if (branch_revisits_physical(branch, next_physical)) {
+                if (branch_revisits_physical(branches, branch, next_physical)) {
                     return std::nullopt;
                 }
-                return extend_with_walk(std::move(branch), route_segment, successor.id);
+                return extend_with_walk(branch, branch_index, route_segment, successor.id);
             }
 
             const auto next_occurrence = occurrence_key(line_topology_of(route_segment)->to);
-            if (branch_revisits_occurrence(branch, next_occurrence)) {
+            if (branch_revisits_occurrence(branches, branch, next_occurrence)) {
                 return std::nullopt;
             }
-            return extend_with_timed(std::move(branch), successor, route_segment);
+            return extend_with_timed(branch, branch_index, successor, route_segment);
         }
 
-        std::vector<ConnectionSegmentId> successor_ids(
+        template <typename Visitor>
+        void for_each_successor(
               const PreprocessedNetwork& network
             , const SearchBranch&        branch
             , const TransferLimits&      limits
+            , Visitor&&                  visit
         ) {
-            auto lookup = preprocessing::lookup_from(
+            auto&& visitor = visit;
+            const auto lookup = preprocessing::lookup_from(
                   network.route_index
                 , network.connection_index
                 , branch.current_physical
             );
 
-            std::vector<ConnectionSegmentId> out;
-            out.reserve(lookup.walk_connections.size() + lookup.timed_connections.size());
-            out.insert(out.end(), lookup.walk_connections.begin(), lookup.walk_connections.end());
+            for (const auto connection_id : lookup.walk_connections) {
+                visitor(connection_id);
+            }
 
-            auto timed = timed_successors(
+            for_each_timed_successor(
                   network
                 , branch.current_physical
                 , branch.current_time
                 , limits
+                , visitor
             );
-            out.insert(
-                  out.end()
-                , std::make_move_iterator(timed.begin())
-                , std::make_move_iterator(timed.end())
-            );
+        }
 
-            return out;
+        std::vector<ConnectionSegmentId> reconstruct_segment_trace(
+              const BranchArena&  branches
+            , const SearchBranch& branch
+        ) {
+            std::vector<ConnectionSegmentId> reversed;
+
+            auto cursor_branch = &branch;
+            while (cursor_branch != nullptr) {
+                if (cursor_branch->incoming_segment.has_value()) {
+                    reversed.push_back(cursor_branch->incoming_segment.value());
+                }
+
+                if (!cursor_branch->parent_branch.has_value()) {
+                    break;
+                }
+                cursor_branch = &branches[*cursor_branch->parent_branch];
+            }
+
+            std::reverse(reversed.begin(), reversed.end());
+            return reversed;
         }
 
         std::optional<DiscoveredConnection> complete_connection(
-              const SearchBranch&        branch
+              const BranchArena&         branches
+            , const SearchBranch&        branch
             , const PreprocessedNetwork& network
             , const SearchImpedance&     impedance
             , const TransferLimits&      limits
@@ -605,10 +679,10 @@ namespace timetable::domain::assignment {
 
             if (!limits.allow_end_wait
                 && branch.last_timed_segment != nullptr
-                && !branch.segments.empty()) {
+                && branch.incoming_segment.has_value()) {
                 const auto& last_segment = connection_segment_at(
                       network
-                    , branch.segments.back()
+                    , branch.incoming_segment.value()
                 );
                 if (is_walk_connection(last_segment)) {
                     return std::nullopt;
@@ -635,7 +709,7 @@ namespace timetable::domain::assignment {
                     , impedance
                     , fare_scale
                 )
-                , .segments = branch.segments
+                , .segments = reconstruct_segment_trace(branches, branch)
             };
         }
 
@@ -703,10 +777,12 @@ namespace timetable::domain::assignment {
             std::vector<DiscoveredConnection> found;
             NodeConnectionMap known_connections;
             OriginSearchStats stats;
+            BranchArena branches;
+            branches.reserve(network.connection_segments.size() / 4 + 1);
 
-            std::deque<SearchBranch> current_frontier;
-            std::deque<SearchBranch> next_frontier;
-            current_frontier.push_back(
+            std::deque<std::size_t> current_frontier;
+            std::deque<std::size_t> next_frontier;
+            branches.push_back(
                 SearchBranch{
                       .origin                   = origin
                     , .current_physical         = endpoint_key(origin)
@@ -718,13 +794,13 @@ namespace timetable::domain::assignment {
                     , .transfer_time            = Time{ 0.0 }
                     , .transfers                = TransferCount{ 0 }
                     , .fare                     = 0.0
-                    , .segments                 = {}
-                    , .visited_physical         = { endpoint_key(origin) }
-                    , .visited_occurrences      = {}
+                    , .parent_branch            = std::nullopt
+                    , .incoming_segment         = std::nullopt
                     , .last_timed_segment       = nullptr
                     , .last_timed_route_segment = nullptr
                 }
             );
+            current_frontier.push_back(0);
 
             status(
                 fmt::format(
@@ -745,8 +821,9 @@ namespace timetable::domain::assignment {
                 stats.max_current_frontier = std::max(stats.max_current_frontier, current_frontier.size());
                 stats.max_next_frontier    = std::max(stats.max_next_frontier   , next_frontier   .size());
 
-                auto branch = std::move(current_frontier.front());
+                const auto branch_index = current_frontier.front();
                 current_frontier.pop_front();
+                const auto branch = branches[branch_index];
                 ++stats.expanded_branches;
 
                 if ((stats.expanded_branches % kSearchHeartbeatStep) == 0) {
@@ -787,7 +864,7 @@ namespace timetable::domain::assignment {
 
                 if (is_complete_connection(branch)) {
                     if (const auto complete = complete_connection(
-                        branch, network, params.impedance, params.transfers, fare_scale
+                        branches, branch, network, params.impedance, params.transfers, fare_scale
                     ); complete.has_value()) {
                         found.push_back(std::move(*complete));
                         ++stats.completed_connections;
@@ -795,7 +872,7 @@ namespace timetable::domain::assignment {
                     continue;
                 }
 
-                for (const auto successor_id : successor_ids(network, branch, params.transfers)) {
+                for_each_successor(network, branch, params.transfers, [&](ConnectionSegmentId successor_id) {
                     ++stats.generated_successors;
                     const auto& successor = connection_segment_at(network, successor_id);
                     const auto& successor_route_segment = route_segment_at(
@@ -809,7 +886,7 @@ namespace timetable::domain::assignment {
                         , params.transfers
                     )) {
                         ++stats.rejected_feasibility;
-                        continue;
+                        return;
                     }
                     if (!improves_repeated_stop_reboarding(
                           branch
@@ -818,18 +895,18 @@ namespace timetable::domain::assignment {
                         , successor_route_segment
                     )) {
                         ++stats.rejected_reboarding;
-                        continue;
+                        return;
                     }
 
-                    auto candidate = extend_branch(branch, network, successor);
+                    auto candidate = extend_branch(branches, branch_index, branch, network, successor);
                     if (!candidate.has_value()) {
                         ++stats.rejected_cycles;
-                        continue;
+                        return;
                     }
 
                     if (candidate->transfers > params.transfers.max_transfers) {
                         ++stats.rejected_transfer_limit;
-                        continue;
+                        return;
                     }
 
                     if (!accept_branch(
@@ -839,18 +916,19 @@ namespace timetable::domain::assignment {
                         , fare_scale
                     )) {
                         ++stats.rejected_dominance_or_tolerance;
-                        continue;
+                        return;
                     }
                     ++stats.accepted_branches;
-
                     const auto same_level =
                         is_walk_connection(successor) || !branch.departure.has_value();
+                    branches.push_back(std::move(*candidate));
+                    const auto candidate_index = branches.size() - 1;
                     if (same_level) {
-                        current_frontier.push_back(std::move(*candidate));
+                        current_frontier.push_back(candidate_index);
                     } else {
-                        next_frontier.push_back(std::move(*candidate));
+                        next_frontier.push_back(candidate_index);
                     }
-                }
+                });
             }
 
             log(
