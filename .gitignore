@@ -20,5 +20,12 @@ CMakeUserPresets.json
 # Runtime logs
 logs/
 
+# Python artifacts
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.pyc
+
 # Local datasets / large input files
 data/

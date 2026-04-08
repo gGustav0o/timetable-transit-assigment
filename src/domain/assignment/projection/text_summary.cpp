@@ -70,9 +70,9 @@ namespace timetable::domain::assignment::projection {
             }
 
             return !od.connections.empty()
-                || od.interval_count > 0
+                || od.interval_count          > 0
                 || od.total_demand_passengers > 0.0
-                || od.assigned_passengers > 0.0;
+                || od.assigned_passengers     > 0.0;
         }
 
         void append_global_summary(
@@ -82,20 +82,20 @@ namespace timetable::domain::assignment::projection {
             fmt::format_to(
                   std::back_inserter(out)
                 , "Assignment Summary\n"
-                  "OD pairs: {}\n"
-                  "Non-empty OD pairs: {}\n"
-                  "Intervals: {}\n"
-                  "Search connections: {}\n"
-                  "Chosen connections: {}\n"
-                  "Demand shares: {}\n"
-                  "Total demand: {}\n"
+                  "OD pairs:            {}\n"
+                  "Non-empty OD pairs:  {}\n"
+                  "Intervals:           {}\n"
+                  "Search connections:  {}\n"
+                  "Chosen connections:  {}\n"
+                  "Demand shares:       {}\n"
+                  "Total demand:        {}\n"
                   "Assigned passengers: {}\n"
-                , format_count(summary.totals.od_count)
-                , format_count(summary.nonempty_od_count)
-                , format_count(summary.interval_count)
-                , format_count(summary.totals.search_connection_count)
-                , format_count(summary.totals.chosen_connection_count)
-                , format_count(summary.totals.demand_share_count)
+                , format_count (summary.totals.od_count)
+                , format_count (summary.nonempty_od_count)
+                , format_count (summary.interval_count)
+                , format_count (summary.totals.search_connection_count)
+                , format_count (summary.totals.chosen_connection_count)
+                , format_count (summary.totals.demand_share_count)
                 , format_scalar(summary.totals.total_demand_passengers)
                 , format_scalar(summary.totals.assigned_passengers)
             );
@@ -109,21 +109,21 @@ namespace timetable::domain::assignment::projection {
             fmt::format_to(
                   std::back_inserter(out)
                 , "\nOD {} -> {}\n"
-                  "  search={} chosen={} intervals={} shares={}\n"
-                  "  demand={} assigned={}\n"
-                  "  fastest={} lowest_fare={} min_transfers={} min_imp={}\n"
-                , od.origin.get()
+                  "  search  = {} chosen      = {} intervals    = {} shares  = {}\n"
+                  "  demand  = {} assigned    = {}                               \n"
+                  "  fastest = {} lowest_fare = {} min_transfers= {} min_imp = {}\n"
+                , od.origin     .get()
                 , od.destination.get()
-                , format_count(od.search_connection_count)
-                , format_count(od.chosen_connection_count)
-                , format_count(od.interval_count)
-                , format_count(od.share_count)
-                , format_scalar(od.total_demand_passengers)
-                , format_scalar(od.assigned_passengers)
-                , format_optional_time(od.fastest_journey_time)
-                , format_optional_scalar(od.lowest_fare)
+                , format_count             (od.search_connection_count)
+                , format_count             (od.chosen_connection_count)
+                , format_count             (od.interval_count)
+                , format_count             (od.share_count)
+                , format_scalar            (od.total_demand_passengers)
+                , format_scalar            (od.assigned_passengers)
+                , format_optional_time     (od.fastest_journey_time)
+                , format_optional_scalar   (od.lowest_fare)
                 , format_optional_transfers(od.minimum_transfers)
-                , format_optional_scalar(od.minimum_search_impedance)
+                , format_optional_scalar   (od.minimum_search_impedance)
             );
 
             const auto limit = std::min(

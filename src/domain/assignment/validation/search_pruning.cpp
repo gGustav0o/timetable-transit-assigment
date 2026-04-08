@@ -8,8 +8,7 @@ namespace timetable::domain::assignment {
     mathfp::Expected<mathfp::Unit> validate_search_pruning_config(
         const SearchPruningConfig& config
     ) {
-        if (config.model.requested_state_space
-            != SearchPruningStateSpace::CurrentPhysicalAndOccurrence) {
+        if (config.model.requested_state_space != SearchPruningStateSpace::CurrentPhysicalAndOccurrence) {
             return mathfp::unexpected(
                 mathfp::invalid_arg("search pruning config requests an unsupported state-space")
                     .ctx("requested_state_space", static_cast<std::int64_t>(config.model.requested_state_space))
@@ -18,7 +17,9 @@ namespace timetable::domain::assignment {
 
         switch (config.runtime.rollout_stage) {
             case SearchPruningRolloutStage::Disabled:
+                [[fallthrough]];
             case SearchPruningRolloutStage::ExactCurrentState:
+                [[fallthrough]];
             case SearchPruningRolloutStage::ExactAndApproximateCurrentState:
                 return mathfp::kUnit;
         }

@@ -35,9 +35,9 @@ namespace timetable::domain::assignment::detail::grouping {
         auto operator<=>(const ConnectionTraceKey&) const = default;
     };
 
-    using OwnedOdConnectionGroups    = std::map<OdKey, std::vector<DiscoveredConnection>>;
-    using BorrowedOdConnectionGroups = std::map<OdKey, std::vector<const DiscoveredConnection*>>;
-    using DemandEntryGroups          = std::map<OdKey, std::vector<const DemandEntry*>>;
+    using OwnedOdConnectionGroups    = std::map<OdKey    , std::vector<DiscoveredConnection>>;
+    using BorrowedOdConnectionGroups = std::map<OdKey    , std::vector<const DiscoveredConnection*>>;
+    using DemandEntryGroups          = std::map<OdKey    , std::vector<const DemandEntry*>>;
     using ShareGroups                = std::map<DemandKey, std::vector<const ConnectionDemandShare*>>;
 
     [[nodiscard]] inline OdKey od_key(

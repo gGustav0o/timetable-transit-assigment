@@ -61,26 +61,26 @@ namespace timetable::domain::assignment {
                 if (!std::isfinite(demand.passengers) || demand.passengers < 0.0) {
                     return mathfp::unexpected(
                         mathfp::invalid_arg("demand passengers must be finite and non-negative")
-                            .ctx("origin"     , demand.origin.get())
+                            .ctx("origin"     , demand.origin     .get())
                             .ctx("destination", demand.destination.get())
-                            .ctx("interval_id", demand.interval.get())
+                            .ctx("interval_id", demand.interval   .get())
                             .ctx("passengers" , demand.passengers)
                     );
                 }
                 if (!intervals.contains(demand.interval)) {
                     return mathfp::unexpected(
                         mathfp::invalid_arg("demand references unknown time interval")
-                            .ctx("origin"     , demand.origin.get())
+                            .ctx("origin"     , demand.origin     .get())
                             .ctx("destination", demand.destination.get())
-                            .ctx("interval_id", demand.interval.get())
+                            .ctx("interval_id", demand.interval   .get())
                     );
                 }
                 if (!zones.contains(demand.origin) || !zones.contains(demand.destination)) {
                     return mathfp::unexpected(
                         mathfp::invalid_arg("demand references unknown zone")
-                            .ctx("origin"     , demand.origin.get())
+                            .ctx("origin"     , demand.origin     .get())
                             .ctx("destination", demand.destination.get())
-                            .ctx("interval_id", demand.interval.get())
+                            .ctx("interval_id", demand.interval   .get())
                     );
                 }
 
@@ -88,25 +88,25 @@ namespace timetable::domain::assignment {
                 if (!demand_by_key.emplace(key, &demand).second) {
                     return mathfp::unexpected(
                         mathfp::invalid_arg("duplicate demand entry for the same origin/destination/interval")
-                            .ctx("origin"     , demand.origin.get())
+                            .ctx("origin"     , demand.origin     .get())
                             .ctx("destination", demand.destination.get())
-                            .ctx("interval_id", demand.interval.get())
+                            .ctx("interval_id", demand.interval   .get())
                     );
                 }
 
                 if (emit_warnings && demand.origin == demand.destination) {
                     detail::validation::warn(fmt::format(
                           "split input: demand entry has identical origin and destination zone {} for interval {}"
-                        , demand.origin.get()
+                        , demand.origin  .get()
                         , demand.interval.get()
                     ));
                 }
                 if (emit_warnings && mathfp::almost_zero(demand.passengers)) {
                     detail::validation::warn(fmt::format(
                           "split input: demand entry origin={} destination={} interval={} has zero passengers"
-                        , demand.origin.get()
+                        , demand.origin     .get()
                         , demand.destination.get()
-                        , demand.interval.get()
+                        , demand.interval   .get()
                     ));
                 }
                 if (emit_warnings
@@ -114,9 +114,9 @@ namespace timetable::domain::assignment {
                     && demand.passengers > 0.0) {
                     detail::validation::warn(fmt::format(
                           "split input: no chosen connections for demand origin={} destination={} interval={}"
-                        , demand.origin.get()
+                        , demand.origin     .get()
                         , demand.destination.get()
-                        , demand.interval.get()
+                        , demand.interval   .get()
                     ));
                 }
             }
@@ -154,7 +154,7 @@ namespace timetable::domain::assignment {
                     mathfp::invalid_arg("time interval must satisfy start < end")
                         .ctx("interval_id", interval.id.get())
                         .ctx("start"      , interval.start.value())
-                        .ctx("end"        , interval.end.value())
+                        .ctx("end"        , interval.end  .value())
                 );
             }
         }
@@ -213,18 +213,18 @@ namespace timetable::domain::assignment {
                 return mathfp::unexpected(
                     mathfp::internal_error("split output contains a share without matching demand entry")
                         .ctx("share_index", static_cast<std::int64_t>(i))
-                        .ctx("origin"     , share.origin.get())
+                        .ctx("origin"     , share.origin     .get())
                         .ctx("destination", share.destination.get())
-                        .ctx("interval_id", share.interval.get())
+                        .ctx("interval_id", share.interval   .get())
                 );
             }
             if (!choice_trace_map.contains(detail::validation::connection_trace_key(share.connection))) {
                 return mathfp::unexpected(
                     mathfp::internal_error("split output contains a connection that was not present in choice output")
                         .ctx("share_index", static_cast<std::int64_t>(i))
-                        .ctx("origin"     , share.origin.get())
+                        .ctx("origin"     , share.origin     .get())
                         .ctx("destination", share.destination.get())
-                        .ctx("interval_id", share.interval.get())
+                        .ctx("interval_id", share.interval   .get())
                 );
             }
             if (!std::isfinite(share.passengers) || share.passengers < 0.0
@@ -257,9 +257,9 @@ namespace timetable::domain::assignment {
             if (!probability_sum_by_key.contains(key)) {
                 return mathfp::unexpected(
                     mathfp::internal_error("split output is missing shares for a demand entry with available chosen connections")
-                        .ctx("origin"     , key.origin.get())
+                        .ctx("origin"     , key.origin     .get())
                         .ctx("destination", key.destination.get())
-                        .ctx("interval_id", key.interval.get())
+                        .ctx("interval_id", key.interval   .get())
                 );
             }
 
@@ -268,18 +268,18 @@ namespace timetable::domain::assignment {
             if (!detail::validation::almost_equal_scalar(probability_sum, 1.0)) {
                 return mathfp::unexpected(
                     mathfp::internal_error("split probabilities do not sum to one")
-                        .ctx("origin"         , key.origin.get())
+                        .ctx("origin"         , key.origin     .get())
                         .ctx("destination"    , key.destination.get())
-                        .ctx("interval_id"    , key.interval.get())
+                        .ctx("interval_id"    , key.interval   .get())
                         .ctx("probability_sum", probability_sum)
                 );
             }
             if (!detail::validation::almost_equal_scalar(passengers_sum, demand->passengers)) {
                 return mathfp::unexpected(
                     mathfp::internal_error("split passengers do not conserve demand")
-                        .ctx("origin"           , key.origin.get())
+                        .ctx("origin"           , key.origin     .get())
                         .ctx("destination"      , key.destination.get())
-                        .ctx("interval_id"      , key.interval.get())
+                        .ctx("interval_id"      , key.interval   .get())
                         .ctx("passengers_sum"   , passengers_sum)
                         .ctx("demand_passengers", demand->passengers)
                 );

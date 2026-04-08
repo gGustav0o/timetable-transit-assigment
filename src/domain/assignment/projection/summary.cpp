@@ -126,8 +126,8 @@ namespace timetable::domain::assignment::projection {
                         , .transfers           = connection.transfers
                         , .fare                = connection.fare
                         , .search_impedance    = connection.impedance
-                        , .assigned_passengers = shares.assigned_passengers
-                        , .share_count         = shares.share_count
+                        , .assigned_passengers = shares    .assigned_passengers
+                        , .share_count         = shares    .share_count
                     }
                 );
             }

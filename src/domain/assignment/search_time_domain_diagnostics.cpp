@@ -131,7 +131,7 @@ namespace timetable::domain::assignment {
               "search-time domain: windows={} empty=false bounds=[{:.3f}, {:.3f}]"
             , summary.window_count
             , summary.bounds->begin.value()
-            , summary.bounds->end.value()
+            , summary.bounds->end  .value()
         );
     }
 
@@ -149,7 +149,7 @@ namespace timetable::domain::assignment {
               " slices(global/origin/od)={}/{}/{} total_windows={} bounds={}"
             , static_cast<std::int64_t>(summary.mode)
             , summary.padding.before_start.value()
-            , summary.padding.after_end.value()
+            , summary.padding.after_end   .value()
             , summary.global_window_count
             , summary.origin_slice_count
             , summary.od_slice_count

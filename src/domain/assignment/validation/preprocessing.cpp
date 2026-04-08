@@ -56,8 +56,8 @@ namespace timetable::domain::assignment {
         const AssignmentInput& input
     ) {
         const auto has_presegmented = input.presegmented.has_value();
-        const auto has_raw_routes   = !input.input.routes.empty();
-        const auto has_raw_trips    = !input.input.trips.empty();
+        const auto has_raw_routes   = !input.input.routes    .empty();
+        const auto has_raw_trips    = !input.input.trips     .empty();
         const auto has_walk_links   = !input.input.walk_links.empty();
 
         if (!has_presegmented && !has_raw_routes && !has_raw_trips && !has_walk_links) {
@@ -107,31 +107,31 @@ namespace timetable::domain::assignment {
         MATHFP_TRY(validate_index_offsets(
               network.route_index.line_offsets
             , network.route_index.line_buckets.size()
-            , network.route_index.line_order.size()
+            , network.route_index.line_order.  size()
             , "route_index.line"
         ));
         MATHFP_TRY(validate_index_offsets(
               network.route_index.walk_offsets
             , network.route_index.walk_buckets.size()
-            , network.route_index.walk_order.size()
+            , network.route_index.walk_order  .size()
             , "route_index.walk"
         ));
         MATHFP_TRY(validate_index_offsets(
               network.connection_index.timed_offsets
             , network.connection_index.timed_buckets.size()
-            , network.connection_index.timed_order.size()
+            , network.connection_index.timed_order  .size()
             , "connection_index.timed"
         ));
         MATHFP_TRY(validate_index_offsets(
               network.connection_index.boarding_offsets
             , network.connection_index.boarding_stop_buckets.size()
-            , network.connection_index.boarding_order.size()
+            , network.connection_index.boarding_order       .size()
             , "connection_index.boarding"
         ));
         MATHFP_TRY(validate_index_offsets(
               network.connection_index.walk_offsets
             , network.connection_index.walk_buckets.size()
-            , network.connection_index.walk_order.size()
+            , network.connection_index.walk_order  .size()
             , "connection_index.walk"
         ));
 
@@ -141,7 +141,7 @@ namespace timetable::domain::assignment {
                 mathfp::internal_error("route index partition does not cover all route segments")
                     .ctx("line_count"   , static_cast<std::int64_t>(network.route_index.line_order.size()))
                     .ctx("walk_count"   , static_cast<std::int64_t>(network.route_index.walk_order.size()))
-                    .ctx("segment_count", static_cast<std::int64_t>(network.route_segments.size()))
+                    .ctx("segment_count", static_cast<std::int64_t>(network.route_segments        .size()))
             );
         }
         if (network.connection_index.timed_order.size() + network.connection_index.walk_order.size()
@@ -149,15 +149,15 @@ namespace timetable::domain::assignment {
             return mathfp::unexpected(
                 mathfp::internal_error("connection index partition does not cover all connection segments")
                     .ctx("timed_count"  , static_cast<std::int64_t>(network.connection_index.timed_order.size()))
-                    .ctx("walk_count"   , static_cast<std::int64_t>(network.connection_index.walk_order.size()))
-                    .ctx("segment_count", static_cast<std::int64_t>(network.connection_segments.size()))
+                    .ctx("walk_count"   , static_cast<std::int64_t>(network.connection_index.walk_order .size()))
+                    .ctx("segment_count", static_cast<std::int64_t>(network.connection_segments         .size()))
             );
         }
         if (network.connection_index.boarding_order.size() != network.connection_index.timed_order.size()) {
             return mathfp::unexpected(
                 mathfp::internal_error("boarding index size does not match timed connection count")
                     .ctx("boarding_count", static_cast<std::int64_t>(network.connection_index.boarding_order.size()))
-                    .ctx("timed_count"   , static_cast<std::int64_t>(network.connection_index.timed_order.size()))
+                    .ctx("timed_count"   , static_cast<std::int64_t>(network.connection_index.timed_order   .size()))
             );
         }
 

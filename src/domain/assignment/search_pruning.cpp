@@ -56,9 +56,11 @@ namespace timetable::domain::assignment {
     ) {
         const auto& primitive = label.primitive;
         const auto& derived   = label.derived;
-        if (!(std::isfinite(primitive.departure.value()) && std::isfinite(primitive.arrival.value())
+        if (
+            !(std::isfinite(primitive.departure.value()) && std::isfinite(primitive.arrival.value())
             && std::isfinite(derived.journey_time.value()) && std::isfinite(derived.walk_time.value())
-            && std::isfinite(primitive.fare) && std::isfinite(derived.impedance))) {
+            && std::isfinite(primitive.fare) && std::isfinite(derived.impedance))
+        ) {
             return mathfp::unexpected(
                 mathfp::invalid_arg("search pruning label carries non-finite metric")
             );
@@ -67,7 +69,7 @@ namespace timetable::domain::assignment {
             return mathfp::unexpected(
                 mathfp::invalid_arg("search pruning label arrival precedes departure")
                     .ctx("departure", primitive.departure.value())
-                    .ctx("arrival"  , primitive.arrival.value())
+                    .ctx("arrival"  , primitive.arrival  .value())
             );
         }
         if (derived.journey_time.value() < 0.0 || derived.walk_time.value() < 0.0
@@ -91,17 +93,21 @@ namespace timetable::domain::assignment {
         if (summary.empty) {
             return mathfp::kUnit;
         }
-        if (!(std::isfinite(summary.min_impedance)
+        if (
+            !(std::isfinite(summary.min_impedance)
             && std::isfinite(summary.min_journey_time)
             && std::isfinite(summary.min_walk_time)
             && std::isfinite(summary.min_transfers)
-            && std::isfinite(summary.min_fare))) {
+            && std::isfinite(summary.min_fare))
+        ) {
             return mathfp::unexpected(
                 mathfp::invalid_arg("search pruning summary carries non-finite minimum")
             );
         }
-        if (summary.min_journey_time < 0.0 || summary.min_walk_time < 0.0
-            || summary.min_transfers < 0.0 || summary.min_fare < 0.0) {
+        if (
+               summary.min_journey_time < 0.0 || summary.min_walk_time < 0.0
+            || summary.min_transfers    < 0.0 || summary.min_fare      < 0.0
+        ) {
             return mathfp::unexpected(
                 mathfp::invalid_arg("search pruning summary contains negative minimum")
             );
@@ -114,9 +120,11 @@ namespace timetable::domain::assignment {
     ) {
         for (std::size_t i = 0; i < label_set.labels.size(); ++i) {
             MATHFP_TRY(validate_search_pruning_label(label_set.labels[i]));
-            if (i > 0
-                && label_set.labels[i].primitive.arrival.value()
-                    < label_set.labels[i - 1].primitive.arrival.value()) {
+            if (
+                   i > 0
+                && label_set.labels[i]    .primitive.arrival.value()
+                 < label_set.labels[i - 1].primitive.arrival.value()
+            ) {
                 return mathfp::unexpected(
                     mathfp::invalid_arg("search pruning label set must be ordered by arrival")
                 );
@@ -140,13 +148,17 @@ namespace timetable::domain::assignment {
         }
 
         const auto recomputed = summarize_pruning_labels(label_set.labels);
-        if (recomputed.empty != label_set.summary.empty
-            || (!recomputed.empty
+        if (
+            recomputed.empty != label_set.summary.empty
+            || (
+                   !recomputed.empty
                 && (recomputed.min_impedance    != label_set.summary.min_impedance
                  || recomputed.min_journey_time != label_set.summary.min_journey_time
                  || recomputed.min_walk_time    != label_set.summary.min_walk_time
                  || recomputed.min_transfers    != label_set.summary.min_transfers
-                 || recomputed.min_fare         != label_set.summary.min_fare))) {
+                 || recomputed.min_fare         != label_set.summary.min_fare)
+            )
+        ) {
             return mathfp::unexpected(
                 mathfp::internal_error("search pruning label set summary disagrees with labels")
             );
@@ -236,16 +248,20 @@ namespace timetable::domain::assignment {
             return candidate.primitive.transfers <= limits.max_transfers;
         }
 
-        return candidate.primitive.transfers <= limits.max_transfers
+        return
+               candidate.primitive.transfers <= limits.max_transfers
             && candidate.derived.impedance
-                   <= mathfp::units::as_dimless(policy.tolerances.imp_mult) * summary.min_impedance
-                       + mathfp::units::as_dimless(policy.tolerances.imp_add)
+                   <= mathfp::units::as_dimless(policy.tolerances.imp_mult)
+                    * summary.min_impedance
+                    + mathfp::units::as_dimless(policy.tolerances.imp_add)
             && candidate.derived.journey_time.value()
-                   <= mathfp::units::as_dimless(policy.tolerances.jt_mult) * summary.min_journey_time
-                       + mathfp::units::as_dimless(policy.tolerances.jt_add)
+                   <= mathfp::units::as_dimless(policy.tolerances.jt_mult)
+                    * summary.min_journey_time
+                    + mathfp::units::as_dimless(policy.tolerances.jt_add)
             && static_cast<double>(candidate.primitive.transfers.get())
-                   <= mathfp::units::as_dimless(policy.tolerances.nt_mult) * summary.min_transfers
-                       + mathfp::units::as_dimless(policy.tolerances.nt_add);
+                   <= mathfp::units::as_dimless(policy.tolerances.nt_mult)
+                    * summary.min_transfers
+                    + mathfp::units::as_dimless(policy.tolerances.nt_add);
     }
 
     ExactPruningDecision evaluate_exact_pruning(

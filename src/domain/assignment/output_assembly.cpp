@@ -149,9 +149,9 @@ namespace timetable::domain::assignment::detail {
                 if (connection_it == chosen_connection_indices.end()) {
                     return mathfp::unexpected(
                         mathfp::internal_error("assignment output mapping could not match split share to chosen connection")
-                            .ctx("origin"     , share->origin.get())
+                            .ctx("origin"     , share->origin     .get())
                             .ctx("destination", share->destination.get())
-                            .ctx("interval_id", share->interval.get())
+                            .ctx("interval_id", share->interval   .get())
                     );
                 }
 

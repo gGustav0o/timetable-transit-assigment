@@ -64,10 +64,8 @@ namespace timetable::domain::assignment {
             ChoiceGroupStats stats;
             for (const auto& connection : connections) {
                 stats.min_impedance    = std::min(stats.min_impedance, connection.impedance);
-                stats.min_journey_time = std::min(
-                      stats.min_journey_time
-                    , connection.journey_time.value()
-                );
+                stats.min_journey_time
+                    = std::min(stats.min_journey_time, connection.journey_time.value());
                 stats.min_transfers = std::min(
                       stats.min_transfers
                     , static_cast<double>(connection.transfers.get())
@@ -81,9 +79,10 @@ namespace timetable::domain::assignment {
             , const ChoiceGroupStats&     stats
             , const ChoiceTolerances&     tolerances
         ) noexcept {
-            return connection.impedance
-                       <= mathfp::units::as_dimless(tolerances.imp_mult) * stats.min_impedance
-                           + mathfp::units::as_dimless(tolerances.imp_add)
+            return
+                  connection.impedance <=   mathfp::units::as_dimless(tolerances.imp_mult)
+                                        * stats.min_impedance
+                                        + mathfp::units::as_dimless(tolerances.imp_add)
                 && connection.journey_time.value()
                        <= mathfp::units::as_dimless(tolerances.jt_mult) * stats.min_journey_time
                            + mathfp::units::as_dimless(tolerances.jt_add)

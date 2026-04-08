@@ -113,12 +113,14 @@ namespace timetable::domain::assignment {
         const SearchTimeDomainCatalog& catalog
     );
 
+    // TODO: rename?
     [[nodiscard]] constexpr bool is_theoretically_strict(
         SearchTimePaddingPolicy policy
     ) noexcept {
         return policy.kind == SearchTimePaddingPolicy::Kind::SplitTemporalUtilityStrict;
     }
 
+    // TODO: rename?
     [[nodiscard]] constexpr bool is_engineering_fallback(
         SearchTimePaddingPolicy policy
     ) noexcept {

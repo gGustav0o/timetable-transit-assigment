@@ -38,7 +38,7 @@ namespace timetable::domain::assignment {
                 seed = seed * 31u + std::hash<std::int64_t>{}(key.physical.id);
                 seed = seed * 31u + std::hash<bool>{}(key.occurrence.has_value());
                 if (key.occurrence.has_value()) {
-                    seed = seed * 31u + std::hash<std::int64_t>{}(key.occurrence->stop.get());
+                    seed = seed * 31u + std::hash<std::int64_t>{}(key.occurrence->stop    .get());
                     seed = seed * 31u + std::hash<std::int64_t>{}(key.occurrence->position.get());
                 }
                 return seed;
@@ -80,9 +80,9 @@ namespace timetable::domain::assignment {
         };
 
         using NodeConnectionMap = std::unordered_map<SearchNodeKey, NodeConnectionSet, SearchNodeKeyHash>;
-        using BranchArena = std::vector<SearchBranch>;
+        using BranchArena       = std::vector<SearchBranch>;
 
-        constexpr std::size_t kOriginProgressStep = 10;
+        constexpr std::size_t kOriginProgressStep  = 10;
         constexpr std::size_t kSearchHeartbeatStep = 100'000;
 
         const RouteSegment& route_segment_at(
@@ -192,7 +192,7 @@ namespace timetable::domain::assignment {
         ) noexcept {
             return branch.departure.has_value()
                 && branch.current_physical.kind == EndpointKind::Zone
-                && branch.current_physical.id != branch.origin.get();
+                && branch.current_physical.id   != branch.origin.get();
         }
 
         PartialConnectionLabel make_partial_label(
@@ -226,10 +226,10 @@ namespace timetable::domain::assignment {
         }
 
         void insert_label(
-              NodeConnectionMap&     known_connections
+              NodeConnectionMap&                known_connections
             , const SearchPruningExecutionPlan& pruning_execution
-            , SearchNodeKey          node
-            , PartialConnectionLabel label
+            , SearchNodeKey                     node
+            , PartialConnectionLabel            label
         ) {
             auto& known = known_connections[node];
             known = insert_search_pruning_label(
@@ -365,9 +365,10 @@ namespace timetable::domain::assignment {
             if (!branch.last_timed_segment || !branch.last_timed_route_segment) {
                 return std::nullopt;
             }
-            if (!branch.last_timed_segment->trip.has_value()
-                || !branch.last_timed_segment->to_index.has_value()
-                || !successor.to_index.has_value()
+            if (
+                   !branch   .last_timed_segment->trip    .has_value()
+                || !branch   .last_timed_segment->to_index.has_value()
+                || !successor.to_index                    .has_value()
             ) {
                 return std::nullopt;
             }
@@ -527,7 +528,7 @@ namespace timetable::domain::assignment {
             const auto lookup = preprocessing::lookup_from(
                   network.route_index
                 , network.connection_index
-                , branch.current_physical
+                , branch .current_physical
             );
 
             for (const auto connection_id : lookup.walk_connections) {
@@ -614,12 +615,12 @@ namespace timetable::domain::assignment {
         }
 
         SearchPruningDecision retain_branch(
-              const SearchBranch& branch
-            , NodeConnectionMap&  known_connections
-            , const SearchParams& params
+              const SearchBranch&               branch
+            , NodeConnectionMap&                known_connections
+            , const SearchParams&               params
             , const SearchPruningExecutionPlan& pruning_execution
-            , SearchPruningRuntimeStats& pruning_stats
-            , double              fare_scale
+            , SearchPruningRuntimeStats&        pruning_stats
+            , double                            fare_scale
         ) {
             if (!branch.departure.has_value() || !branch.current_time.has_value()) {
                 return SearchPruningDecision{
@@ -688,14 +689,14 @@ namespace timetable::domain::assignment {
         }
 
         mathfp::Expected<std::vector<DiscoveredConnection>> search_from_origin(
-              ZoneId                     origin
-            , const PreprocessedNetwork& network
-            , double                     fare_scale
-            , const SearchParams&        params
+              ZoneId                            origin
+            , const PreprocessedNetwork&        network
+            , double                            fare_scale
+            , const SearchParams&               params
             , const SearchPruningExecutionPlan& pruning_execution
-            , const SearchTimeDomainExecution* time_domain_execution
-            , std::size_t                origin_index
-            , std::size_t                origin_count
+            , const SearchTimeDomainExecution*  time_domain_execution
+            , std::size_t                       origin_index
+            , std::size_t                       origin_count
         ) {
             using timetable::infra::LogLevel;
             using timetable::infra::progress::log;

@@ -773,7 +773,7 @@ namespace timetable::domain::assignment {
                 mathfp::invalid_arg("split step requires non-empty demand entries")
             );
         }
-        
+
         std::map<IntervalId, const TimeInterval*> intervals;
         for (const auto& interval : input.intervals) {
             if (!intervals.emplace(interval.id, &interval).second) {

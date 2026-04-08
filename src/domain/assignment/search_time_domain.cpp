@@ -152,7 +152,7 @@ namespace timetable::domain::assignment {
             return mathfp::unexpected(
                 mathfp::invalid_arg("search time window begin must be <= end")
                     .ctx("begin", window.begin.value())
-                    .ctx("end"  , window.end.value())
+                    .ctx("end"  , window.end  .value())
             );
         }
         return mathfp::kUnit;
@@ -180,7 +180,7 @@ namespace timetable::domain::assignment {
             return mathfp::unexpected(
                 mathfp::invalid_arg("search time padding must be non-negative")
                     .ctx("before_start", padding.before_start.value())
-                    .ctx("after_end"   , padding.after_end.value())
+                    .ctx("after_end"   , padding.after_end   .value())
             );
         }
         return mathfp::kUnit;
@@ -211,7 +211,7 @@ namespace timetable::domain::assignment {
                     mathfp::invalid_arg("search time domain contains invalid window")
                         .ctx("window_index", static_cast<std::int64_t>(i))
                         .ctx("begin"       , windows[i].begin.value())
-                        .ctx("end"         , windows[i].end.value())
+                        .ctx("end"         , windows[i].end  .value())
                 );
             }
         }
@@ -226,7 +226,7 @@ namespace timetable::domain::assignment {
     ) noexcept {
         return SearchTimeWindow{
               .begin = Time{ interval.start.value() - padding.before_start.value() }
-            , .end   = Time{ interval.end.value()   + padding.after_end.value() }
+            , .end   = Time{ interval.end.value()   + padding.after_end   .value() }
         };
     }
 
@@ -256,7 +256,7 @@ namespace timetable::domain::assignment {
                     mathfp::invalid_arg("search time domain contains invalid window")
                         .ctx("window_index", static_cast<std::int64_t>(i))
                         .ctx("begin"       , domain.windows[i].begin.value())
-                        .ctx("end"         , domain.windows[i].end.value())
+                        .ctx("end"         , domain.windows[i].end  .value())
                 );
             }
         }

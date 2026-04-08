@@ -17,24 +17,26 @@ namespace timetable::domain::assignment::projection {
               const AssignmentOdResult&  od_result
             , const AssignmentOdSummary& summary
         ) {
-            if (od_result.origin != summary.origin
-                || od_result.destination != summary.destination) {
+            if (
+                   od_result.origin      != summary.origin
+                || od_result.destination != summary.destination
+            ) {
                 return mathfp::unexpected(
                     mathfp::internal_error("assignment csv projection encountered mismatched OD summary ordering")
-                        .ctx("od_origin"          , od_result.origin.get())
+                        .ctx("od_origin"          , od_result.origin     .get())
                         .ctx("od_destination"     , od_result.destination.get())
-                        .ctx("summary_origin"     , summary.origin.get())
-                        .ctx("summary_destination", summary.destination.get())
+                        .ctx("summary_origin"     , summary  .origin     .get())
+                        .ctx("summary_destination", summary  .destination.get())
                 );
             }
 
             if (od_result.connections.size() != summary.connections.size()) {
                 return mathfp::unexpected(
                     mathfp::internal_error("assignment csv projection encountered mismatched connection summary count")
-                        .ctx("origin"                  , od_result.origin.get())
+                        .ctx("origin"                  , od_result.origin     .get())
                         .ctx("destination"             , od_result.destination.get())
                         .ctx("connection_count"        , static_cast<std::int64_t>(od_result.connections.size()))
-                        .ctx("summary_connection_count", static_cast<std::int64_t>(summary.connections.size()))
+                        .ctx("summary_connection_count", static_cast<std::int64_t>(summary  .connections.size()))
                 );
             }
 
@@ -70,7 +72,7 @@ namespace timetable::domain::assignment::projection {
             if (raw_index < 0) {
                 return mathfp::unexpected(
                     mathfp::internal_error("assignment csv projection encountered negative connection index")
-                        .ctx("origin"          , od_result.origin.get())
+                        .ctx("origin"          , od_result.origin     .get())
                         .ctx("destination"     , od_result.destination.get())
                         .ctx("connection_index", raw_index)
                 );
@@ -79,26 +81,26 @@ namespace timetable::domain::assignment::projection {
             if (summary.index != expected_index) {
                 return mathfp::unexpected(
                     mathfp::internal_error("assignment csv projection encountered mismatched connection index ordering")
-                        .ctx("origin"                   , od_result.origin.get())
+                        .ctx("origin"                   , od_result.origin     .get())
                         .ctx("destination"              , od_result.destination.get())
-                        .ctx("expected_connection_index", expected_index.get())
-                        .ctx("summary_connection_index" , summary.index.get())
+                        .ctx("expected_connection_index", expected_index       .get())
+                        .ctx("summary_connection_index" , summary.index        .get())
                 );
             }
 
             return AssignmentConnectionCsvRow{
-                  .origin              = od_result.origin
-                , .destination         = od_result.destination
-                , .connection_index    = summary.index
-                , .departure           = summary.departure
-                , .arrival             = summary.arrival
-                , .journey_time        = summary.journey_time
-                , .transfer_time       = summary.transfer_time
-                , .transfers           = summary.transfers
-                , .fare                = summary.fare
-                , .search_impedance    = summary.search_impedance
-                , .assigned_passengers = summary.assigned_passengers
-                , .share_count         = summary.share_count
+                  .origin              = od_result .origin
+                , .destination         = od_result .destination
+                , .connection_index    = summary   .index
+                , .departure           = summary   .departure
+                , .arrival             = summary   .arrival
+                , .journey_time        = summary   .journey_time
+                , .transfer_time       = summary   .transfer_time
+                , .transfers           = summary   .transfers
+                , .fare                = summary   .fare
+                , .search_impedance    = summary   .search_impedance
+                , .assigned_passengers = summary   .assigned_passengers
+                , .share_count         = summary   .share_count
                 , .path_segment_count  = connection.segments.size()
             };
         }
@@ -114,16 +116,16 @@ namespace timetable::domain::assignment::projection {
                         AssignmentShareCsvRow{
                               .origin                       = od_result.origin
                             , .destination                  = od_result.destination
-                            , .interval_id                  = interval.interval.id
-                            , .interval_start               = interval.interval.start
-                            , .interval_end                 = interval.interval.end
-                            , .interval_demand_passengers   = interval.demand_passengers
-                            , .interval_assigned_passengers = interval.assigned_passengers
-                            , .connection_index             = share.connection_index
-                            , .share_passengers             = share.passengers
-                            , .probability                  = share.probability
-                            , .independence                 = share.independence
-                            , .split_impedance              = share.split_impedance
+                            , .interval_id                  = interval .interval.id
+                            , .interval_start               = interval .interval.start
+                            , .interval_end                 = interval .interval.end
+                            , .interval_demand_passengers   = interval .demand_passengers
+                            , .interval_assigned_passengers = interval .assigned_passengers
+                            , .connection_index             = share    .connection_index
+                            , .share_passengers             = share    .passengers
+                            , .probability                  = share    .probability
+                            , .independence                 = share    .independence
+                            , .split_impedance              = share    .split_impedance
                         }
                     );
                 }
@@ -159,7 +161,7 @@ namespace timetable::domain::assignment::projection {
             , const AssignmentPathSegment& segment
         ) {
             const auto physical_from = physical_from_key(segment.route_segment);
-            const auto physical_to   = physical_to_key(segment.route_segment);
+            const auto physical_to   = physical_to_key  (segment.route_segment);
 
             AssignmentSegmentCsvRow row{
                   .origin                = od_result.origin
@@ -241,7 +243,7 @@ namespace timetable::domain::assignment::projection {
                     , build_connection_row(
                           od_result
                         , od_summary.connections[connection_index]
-                        , od_result.connections[connection_index]
+                        , od_result .connections[connection_index]
                         , connection_ref
                     )
                 );
@@ -300,7 +302,7 @@ namespace timetable::domain::assignment::projection {
         if (summary.od_results.size() != output.od_results.size()) {
             return mathfp::unexpected(
                 mathfp::internal_error("assignment csv projection encountered mismatched OD result count")
-                    .ctx("output_od_count" , static_cast<std::int64_t>(output.od_results.size()))
+                    .ctx("output_od_count" , static_cast<std::int64_t>(output .od_results.size()))
                     .ctx("summary_od_count", static_cast<std::int64_t>(summary.od_results.size()))
             );
         }

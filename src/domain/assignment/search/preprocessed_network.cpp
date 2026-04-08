@@ -168,14 +168,14 @@ namespace timetable::domain::assignment {
                 fmt::format(
                     "input sizes: stops = {:>6}  zones = {:>6}  lines = {:>6}  routes = {:>6}\n"
                     "             trips = {:>6}  walk_links = {:>6}  intervals = {:>6}  demand = {:>6}"
-                    , input.stops.size()
-                    , input.zones.size()
-                    , input.lines.size()
-                    , input.routes.size()
-                    , input.trips.size()
+                    , input.stops     .size()
+                    , input.zones     .size()
+                    , input.lines     .size()
+                    , input.routes    .size()
+                    , input.trips     .size()
                     , input.walk_links.size()
-                    , input.intervals.size()
-                    , input.demand.size()
+                    , input.intervals .size()
+                    , input.demand    .size()
                 )
                 , LogLevel::Info
             );
@@ -294,21 +294,21 @@ namespace timetable::domain::assignment {
             );
             log(
                 fmt::format(
-                    "indices: line_route_order = {:>8}  line_route_buckets = {:>6}\n"
-                    "         walk_route_order = {:>8}  walk_route_buckets = {:>6}\n"
-                    "         timed_order = {:>8}  timed_buckets = {:>6}\n"
-                    "         boarding_order = {:>8}  boarding_stop_buckets = {:>6}\n"
-                    "         walk_order  = {:>8}  walk_buckets  = {:>6}"
-                    , route_index.line_order.size()
-                    , route_index.line_buckets.size()
-                    , route_index.walk_order.size()
-                    , route_index.walk_buckets.size()
-                    , connection_index.timed_order.size()
-                    , connection_index.timed_buckets.size()
-                    , connection_index.boarding_order.size()
+                    "indices: line_route_order = {:>8}  line_route_buckets    = {:>6}\n"
+                    "         walk_route_order = {:>8}  walk_route_buckets    = {:>6}\n"
+                    "         timed_order      = {:>8}  timed_buckets         = {:>6}\n"
+                    "         boarding_order   = {:>8}  boarding_stop_buckets = {:>6}\n"
+                    "         walk_order       = {:>8}  walk_buckets          = {:>6}"
+                    , route_index      .line_order          .size()
+                    , route_index      .line_buckets        .size()
+                    , route_index      .walk_order          .size()
+                    , route_index      .walk_buckets        .size()
+                    , connection_index.timed_order          .size()
+                    , connection_index.timed_buckets        .size()
+                    , connection_index.boarding_order       .size()
                     , connection_index.boarding_stop_buckets.size()
-                    , connection_index.walk_order.size()
-                    , connection_index.walk_buckets.size()
+                    , connection_index.walk_order           .size()
+                    , connection_index.walk_buckets         .size()
                 )
                 , LogLevel::Info
             );
@@ -547,7 +547,7 @@ namespace timetable::domain::assignment {
             if (route_index >= canonical_routes_by_id.size()) {
                 return mathfp::unexpected(
                     mathfp::invalid_arg("connection segment route reference out of range")
-                        .ctx("connection_segment_id", segment.id.get())
+                        .ctx("connection_segment_id", segment.id           .get())
                         .ctx("route_segment_id"     , segment.route_segment.get())
                 );
             }
@@ -555,7 +555,7 @@ namespace timetable::domain::assignment {
             if (route_segment == nullptr) {
                 return mathfp::unexpected(
                     mathfp::invalid_arg("connection segment references missing canonical route segment")
-                        .ctx("connection_segment_id", segment.id.get())
+                        .ctx("connection_segment_id", segment.id           .get())
                         .ctx("route_segment_id"     , segment.route_segment.get())
                 );
             }

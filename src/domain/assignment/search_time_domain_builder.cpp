@@ -118,7 +118,7 @@ namespace timetable::domain::assignment {
                 if (!seen.emplace(key, true).second) {
                     return mathfp::unexpected(
                         mathfp::invalid_arg("search time domain catalog contains duplicate od slice")
-                            .ctx("origin"     , entry.origin.get())
+                            .ctx("origin"     , entry.origin     .get())
                             .ctx("destination", entry.destination.get())
                     );
                 }

@@ -63,7 +63,7 @@ namespace timetable::domain::assignment::detail::validation {
                         .ctx("stage"          , std::string(where))
                         .ctx("first_index"    , static_cast<std::int64_t>(it->second))
                         .ctx("duplicate_index", static_cast<std::int64_t>(i))
-                        .ctx("origin"         , connections[i].origin.get())
+                        .ctx("origin"         , connections[i].origin     .get())
                         .ctx("destination"    , connections[i].destination.get())
                 );
             }
