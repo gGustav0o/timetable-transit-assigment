@@ -24,56 +24,56 @@ namespace timetable::domain {
     struct RoutePositionTag {};
 
     using StopId = mathfp::StrongType<
-        std::int64_t
+          std::int64_t
         , StopIdTag
         , mathfp::strong_detail::EqualityComparable
         , mathfp::strong_detail::Ordered
     >;
 
     using ZoneId = mathfp::StrongType<
-        std::int64_t
+          std::int64_t
         , ZoneIdTag
         , mathfp::strong_detail::EqualityComparable
         , mathfp::strong_detail::Ordered
     >;
 
     using LineId = mathfp::StrongType<
-        std::int64_t
+          std::int64_t
         , LineIdTag
         , mathfp::strong_detail::EqualityComparable
         , mathfp::strong_detail::Ordered
     >;
 
     using RouteId = mathfp::StrongType<
-        std::int64_t
+          std::int64_t
         , RouteIdTag
         , mathfp::strong_detail::EqualityComparable
         , mathfp::strong_detail::Ordered
     >;
 
     using TripId = mathfp::StrongType<
-        std::int64_t
+          std::int64_t
         , TripIdTag
         , mathfp::strong_detail::EqualityComparable
         , mathfp::strong_detail::Ordered
     >;
 
     using IntervalId = mathfp::StrongType<
-        std::int64_t
+          std::int64_t
         , IntervalIdTag
         , mathfp::strong_detail::EqualityComparable
         , mathfp::strong_detail::Ordered
     >;
 
     using WalkLinkId = mathfp::StrongType<
-        std::int64_t
+          std::int64_t
         , WalkLinkIdTag
         , mathfp::strong_detail::EqualityComparable
         , mathfp::strong_detail::Ordered
     >;
 
     using RoutePosition = mathfp::StrongType<
-        std::int64_t
+          std::int64_t
         , RoutePositionTag
         , mathfp::strong_detail::EqualityComparable
         , mathfp::strong_detail::Ordered

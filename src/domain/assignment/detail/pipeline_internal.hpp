@@ -89,7 +89,7 @@ namespace timetable::domain::assignment::detail {
                 , params.split
                 , input.search_time_domain.runtime.architecture
                 , input.search_time_domain.runtime.rollout_stage
-                , input.search_time_domain.model.requested_mode
+                , input.search_time_domain.model  .requested_mode
             )
         );
         MATHFP_TRY_LET(

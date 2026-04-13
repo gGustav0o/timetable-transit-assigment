@@ -75,7 +75,7 @@ namespace timetable::domain::assignment::detail {
             return AssignmentOutput::Summary{
                   .search_connection_count = search_result.connections.size()
                 , .chosen_connection_count = choice_result.connections.size()
-                , .demand_share_count      = split_result.shares.size()
+                , .demand_share_count      = split_result .shares     .size()
                 , .total_demand_passengers = total_input_demand(input)
                 , .assigned_passengers     = total_assigned_passengers(split_result)
             };

@@ -156,16 +156,16 @@ namespace timetable::domain {
     };
 
     struct PreprocessParams final {
-        WalkCostKind         walk_cost_kind{ WalkCostKind::Time };
-        WalkCostWeights      walk_cost{};
-        std::optional<Speed> line_speed{};
-        bool                 strict_trips{ true };
-        bool                 allow_overnight{ false };
-        bool                 overnight_add_24h{ true };
-        bool                 strict_stop_times{ true };
-        TimeAggregationKind  time_aggregation{ TimeAggregationKind::Mean };
-        bool                 deduplicate_walk_segments{ true };
-        bool                 stable_ordering{ true };
+        WalkCostKind         walk_cost_kind            { WalkCostKind::Time };
+        WalkCostWeights      walk_cost                 {};
+        std::optional<Speed> line_speed                {};
+        bool                 strict_trips              { true };
+        bool                 allow_overnight           { false };
+        bool                 overnight_add_24h         { true };
+        bool                 strict_stop_times         { true };
+        TimeAggregationKind  time_aggregation          { TimeAggregationKind::Mean };
+        bool                 deduplicate_walk_segments { true };
+        bool                 stable_ordering           { true };
     };
 
     /**

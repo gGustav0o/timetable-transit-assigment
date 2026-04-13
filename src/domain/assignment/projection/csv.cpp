@@ -316,7 +316,7 @@ namespace timetable::domain::assignment::projection {
         projection.segment_rows   .reserve(segment_row_count);
 
         for (std::size_t od_index = 0; od_index < output.od_results.size(); ++od_index) {
-            const auto& od_result  = output.od_results[od_index];
+            const auto& od_result  = output .od_results[od_index];
             const auto& od_summary = summary.od_results[od_index];
             MATHFP_TRY(append_od_projection_rows(projection, od_result, od_summary));
         }

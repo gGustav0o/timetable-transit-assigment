@@ -58,7 +58,7 @@ namespace timetable::domain {
         StopOccurrence occurrence
     ) noexcept {
         return StopOccurrenceKey{
-              .stop       = occurrence.stop
+              .stop     = occurrence.stop
             , .position = occurrence.position
         };
     }

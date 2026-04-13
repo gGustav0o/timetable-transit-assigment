@@ -79,16 +79,20 @@ namespace timetable::domain::assignment {
             , const ChoiceGroupStats&     stats
             , const ChoiceTolerances&     tolerances
         ) noexcept {
+            // TODO: ?
             return
-                  connection.impedance <=   mathfp::units::as_dimless(tolerances.imp_mult)
-                                        * stats.min_impedance
-                                        + mathfp::units::as_dimless(tolerances.imp_add)
+                   connection.impedance
+                <= mathfp::units::as_dimless(tolerances.imp_mult)
+                 * stats.min_impedance
+                 + mathfp::units::as_dimless(tolerances.imp_add)
+
                 && connection.journey_time.value()
-                       <= mathfp::units::as_dimless(tolerances.jt_mult) * stats.min_journey_time
-                           + mathfp::units::as_dimless(tolerances.jt_add)
+                <= mathfp::units::as_dimless(tolerances.jt_mult) * stats.min_journey_time
+                 + mathfp::units::as_dimless(tolerances.jt_add)
+
                 && static_cast<double>(connection.transfers.get())
-                       <= mathfp::units::as_dimless(tolerances.nt_mult) * stats.min_transfers
-                           + mathfp::units::as_dimless(tolerances.nt_add);
+                <= mathfp::units::as_dimless(tolerances.nt_mult) * stats.min_transfers
+                 + mathfp::units::as_dimless(tolerances.nt_add);
         }
 
         std::vector<DiscoveredConnection> filter_choice_group(
@@ -140,6 +144,7 @@ namespace timetable::domain::assignment {
                   chosen.begin()
                 , chosen.end()
                 , [](const DiscoveredConnection& lhs, const DiscoveredConnection& rhs) {
+                    // TODO: ?
                     if (lhs.departure != rhs.departure) {
                         return lhs.departure.value() < rhs.departure.value();
                     }

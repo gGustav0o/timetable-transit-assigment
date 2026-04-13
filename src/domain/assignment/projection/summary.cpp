@@ -26,9 +26,9 @@ namespace timetable::domain::assignment::projection {
                     if (raw_index < 0) {
                         return mathfp::unexpected(
                             mathfp::internal_error("assignment summary projection encountered negative connection reference")
-                                .ctx("origin"          , od_result.origin.get())
+                                .ctx("origin"          , od_result.origin     .get())
                                 .ctx("destination"     , od_result.destination.get())
-                                .ctx("interval_id"     , interval.interval.id.get())
+                                .ctx("interval_id"     , interval.interval.id .get())
                                 .ctx("connection_index", raw_index)
                         );
                     }
@@ -110,10 +110,10 @@ namespace timetable::domain::assignment::projection {
                 const auto& connection = od_result.connections[i].summary;
                 const auto& shares     = share_aggregates[i];
 
-                update_best_time(summary.fastest_journey_time, connection.journey_time);
-                update_best_scalar(summary.lowest_fare, connection.fare);
-                update_best_transfers(summary.minimum_transfers, connection.transfers);
-                update_best_scalar(summary.minimum_search_impedance, connection.impedance);
+                update_best_time     (summary.fastest_journey_time    , connection.journey_time);
+                update_best_scalar   (summary.lowest_fare             , connection.fare);
+                update_best_transfers(summary.minimum_transfers       , connection.transfers);
+                update_best_scalar   (summary.minimum_search_impedance, connection.impedance);
                 summary.share_count += shares.share_count;
 
                 summary.connections.push_back(

@@ -15,9 +15,9 @@ namespace timetable::ui {
     };
 
     struct UiResultSnapshotOptions final {
-        std::size_t max_od_results{ 8 };
-        std::size_t max_connections_per_od{ 4 };
-        bool        include_empty_ods{ false };
+        std::size_t max_od_results         { 8 };
+        std::size_t max_connections_per_od { 4 };
+        bool        include_empty_ods      { false };
     };
 
     UiResultSnapshot make_pending_result_snapshot();

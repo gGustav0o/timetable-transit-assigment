@@ -55,6 +55,7 @@ namespace timetable::domain::assignment {
             , const ConnectionSegment& candidate
             , const RouteSegment&      candidate_route_segment
         ) noexcept {
+            // TODO: ?
             if (!state.last_segment || !state.last_route_segment) {
                 return false;
             }

@@ -321,6 +321,7 @@ namespace timetable::app {
             );
             timetable::infra::progress::status(summary);
             timetable::infra::progress::log(summary);
+            // TODO: ?
             timetable::infra::progress::log(
                 fmt::format("summary: {}", paths.summary_text_path.string())
             );
@@ -357,6 +358,7 @@ namespace timetable::app {
             using mathfp::fp::pipe::map;
             using mathfp::fp::pipe::map_error;
 
+            // TODO: ?
             return data_source.load()
                 | inspect_error([logger](const auto& err) {
                     if (logger) {
