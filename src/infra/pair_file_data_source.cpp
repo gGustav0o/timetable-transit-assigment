@@ -1,11 +1,13 @@
 #include "timetable/infra/pair_file_data_source.hpp"
 
 #include "timetable/domain/params_factory.hpp"
+#include "timetable/infra/demand_csv.hpp"
 #include "timetable/infra/progress_bus.hpp"
 #include "timetable/infra/presegmented_input.hpp"
 #include "timetable/infra/segments_csv.hpp"
 
 #include <filesystem>
+#include <string_view>
 #include <utility>
 
 #include <mathfp/core/applicative.hpp>
@@ -26,6 +28,56 @@ namespace timetable::infra {
             timetable::domain::SearchImpedance  impedance{};
             timetable::domain::TransferLimits   transfers{};
         };
+
+        struct PairDemandPaths final {
+            std::filesystem::path intervals{};
+            std::filesystem::path demand{};
+        };
+
+        mathfp::Expected<std::filesystem::path> resolve_pair_support_file(
+              const std::filesystem::path& root
+            , std::string_view             name
+        ) {
+            const auto direct_path    = root / std::string(name);
+            const auto generated_path = root / "generated_demand" / std::string(name);
+
+            if (std::filesystem::exists(direct_path)) {
+                if (!std::filesystem::is_regular_file(direct_path)) {
+                    return mathfp::unexpected(
+                        mathfp::invalid_arg("pair input support path is not a regular file")
+                            .ctx("path", direct_path.string())
+                    );
+                }
+                return direct_path;
+            }
+            if (std::filesystem::exists(generated_path)) {
+                if (!std::filesystem::is_regular_file(generated_path)) {
+                    return mathfp::unexpected(
+                        mathfp::invalid_arg("pair input support path is not a regular file")
+                            .ctx("path", generated_path.string())
+                    );
+                }
+                return generated_path;
+            }
+
+            return mathfp::unexpected(
+                mathfp::invalid_arg("missing required pair input support file")
+                    .ctx("file", std::string(name))
+                    .ctx("searched_primary", direct_path.string())
+                    .ctx("searched_generated_demand", generated_path.string())
+            );
+        }
+
+        mathfp::Expected<PairDemandPaths> resolve_pair_demand_paths(
+            const std::filesystem::path& root
+        ) {
+            MATHFP_TRY_LET(std::filesystem::path, intervals_path, resolve_pair_support_file(root, "time_intervals.csv"));
+            MATHFP_TRY_LET(std::filesystem::path, demand_path, resolve_pair_support_file(root, "od_demand.csv"));
+            return PairDemandPaths{
+                  .intervals = std::move(intervals_path)
+                , .demand    = std::move(demand_path)
+            };
+        }
 
         mathfp::Expected<timetable::domain::assignment::SearchTimeDomainConfig> make_pair_default_search_time_domain_config() {
             using namespace timetable::domain;
@@ -192,11 +244,26 @@ namespace timetable::infra {
                 using timetable::infra::progress::status;
 
                 const auto segments_path = spec_.root / "connection_segments_input.csv";
+                MATHFP_TRY_LET(PairDemandPaths, demand_paths, resolve_pair_demand_paths(spec_.root));
 
                 status("parsing: loading pair input");
                 return csv::parse_connection_segments_csv(segments_path)
                     | and_then(build_default_presegmented_assignment_input)
                     | and_then([&](timetable::domain::AssignmentInput input) -> mathfp::Expected<timetable::domain::AssignmentInput> {
+                        status("parsing: loading pair demand input");
+                        MATHFP_TRY_LET(
+                              std::vector<timetable::domain::TimeInterval>
+                            , intervals
+                            , csv::parse_time_intervals_csv(demand_paths.intervals)
+                        );
+                        MATHFP_TRY_LET(
+                              std::vector<timetable::domain::DemandEntry>
+                            , demand
+                            , csv::parse_od_demand_csv(demand_paths.demand, intervals)
+                        );
+                        input.input.intervals = std::move(intervals);
+                        input.input.demand    = std::move(demand);
+
                         status("parsing: applying default params");
                         log("parsing: params.txt is currently ignored; using built-in defaults", LogLevel::Warning);
                         MATHFP_TRY_LET(
@@ -258,6 +325,8 @@ namespace timetable::infra {
                 mathfp::invalid_arg("missing required connection_segments_input.csv")
                 .ctx("path", segments_path.string())
             );
+
+        MATHFP_TRY(resolve_pair_demand_paths(spec.root));
 
         return std::make_unique<PairFileDataSource>(std::move(spec));
     }

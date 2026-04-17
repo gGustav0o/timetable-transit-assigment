@@ -53,6 +53,7 @@ add_executable(timetable-transit-assigment
   src/domain/preprocessing/connection_segments.cpp
   src/domain/preprocessing/route_segments.cpp
   src/infra/clipboard.cpp
+  src/infra/demand_csv.cpp
   src/infra/assignment_output_csv.cpp
   src/infra/assignment_output_files.cpp
   src/infra/assignment_output_json.cpp

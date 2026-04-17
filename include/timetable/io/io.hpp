@@ -21,6 +21,8 @@ namespace timetable::io {
     // Pair layout directory:
     // - connection_segments_input.csv
     // - params.txt
+    // - time_intervals.csv      or generated_demand/time_intervals.csv
+    // - od_demand.csv           or generated_demand/od_demand.csv
     struct PairDataDirSpec {
         std::filesystem::path root;
     };

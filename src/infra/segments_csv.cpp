@@ -2,9 +2,6 @@
 
 #include <algorithm>
 #include <array>
-#include <cstdint>
-#include <cstdlib>
-#include <exception>
 #include <string>
 #include <string_view>
 #include <unordered_set>
@@ -17,8 +14,8 @@
 
 #include <fmt/format.h>
 
+#include "timetable/infra/csv_parse.hpp"
 #include "timetable/infra/progress_bus.hpp"
-#include "timetable/infra/text_parse.hpp"
 
 namespace timetable::infra::csv {
 
@@ -79,23 +76,21 @@ namespace timetable::infra::csv {
             double ParsedSegmentRow::*       value_member{};
         };
 
-        using SegmentCsvColumnDef = std::pair<std::string_view, std::size_t SegmentCsvColumns::*>;
-
         constexpr auto segment_csv_column_defs() {
-            return std::array<SegmentCsvColumnDef, 13>{
-                  SegmentCsvColumnDef{ "FROM_STOP_ID", &SegmentCsvColumns::from_stop }
-                , SegmentCsvColumnDef{ "TO_STOP_ID", &SegmentCsvColumns::to_stop }
-                , SegmentCsvColumnDef{ "TIME", &SegmentCsvColumns::time }
-                , SegmentCsvColumnDef{ "LENGTH", &SegmentCsvColumns::length }
-                , SegmentCsvColumnDef{ "FROM_ZONE_ID", &SegmentCsvColumns::from_zone }
-                , SegmentCsvColumnDef{ "TO_ZONE_ID", &SegmentCsvColumns::to_zone }
-                , SegmentCsvColumnDef{ "FARE", &SegmentCsvColumns::fare }
-                , SegmentCsvColumnDef{ "TRIP_ID", &SegmentCsvColumns::trip }
-                , SegmentCsvColumnDef{ "LINE_ID", &SegmentCsvColumns::line }
-                , SegmentCsvColumnDef{ "FROM_INDEX", &SegmentCsvColumns::from_index }
-                , SegmentCsvColumnDef{ "DEP", &SegmentCsvColumns::dep }
-                , SegmentCsvColumnDef{ "TO_INDEX", &SegmentCsvColumns::to_index }
-                , SegmentCsvColumnDef{ "ARR", &SegmentCsvColumns::arr }
+            return std::array<csv_parse::ColumnDef<SegmentCsvColumns>, 13>{
+                  csv_parse::ColumnDef<SegmentCsvColumns>{ "FROM_STOP_ID", &SegmentCsvColumns::from_stop }
+                , csv_parse::ColumnDef<SegmentCsvColumns>{ "TO_STOP_ID", &SegmentCsvColumns::to_stop }
+                , csv_parse::ColumnDef<SegmentCsvColumns>{ "TIME", &SegmentCsvColumns::time }
+                , csv_parse::ColumnDef<SegmentCsvColumns>{ "LENGTH", &SegmentCsvColumns::length }
+                , csv_parse::ColumnDef<SegmentCsvColumns>{ "FROM_ZONE_ID", &SegmentCsvColumns::from_zone }
+                , csv_parse::ColumnDef<SegmentCsvColumns>{ "TO_ZONE_ID", &SegmentCsvColumns::to_zone }
+                , csv_parse::ColumnDef<SegmentCsvColumns>{ "FARE", &SegmentCsvColumns::fare }
+                , csv_parse::ColumnDef<SegmentCsvColumns>{ "TRIP_ID", &SegmentCsvColumns::trip }
+                , csv_parse::ColumnDef<SegmentCsvColumns>{ "LINE_ID", &SegmentCsvColumns::line }
+                , csv_parse::ColumnDef<SegmentCsvColumns>{ "FROM_INDEX", &SegmentCsvColumns::from_index }
+                , csv_parse::ColumnDef<SegmentCsvColumns>{ "DEP", &SegmentCsvColumns::dep }
+                , csv_parse::ColumnDef<SegmentCsvColumns>{ "TO_INDEX", &SegmentCsvColumns::to_index }
+                , csv_parse::ColumnDef<SegmentCsvColumns>{ "ARR", &SegmentCsvColumns::arr }
             };
         }
 
@@ -122,143 +117,10 @@ namespace timetable::infra::csv {
             };
         }
 
-        template <typename Columns, typename Visitor>
-        void for_each_segment_csv_column(
-              Columns&  cols
-            , Visitor&& visit
-        ) {
-            for (const auto& [name, member] : segment_csv_column_defs()) {
-                visit(name, cols.*member);
-            }
-        }
-
-        template <typename Visitor>
-        mathfp::Expected<mathfp::Unit> try_for_each_segment_csv_column(
-              SegmentCsvColumns& cols
-            , Visitor&&          visit
-        ) {
-            for (const auto& [name, member] : segment_csv_column_defs()) {
-                MATHFP_TRY(visit(name, cols.*member));
-            }
-            return mathfp::ok();
-        }
-
-        mathfp::Unexpected parse_error(
-              const char*      message
-            , std::size_t      row
-            , std::string_view column
-        ) {
-            return mathfp::unexpected(
-                mathfp::invalid_arg(message)
-                .ctx("row"   , static_cast<std::int64_t>(row))
-                .ctx("column", std::string(column))
-            );
-        }
-
-        template <typename T, typename ParseFn>
-        mathfp::Expected<T> parse_numeric_cell(
-              std::string_view text
-            , std::size_t      row
-            , std::string_view column
-            , const char*      empty_message
-            , const char*      invalid_message
-            , const char*      range_message
-            , ParseFn&&        parse
-        ) {
-            const auto result = text_parse::parse_numeric_token<T>(
-                text, std::forward<ParseFn>(parse)
-            );
-
-            if (const auto* failure = std::get_if<text_parse::NumericParseFailure>(&result)) {
-                if (*failure == text_parse::NumericParseFailure::Empty) {
-                    return parse_error(empty_message, row, column);
-                }
-                if (*failure == text_parse::NumericParseFailure::Invalid) {
-                    return parse_error(invalid_message, row, column);
-                }
-                return parse_error(range_message, row, column);
-            }
-
-            return std::get<T>(result);
-        }
-
-        mathfp::Expected<std::int64_t> parse_int64_cell(
-              std::string_view text
-            , std::size_t      row
-            , std::string_view column
-        ) {
-            return parse_numeric_cell<std::int64_t>(
-                  text
-                , row
-                , column
-                , "empty integer field"
-                , "failed to parse integer"
-                , "integer out of range"
-                , [](const char* begin, char** end) {
-                    return std::strtoll(begin, end, 10);
-                }
-            );
-        }
-
-        mathfp::Expected<double> parse_double_cell(
-              std::string_view text
-            , std::size_t      row
-            , std::string_view column
-        ) {
-            return parse_numeric_cell<double>(
-                  text
-                , row
-                , column
-                , "empty floating point field"
-                , "failed to parse floating point"
-                , "floating point out of range"
-                , [](const char* begin, char** end) {
-                    return std::strtod(begin, end);
-                }
-            );
-        }
-
         mathfp::Expected<::csv::CSVReader> open_connection_segments_csv(
             const std::filesystem::path& path
         ) {
-            try {
-                auto format = ::csv::CSVFormat{};
-                format.delimiter(',')
-                    .quote('"')
-                    .header_row(0)
-                    .trim({ ' ', '\t' })
-                    .variable_columns(::csv::VariableColumnPolicy::THROW);
-
-                return ::csv::CSVReader(path.string(), format);
-            } catch (const std::exception& e) {
-                return mathfp::unexpected(
-                    mathfp::invalid_arg("failed to open or initialize connection segments csv")
-                        .ctx("path"  , path.string())
-                        .ctx("reason", std::string(e.what()))
-                );
-            }
-        }
-
-        mathfp::Expected<SegmentCsvColumns> resolve_segment_csv_columns(
-            const ::csv::CSVReader& reader
-        ) {
-            SegmentCsvColumns resolved;
-            MATHFP_TRY(try_for_each_segment_csv_column(
-                  resolved
-                , [&reader](std::string_view name, std::size_t& column)
-                    -> mathfp::Expected<mathfp::Unit> {
-                    const auto resolved_column = reader.index_of(std::string(name));
-                    if (resolved_column == ::csv::CSV_NOT_FOUND) {
-                        return mathfp::unexpected(
-                            mathfp::invalid_arg("missing required csv column")
-                                .ctx("column", std::string(name))
-                        );
-                    }
-                    column = static_cast<std::size_t>(resolved_column);
-                    return mathfp::ok();
-                }
-            ));
-            return resolved;
+            return csv_parse::open_csv(path, "connection_segments.csv");
         }
 
         mathfp::Expected<ParsedCsvHeader> parse_csv_header(
@@ -273,17 +135,19 @@ namespace timetable::infra::csv {
                 );
             }
 
-            MATHFP_TRY_LET(SegmentCsvColumns, columns, resolve_segment_csv_columns(reader));
+            MATHFP_TRY_LET(
+                  SegmentCsvColumns
+                , columns
+                , csv_parse::resolve_csv_columns<SegmentCsvColumns>(
+                      reader
+                    , segment_csv_column_defs()
+                )
+            );
 
             return ParsedCsvHeader{
                   .columns             = columns
                 , .header_column_count = header.size()
             };
-        }
-
-        std::string_view field_text(const ::csv::CSVField& field) {
-            const auto sv = field.get_sv();
-            return std::string_view(sv.data(), sv.size());
         }
 
         mathfp::Expected<mathfp::Unit> decode_int_row_fields(
@@ -296,8 +160,8 @@ namespace timetable::infra::csv {
                 MATHFP_TRY_LET(
                       std::int64_t
                     , value
-                    , parse_int64_cell(
-                          field_text(row_data[cols.*(spec.column_member)])
+                    , csv_parse::parse_int64_cell(
+                          csv_parse::field_text(row_data[cols.*(spec.column_member)])
                         , row
                         , spec.csv_name
                     )
@@ -317,8 +181,8 @@ namespace timetable::infra::csv {
                 MATHFP_TRY_LET(
                       double
                     , value
-                    , parse_double_cell(
-                          field_text(row_data[cols.*(spec.column_member)])
+                    , csv_parse::parse_double_cell(
+                          csv_parse::field_text(row_data[cols.*(spec.column_member)])
                         , row
                         , spec.csv_name
                     )
