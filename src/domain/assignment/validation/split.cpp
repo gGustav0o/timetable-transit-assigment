@@ -85,14 +85,19 @@ namespace timetable::domain::assignment {
                 }
 
                 const auto key = detail::validation::demand_key(demand);
-                if (!demand_by_key.emplace(key, &demand).second) {
-                    return mathfp::unexpected(
-                        mathfp::invalid_arg("duplicate demand entry for the same origin/destination/interval")
+                MATHFP_TRY(detail::validation::emplace_unique(
+                      demand_by_key
+                    , key
+                    , &demand
+                    , [&]() {
+                        return mathfp::invalid_arg(
+                            "duplicate demand entry for the same origin/destination/interval"
+                        )
                             .ctx("origin"     , demand.origin     .get())
                             .ctx("destination", demand.destination.get())
-                            .ctx("interval_id", demand.interval   .get())
-                    );
-                }
+                            .ctx("interval_id", demand.interval   .get());
+                    }
+                ));
 
                 if (emit_warnings && demand.origin == demand.destination) {
                     detail::validation::warn(fmt::format(
@@ -143,12 +148,15 @@ namespace timetable::domain::assignment {
 
         std::map<IntervalId, const TimeInterval*> intervals;
         for (const auto& interval : input.intervals) {
-            if (!intervals.emplace(interval.id, &interval).second) {
-                return mathfp::unexpected(
-                    mathfp::invalid_arg("duplicate time interval id")
-                        .ctx("interval_id", interval.id.get())
-                );
-            }
+            MATHFP_TRY(detail::validation::emplace_unique(
+                  intervals
+                , interval.id
+                , &interval
+                , [&]() {
+                    return mathfp::invalid_arg("duplicate time interval id")
+                        .ctx("interval_id", interval.id.get());
+                }
+            ));
             if (!(interval.start.value() < interval.end.value())) {
                 return mathfp::unexpected(
                     mathfp::invalid_arg("time interval must satisfy start < end")
@@ -201,49 +209,60 @@ namespace timetable::domain::assignment {
         std::map<detail::validation::DemandKey, double> probability_sum_by_key;
         std::map<detail::validation::DemandKey, double> passengers_sum_by_key;
 
-        for (std::size_t i = 0; i < split_result.shares.size(); ++i) {
-            const auto& share = split_result.shares[i];
-            const auto key = detail::validation::DemandKey{
-                  .origin      = share.origin
-                , .destination = share.destination
-                , .interval    = share.interval
-            };
+        MATHFP_TRY(detail::validation::validate_each_index(
+              split_result.shares
+            , [&](const ConnectionDemandShare& share, std::size_t i) {
+                const auto key = detail::validation::DemandKey{
+                      .origin      = share.origin
+                    , .destination = share.destination
+                    , .interval    = share.interval
+                };
 
-            if (!demand_by_key.contains(key)) {
-                return mathfp::unexpected(
-                    mathfp::internal_error("split output contains a share without matching demand entry")
-                        .ctx("share_index", static_cast<std::int64_t>(i))
-                        .ctx("origin"     , share.origin     .get())
-                        .ctx("destination", share.destination.get())
-                        .ctx("interval_id", share.interval   .get())
-                );
-            }
-            if (!choice_trace_map.contains(detail::validation::connection_trace_key(share.connection))) {
-                return mathfp::unexpected(
-                    mathfp::internal_error("split output contains a connection that was not present in choice output")
-                        .ctx("share_index", static_cast<std::int64_t>(i))
-                        .ctx("origin"     , share.origin     .get())
-                        .ctx("destination", share.destination.get())
-                        .ctx("interval_id", share.interval   .get())
-                );
-            }
-            if (!std::isfinite(share.passengers) || share.passengers < 0.0
-                || !detail::validation::valid_probability(share.probability)
-                || !std::isfinite(share.independence) || share.independence <= 0.0 || share.independence > 1.0
-                || !detail::validation::is_finite_non_negative(share.split_impedance)) {
-                return mathfp::unexpected(
-                    mathfp::invalid_arg("split output contains non-finite or out-of-range share metrics")
-                        .ctx("share_index"    , static_cast<std::int64_t>(i))
-                        .ctx("passengers"     , share.passengers)
-                        .ctx("probability"    , share.probability)
-                        .ctx("independence"   , share.independence)
-                        .ctx("split_impedance", share.split_impedance)
-                );
-            }
+                MATHFP_TRY(detail::validation::ensure_contains(
+                      demand_by_key
+                    , key
+                    , [&]() {
+                        return mathfp::internal_error(
+                            "split output contains a share without matching demand entry"
+                        )
+                            .ctx("share_index", static_cast<std::int64_t>(i))
+                            .ctx("origin"     , share.origin     .get())
+                            .ctx("destination", share.destination.get())
+                            .ctx("interval_id", share.interval   .get());
+                    }
+                ));
+                MATHFP_TRY(detail::validation::ensure_contains(
+                      choice_trace_map
+                    , detail::validation::connection_trace_key(share.connection)
+                    , [&]() {
+                        return mathfp::internal_error(
+                            "split output contains a connection that was not present in choice output"
+                        )
+                            .ctx("share_index", static_cast<std::int64_t>(i))
+                            .ctx("origin"     , share.origin     .get())
+                            .ctx("destination", share.destination.get())
+                            .ctx("interval_id", share.interval   .get());
+                    }
+                ));
+                if (!std::isfinite(share.passengers) || share.passengers < 0.0
+                    || !detail::validation::valid_probability(share.probability)
+                    || !std::isfinite(share.independence) || share.independence <= 0.0 || share.independence > 1.0
+                    || !detail::validation::is_finite_non_negative(share.split_impedance)) {
+                    return mathfp::unexpected(
+                        mathfp::invalid_arg("split output contains non-finite or out-of-range share metrics")
+                            .ctx("share_index"    , static_cast<std::int64_t>(i))
+                            .ctx("passengers"     , share.passengers)
+                            .ctx("probability"    , share.probability)
+                            .ctx("independence"   , share.independence)
+                            .ctx("split_impedance", share.split_impedance)
+                    );
+                }
 
-            probability_sum_by_key[key] += share.probability;
-            passengers_sum_by_key[key] += share.passengers;
-        }
+                probability_sum_by_key[key] += share.probability;
+                passengers_sum_by_key[key] += share.passengers;
+                return mathfp::kUnit;
+            }
+        ));
 
         for (const auto& [key, demand] : demand_by_key) {
             const auto has_available_choice = choice_counts.contains(detail::validation::OdKey{

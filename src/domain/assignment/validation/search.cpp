@@ -314,22 +314,25 @@ namespace timetable::domain::assignment {
         }
 
         MATHFP_TRY(detail::validation::validate_unique_connection_traces(result.connections, "search"));
-        for (std::size_t i = 0; i < result.connections.size(); ++i) {
-            const auto& connection = result.connections[i];
-            MATHFP_TRY(validate_discovered_connection_basic(connection, i));
-            MATHFP_TRY_LET(
-                  EvaluatedConnectionTrace
-                , evaluated
-                , evaluate_connection_trace(connection, network, i)
-            );
-            MATHFP_TRY(validate_evaluated_connection_against_declared(
-                  connection
-                , evaluated
-                , fare_scale
-                , params
-                , i
-            ));
-        }
+        MATHFP_TRY(detail::validation::validate_each_index(
+              result.connections
+            , [&](const DiscoveredConnection& connection, std::size_t i) {
+                MATHFP_TRY(validate_discovered_connection_basic(connection, i));
+                MATHFP_TRY_LET(
+                      EvaluatedConnectionTrace
+                    , evaluated
+                    , evaluate_connection_trace(connection, network, i)
+                );
+                MATHFP_TRY(validate_evaluated_connection_against_declared(
+                      connection
+                    , evaluated
+                    , fare_scale
+                    , params
+                    , i
+                ));
+                return mathfp::kUnit;
+            }
+        ));
 
         return mathfp::kUnit;
     }

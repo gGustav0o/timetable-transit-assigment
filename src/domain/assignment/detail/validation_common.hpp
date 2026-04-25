@@ -50,25 +50,61 @@ namespace timetable::domain::assignment::detail::validation {
         return mathfp::almost_equal(lhs, rhs);
     }
 
+    template <class Range, class Validator>
+    inline mathfp::Expected<mathfp::Unit> validate_each_index(
+          const Range& range
+        , Validator&&  validator
+    ) {
+        for (std::size_t i = 0; i < range.size(); ++i) {
+            MATHFP_TRY(validator(range[i], i));
+        }
+        return mathfp::kUnit;
+    }
+
+    template <class Key, class Value, class ErrorFactory>
+    inline mathfp::Expected<mathfp::Unit> ensure_contains(
+          const std::map<Key, Value>& map
+        , const Key&                  key
+        , ErrorFactory&&              error_factory
+    ) {
+        if (!map.contains(key)) {
+            return mathfp::unexpected(error_factory());
+        }
+        return mathfp::kUnit;
+    }
+
+    template <class Key, class Value, class ErrorFactory>
+    inline mathfp::Expected<mathfp::Unit> emplace_unique(
+          std::map<Key, Value>& target
+        , Key                   key
+        , Value                 value
+        , ErrorFactory&&        error_factory
+    ) {
+        if (!target.emplace(std::move(key), std::move(value)).second) {
+            return mathfp::unexpected(error_factory());
+        }
+        return mathfp::kUnit;
+    }
+
     inline mathfp::Expected<mathfp::Unit> validate_unique_connection_traces(
           std::span<const DiscoveredConnection> connections
         , std::string_view                      where
     ) {
         std::map<ConnectionTraceKey, std::size_t> seen;
-        for (std::size_t i = 0; i < connections.size(); ++i) {
-            auto key = connection_trace_key(connections[i]);
+        return validate_each_index(connections, [&](const DiscoveredConnection& connection, std::size_t i) {
+            auto key = connection_trace_key(connection);
             if (const auto [it, inserted] = seen.emplace(std::move(key), i); !inserted) {
                 return mathfp::unexpected(
                     mathfp::internal_error("duplicate connection trace detected")
                         .ctx("stage"          , std::string(where))
                         .ctx("first_index"    , static_cast<std::int64_t>(it->second))
                         .ctx("duplicate_index", static_cast<std::int64_t>(i))
-                        .ctx("origin"         , connections[i].origin     .get())
-                        .ctx("destination"    , connections[i].destination.get())
+                        .ctx("origin"         , connection.origin     .get())
+                        .ctx("destination"    , connection.destination.get())
                 );
             }
-        }
-        return mathfp::kUnit;
+            return mathfp::kUnit;
+        });
     }
 
 }  // namespace timetable::domain::assignment::detail::validation

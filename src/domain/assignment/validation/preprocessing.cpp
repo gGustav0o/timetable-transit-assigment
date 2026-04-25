@@ -1,6 +1,7 @@
 #include "timetable/domain/assignment/validation.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -17,6 +18,13 @@
 
 namespace timetable::domain::assignment {
     namespace {
+
+        struct OffsetValidationSpec final {
+            std::span<const std::size_t> offsets{};
+            std::size_t                  bucket_count{};
+            std::size_t                  order_count{};
+            std::string_view             name{};
+        };
 
         mathfp::Expected<mathfp::Unit> validate_index_offsets(
               std::span<const std::size_t> offsets
@@ -104,35 +112,49 @@ namespace timetable::domain::assignment {
             );
         }
 
-        MATHFP_TRY(validate_index_offsets(
-              network.route_index.line_offsets
-            , network.route_index.line_buckets.size()
-            , network.route_index.line_order.  size()
-            , "route_index.line"
-        ));
-        MATHFP_TRY(validate_index_offsets(
-              network.route_index.walk_offsets
-            , network.route_index.walk_buckets.size()
-            , network.route_index.walk_order  .size()
-            , "route_index.walk"
-        ));
-        MATHFP_TRY(validate_index_offsets(
-              network.connection_index.timed_offsets
-            , network.connection_index.timed_buckets.size()
-            , network.connection_index.timed_order  .size()
-            , "connection_index.timed"
-        ));
-        MATHFP_TRY(validate_index_offsets(
-              network.connection_index.boarding_offsets
-            , network.connection_index.boarding_stop_buckets.size()
-            , network.connection_index.boarding_order       .size()
-            , "connection_index.boarding"
-        ));
-        MATHFP_TRY(validate_index_offsets(
-              network.connection_index.walk_offsets
-            , network.connection_index.walk_buckets.size()
-            , network.connection_index.walk_order  .size()
-            , "connection_index.walk"
+        constexpr auto kOffsetSpecCount = std::size_t{ 5 };
+        const std::array<OffsetValidationSpec, kOffsetSpecCount> offset_specs{{
+              OffsetValidationSpec{
+                    .offsets      = network.route_index.line_offsets
+                  , .bucket_count = network.route_index.line_buckets.size()
+                  , .order_count  = network.route_index.line_order.size()
+                  , .name         = "route_index.line"
+              }
+            , OffsetValidationSpec{
+                    .offsets      = network.route_index.walk_offsets
+                  , .bucket_count = network.route_index.walk_buckets.size()
+                  , .order_count  = network.route_index.walk_order.size()
+                  , .name         = "route_index.walk"
+              }
+            , OffsetValidationSpec{
+                    .offsets      = network.connection_index.timed_offsets
+                  , .bucket_count = network.connection_index.timed_buckets.size()
+                  , .order_count  = network.connection_index.timed_order.size()
+                  , .name         = "connection_index.timed"
+              }
+            , OffsetValidationSpec{
+                    .offsets      = network.connection_index.boarding_offsets
+                  , .bucket_count = network.connection_index.boarding_stop_buckets.size()
+                  , .order_count  = network.connection_index.boarding_order.size()
+                  , .name         = "connection_index.boarding"
+              }
+            , OffsetValidationSpec{
+                    .offsets      = network.connection_index.walk_offsets
+                  , .bucket_count = network.connection_index.walk_buckets.size()
+                  , .order_count  = network.connection_index.walk_order.size()
+                  , .name         = "connection_index.walk"
+              }
+        }};
+        MATHFP_TRY(detail::validation::validate_each_index(
+              offset_specs
+            , [](const OffsetValidationSpec& spec, std::size_t) {
+                return validate_index_offsets(
+                      spec.offsets
+                    , spec.bucket_count
+                    , spec.order_count
+                    , spec.name
+                );
+            }
         ));
 
         if (network.route_index.line_order.size() + network.route_index.walk_order.size()

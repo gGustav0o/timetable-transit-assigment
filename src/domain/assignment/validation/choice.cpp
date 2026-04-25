@@ -23,17 +23,23 @@ namespace timetable::domain::assignment {
         MATHFP_TRY(detail::validation::validate_unique_connection_traces(choice_result.connections, "choice"));
 
         const auto search_trace_map = detail::validation::trace_index_map(search_result.connections);
-        for (std::size_t i = 0; i < choice_result.connections.size(); ++i) {
-            const auto& connection = choice_result.connections[i];
-            if (!search_trace_map.contains(detail::validation::connection_trace_key(connection))) {
-                return mathfp::unexpected(
-                    mathfp::internal_error("choice output contains a connection that was not present in search output")
-                        .ctx("choice_index", static_cast<std::int64_t>(i))
-                        .ctx("origin"      , connection.origin.get())
-                        .ctx("destination" , connection.destination.get())
+        MATHFP_TRY(detail::validation::validate_each_index(
+              choice_result.connections
+            , [&](const DiscoveredConnection& connection, std::size_t i) {
+                return detail::validation::ensure_contains(
+                      search_trace_map
+                    , detail::validation::connection_trace_key(connection)
+                    , [&]() {
+                        return mathfp::internal_error(
+                            "choice output contains a connection that was not present in search output"
+                        )
+                            .ctx("choice_index", static_cast<std::int64_t>(i))
+                            .ctx("origin"      , connection.origin.get())
+                            .ctx("destination" , connection.destination.get());
+                    }
                 );
             }
-        }
+        ));
 
         const auto search_groups = detail::validation::count_connections_by_od(search_result.connections);
         const auto choice_groups = detail::validation::count_connections_by_od(choice_result.connections);
