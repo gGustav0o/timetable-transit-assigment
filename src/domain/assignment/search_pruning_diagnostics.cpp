@@ -2,6 +2,8 @@
 
 #include <fmt/format.h>
 
+#include "detail/diagnostic_format.hpp"
+
 namespace timetable::domain::assignment {
 
     SearchPruningConfigSummary summarize(
@@ -42,7 +44,7 @@ namespace timetable::domain::assignment {
               "search-pruning config: requested_state_space={} rollout_stage={} current_state_space={}"
             , to_string(summary.requested_state_space)
             , to_string(summary.rollout_stage)
-            , summary.current_state_space ? "true" : "false"
+            , detail::diagnostic::bool_text(summary.current_state_space)
         );
     }
 
@@ -53,9 +55,9 @@ namespace timetable::domain::assignment {
               "search-pruning execution: state_space={} rollout_stage={} exact={} approximate={} approximate_policy={} exact_contract={}"
             , to_string(summary.state_space)
             , to_string(summary.rollout_stage)
-            , summary.exact_enabled          ? "on"   : "off"
-            , summary.approximate_enabled    ? "on"   : "off"
-            , summary.has_approximate_policy ? "true" : "false"
+            , detail::diagnostic::enabled_text(summary.exact_enabled)
+            , detail::diagnostic::enabled_text(summary.approximate_enabled)
+            , detail::diagnostic::bool_text(summary.has_approximate_policy)
             , to_string(summary.exact_contract)
         );
     }

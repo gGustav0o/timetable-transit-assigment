@@ -2,6 +2,8 @@
 
 #include <fmt/format.h>
 
+#include "detail/diagnostic_format.hpp"
+
 namespace timetable::domain::assignment {
     namespace {
 
@@ -128,22 +130,16 @@ namespace timetable::domain::assignment {
             );
         }
         return fmt::format(
-              "search-time domain: windows={} empty=false bounds=[{:.3f}, {:.3f}]"
+              "search-time domain: windows={} empty={} bounds={}"
             , summary.window_count
-            , summary.bounds->begin.value()
-            , summary.bounds->end  .value()
+            , detail::diagnostic::bool_text(summary.empty)
+            , detail::diagnostic::format_bounds(*summary.bounds)
         );
     }
 
     std::string format_search_time_domain_catalog_summary(
         const SearchTimeDomainCatalogSummary& summary
     ) {
-        const auto bounds_text = summary.overall_bounds.has_value()
-            ? fmt::format("[{:.3f}, {:.3f}]"
-                , summary.overall_bounds->begin.value()
-                , summary.overall_bounds->end  .value())
-            : std::string{"<empty>"};
-
         return fmt::format(
               "search-time domain catalog: mode={} padding(before={:.3f}, after={:.3f})"
               " slices(global/origin/od)={}/{}/{} total_windows={} bounds={}"
@@ -154,27 +150,21 @@ namespace timetable::domain::assignment {
             , summary.origin_slice_count
             , summary.od_slice_count
             , summary.total_window_count
-            , bounds_text
+            , detail::diagnostic::format_optional_bounds(summary.overall_bounds)
         );
     }
 
     std::string format_search_time_domain_execution_summary(
         const SearchTimeDomainExecutionSummary& summary
     ) {
-        const auto bounds_text = summary.overall_bounds.has_value()
-            ? fmt::format("[{:.3f}, {:.3f}]"
-                , summary.overall_bounds->begin.value()
-                , summary.overall_bounds->end  .value())
-            : std::string{"<empty>"};
-
         return fmt::format(
               "search-time execution: source_mode={} adaptation={} global={} origin_slices={} total_windows={} bounds={}"
             , to_string(summary.source_mode)
             , to_string(summary.adaptation)
-            , summary.has_global_domain ? "true" : "false"
+            , detail::diagnostic::bool_text(summary.has_global_domain)
             , summary.origin_slice_count
             , summary.total_window_count
-            , bounds_text
+            , detail::diagnostic::format_optional_bounds(summary.overall_bounds)
         );
     }
 
@@ -186,8 +176,8 @@ namespace timetable::domain::assignment {
             , to_string(summary.requested_mode)
             , to_string(summary.architecture)
             , to_string(summary.rollout_stage)
-            , summary.strict_policy   ? "true" : "false"
-            , summary.fallback_policy ? "true" : "false"
+            , detail::diagnostic::bool_text(summary.strict_policy)
+            , detail::diagnostic::bool_text(summary.fallback_policy)
         );
     }
 
