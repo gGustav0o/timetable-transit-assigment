@@ -101,7 +101,7 @@ namespace timetable::infra {
                   }
                 , .runtime = SearchTimeDomainRuntimeConfig{
                       .architecture  = SearchArchitecture::OriginWideBranchAndBound
-                    , .rollout_stage = SearchTimeDomainRolloutStage::Disabled
+                    , .rollout_stage = SearchTimeDomainRolloutStage::GlobalStrict
                   }
             };
         }
@@ -114,7 +114,7 @@ namespace timetable::infra {
                       .requested_state_space = SearchPruningStateSpace::CurrentPhysicalAndOccurrence
                   }
                 , .runtime = SearchPruningRuntimeConfig{
-                      .rollout_stage = SearchPruningRolloutStage::Disabled
+                      .rollout_stage = SearchPruningRolloutStage::ExactAndApproximateCurrentState
                   }
             };
         }

@@ -95,6 +95,25 @@ namespace timetable::domain::assignment {
                  + mathfp::units::as_dimless(tolerances.nt_add);
         }
 
+        bool connection_order_less(
+              const DiscoveredConnection& lhs
+            , const DiscoveredConnection& rhs
+        ) noexcept {
+            if (lhs.departure != rhs.departure) {
+                return lhs.departure.value() < rhs.departure.value();
+            }
+            if (lhs.arrival != rhs.arrival) {
+                return lhs.arrival.value() < rhs.arrival.value();
+            }
+            if (lhs.impedance != rhs.impedance) {
+                return lhs.impedance < rhs.impedance;
+            }
+            if (lhs.transfers != rhs.transfers) {
+                return lhs.transfers.get() < rhs.transfers.get();
+            }
+            return lhs.segments < rhs.segments;
+        }
+
         std::vector<DiscoveredConnection> filter_choice_group(
               std::vector<DiscoveredConnection> connections
             , const ChoiceTolerances&           tolerances
@@ -109,25 +128,7 @@ namespace timetable::domain::assignment {
             }
 
             if (config.rollout_stage == ChoiceRolloutStage::ExactOnly) {
-                std::sort(
-                      relevant.begin()
-                    , relevant.end()
-                    , [](const DiscoveredConnection& lhs, const DiscoveredConnection& rhs) {
-                        if (lhs.departure != rhs.departure) {
-                            return lhs.departure.value() < rhs.departure.value();
-                        }
-                        if (lhs.arrival != rhs.arrival) {
-                            return lhs.arrival.value() < rhs.arrival.value();
-                        }
-                        if (lhs.impedance != rhs.impedance) {
-                            return lhs.impedance < rhs.impedance;
-                        }
-                        if (lhs.transfers != rhs.transfers) {
-                            return lhs.transfers.get() < rhs.transfers.get();
-                        }
-                        return lhs.segments < rhs.segments;
-                    }
-                );
+                std::sort(relevant.begin(), relevant.end(), connection_order_less);
                 return relevant;
             }
 
@@ -140,26 +141,7 @@ namespace timetable::domain::assignment {
                 }
             }
 
-            std::sort(
-                  chosen.begin()
-                , chosen.end()
-                , [](const DiscoveredConnection& lhs, const DiscoveredConnection& rhs) {
-                    // TODO: ?
-                    if (lhs.departure != rhs.departure) {
-                        return lhs.departure.value() < rhs.departure.value();
-                    }
-                    if (lhs.arrival != rhs.arrival) {
-                        return lhs.arrival.value() < rhs.arrival.value();
-                    }
-                    if (lhs.impedance != rhs.impedance) {
-                        return lhs.impedance < rhs.impedance;
-                    }
-                    if (lhs.transfers != rhs.transfers) {
-                        return lhs.transfers.get() < rhs.transfers.get();
-                    }
-                    return lhs.segments < rhs.segments;
-                }
-            );
+            std::sort(chosen.begin(), chosen.end(), connection_order_less);
 
             return chosen;
         }

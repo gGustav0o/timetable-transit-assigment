@@ -12,29 +12,45 @@ cmake --preset default
 cmake --build --preset default
 ```
 
+## Current Scope
+
+This repository is currently developed as a minimal working timetable-assignment project.
+
+The explicitly supported runtime contract at this stage is only the `pair-file` input path:
+
+- `--pair-data-dir <path>`
+- default auto-discovery of `data/test`
+
+The following constraints are intentional project scope decisions for the current stage:
+
+- only the `pair-file` data source is supported
+- deprecated compatibility paths (`--data-dir`, `--data-file`) are not part of the maintained scope
+- `params.txt` is intentionally ignored at runtime for now
+- built-in default assignment parameters are used
+- the current target is a minimal working project, not the full final product surface
+
 ## Run
 
-In Debug builds, if no argument is provided, the app will look for `data/default`
+In Debug builds, if no argument is provided, the app looks for `data/test`
 starting from the current working directory and walking up parent directories.
 
 ```
-timetable-transit-assigment.exe D:\path\to\project\data\default
+timetable-transit-assigment.exe --pair-data-dir D:\path\to\project\data\test
 ```
 
 If no argument is provided in Release builds, the app exits with an error.
 
-## Input directory layout
+## Pair Input Layout
 
-The input directory must contain the following files:
+The supported input directory must contain:
 
-- `stops.csv`
-- `trips.csv`
-- `stop_times.csv`
-- `walk_links.csv`
-- `od.csv`
-- `params.json`
+- `connection_segments_input.csv`
+- `time_intervals.csv` or `generated_demand/time_intervals.csv`
+- `od_demand.csv` or `generated_demand/od_demand.csv`
 
-There is a default dataset location at `data/default`.
+Optional but currently ignored at runtime:
+
+- `params.txt`
 
 ## Logging
 
@@ -60,5 +76,7 @@ Use `q`, `Esc`, or `Ctrl+C` to exit.
 
 ## Notes
 
-- The current file data source is a stub (`not implemented`); only input validation is active.
+- The maintained runtime path is `pair-file` input only.
+- `params.txt` parsing infrastructure exists, but it is not connected to the active runtime path yet.
+- The deprecated file data source remains outside the current maintained scope.
 - Error handling uses `mathfp::Expected` end-to-end.

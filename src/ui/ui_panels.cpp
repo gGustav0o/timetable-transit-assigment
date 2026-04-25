@@ -142,10 +142,12 @@ namespace timetable::ui::detail {
             std::vector<ftxui::Element> out;
             out.reserve(lines.size());
             for (const auto& line : lines) {
-                const auto color = color_for_level(line.level);
-                auto wrapped     = wrap_text(line.message, wrap_width);
+                auto wrapped = wrap_text(line.message, wrap_width);
                 for (auto& chunk : wrapped) {
-                    out.push_back(ftxui::text(std::move(chunk)) | ftxui::color(color));
+                    out.push_back(
+                          ftxui::text(std::move(chunk))
+                        | ftxui::color(color_for_level(line.level))
+                    );
                 }
             }
             if (out.empty()) {
@@ -181,7 +183,7 @@ namespace timetable::ui::detail {
                 return out;
             }
             const auto start = static_cast<std::size_t>(std::max(0, offset));
-            const auto end = static_cast<std::size_t>(
+            const auto end   = static_cast<std::size_t>(
                 std::min<int>(static_cast<int>(lines.size()), offset + height)
             );
             out.reserve(end - start);
@@ -191,28 +193,15 @@ namespace timetable::ui::detail {
             return out;
         }
 
-        int max_scroll(
-              int total
-            , int height
-        ) {
-            const auto max_offset = std::max(0, total - std::max(1, height));
-            return max_offset;
+        int max_scroll(int total, int height) {
+            return std::max(0, total - std::max(1, height));
         }
 
-        int clamp_scroll(
-              int offset
-            , int total
-            , int height
-        ) {
+        int clamp_scroll(int offset, int total, int height) {
             return std::clamp(offset, 0, max_scroll(total, height));
         }
 
-        ScrollTracking auto_scroll(
-              int offset
-            , int total
-            , int height
-            , int last_total
-        ) {
+        ScrollTracking auto_scroll(int offset, int total, int height, int last_total) {
             if (total > last_total) {
                 return ScrollTracking{
                       .offset     = max_scroll(total, height)
@@ -271,10 +260,7 @@ namespace timetable::ui::detail {
             };
         }
 
-        ftxui::Element make_panel_title(
-              const char* title
-            , bool        focused
-        ) {
+        ftxui::Element make_panel_title(const char* title, bool focused) {
             const auto label = focused
                 ? std::string("> ") + title + " [c copy]"
                 : std::string(title);

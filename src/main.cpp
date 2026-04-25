@@ -31,11 +31,10 @@ namespace {
 }  // namespace
 
 int main(int argc, char** argv) {
-    auto result = run_app(argc, argv);
-    if (!result) {
+    if (const auto run_app_result = run_app(argc, argv);  !run_app_result) {
         (void)timetable::infra::flush_logging();
         if (!timetable::infra::logging_started()) {
-            fmt::print(stderr, "{}\n", timetable::app::format_error(result.error()));
+            fmt::print(stderr, "{}\n", timetable::app::format_error(run_app_result.error()));
         }
         return 1;
     }

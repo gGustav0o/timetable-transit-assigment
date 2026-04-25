@@ -41,8 +41,8 @@ namespace timetable::ui {
 
         private:
             ftxui::ScreenInteractive& screen_;
-            std::atomic_bool running_{ true };
-            std::thread refresh_thread_;
+            std::atomic_bool          running_{ true };
+            std::thread               refresh_thread_;
         };
 
     }  // namespace
@@ -56,10 +56,9 @@ namespace timetable::ui {
         }
 
         detail::UiState state;
-        auto renderer = detail::make_renderer(model, state);
 
         auto screen = ftxui::ScreenInteractive::TerminalOutput();
-        renderer    = detail::with_ui_event_handlers(renderer, screen, state, model, logger);
+        const auto renderer = detail::with_ui_event_handlers(detail::make_renderer(model, state), screen, state, model, logger);
         ScopedRefreshLoop refresh_loop(screen);
 
         screen.PostEvent(ftxui::Event::Custom);

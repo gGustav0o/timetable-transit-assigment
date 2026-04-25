@@ -28,14 +28,16 @@ namespace timetable::app {
 
         std::string usage() {
             return "Usage:\n"
+                "  timetable-transit-assigment --pair-data-dir <path> [supported runtime path]\n"
                 "  timetable-transit-assigment --data-dir <path>      [deprecated compatibility path]\n"
-                "  timetable-transit-assigment --pair-data-dir <path> [primary maintained path]\n"
                 "  timetable-transit-assigment --data-file <path>     [deprecated compatibility path]\n"
                 "Default:\n"
                 "  without arguments the app searches upward for data/test/connection_segments_input.csv\n"
+                "Current scope:\n"
+                "  pair-file input only; params.txt is currently ignored and built-in defaults are used\n"
                 "Aliases:\n"
+                "  -p  --pair-data-dir [supported]\n"
                 "  -d  --data-dir      [deprecated]\n"
-                "  -p  --pair-data-dir [maintained]\n"
                 "  -f  --data-file     [deprecated]\n";
         }
 

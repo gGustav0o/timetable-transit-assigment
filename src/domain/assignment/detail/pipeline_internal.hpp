@@ -109,7 +109,7 @@ namespace timetable::domain::assignment::detail {
             , fare_scale
             , params
         ));
-        return mathfp::Expected<ConnectionSearchResult>(std::move(search_result));
+        return search_result;
     }
 
     inline mathfp::Expected<ConnectionChoiceResult> run_validated_choice_step(
@@ -123,7 +123,7 @@ namespace timetable::domain::assignment::detail {
             , choose_connections(search_result, params, config)
         );
         MATHFP_TRY(validate_choice_step_output(choice_result, search_result));
-        return mathfp::Expected<ConnectionChoiceResult>(std::move(choice_result));
+        return choice_result;
     }
 
     inline mathfp::Expected<DemandSplitResult> run_validated_split_step(
@@ -142,7 +142,7 @@ namespace timetable::domain::assignment::detail {
             , choice_result
             , input
         ));
-        return mathfp::Expected<DemandSplitResult>(std::move(split_result));
+        return split_result;
     }
 
     inline mathfp::Expected<AssignmentPipelineResult> run_timetable_assignment_pipeline_with_context(

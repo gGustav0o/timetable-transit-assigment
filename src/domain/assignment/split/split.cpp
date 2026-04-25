@@ -185,16 +185,24 @@ namespace timetable::domain::assignment {
             return 1.0 / (1.0 + influence_sum);
         }
 
+        using IntervalLookup = std::map<IntervalId, const TimeInterval*>;
+
+        IntervalLookup build_interval_lookup(
+            const InputModel& input
+        ) {
+            IntervalLookup lookup;
+            for (const auto& interval : input.intervals) {
+                lookup.emplace(interval.id, &interval);
+            }
+            return lookup;
+        }
+
         const TimeInterval* find_interval(
-              const InputModel& input
-            , IntervalId        id
+              const IntervalLookup& lookup
+            , IntervalId             id
         ) noexcept {
-            const auto it = std::find_if(
-                  input.intervals.begin()
-                , input.intervals.end()
-                , [&](const TimeInterval& interval) { return interval.id == id; }
-            );
-            return it == input.intervals.end() ? nullptr : &*it;
+            const auto it = lookup.find(id);
+            return it == lookup.end() ? nullptr : it->second;
         }
 
     }  // namespace
@@ -219,12 +227,13 @@ namespace timetable::domain::assignment {
         );
 
         DemandSplitResult result;
-        const auto groups   = detail::grouping::group_connections_by_od(choice_result.connections);
-        const auto beta     = mathfp::units::as_dimless(params.split.beta);
-        const auto boxcox_t = mathfp::units::as_dimless(params.split.boxcox_t);
+        const auto groups          = detail::grouping::group_connections_by_od(choice_result.connections);
+        const auto interval_lookup = build_interval_lookup(input);
+        const auto beta            = mathfp::units::as_dimless(params.split.beta);
+        const auto boxcox_t        = mathfp::units::as_dimless(params.split.boxcox_t);
 
         for (const auto& demand : input.demand) {
-            const auto interval = find_interval(input, demand.interval);
+            const auto interval = find_interval(interval_lookup, demand.interval);
             if (!interval) {
                 return mathfp::unexpected(
                     mathfp::invalid_arg("demand entry references unknown time interval")
