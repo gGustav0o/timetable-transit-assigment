@@ -121,8 +121,10 @@ namespace timetable::domain {
      * gamma and the asymmetric independence scales control the evaluation
      * function f_c(c') from the paper:
      * - temporal_similarity_scale corresponds to s_x
-     * - higher_quality_scale is used for s_y / s_z when the base connection c is superior
-     * - lower_quality_scale is used for s_y / s_z when the base connection c is inferior
+     * - higher_quality_scale is used for s_y / s_z when the base connection c
+     *   is superior, so it should typically be >= lower_quality_scale
+     * - lower_quality_scale is used for s_y / s_z when the base connection c
+     *   is inferior
      */
     struct SplitParams final {
         Dimless                     q_time{};

@@ -10,7 +10,7 @@ namespace timetable::domain::assignment {
 
     struct SearchPruningConfigSummary final {
         SearchPruningStateSpace  requested_state_space{
-            SearchPruningStateSpace::CurrentPhysicalAndOccurrence
+            SearchPruningStateSpace::CurrentPhysicalOccurrenceAndTransferContext
         };
         SearchPruningRolloutStage rollout_stage{
             SearchPruningRolloutStage::ExactAndApproximateCurrentState
@@ -20,7 +20,7 @@ namespace timetable::domain::assignment {
 
     struct SearchPruningExecutionSummary final {
         SearchPruningStateSpace  state_space{
-            SearchPruningStateSpace::CurrentPhysicalAndOccurrence
+            SearchPruningStateSpace::CurrentPhysicalOccurrenceAndTransferContext
         };
         SearchPruningRolloutStage rollout_stage{
             SearchPruningRolloutStage::ExactAndApproximateCurrentState

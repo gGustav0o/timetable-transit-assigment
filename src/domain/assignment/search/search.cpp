@@ -31,6 +31,8 @@ namespace timetable::domain::assignment {
         using NodeConnectionSet      = SearchPruningLabelSet;
         using SearchNodeKey          = SearchPruningStateKey;
 
+
+        // TODO??
         struct SearchNodeKeyHash final {
             std::size_t operator()(const SearchNodeKey& key) const noexcept {
                 std::size_t seed = 17u;
@@ -40,6 +42,14 @@ namespace timetable::domain::assignment {
                 if (key.occurrence.has_value()) {
                     seed = seed * 31u + std::hash<std::int64_t>{}(key.occurrence->stop    .get());
                     seed = seed * 31u + std::hash<std::int64_t>{}(key.occurrence->position.get());
+                }
+                seed = seed * 31u + std::hash<bool>{}(key.transfer.last_trip.has_value());
+                if (key.transfer.last_trip.has_value()) {
+                    seed = seed * 31u + std::hash<std::int64_t>{}(key.transfer.last_trip->get());
+                }
+                seed = seed * 31u + std::hash<bool>{}(key.transfer.last_line.has_value());
+                if (key.transfer.last_line.has_value()) {
+                    seed = seed * 31u + std::hash<std::int64_t>{}(key.transfer.last_line->get());
                 }
                 return seed;
             }
@@ -136,12 +146,26 @@ namespace timetable::domain::assignment {
             return origins;
         }
 
+        SearchPruningTransferContext search_transfer_context(
+            const SearchBranch& branch
+        ) noexcept {
+            return SearchPruningTransferContext{
+                  .last_trip = branch.last_timed_segment != nullptr
+                    ? branch.last_timed_segment->trip
+                    : std::optional<TripId>{}
+                , .last_line = branch.last_timed_route_segment != nullptr
+                    ? line_of(*branch.last_timed_route_segment)
+                    : std::optional<LineId>{}
+            };
+        }
+
         SearchNodeKey search_node_key(
             const SearchBranch& branch
         ) noexcept {
             return SearchNodeKey{
                   .physical   = branch.current_physical
                 , .occurrence = branch.current_occurrence
+                , .transfer   = search_transfer_context(branch)
             };
         }
 
@@ -193,6 +217,37 @@ namespace timetable::domain::assignment {
             return branch.departure.has_value()
                 && branch.current_physical.kind == EndpointKind::Zone
                 && branch.current_physical.id   != branch.origin.get();
+        }
+
+        bool first_timed_departure_allowed(
+              const SearchBranch&      branch
+            , const ConnectionSegment& successor
+            , const SearchTimeDomain*  first_departure_domain
+            , const TransferLimits&    limits
+        ) noexcept {
+            if (branch.departure.has_value()) {
+                return true;
+            }
+            if (first_departure_domain == nullptr || !successor.departure.has_value()) {
+                return true;
+            }
+            if (contains(*first_departure_domain, *successor.departure)) {
+                return true;
+            }
+            if (!limits.allow_start_wait) {
+                return false;
+            }
+
+            const auto domain_bounds = bounds(*first_departure_domain);
+            if (!domain_bounds.has_value()) {
+                return false;
+            }
+
+            // In the current connection representation, initial waiting can only
+            // delay the first timed boarding beyond the desired departure-time
+            // domain; it cannot make that boarding earlier than the earliest
+            // demand-relevant departure bound.
+            return successor.departure->value() >= domain_bounds->begin.value();
         }
 
         PartialConnectionLabel make_partial_label(
@@ -678,8 +733,7 @@ namespace timetable::domain::assignment {
             const SearchBranch& branch
         ) noexcept {
             return BranchState{
-                  .start_time           = std::nullopt
-                , .current_arrival_time = branch.current_time
+                  .current_arrival_time = branch.current_time
                 , .last_segment         = branch.last_timed_segment
                 , .last_route_segment   = branch.last_timed_route_segment
                 , .transfer_count       = branch.departure.has_value()
@@ -822,10 +876,12 @@ namespace timetable::domain::assignment {
                           network
                         , successor.route_segment
                     );
-                    if (!branch.departure.has_value()
-                        && first_departure_domain != nullptr
-                        && (!successor.departure.has_value()
-                            || !contains(*first_departure_domain, *successor.departure))) {
+                    if (!first_timed_departure_allowed(
+                          branch
+                        , successor
+                        , first_departure_domain
+                        , params.transfers
+                    )) {
                         ++stats.rejected_time_domain;
                         return;
                     }
@@ -946,7 +1002,7 @@ namespace timetable::domain::assignment {
               SearchPruningExecutionPlan
             , default_pruning_execution
             , plan_search_pruning_execution(
-                  SearchPruningStateSpace::CurrentPhysicalAndOccurrence
+                  SearchPruningStateSpace::CurrentPhysicalOccurrenceAndTransferContext
                 , SearchPruningRolloutStage::Disabled
                 , params.search_tolerances
             )

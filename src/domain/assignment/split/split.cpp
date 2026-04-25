@@ -106,7 +106,7 @@ namespace timetable::domain::assignment {
             );
         }
 
-        double journey_advantage(
+        double base_journey_quality_advantage(
               const DiscoveredConnection& lhs
             , const DiscoveredConnection& rhs
             , const SplitParams&          params
@@ -115,31 +115,37 @@ namespace timetable::domain::assignment {
                 - perceived_journey_time(lhs, params.perceived_journey_time);
         }
 
-        double fare_advantage(
+        double base_fare_quality_advantage(
               const DiscoveredConnection& lhs
             , const DiscoveredConnection& rhs
         ) noexcept {
             return rhs.fare - lhs.fare;
         }
 
+        bool base_connection_is_superior(
+            double base_quality_advantage
+        ) noexcept {
+            return base_quality_advantage >= 0.0;
+        }
+
         double asymmetric_quality_scale(
-              double             advantage
+              double             base_quality_advantage
             , const SplitParams& params
         ) noexcept {
-            return advantage >= 0.0
+            return base_connection_is_superior(base_quality_advantage)
                 ? mathfp::units::as_dimless(params.higher_quality_scale)
                 : mathfp::units::as_dimless(params.lower_quality_scale);
         }
 
         double normalized_quality_distance(
-              double             advantage
+              double             base_quality_advantage
             , const SplitParams& params
         ) noexcept {
-            const auto scale = asymmetric_quality_scale(advantage, params);
+            const auto scale = asymmetric_quality_scale(base_quality_advantage, params);
             if (scale <= 0.0) {
                 return 0.0;
             }
-            return std::abs(advantage) / scale;
+            return std::abs(base_quality_advantage) / scale;
         }
 
         double capped_proximity(
@@ -158,8 +164,8 @@ namespace timetable::domain::assignment {
             , const SplitParams&          params
         ) noexcept {
             const auto x = temporal_similarity(base, other);
-            const auto y = journey_advantage(base, other, params);
-            const auto z = fare_advantage(base, other);
+            const auto y = base_journey_quality_advantage(base, other, params);
+            const auto z = base_fare_quality_advantage(base, other);
             const auto proximity = capped_proximity(
                   x
                 , mathfp::units::as_dimless(params.temporal_similarity_scale)

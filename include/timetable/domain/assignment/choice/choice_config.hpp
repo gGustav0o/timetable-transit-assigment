@@ -11,7 +11,8 @@ namespace timetable::domain::assignment {
      * - keep only exact nondominated connections.
      *
      * ExactAndApproximate:
-     * - apply exact nondominance first, then tolerance filtering.
+     * - apply exact nondominance first, then the stricter whole-connection
+     *   tolerance filtering from the connection-choice stage of the paper.
      */
     enum class ChoiceRolloutStage : std::uint8_t {
           ExactOnly

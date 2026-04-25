@@ -19,13 +19,6 @@ namespace timetable::domain::assignment {
             return !is_timed_segment(segment);
         }
 
-        bool is_first_timed_branch_segment(
-              const BranchState&       state
-            , const ConnectionSegment& candidate
-        ) noexcept {
-            return is_first_branch_segment(state) && is_timed_segment(candidate);
-        }
-
         bool violates_same_trip_rule(
               const BranchState&       state
             , const ConnectionSegment& candidate
@@ -104,23 +97,6 @@ namespace timetable::domain::assignment {
                 && wait_time.value() <= limits.max_transfer_wait.value();
         }
 
-        bool start_wait_allowed(
-              const BranchState&       state
-            , const ConnectionSegment& candidate
-            , const TransferLimits&    limits
-        ) noexcept {
-            if (!is_first_timed_branch_segment(state, candidate)) {
-                return true;
-            }
-            if (limits.allow_start_wait) {
-                return true;
-            }
-            if (!state.start_time.has_value()) {
-                return true;
-            }
-            return candidate.departure->value() <= state.start_time->value();
-        }
-
         bool transfer_count_within_limits(
               const BranchState&       state
             , const ConnectionSegment& candidate
@@ -145,10 +121,6 @@ namespace timetable::domain::assignment {
         , const RouteSegment&      candidate_route_segment
         , const TransferLimits&    limits
     ) noexcept {
-        if (!start_wait_allowed(state, candidate, limits)) {
-            return false;
-        }
-
         if (!transfer_count_within_limits(state, candidate, limits)) {
             return false;
         }

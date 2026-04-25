@@ -9,12 +9,14 @@ namespace timetable::domain::assignment {
     /**
      * @brief Search-state factorization requested by the pruning model.
      *
-     * CurrentPhysicalAndOccurrence preserves the current search semantics:
-     * pruning compares labels only within the same physical endpoint and,
-     * for line states, the same stop occurrence.
+     * CurrentPhysicalOccurrenceAndTransferContext preserves the current search
+     * semantics:
+     * pruning compares labels only within the same physical endpoint, the same
+     * optional stop occurrence, and the same continuation-relevant transfer
+     * context carried by the previous timed leg.
      */
     enum class SearchPruningStateSpace : std::uint8_t {
-        CurrentPhysicalAndOccurrence
+        CurrentPhysicalOccurrenceAndTransferContext
     };
 
     /**
@@ -44,7 +46,7 @@ namespace timetable::domain::assignment {
      */
     struct SearchPruningModelConfig final {
         SearchPruningStateSpace requested_state_space{
-            SearchPruningStateSpace::CurrentPhysicalAndOccurrence
+            SearchPruningStateSpace::CurrentPhysicalOccurrenceAndTransferContext
         };
     };
 

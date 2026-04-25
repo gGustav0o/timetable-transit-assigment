@@ -16,7 +16,7 @@ namespace timetable::domain::assignment {
      */
     struct SearchPruningExecutionPlan final {
         SearchPruningStateSpace  state_space{
-            SearchPruningStateSpace::CurrentPhysicalAndOccurrence
+            SearchPruningStateSpace::CurrentPhysicalOccurrenceAndTransferContext
         };
         SearchPruningRolloutStage rollout_stage{
             SearchPruningRolloutStage::ExactAndApproximateCurrentState

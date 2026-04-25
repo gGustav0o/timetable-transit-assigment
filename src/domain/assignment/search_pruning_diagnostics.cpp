@@ -12,7 +12,7 @@ namespace timetable::domain::assignment {
             , .rollout_stage         = config.runtime.rollout_stage
             , .current_state_space   =
                 config.model.requested_state_space
-                    == SearchPruningStateSpace::CurrentPhysicalAndOccurrence
+                    == SearchPruningStateSpace::CurrentPhysicalOccurrenceAndTransferContext
         };
     }
 

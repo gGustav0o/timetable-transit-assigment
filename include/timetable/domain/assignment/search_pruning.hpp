@@ -28,13 +28,24 @@ namespace timetable::domain::assignment {
      * Current state space:
      * - physical endpoint
      * - optional stop occurrence
+     * - transfer context of the last timed leg
      *
-     * This mirrors the current search implementation without yet changing the
-     * state factorization.
+     * The transfer context is required because feasibility of future timed
+     * successors depends not only on the current physical/occurrence position,
+     * but also on the last timed trip/line through same-trip and same-line
+     * transfer restrictions.
      */
+    struct SearchPruningTransferContext final {
+        std::optional<TripId> last_trip{};
+        std::optional<LineId> last_line{};
+
+        auto operator<=>(const SearchPruningTransferContext&) const = default;
+    };
+
     struct SearchPruningStateKey final {
-        EndpointKey                      physical{};
-        std::optional<StopOccurrenceKey> occurrence{};
+        EndpointKey                       physical{};
+        std::optional<StopOccurrenceKey>  occurrence{};
+        SearchPruningTransferContext      transfer{};
 
         auto operator<=>(const SearchPruningStateKey&) const = default;
     };
