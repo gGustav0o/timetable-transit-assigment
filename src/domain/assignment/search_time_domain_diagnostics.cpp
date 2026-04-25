@@ -147,7 +147,7 @@ namespace timetable::domain::assignment {
         return fmt::format(
               "search-time domain catalog: mode={} padding(before={:.3f}, after={:.3f})"
               " slices(global/origin/od)={}/{}/{} total_windows={} bounds={}"
-            , static_cast<std::int64_t>(summary.mode)
+            , to_string(summary.mode)
             , summary.padding.before_start.value()
             , summary.padding.after_end   .value()
             , summary.global_window_count
@@ -169,8 +169,8 @@ namespace timetable::domain::assignment {
 
         return fmt::format(
               "search-time execution: source_mode={} adaptation={} global={} origin_slices={} total_windows={} bounds={}"
-            , static_cast<std::int64_t>(summary.source_mode)
-            , static_cast<std::int64_t>(summary.adaptation)
+            , to_string(summary.source_mode)
+            , to_string(summary.adaptation)
             , summary.has_global_domain ? "true" : "false"
             , summary.origin_slice_count
             , summary.total_window_count
@@ -183,9 +183,9 @@ namespace timetable::domain::assignment {
     ) {
         return fmt::format(
               "search-time config: requested_mode={} architecture={} rollout_stage={} strict_policy={} fallback_policy={}"
-            , static_cast<std::int64_t>(summary.requested_mode)
-            , static_cast<std::int64_t>(summary.architecture)
-            , static_cast<std::int64_t>(summary.rollout_stage)
+            , to_string(summary.requested_mode)
+            , to_string(summary.architecture)
+            , to_string(summary.rollout_stage)
             , summary.strict_policy   ? "true" : "false"
             , summary.fallback_policy ? "true" : "false"
         );

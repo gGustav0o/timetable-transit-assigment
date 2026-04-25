@@ -4,11 +4,14 @@
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <array>
+#include <string_view>
 #include <vector>
 
 #include <mathfp/core/expected.hpp>
 #include <mathfp/core/unit.hpp>
 
+#include "timetable/enum_string.hpp"
 #include "timetable/domain/endpoints.hpp"
 #include "timetable/domain/model.hpp"
 #include "timetable/domain/params.hpp"
@@ -105,6 +108,25 @@ namespace timetable::domain::assignment {
         ExtensionSafeCurrentState
     };
 
+    inline constexpr std::array kExactDominanceContractTokens{
+        timetable::EnumStringEntry<ExactDominanceContract>{
+            ExactDominanceContract::ExtensionSafeCurrentState,
+            "extension_safe_current_state"
+        }
+    };
+
+    [[nodiscard]] inline constexpr std::string_view to_string(
+        ExactDominanceContract value
+    ) noexcept {
+        return timetable::enum_to_string(value, kExactDominanceContractTokens);
+    }
+
+    [[nodiscard]] inline constexpr std::optional<ExactDominanceContract> exact_dominance_contract_from_string(
+        std::string_view token
+    ) noexcept {
+        return timetable::enum_from_string(token, kExactDominanceContractTokens);
+    }
+
     /**
      * @brief State-local summary used by approximate retention.
      *
@@ -165,11 +187,58 @@ namespace timetable::domain::assignment {
         , Approximate
     };
 
+    inline constexpr std::array kSearchPruningLayerTokens{
+          timetable::EnumStringEntry<SearchPruningLayer>{
+              SearchPruningLayer::Exact, "exact"
+          }
+        , timetable::EnumStringEntry<SearchPruningLayer>{
+              SearchPruningLayer::Approximate, "approximate"
+          }
+    };
+
+    [[nodiscard]] inline constexpr std::string_view to_string(
+        SearchPruningLayer value
+    ) noexcept {
+        return timetable::enum_to_string(value, kSearchPruningLayerTokens);
+    }
+
+    [[nodiscard]] inline constexpr std::optional<SearchPruningLayer> search_pruning_layer_from_string(
+        std::string_view token
+    ) noexcept {
+        return timetable::enum_from_string(token, kSearchPruningLayerTokens);
+    }
+
     enum class SearchPruningReason : std::uint8_t {
           Accepted
         , RejectedExactDominance
         , RejectedApproximateTolerance
     };
+
+    inline constexpr std::array kSearchPruningReasonTokens{
+          timetable::EnumStringEntry<SearchPruningReason>{
+              SearchPruningReason::Accepted, "accepted"
+          }
+        , timetable::EnumStringEntry<SearchPruningReason>{
+              SearchPruningReason::RejectedExactDominance,
+              "rejected_exact_dominance"
+          }
+        , timetable::EnumStringEntry<SearchPruningReason>{
+              SearchPruningReason::RejectedApproximateTolerance,
+              "rejected_approximate_tolerance"
+          }
+    };
+
+    [[nodiscard]] inline constexpr std::string_view to_string(
+        SearchPruningReason value
+    ) noexcept {
+        return timetable::enum_to_string(value, kSearchPruningReasonTokens);
+    }
+
+    [[nodiscard]] inline constexpr std::optional<SearchPruningReason> search_pruning_reason_from_string(
+        std::string_view token
+    ) noexcept {
+        return timetable::enum_from_string(token, kSearchPruningReasonTokens);
+    }
 
     struct ExactPruningDecision final {
         SearchPruningReason reason   { SearchPruningReason::Accepted };

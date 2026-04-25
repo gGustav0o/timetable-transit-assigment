@@ -1,6 +1,11 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
+#include <optional>
+#include <string_view>
+
+#include "timetable/enum_string.hpp"
 
 namespace timetable::domain::assignment {
 
@@ -18,6 +23,27 @@ namespace timetable::domain::assignment {
           ExactOnly
         , ExactAndApproximate
     };
+
+    inline constexpr std::array kChoiceRolloutStageTokens{
+          timetable::EnumStringEntry<ChoiceRolloutStage>{
+              ChoiceRolloutStage::ExactOnly, "exact_only"
+          }
+        , timetable::EnumStringEntry<ChoiceRolloutStage>{
+              ChoiceRolloutStage::ExactAndApproximate, "exact_and_approximate"
+          }
+    };
+
+    [[nodiscard]] inline constexpr std::string_view to_string(
+        ChoiceRolloutStage value
+    ) noexcept {
+        return timetable::enum_to_string(value, kChoiceRolloutStageTokens);
+    }
+
+    [[nodiscard]] inline constexpr std::optional<ChoiceRolloutStage> choice_rollout_stage_from_string(
+        std::string_view token
+    ) noexcept {
+        return timetable::enum_from_string(token, kChoiceRolloutStageTokens);
+    }
 
     /**
      * @brief Domain configuration for final connection choice filtering.

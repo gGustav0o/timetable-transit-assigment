@@ -1,13 +1,16 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <string_view>
 #include <vector>
 
 #include <mathfp/core/expected.hpp>
 #include <mathfp/core/unit.hpp>
 
+#include "timetable/enum_string.hpp"
 #include "timetable/domain/model.hpp"
 
 namespace timetable::domain::assignment {
@@ -34,6 +37,30 @@ namespace timetable::domain::assignment {
         , PerOrigin
         , Global
     };
+
+    inline constexpr std::array kSearchWindowModeTokens{
+          timetable::EnumStringEntry<SearchWindowMode>{
+              SearchWindowMode::PerOd, "per_od"
+          }
+        , timetable::EnumStringEntry<SearchWindowMode>{
+              SearchWindowMode::PerOrigin, "per_origin"
+          }
+        , timetable::EnumStringEntry<SearchWindowMode>{
+              SearchWindowMode::Global, "global"
+          }
+    };
+
+    [[nodiscard]] inline constexpr std::string_view to_string(
+        SearchWindowMode value
+    ) noexcept {
+        return timetable::enum_to_string(value, kSearchWindowModeTokens);
+    }
+
+    [[nodiscard]] inline constexpr std::optional<SearchWindowMode> search_window_mode_from_string(
+        std::string_view token
+    ) noexcept {
+        return timetable::enum_from_string(token, kSearchWindowModeTokens);
+    }
 
     /**
      * @brief One closed departure-time window for the first timed boarding.

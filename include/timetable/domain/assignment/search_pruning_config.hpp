@@ -1,7 +1,11 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
+#include <optional>
+#include <string_view>
 
+#include "timetable/enum_string.hpp"
 #include "timetable/domain/assignment/search_pruning.hpp"
 
 namespace timetable::domain::assignment {
@@ -18,6 +22,25 @@ namespace timetable::domain::assignment {
     enum class SearchPruningStateSpace : std::uint8_t {
         CurrentPhysicalOccurrenceAndTransferContext
     };
+
+    inline constexpr std::array kSearchPruningStateSpaceTokens{
+        timetable::EnumStringEntry<SearchPruningStateSpace>{
+            SearchPruningStateSpace::CurrentPhysicalOccurrenceAndTransferContext,
+            "current_physical_occurrence_and_transfer_context"
+        }
+    };
+
+    [[nodiscard]] inline constexpr std::string_view to_string(
+        SearchPruningStateSpace value
+    ) noexcept {
+        return timetable::enum_to_string(value, kSearchPruningStateSpaceTokens);
+    }
+
+    [[nodiscard]] inline constexpr std::optional<SearchPruningStateSpace> search_pruning_state_space_from_string(
+        std::string_view token
+    ) noexcept {
+        return timetable::enum_from_string(token, kSearchPruningStateSpaceTokens);
+    }
 
     /**
      * @brief Incremental rollout levels for pruning retention.
@@ -37,6 +60,31 @@ namespace timetable::domain::assignment {
         , ExactCurrentState
         , ExactAndApproximateCurrentState
     };
+
+    inline constexpr std::array kSearchPruningRolloutStageTokens{
+          timetable::EnumStringEntry<SearchPruningRolloutStage>{
+              SearchPruningRolloutStage::Disabled, "disabled"
+          }
+        , timetable::EnumStringEntry<SearchPruningRolloutStage>{
+              SearchPruningRolloutStage::ExactCurrentState, "exact_current_state"
+          }
+        , timetable::EnumStringEntry<SearchPruningRolloutStage>{
+              SearchPruningRolloutStage::ExactAndApproximateCurrentState,
+              "exact_and_approximate_current_state"
+          }
+    };
+
+    [[nodiscard]] inline constexpr std::string_view to_string(
+        SearchPruningRolloutStage value
+    ) noexcept {
+        return timetable::enum_to_string(value, kSearchPruningRolloutStageTokens);
+    }
+
+    [[nodiscard]] inline constexpr std::optional<SearchPruningRolloutStage> search_pruning_rollout_stage_from_string(
+        std::string_view token
+    ) noexcept {
+        return timetable::enum_from_string(token, kSearchPruningRolloutStageTokens);
+    }
 
     /**
      * @brief Mathematical request for search pruning.

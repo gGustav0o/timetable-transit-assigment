@@ -1,11 +1,14 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <optional>
+#include <string_view>
 #include <vector>
 
 #include <mathfp/core/expected.hpp>
 
+#include "timetable/enum_string.hpp"
 #include "timetable/domain/assignment/search_time_domain_builder.hpp"
 
 namespace timetable::domain::assignment {
@@ -27,6 +30,28 @@ namespace timetable::domain::assignment {
           Strict
         , ConservativeOriginFallback
     };
+
+    inline constexpr std::array kSearchTimeDomainAdaptationTokens{
+          timetable::EnumStringEntry<SearchTimeDomainAdaptation>{
+              SearchTimeDomainAdaptation::Strict, "strict"
+          }
+        , timetable::EnumStringEntry<SearchTimeDomainAdaptation>{
+              SearchTimeDomainAdaptation::ConservativeOriginFallback,
+              "conservative_origin_fallback"
+          }
+    };
+
+    [[nodiscard]] inline constexpr std::string_view to_string(
+        SearchTimeDomainAdaptation value
+    ) noexcept {
+        return timetable::enum_to_string(value, kSearchTimeDomainAdaptationTokens);
+    }
+
+    [[nodiscard]] inline constexpr std::optional<SearchTimeDomainAdaptation> search_time_domain_adaptation_from_string(
+        std::string_view token
+    ) noexcept {
+        return timetable::enum_from_string(token, kSearchTimeDomainAdaptationTokens);
+    }
 
     /**
      * @brief Search-consumable execution-time lookup for first timed boarding.

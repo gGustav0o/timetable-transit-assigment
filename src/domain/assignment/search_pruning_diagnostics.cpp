@@ -40,8 +40,8 @@ namespace timetable::domain::assignment {
     ) {
         return fmt::format(
               "search-pruning config: requested_state_space={} rollout_stage={} current_state_space={}"
-            , static_cast<std::int64_t>(summary.requested_state_space)
-            , static_cast<std::int64_t>(summary.rollout_stage)
+            , to_string(summary.requested_state_space)
+            , to_string(summary.rollout_stage)
             , summary.current_state_space ? "true" : "false"
         );
     }
@@ -51,12 +51,12 @@ namespace timetable::domain::assignment {
     ) {
         return fmt::format(
               "search-pruning execution: state_space={} rollout_stage={} exact={} approximate={} approximate_policy={} exact_contract={}"
-            , static_cast<std::int64_t>(summary.state_space)
-            , static_cast<std::int64_t>(summary.rollout_stage)
+            , to_string(summary.state_space)
+            , to_string(summary.rollout_stage)
             , summary.exact_enabled          ? "on"   : "off"
             , summary.approximate_enabled    ? "on"   : "off"
             , summary.has_approximate_policy ? "true" : "false"
-            , static_cast<std::int64_t>(summary.exact_contract)
+            , to_string(summary.exact_contract)
         );
     }
 

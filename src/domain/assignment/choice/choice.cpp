@@ -162,7 +162,7 @@ namespace timetable::domain::assignment {
             fmt::format(
                   "choice input: connections = {:>8}  rollout_stage = {}"
                 , search_result.connections.size()
-                , static_cast<std::int64_t>(config.rollout_stage)
+                , to_string(config.rollout_stage)
             )
             , LogLevel::Info
         );

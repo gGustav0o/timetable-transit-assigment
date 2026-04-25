@@ -1,10 +1,13 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <optional>
+#include <string_view>
 
 #include <mathfp/core/expected.hpp>
 
+#include "timetable/enum_string.hpp"
 #include "timetable/domain/assignment/search_time_domain_execution.hpp"
 
 namespace timetable::domain::assignment {
@@ -19,6 +22,25 @@ namespace timetable::domain::assignment {
     enum class SearchArchitecture : std::uint8_t {
         OriginWideBranchAndBound
     };
+
+    inline constexpr std::array kSearchArchitectureTokens{
+        timetable::EnumStringEntry<SearchArchitecture>{
+            SearchArchitecture::OriginWideBranchAndBound,
+            "origin_wide_branch_and_bound"
+        }
+    };
+
+    [[nodiscard]] inline constexpr std::string_view to_string(
+        SearchArchitecture value
+    ) noexcept {
+        return timetable::enum_to_string(value, kSearchArchitectureTokens);
+    }
+
+    [[nodiscard]] inline constexpr std::optional<SearchArchitecture> search_architecture_from_string(
+        std::string_view token
+    ) noexcept {
+        return timetable::enum_from_string(token, kSearchArchitectureTokens);
+    }
 
     /**
      * @brief Incremental rollout levels for demand-induced time-domain search.
@@ -41,6 +63,34 @@ namespace timetable::domain::assignment {
         , PerOriginStrict
         , PerOdConservativeFallback
     };
+
+    inline constexpr std::array kSearchTimeDomainRolloutStageTokens{
+          timetable::EnumStringEntry<SearchTimeDomainRolloutStage>{
+              SearchTimeDomainRolloutStage::Disabled, "disabled"
+          }
+        , timetable::EnumStringEntry<SearchTimeDomainRolloutStage>{
+              SearchTimeDomainRolloutStage::GlobalStrict, "global_strict"
+          }
+        , timetable::EnumStringEntry<SearchTimeDomainRolloutStage>{
+              SearchTimeDomainRolloutStage::PerOriginStrict, "per_origin_strict"
+          }
+        , timetable::EnumStringEntry<SearchTimeDomainRolloutStage>{
+              SearchTimeDomainRolloutStage::PerOdConservativeFallback,
+              "per_od_conservative_fallback"
+          }
+    };
+
+    [[nodiscard]] inline constexpr std::string_view to_string(
+        SearchTimeDomainRolloutStage value
+    ) noexcept {
+        return timetable::enum_to_string(value, kSearchTimeDomainRolloutStageTokens);
+    }
+
+    [[nodiscard]] inline constexpr std::optional<SearchTimeDomainRolloutStage> search_time_domain_rollout_stage_from_string(
+        std::string_view token
+    ) noexcept {
+        return timetable::enum_from_string(token, kSearchTimeDomainRolloutStageTokens);
+    }
 
     /**
      * @brief Architecture-aware execution plan for time-domain search.
