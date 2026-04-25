@@ -6,6 +6,7 @@
 #include "timetable/infra/presegmented_input.hpp"
 #include "timetable/infra/segments_csv.hpp"
 
+#include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <string_view>
@@ -49,6 +50,163 @@ namespace timetable::infra {
             timetable::domain::assignment::ChoiceConfig           choice{};
             timetable::domain::assignment::SearchPruningConfig    search_pruning{};
             timetable::domain::assignment::SearchTimeDomainConfig search_time_domain{};
+        };
+
+        struct PairSearchTimeDomainSpec final {
+            timetable::domain::assignment::SearchWindowMode             requested_mode{};
+            timetable::domain::assignment::SearchArchitecture           architecture{};
+            timetable::domain::assignment::SearchTimeDomainRolloutStage rollout_stage{};
+            double                                                     before_start{};
+            double                                                     after_end{};
+        };
+
+        struct PairSearchPruningSpec final {
+            timetable::domain::assignment::SearchPruningStateSpace   state_space{};
+            timetable::domain::assignment::SearchPruningRolloutStage rollout_stage{};
+        };
+
+        struct PairChoiceSpec final {
+            timetable::domain::assignment::ChoiceRolloutStage rollout_stage{};
+        };
+
+        struct PairPreprocessSpec final {
+            double                                  walk_time_weight{};
+            double                                  walk_length_weight{};
+            std::optional<timetable::domain::Speed> line_speed{};
+            bool                                    strict_trips{};
+            bool                                    allow_overnight{};
+            bool                                    overnight_add_24h{};
+            bool                                    strict_stop_times{};
+            bool                                    deduplicate_walk_segments{};
+            bool                                    stable_ordering{};
+            timetable::domain::WalkCostKind         walk_cost_kind{};
+            timetable::domain::TimeAggregationKind  time_aggregation{};
+        };
+
+        struct PairSearchImpedanceSpec final {
+            double                               journey_time{};
+            double                               transfers{};
+            double                               fare{};
+            timetable::domain::FareNormalization fare_normalization{};
+        };
+
+        struct PairTransferSpec final {
+            std::int32_t max_transfers{};
+            double       min_transfer_wait{};
+            double       max_transfer_wait{};
+            bool         allow_start_wait{};
+            bool         allow_end_wait{};
+        };
+
+        struct PairToleranceSpec final {
+            double imp_mult{};
+            double imp_add{};
+            double jt_mult{};
+            double jt_add{};
+            double nt_mult{};
+            double nt_add{};
+        };
+
+        struct PairSplitSpec final {
+            double q_time{};
+            double q_departure{};
+            double q_fare{};
+            double pjt_journey_time{};
+            double pjt_transfer_time{};
+            double pjt_transfer_count{};
+            double departure_early{};
+            double departure_late{};
+            double beta{};
+            double boxcox_t{};
+            double gamma{};
+            double temporal_similarity_scale{};
+            double higher_quality_scale{};
+            double lower_quality_scale{};
+        };
+
+        struct PairRuntimeDefaultSpec final {
+            PairPreprocessSpec       preprocess{};
+            PairSearchImpedanceSpec  search_impedance{};
+            PairTransferSpec         transfers{};
+            PairToleranceSpec        search_tolerances{};
+            PairToleranceSpec        choice_tolerances{};
+            PairSplitSpec            split{};
+            PairChoiceSpec           choice{};
+            PairSearchPruningSpec    search_pruning{};
+            PairSearchTimeDomainSpec search_time_domain{};
+        };
+
+        inline constexpr PairToleranceSpec kPairDefaultToleranceSpec{
+              .imp_mult = 1.2
+            , .imp_add  = 10.0
+            , .jt_mult  = 1.2
+            , .jt_add   = 10.0
+            , .nt_mult  = 1.0
+            , .nt_add   = 1.0
+        };
+
+        inline constexpr PairRuntimeDefaultSpec kPairRuntimeDefaultSpec{
+              .preprocess = PairPreprocessSpec{
+                    .walk_time_weight           = 1.0
+                  , .walk_length_weight         = 0.0
+                  , .line_speed                 = std::nullopt
+                  , .strict_trips               = true
+                  , .allow_overnight            = false
+                  , .overnight_add_24h          = true
+                  , .strict_stop_times          = true
+                  , .deduplicate_walk_segments  = true
+                  , .stable_ordering            = true
+                  , .walk_cost_kind             = timetable::domain::WalkCostKind::Time
+                  , .time_aggregation           = timetable::domain::TimeAggregationKind::Mean
+                }
+            , .search_impedance = PairSearchImpedanceSpec{
+                    .journey_time       = 1.0
+                  , .transfers          = 12.0
+                  , .fare               = 1.0
+                  , .fare_normalization = timetable::domain::FareNormalization{
+                          .kind        = timetable::domain::FareNormalization::Kind::Median
+                        , .fixed_scale = 1.0
+                    }
+                }
+            , .transfers = PairTransferSpec{
+                    .max_transfers     = 5
+                  , .min_transfer_wait = 0.0
+                  , .max_transfer_wait = 30.0
+                  , .allow_start_wait  = true
+                  , .allow_end_wait    = true
+                }
+            , .search_tolerances = kPairDefaultToleranceSpec
+            , .choice_tolerances = kPairDefaultToleranceSpec
+            , .split = PairSplitSpec{
+                    .q_time                    = 1.0
+                  , .q_departure               = 1.0
+                  , .q_fare                    = 1.0
+                  , .pjt_journey_time          = 1.0
+                  , .pjt_transfer_time         = 2.0
+                  , .pjt_transfer_count        = 2.0
+                  , .departure_early           = 1.0
+                  , .departure_late            = 1.0
+                  , .beta                      = 4.0
+                  , .boxcox_t                  = 1.0
+                  , .gamma                     = 1.0
+                  , .temporal_similarity_scale = 60.0
+                  , .higher_quality_scale      = 0.6
+                  , .lower_quality_scale       = 0.3
+                }
+            , .choice = PairChoiceSpec{
+                    .rollout_stage = timetable::domain::assignment::ChoiceRolloutStage::ExactAndApproximate
+                }
+            , .search_pruning = PairSearchPruningSpec{
+                    .state_space   = timetable::domain::assignment::SearchPruningStateSpace::CurrentPhysicalOccurrenceAndTransferContext
+                  , .rollout_stage = timetable::domain::assignment::SearchPruningRolloutStage::ExactAndApproximateCurrentState
+                }
+            , .search_time_domain = PairSearchTimeDomainSpec{
+                    .requested_mode = timetable::domain::assignment::SearchWindowMode::Global
+                  , .architecture   = timetable::domain::assignment::SearchArchitecture::OriginWideBranchAndBound
+                  , .rollout_stage  = timetable::domain::assignment::SearchTimeDomainRolloutStage::GlobalStrict
+                  , .before_start   = 0.0
+                  , .after_end      = 0.0
+                }
         };
 
         mathfp::Expected<std::filesystem::path> resolve_pair_support_file(
@@ -141,20 +299,20 @@ namespace timetable::infra {
                 , padding_policy
                 , make_fixed_search_time_padding_policy(
                     SearchTimePadding{
-                          .before_start = Time{ 0.0 }
-                        , .after_end    = Time{ 0.0 }
+                          .before_start = Time{ kPairRuntimeDefaultSpec.search_time_domain.before_start }
+                        , .after_end    = Time{ kPairRuntimeDefaultSpec.search_time_domain.after_end }
                     }
                 )
             );
 
             return SearchTimeDomainConfig{
                   .model = SearchTimeDomainModelConfig{
-                      .requested_mode = SearchWindowMode::Global
+                      .requested_mode = kPairRuntimeDefaultSpec.search_time_domain.requested_mode
                     , .padding_policy = std::move(padding_policy)
                   }
                 , .runtime = SearchTimeDomainRuntimeConfig{
-                      .architecture  = SearchArchitecture::OriginWideBranchAndBound
-                    , .rollout_stage = SearchTimeDomainRolloutStage::GlobalStrict
+                      .architecture  = kPairRuntimeDefaultSpec.search_time_domain.architecture
+                    , .rollout_stage = kPairRuntimeDefaultSpec.search_time_domain.rollout_stage
                   }
             };
         }
@@ -164,10 +322,10 @@ namespace timetable::infra {
 
             return SearchPruningConfig{
                   .model = SearchPruningModelConfig{
-                      .requested_state_space = SearchPruningStateSpace::CurrentPhysicalOccurrenceAndTransferContext
+                      .requested_state_space = kPairRuntimeDefaultSpec.search_pruning.state_space
                   }
                 , .runtime = SearchPruningRuntimeConfig{
-                      .rollout_stage = SearchPruningRolloutStage::ExactAndApproximateCurrentState
+                      .rollout_stage = kPairRuntimeDefaultSpec.search_pruning.rollout_stage
                   }
             };
         }
@@ -176,7 +334,7 @@ namespace timetable::infra {
             using namespace timetable::domain::assignment;
 
             return ChoiceConfig{
-                .rollout_stage = ChoiceRolloutStage::ExactAndApproximate
+                .rollout_stage = kPairRuntimeDefaultSpec.choice.rollout_stage
             };
         }
 
@@ -195,35 +353,32 @@ namespace timetable::infra {
                         };
                     }
                     , make_preprocess_params(
-                          WalkCostKind::Time
+                          kPairRuntimeDefaultSpec.preprocess.walk_cost_kind
                         , WalkCostWeights{
-                              .w_time   = Dimless{ 1.0 }
-                            , .w_length = Dimless{ 0.0 }
+                              .w_time   = Dimless{ kPairRuntimeDefaultSpec.preprocess.walk_time_weight }
+                            , .w_length = Dimless{ kPairRuntimeDefaultSpec.preprocess.walk_length_weight }
                         }
-                        , std::nullopt
-                        , true
-                        , false
-                        , true
-                        , true
-                        , TimeAggregationKind::Mean
-                        , true
-                        , true
+                        , kPairRuntimeDefaultSpec.preprocess.line_speed
+                        , kPairRuntimeDefaultSpec.preprocess.strict_trips
+                        , kPairRuntimeDefaultSpec.preprocess.allow_overnight
+                        , kPairRuntimeDefaultSpec.preprocess.overnight_add_24h
+                        , kPairRuntimeDefaultSpec.preprocess.strict_stop_times
+                        , kPairRuntimeDefaultSpec.preprocess.time_aggregation
+                        , kPairRuntimeDefaultSpec.preprocess.deduplicate_walk_segments
+                        , kPairRuntimeDefaultSpec.preprocess.stable_ordering
                     )
                     , make_search_impedance(
-                          Dimless{ 1.0 }
-                        , Dimless{ 12.0 }
-                        , Dimless{ 1.0 }
-                        , FareNormalization{
-                              .kind        = FareNormalization::Kind::Median
-                            , .fixed_scale = 1.0
-                        }
+                          Dimless{ kPairRuntimeDefaultSpec.search_impedance.journey_time }
+                        , Dimless{ kPairRuntimeDefaultSpec.search_impedance.transfers }
+                        , Dimless{ kPairRuntimeDefaultSpec.search_impedance.fare }
+                        , kPairRuntimeDefaultSpec.search_impedance.fare_normalization
                     )
                     , make_transfer_limits(
-                          TransferCount{ 5 }
-                        , Time         { 0.0 }
-                        , Time         { 30.0 }
-                        , true
-                        , true
+                          TransferCount{ kPairRuntimeDefaultSpec.transfers.max_transfers }
+                        , Time{ kPairRuntimeDefaultSpec.transfers.min_transfer_wait }
+                        , Time{ kPairRuntimeDefaultSpec.transfers.max_transfer_wait }
+                        , kPairRuntimeDefaultSpec.transfers.allow_start_wait
+                        , kPairRuntimeDefaultSpec.transfers.allow_end_wait
                     )
                 )
             );
@@ -238,20 +393,20 @@ namespace timetable::infra {
                         };
                     }
                     , make_search_tolerances(
-                          Dimless{ 1.2 }
-                        , Dimless{ 10.0 }
-                        , Dimless{ 1.2 }
-                        , Dimless{ 10.0 }
-                        , Dimless{ 1.0 }
-                        , Dimless{ 1.0 }
+                          Dimless{ kPairRuntimeDefaultSpec.search_tolerances.imp_mult }
+                        , Dimless{ kPairRuntimeDefaultSpec.search_tolerances.imp_add }
+                        , Dimless{ kPairRuntimeDefaultSpec.search_tolerances.jt_mult }
+                        , Dimless{ kPairRuntimeDefaultSpec.search_tolerances.jt_add }
+                        , Dimless{ kPairRuntimeDefaultSpec.search_tolerances.nt_mult }
+                        , Dimless{ kPairRuntimeDefaultSpec.search_tolerances.nt_add }
                     )
                     , make_choice_tolerances(
-                          Dimless{ 1.2 }
-                        , Dimless{ 10.0 }
-                        , Dimless{ 1.2 }
-                        , Dimless{ 10.0 }
-                        , Dimless{ 1.0 }
-                        , Dimless{ 1.0 }
+                          Dimless{ kPairRuntimeDefaultSpec.choice_tolerances.imp_mult }
+                        , Dimless{ kPairRuntimeDefaultSpec.choice_tolerances.imp_add }
+                        , Dimless{ kPairRuntimeDefaultSpec.choice_tolerances.jt_mult }
+                        , Dimless{ kPairRuntimeDefaultSpec.choice_tolerances.jt_add }
+                        , Dimless{ kPairRuntimeDefaultSpec.choice_tolerances.nt_mult }
+                        , Dimless{ kPairRuntimeDefaultSpec.choice_tolerances.nt_add }
                     )
                 )
             );
@@ -259,24 +414,24 @@ namespace timetable::infra {
                   SplitParams
                 , split
                 , make_split_params(
-                      Dimless{ 1.0 }
-                    , Dimless{ 1.0 }
-                    , Dimless{ 1.0 }
+                      Dimless{ kPairRuntimeDefaultSpec.split.q_time }
+                    , Dimless{ kPairRuntimeDefaultSpec.split.q_departure }
+                    , Dimless{ kPairRuntimeDefaultSpec.split.q_fare }
                     , PerceivedJourneyTimeWeights{
-                          .journey_time   = Dimless{ 1.0 }
-                        , .transfer_time  = Dimless{ 2.0 }
-                        , .transfer_count = Dimless{ 2.0 }
+                          .journey_time   = Dimless{ kPairRuntimeDefaultSpec.split.pjt_journey_time }
+                        , .transfer_time  = Dimless{ kPairRuntimeDefaultSpec.split.pjt_transfer_time }
+                        , .transfer_count = Dimless{ kPairRuntimeDefaultSpec.split.pjt_transfer_count }
                     }
                     , TemporalUtilityWeights{
-                          .early_departure = Dimless{ 1.0 }
-                        , .late_departure  = Dimless{ 1.0 }
+                          .early_departure = Dimless{ kPairRuntimeDefaultSpec.split.departure_early }
+                        , .late_departure  = Dimless{ kPairRuntimeDefaultSpec.split.departure_late }
                     }
-                    , Dimless{ 4.0 }
-                    , Dimless{ 1.0 }
-                    , Dimless{ 1.0 }
-                    , Dimless{ 60.0 }
-                    , Dimless{ 0.6 }
-                    , Dimless{ 0.3 }
+                    , Dimless{ kPairRuntimeDefaultSpec.split.beta }
+                    , Dimless{ kPairRuntimeDefaultSpec.split.boxcox_t }
+                    , Dimless{ kPairRuntimeDefaultSpec.split.gamma }
+                    , Dimless{ kPairRuntimeDefaultSpec.split.temporal_similarity_scale }
+                    , Dimless{ kPairRuntimeDefaultSpec.split.higher_quality_scale }
+                    , Dimless{ kPairRuntimeDefaultSpec.split.lower_quality_scale }
                 )
             );
 
