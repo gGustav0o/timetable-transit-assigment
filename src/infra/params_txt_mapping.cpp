@@ -58,6 +58,51 @@ namespace timetable::infra::params_txt::detail {
             timetable::domain::TransferLimits   transfers{};
         };
 
+        struct ToleranceFields final {
+            double imp_mult{};
+            double imp_add{};
+            double jt_mult{};
+            double jt_add{};
+            double nt_mult{};
+            double nt_add{};
+        };
+
+        struct TransferFields final {
+            double max_transfers{};
+            double min_transfer_wait{};
+            double max_transfer_wait{};
+        };
+
+        struct SearchImpedanceFields final {
+            double journey_time{};
+            double transfers{};
+            double fare{};
+        };
+
+        struct SplitImpedanceFields final {
+            double time{};
+            double departure_early{};
+            double departure_late{};
+            double fare{};
+        };
+
+        struct PerceivedJourneyTimeFields final {
+            double journey_time{};
+            double transfer_time{};
+            double transfer_count{};
+        };
+
+        struct SplitIndependenceFields final {
+            double gamma{};
+            double temporal_similarity_scale{};
+            double higher_quality_scale{};
+            double lower_quality_scale{};
+        };
+
+        struct SplitScalarFields final {
+            double boxcox_t{};
+        };
+
         namespace schema {
 
             struct ParamsTxtSchema final {
@@ -232,54 +277,26 @@ namespace timetable::infra::params_txt::detail {
             return to_array<std::string, N>(std::move(values));
         }
 
-        mathfp::Expected<timetable::domain::SearchTolerances> parse_search_tolerances(
-            const Object& search_tol
+        mathfp::Expected<ToleranceFields> read_tolerance_fields(
+              const Object&                                         obj
+            , const std::array<NumberFieldSpec, 6>& field_specs
         ) {
-            using namespace timetable::domain;
-
-            MATHFP_TRY_LET(
-                  DoubleArray<6>
-                , values
-                , read_number_array(search_tol, schema::kParamsTxtSchema.search_tolerances)
-            );
+            MATHFP_TRY_LET(DoubleArray<6>, values, read_number_array(obj, field_specs));
             const auto [imp_mult, imp_add, jt_mult, jt_add, nt_mult, nt_add] = values;
-            return make_search_tolerances(
-                  Dimless  { imp_mult }
-                , Dimless{ imp_add }
-                , Dimless{ jt_mult }
-                , Dimless{ jt_add }
-                , Dimless{ nt_mult }
-                , Dimless{ nt_add }
-            );
+            return ToleranceFields{
+                  .imp_mult = imp_mult
+                , .imp_add  = imp_add
+                , .jt_mult  = jt_mult
+                , .jt_add   = jt_add
+                , .nt_mult  = nt_mult
+                , .nt_add   = nt_add
+            };
         }
 
-        mathfp::Expected<timetable::domain::ChoiceTolerances> parse_choice_tolerances(
-            const Object& choice_tol
-        ) {
-            using namespace timetable::domain;
-
-            MATHFP_TRY_LET(
-                  DoubleArray<6>
-                , values
-                , read_number_array(choice_tol, schema::kParamsTxtSchema.choice_tolerances)
-            );
-            const auto [imp_mult, imp_add, jt_mult, jt_add, nt_mult, nt_add] = values;
-            return make_choice_tolerances(
-                  Dimless{ imp_mult }
-                , Dimless{ imp_add }
-                , Dimless{ jt_mult }
-                , Dimless{ jt_add }
-                , Dimless{ nt_mult }
-                , Dimless{ nt_add }
-            );
-        }
-
-        mathfp::Expected<timetable::domain::TransferLimits> parse_transfer_limits(
+        mathfp::Expected<TransferFields> read_transfer_fields(
               const Object& search_para
             , const Object& temporal
         ) {
-            using namespace timetable::domain;
-
             MATHFP_TRY_LET(
                   DoubleArray<1>
                 , search_values
@@ -291,13 +308,137 @@ namespace timetable::infra::params_txt::detail {
                 , read_number_array(temporal, schema::kParamsTxtSchema.temporal_suitability)
             );
 
-            const auto [max_transfers]    = search_values;
+            const auto [max_transfers] = search_values;
             const auto [min_twt, max_twt] = temporal_values;
+            return TransferFields{
+                  .max_transfers     = max_transfers
+                , .min_transfer_wait = min_twt
+                , .max_transfer_wait = max_twt
+            };
+        }
+
+        mathfp::Expected<SearchImpedanceFields> read_search_impedance_fields(
+              const Object&                                         obj
+            , const std::array<NumberFieldSpec, 3>& field_specs
+        ) {
+            MATHFP_TRY_LET(DoubleArray<3>, values, read_number_array(obj, field_specs));
+            const auto [journey_time, transfers, fare] = values;
+            return SearchImpedanceFields{
+                  .journey_time = journey_time
+                , .transfers    = transfers
+                , .fare         = fare
+            };
+        }
+
+        mathfp::Expected<SplitImpedanceFields> read_split_impedance_fields(
+              const Object&                                         obj
+            , const std::array<NumberFieldSpec, 4>& field_specs
+        ) {
+            MATHFP_TRY_LET(DoubleArray<4>, values, read_number_array(obj, field_specs));
+            const auto [time, departure_early, departure_late, fare] = values;
+            return SplitImpedanceFields{
+                  .time            = time
+                , .departure_early = departure_early
+                , .departure_late  = departure_late
+                , .fare            = fare
+            };
+        }
+
+        mathfp::Expected<PerceivedJourneyTimeFields> read_perceived_journey_time_fields(
+              const Object&                                         obj
+            , const std::array<NumberFieldSpec, 3>& field_specs
+        ) {
+            MATHFP_TRY_LET(DoubleArray<3>, values, read_number_array(obj, field_specs));
+            const auto [journey_time, transfer_time, transfer_count] = values;
+            return PerceivedJourneyTimeFields{
+                  .journey_time   = journey_time
+                , .transfer_time  = transfer_time
+                , .transfer_count = transfer_count
+            };
+        }
+
+        mathfp::Expected<SplitIndependenceFields> read_split_independence_fields(
+              const Object&                                         obj
+            , const std::array<NumberFieldSpec, 4>& field_specs
+        ) {
+            MATHFP_TRY_LET(DoubleArray<4>, values, read_number_array(obj, field_specs));
+            const auto [gamma, temporal_similarity_scale, higher_quality_scale, lower_quality_scale] = values;
+            return SplitIndependenceFields{
+                  .gamma                     = gamma
+                , .temporal_similarity_scale = temporal_similarity_scale
+                , .higher_quality_scale      = higher_quality_scale
+                , .lower_quality_scale       = lower_quality_scale
+            };
+        }
+
+        mathfp::Expected<SplitScalarFields> read_split_scalar_fields(
+              const Object&                                         obj
+            , const std::array<NumberFieldSpec, 1>& field_specs
+        ) {
+            MATHFP_TRY_LET(DoubleArray<1>, values, read_number_array(obj, field_specs));
+            return SplitScalarFields{ .boxcox_t = values[0] };
+        }
+
+        mathfp::Expected<timetable::domain::SearchTolerances> parse_search_tolerances(
+            const Object& search_tol
+        ) {
+            using namespace timetable::domain;
+
+            MATHFP_TRY_LET(
+                  ToleranceFields
+                , fields
+                , read_tolerance_fields(
+                    search_tol, schema::kParamsTxtSchema.search_tolerances
+                )
+            );
+            return make_search_tolerances(
+                  Dimless{ fields.imp_mult }
+                , Dimless{ fields.imp_add }
+                , Dimless{ fields.jt_mult }
+                , Dimless{ fields.jt_add }
+                , Dimless{ fields.nt_mult }
+                , Dimless{ fields.nt_add }
+            );
+        }
+
+        mathfp::Expected<timetable::domain::ChoiceTolerances> parse_choice_tolerances(
+            const Object& choice_tol
+        ) {
+            using namespace timetable::domain;
+
+            MATHFP_TRY_LET(
+                  ToleranceFields
+                , fields
+                , read_tolerance_fields(
+                    choice_tol, schema::kParamsTxtSchema.choice_tolerances
+                )
+            );
+            return make_choice_tolerances(
+                  Dimless{ fields.imp_mult }
+                , Dimless{ fields.imp_add }
+                , Dimless{ fields.jt_mult }
+                , Dimless{ fields.jt_add }
+                , Dimless{ fields.nt_mult }
+                , Dimless{ fields.nt_add }
+            );
+        }
+
+        mathfp::Expected<timetable::domain::TransferLimits> parse_transfer_limits(
+              const Object& search_para
+            , const Object& temporal
+        ) {
+            using namespace timetable::domain;
+
+            MATHFP_TRY_LET(
+                  TransferFields
+                , fields
+                , read_transfer_fields(search_para, temporal)
+            );
 
             return make_transfer_limits(
-                  TransferCount{ static_cast<std::int32_t>(max_transfers) }
-                , Time{ min_twt }
-                , Time{ max_twt }
+                  TransferCount{ static_cast<std::int32_t>(fields.max_transfers) }
+                , Time{ fields.min_transfer_wait }
+                , Time{ fields.max_transfer_wait }
                 , true
                 , true
             );
@@ -309,15 +450,16 @@ namespace timetable::infra::params_txt::detail {
             using namespace timetable::domain;
 
             MATHFP_TRY_LET(
-                  DoubleArray<3>
-                , values
-                , read_number_array(search_imp, schema::kParamsTxtSchema.search_impedance)
+                  SearchImpedanceFields
+                , fields
+                , read_search_impedance_fields(
+                    search_imp, schema::kParamsTxtSchema.search_impedance
+                )
             );
-            const auto [in_veh_factor, transfers_factor, supplements_factor] = values;
             return make_search_impedance(
-                  Dimless{ in_veh_factor }
-                , Dimless{ transfers_factor }
-                , Dimless{ supplements_factor }
+                  Dimless{ fields.journey_time }
+                , Dimless{ fields.transfers }
+                , Dimless{ fields.fare }
             );
         }
 
@@ -389,51 +531,54 @@ namespace timetable::infra::params_txt::detail {
             using namespace timetable::domain;
 
             MATHFP_TRY_LET(
-                  DoubleArray<4>
-                , split_imp_values
-                , read_number_array(split_imp, schema::kParamsTxtSchema.split_impedance)
+                  SplitImpedanceFields
+                , split_imp_fields
+                , read_split_impedance_fields(
+                    split_imp, schema::kParamsTxtSchema.split_impedance
+                )
             );
             MATHFP_TRY_LET(
-                  DoubleArray<3>
-                , split_pjt_values
-                , read_number_array(split_pjt, schema::kParamsTxtSchema.split_perceived_journey_time)
+                  PerceivedJourneyTimeFields
+                , split_pjt_fields
+                , read_perceived_journey_time_fields(
+                    split_pjt, schema::kParamsTxtSchema.split_perceived_journey_time
+                )
             );
             MATHFP_TRY_LET(
-                  DoubleArray<4>
-                , indep_values
-                , read_number_array(indep, schema::kParamsTxtSchema.split_independence)
+                  SplitIndependenceFields
+                , indep_fields
+                , read_split_independence_fields(
+                    indep, schema::kParamsTxtSchema.split_independence
+                )
             );
             MATHFP_TRY_LET(
-                  DoubleArray<1>
-                , split_para_values
-                , read_number_array(split_para, schema::kParamsTxtSchema.split_scalars)
+                  SplitScalarFields
+                , split_scalars
+                , read_split_scalar_fields(
+                    split_para, schema::kParamsTxtSchema.split_scalars
+                )
             );
             MATHFP_TRY_LET(double, beta, parse_choice_model_beta(split_para));
 
-            const auto [q_time, q_dep_early, q_dep_late, q_fare]                                     = split_imp_values;
-            const auto [pjt_journey_time, pjt_transfer_time, pjt_transfer_count]                     = split_pjt_values;
-            const auto [gamma, temporal_similarity_scale, higher_quality_scale, lower_quality_scale] = indep_values;
-            const auto [boxcox_t]                                                                    = split_para_values;
-
             return make_split_params(
-                  Dimless{ q_time }
+                  Dimless{ split_imp_fields.time }
                 , Dimless{ 1.0 }
-                , Dimless{ q_fare }
+                , Dimless{ split_imp_fields.fare }
                 , PerceivedJourneyTimeWeights{
-                      .journey_time   = Dimless{ pjt_journey_time }
-                    , .transfer_time  = Dimless{ pjt_transfer_time }
-                    , .transfer_count = Dimless{ pjt_transfer_count }
+                      .journey_time   = Dimless{ split_pjt_fields.journey_time }
+                    , .transfer_time  = Dimless{ split_pjt_fields.transfer_time }
+                    , .transfer_count = Dimless{ split_pjt_fields.transfer_count }
                 }
                 , TemporalUtilityWeights{
-                      .early_departure = Dimless{ q_dep_early }
-                    , .late_departure  = Dimless{ q_dep_late }
+                      .early_departure = Dimless{ split_imp_fields.departure_early }
+                    , .late_departure  = Dimless{ split_imp_fields.departure_late }
                 }
                 , Dimless{ beta }
-                , Dimless{ boxcox_t }
-                , Dimless{ gamma }
-                , Dimless{ temporal_similarity_scale }
-                , Dimless{ higher_quality_scale }
-                , Dimless{ lower_quality_scale }
+                , Dimless{ split_scalars.boxcox_t }
+                , Dimless{ indep_fields.gamma }
+                , Dimless{ indep_fields.temporal_similarity_scale }
+                , Dimless{ indep_fields.higher_quality_scale }
+                , Dimless{ indep_fields.lower_quality_scale }
             );
         }
 
