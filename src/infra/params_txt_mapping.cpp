@@ -20,9 +20,22 @@ namespace timetable::infra::params_txt::detail {
 
     namespace {
 
-        struct FieldSpec final {
+        struct ObjectFieldSpec final {
             std::string_view key{};
             std::string_view path{};
+            std::string_view field{};
+        };
+
+        struct NumberFieldSpec final {
+            std::string_view key{};
+            std::string_view path{};
+            std::string_view field{};
+        };
+
+        struct StringFieldSpec final {
+            std::string_view key{};
+            std::string_view path{};
+            std::string_view field{};
         };
 
         template <std::size_t N>
@@ -30,6 +43,9 @@ namespace timetable::infra::params_txt::detail {
 
         template <std::size_t N>
         using ObjectArray = std::array<const Object*, N>;
+
+        template <std::size_t N>
+        using StringArray = std::array<std::string, N>;
 
         struct ParsedToleranceBundle final {
             timetable::domain::SearchTolerances search{};
@@ -42,6 +58,128 @@ namespace timetable::infra::params_txt::detail {
             timetable::domain::TransferLimits   transfers{};
         };
 
+        namespace schema {
+
+            struct ParamsTxtSchema final {
+                std::array<ObjectFieldSpec, 3> root_objects{
+                    ObjectFieldSpec{ "searchPara", "root", "root.search_para" },
+                    ObjectFieldSpec{ "choicePara", "root", "root.choice_para" },
+                    ObjectFieldSpec{ "splitPara" , "root", "root.split_para" }
+                };
+
+                std::array<ObjectFieldSpec, 3> search_objects{
+                    ObjectFieldSpec{ "ToleranceConstraints", "root.searchPara", "search.tolerances" },
+                    ObjectFieldSpec{ "TemporalSuitability" , "root.searchPara", "search.temporal" },
+                    ObjectFieldSpec{ "SearchImp"           , "root.searchPara", "search.impedance" }
+                };
+
+                std::array<ObjectFieldSpec, 1> choice_objects{
+                    ObjectFieldSpec{ "ToleranceConstraints", "root.choicePara", "choice.tolerances" }
+                };
+
+                std::array<ObjectFieldSpec, 2> split_objects{
+                    ObjectFieldSpec{ "Independence", "root.splitPara", "split.independence" },
+                    ObjectFieldSpec{ "SplitImp"    , "root.splitPara", "split.impedance" }
+                };
+
+                std::array<ObjectFieldSpec, 1> split_imp_objects{
+                    ObjectFieldSpec{
+                          "PerceivedJourneyTime"
+                        , "root.splitPara.SplitImp"
+                        , "split.perceived_journey_time"
+                    }
+                };
+
+                std::array<NumberFieldSpec, 6> search_tolerances{
+                    NumberFieldSpec{ "minSearchImpFactor"      , "root.searchPara.ToleranceConstraints", "search_tolerances.imp_mult" },
+                    NumberFieldSpec{ "minSearchImpAbs"         , "root.searchPara.ToleranceConstraints", "search_tolerances.imp_add" },
+                    NumberFieldSpec{ "minJourneyTimeFactor"    , "root.searchPara.ToleranceConstraints", "search_tolerances.jt_mult" },
+                    NumberFieldSpec{ "minJourneyTimeAbs"       , "root.searchPara.ToleranceConstraints", "search_tolerances.jt_add" },
+                    NumberFieldSpec{ "minNumberTransfersFactor", "root.searchPara.ToleranceConstraints", "search_tolerances.nt_mult" },
+                    NumberFieldSpec{ "minNumberTransfersAbs"   , "root.searchPara.ToleranceConstraints", "search_tolerances.nt_add" }
+                };
+
+                std::array<NumberFieldSpec, 6> choice_tolerances{
+                    NumberFieldSpec{ "minSearchImpFactor"      , "root.choicePara.ToleranceConstraints", "choice_tolerances.imp_mult" },
+                    NumberFieldSpec{ "minSearchImpAbs"         , "root.choicePara.ToleranceConstraints", "choice_tolerances.imp_add" },
+                    NumberFieldSpec{ "minJourneyTimeFactor"    , "root.choicePara.ToleranceConstraints", "choice_tolerances.jt_mult" },
+                    NumberFieldSpec{ "minJourneyTimeAbs"       , "root.choicePara.ToleranceConstraints", "choice_tolerances.jt_add" },
+                    NumberFieldSpec{ "minNumberTransfersFactor", "root.choicePara.ToleranceConstraints", "choice_tolerances.nt_mult" },
+                    NumberFieldSpec{ "minNumberTransfersAbs"   , "root.choicePara.ToleranceConstraints", "choice_tolerances.nt_add" }
+                };
+
+                std::array<NumberFieldSpec, 1> transfer_limits{
+                    NumberFieldSpec{ "maxNumTransfers", "root.searchPara", "transfer_limits.max_transfers" }
+                };
+
+                std::array<NumberFieldSpec, 2> temporal_suitability{
+                    NumberFieldSpec{ "minTWT", "root.searchPara.TemporalSuitability", "transfer_limits.min_transfer_wait" },
+                    NumberFieldSpec{ "maxTWT", "root.searchPara.TemporalSuitability", "transfer_limits.max_transfer_wait" }
+                };
+
+                std::array<NumberFieldSpec, 3> search_impedance{
+                    NumberFieldSpec{ "inVehTimeFactor"   , "root.searchPara.SearchImp", "search_impedance.a_journey_time" },
+                    NumberFieldSpec{ "numTransfersFactor", "root.searchPara.SearchImp", "search_impedance.a_transfers" },
+                    NumberFieldSpec{ "supplementsFactor" , "root.searchPara.SearchImp", "search_impedance.a_fare" }
+                };
+
+                std::array<StringFieldSpec, 1> split_choice_model{
+                    StringFieldSpec{ "choiceModel", "root.splitPara", "split.choice_model" }
+                };
+
+                std::array<NumberFieldSpec, 4> split_impedance{
+                    NumberFieldSpec{ "perceivedJourneyTimeFactor" , "root.splitPara.SplitImp", "split_impedance.q_time" },
+                    NumberFieldSpec{ "temporalUtilityFactor_early", "root.splitPara.SplitImp", "split_impedance.q_departure_early" },
+                    NumberFieldSpec{ "temporalUtilityFactor_late" , "root.splitPara.SplitImp", "split_impedance.q_departure_late" },
+                    NumberFieldSpec{ "fareFactor"                 , "root.splitPara.SplitImp", "split_impedance.q_fare" }
+                };
+
+                std::array<NumberFieldSpec, 3> split_perceived_journey_time{
+                    NumberFieldSpec{
+                          "inVehTimeFactor"
+                        , "root.splitPara.SplitImp.PerceivedJourneyTime"
+                        , "split_perceived_journey_time.journey_time"
+                    },
+                    NumberFieldSpec{
+                          "transferWaitTimeFactor"
+                        , "root.splitPara.SplitImp.PerceivedJourneyTime"
+                        , "split_perceived_journey_time.transfer_time"
+                    },
+                    NumberFieldSpec{
+                          "numTransfersFactor"
+                        , "root.splitPara.SplitImp.PerceivedJourneyTime"
+                        , "split_perceived_journey_time.transfer_count"
+                    }
+                };
+
+                std::array<NumberFieldSpec, 4> split_independence{
+                    NumberFieldSpec{ "gamma"                  , "root.splitPara.Independence", "split_independence.gamma" },
+                    NumberFieldSpec{ "indepMaxDelta"          , "root.splitPara.Independence", "split_independence.temporal_similarity_scale" },
+                    NumberFieldSpec{ "indepHigherQualityCoeff", "root.splitPara.Independence", "split_independence.higher_quality_scale" },
+                    NumberFieldSpec{ "indepLowerQualityCoeff" , "root.splitPara.Independence", "split_independence.lower_quality_scale" }
+                };
+
+                std::array<NumberFieldSpec, 1> split_scalars{
+                    NumberFieldSpec{ "BoxCoxExp", "root.splitPara", "split.boxcox_t" }
+                };
+
+                std::array<NumberFieldSpec, 1> split_choice_model_exponent{
+                    NumberFieldSpec{ "KirchhoffExp", "root.splitPara", "split.beta" }
+                };
+
+                std::array<NumberFieldSpec, 1> split_logit_exponent{
+                    NumberFieldSpec{ "logitExp", "root.splitPara", "split.beta" }
+                };
+
+                std::array<NumberFieldSpec, 1> split_lohse_exponent{
+                    NumberFieldSpec{ "LohseExp", "root.splitPara", "split.beta" }
+                };
+            };
+
+            inline const ParamsTxtSchema kParamsTxtSchema{};
+
+        }  // namespace schema
+
         template <class T, std::size_t N>
         std::array<T, N> to_array(std::vector<T> values) {
             std::array<T, N> out{};
@@ -51,8 +189,8 @@ namespace timetable::infra::params_txt::detail {
 
         template <std::size_t N>
         mathfp::Expected<ObjectArray<N>> read_object_array(
-              const Object&                   obj
-            , const std::array<FieldSpec, N>& specs
+              const Object&                         obj
+            , const std::array<ObjectFieldSpec, N>& specs
         ) {
             MATHFP_TRY_LET(
                   std::vector<const Object*>
@@ -66,8 +204,8 @@ namespace timetable::infra::params_txt::detail {
 
         template <std::size_t N>
         mathfp::Expected<DoubleArray<N>> read_number_array(
-              const Object&                   obj
-            , const std::array<FieldSpec, N>& specs
+              const Object&                        obj
+            , const std::array<NumberFieldSpec, N>& specs
         ) {
             MATHFP_TRY_LET(
                   std::vector<double>
@@ -79,21 +217,31 @@ namespace timetable::infra::params_txt::detail {
             return to_array<double, N>(std::move(values));
         }
 
+        template <std::size_t N>
+        mathfp::Expected<StringArray<N>> read_string_array(
+              const Object&                        obj
+            , const std::array<StringFieldSpec, N>& specs
+        ) {
+            MATHFP_TRY_LET(
+                  std::vector<std::string>
+                , values
+                , mathfp::trv::traverse(specs, [&](const auto& spec) {
+                    return string_at(obj, spec.key, spec.path);
+                })
+            );
+            return to_array<std::string, N>(std::move(values));
+        }
+
         mathfp::Expected<timetable::domain::SearchTolerances> parse_search_tolerances(
             const Object& search_tol
         ) {
             using namespace timetable::domain;
 
-            constexpr auto specs = std::array{
-                  FieldSpec  { "minSearchImpFactor"      , "root.searchPara.ToleranceConstraints" }
-                , FieldSpec{ "minSearchImpAbs"         , "root.searchPara.ToleranceConstraints" }
-                , FieldSpec{ "minJourneyTimeFactor"    , "root.searchPara.ToleranceConstraints" }
-                , FieldSpec{ "minJourneyTimeAbs"       , "root.searchPara.ToleranceConstraints" }
-                , FieldSpec{ "minNumberTransfersFactor", "root.searchPara.ToleranceConstraints" }
-                , FieldSpec{ "minNumberTransfersAbs"   , "root.searchPara.ToleranceConstraints" }
-            };
-
-            MATHFP_TRY_LET(DoubleArray<6>, values, read_number_array(search_tol, specs));
+            MATHFP_TRY_LET(
+                  DoubleArray<6>
+                , values
+                , read_number_array(search_tol, schema::kParamsTxtSchema.search_tolerances)
+            );
             const auto [imp_mult, imp_add, jt_mult, jt_add, nt_mult, nt_add] = values;
             return make_search_tolerances(
                   Dimless  { imp_mult }
@@ -110,19 +258,14 @@ namespace timetable::infra::params_txt::detail {
         ) {
             using namespace timetable::domain;
 
-            constexpr auto specs = std::array{
-                  FieldSpec  { "minSearchImpFactor"      , "root.choicePara.ToleranceConstraints" }
-                , FieldSpec{ "minSearchImpAbs"         , "root.choicePara.ToleranceConstraints" }
-                , FieldSpec{ "minJourneyTimeFactor"    , "root.choicePara.ToleranceConstraints" }
-                , FieldSpec{ "minJourneyTimeAbs"       , "root.choicePara.ToleranceConstraints" }
-                , FieldSpec{ "minNumberTransfersFactor", "root.choicePara.ToleranceConstraints" }
-                , FieldSpec{ "minNumberTransfersAbs"   , "root.choicePara.ToleranceConstraints" }
-            };
-
-            MATHFP_TRY_LET(DoubleArray<6>, values, read_number_array(choice_tol, specs));
+            MATHFP_TRY_LET(
+                  DoubleArray<6>
+                , values
+                , read_number_array(choice_tol, schema::kParamsTxtSchema.choice_tolerances)
+            );
             const auto [imp_mult, imp_add, jt_mult, jt_add, nt_mult, nt_add] = values;
             return make_choice_tolerances(
-                  Dimless  { imp_mult }
+                  Dimless{ imp_mult }
                 , Dimless{ imp_add }
                 , Dimless{ jt_mult }
                 , Dimless{ jt_add }
@@ -137,16 +280,16 @@ namespace timetable::infra::params_txt::detail {
         ) {
             using namespace timetable::domain;
 
-            constexpr auto search_specs = std::array{
-                FieldSpec{ "maxNumTransfers", "root.searchPara" }
-            };
-            constexpr auto temporal_specs = std::array{
-                  FieldSpec  { "minTWT", "root.searchPara.TemporalSuitability" }
-                , FieldSpec{ "maxTWT", "root.searchPara.TemporalSuitability" }
-            };
-
-            MATHFP_TRY_LET(DoubleArray<1>, search_values, read_number_array(search_para, search_specs));
-            MATHFP_TRY_LET(DoubleArray<2>, temporal_values, read_number_array(temporal, temporal_specs));
+            MATHFP_TRY_LET(
+                  DoubleArray<1>
+                , search_values
+                , read_number_array(search_para, schema::kParamsTxtSchema.transfer_limits)
+            );
+            MATHFP_TRY_LET(
+                  DoubleArray<2>
+                , temporal_values
+                , read_number_array(temporal, schema::kParamsTxtSchema.temporal_suitability)
+            );
 
             const auto [max_transfers]    = search_values;
             const auto [min_twt, max_twt] = temporal_values;
@@ -165,16 +308,14 @@ namespace timetable::infra::params_txt::detail {
         ) {
             using namespace timetable::domain;
 
-            constexpr auto specs = std::array{
-                  FieldSpec  { "inVehTimeFactor"   , "root.searchPara.SearchImp" }
-                , FieldSpec{ "numTransfersFactor", "root.searchPara.SearchImp" }
-                , FieldSpec{ "supplementsFactor" , "root.searchPara.SearchImp" }
-            };
-
-            MATHFP_TRY_LET(DoubleArray<3>, values, read_number_array(search_imp, specs));
+            MATHFP_TRY_LET(
+                  DoubleArray<3>
+                , values
+                , read_number_array(search_imp, schema::kParamsTxtSchema.search_impedance)
+            );
             const auto [in_veh_factor, transfers_factor, supplements_factor] = values;
             return make_search_impedance(
-                  Dimless  { in_veh_factor }
+                  Dimless{ in_veh_factor }
                 , Dimless{ transfers_factor }
                 , Dimless{ supplements_factor }
             );
@@ -203,17 +344,22 @@ namespace timetable::infra::params_txt::detail {
         mathfp::Expected<double> parse_choice_model_beta(
             const Object& split_para
         ) {
-            MATHFP_TRY_LET(std::string, choice_model, string_at(split_para, "choiceModel", "root.splitPara"));
+            MATHFP_TRY_LET(
+                  StringArray<1>
+                , values
+                , read_string_array(split_para, schema::kParamsTxtSchema.split_choice_model)
+            );
+            const auto& choice_model = values[0];
 
             struct ChoiceModelSpec final {
                 std::string_view model{};
-                std::string_view exponent_key{};
+                const std::array<NumberFieldSpec, 1>* exponent_spec{};
             };
 
             constexpr auto specs = std::array{
-                  ChoiceModelSpec  { "Kirchhoff", "KirchhoffExp" }
-                , ChoiceModelSpec{ "Logit"    , "logitExp" }
-                , ChoiceModelSpec{ "Lohse"    , "LohseExp" }
+                  ChoiceModelSpec{ "Kirchhoff", &schema::kParamsTxtSchema.split_choice_model_exponent }
+                , ChoiceModelSpec{ "Logit"    , &schema::kParamsTxtSchema.split_logit_exponent }
+                , ChoiceModelSpec{ "Lohse"    , &schema::kParamsTxtSchema.split_lohse_exponent }
             };
 
             const auto it = std::find_if(
@@ -230,7 +376,8 @@ namespace timetable::infra::params_txt::detail {
                 );
             }
 
-            return number_at(split_para, it->exponent_key, "root.splitPara");
+            MATHFP_TRY_LET(DoubleArray<1>, exponent_values, read_number_array(split_para, *it->exponent_spec));
+            return exponent_values[0];
         }
 
         mathfp::Expected<timetable::domain::SplitParams> parse_split_params(
@@ -241,31 +388,26 @@ namespace timetable::infra::params_txt::detail {
         ) {
             using namespace timetable::domain;
 
-            constexpr auto split_imp_specs = std::array{
-                  FieldSpec  { "perceivedJourneyTimeFactor" , "root.splitPara.SplitImp" }
-                , FieldSpec{ "temporalUtilityFactor_early", "root.splitPara.SplitImp" }
-                , FieldSpec{ "temporalUtilityFactor_late" , "root.splitPara.SplitImp" }
-                , FieldSpec{ "fareFactor"                 , "root.splitPara.SplitImp" }
-            };
-            constexpr auto split_pjt_specs = std::array{
-                  FieldSpec  { "inVehTimeFactor"       , "root.splitPara.SplitImp.PerceivedJourneyTime" }
-                , FieldSpec{ "transferWaitTimeFactor", "root.splitPara.SplitImp.PerceivedJourneyTime" }
-                , FieldSpec{ "numTransfersFactor"    , "root.splitPara.SplitImp.PerceivedJourneyTime" }
-            };
-            constexpr auto indep_specs = std::array{
-                  FieldSpec  { "gamma"                  , "root.splitPara.Independence" }
-                , FieldSpec{ "indepMaxDelta"          , "root.splitPara.Independence" }
-                , FieldSpec{ "indepHigherQualityCoeff", "root.splitPara.Independence" }
-                , FieldSpec{ "indepLowerQualityCoeff" , "root.splitPara.Independence" }
-            };
-            constexpr auto split_para_specs = std::array{
-                FieldSpec{ "BoxCoxExp", "root.splitPara" }
-            };
-
-            MATHFP_TRY_LET(DoubleArray<4>, split_imp_values, read_number_array(split_imp, split_imp_specs));
-            MATHFP_TRY_LET(DoubleArray<3>, split_pjt_values, read_number_array(split_pjt, split_pjt_specs));
-            MATHFP_TRY_LET(DoubleArray<4>, indep_values, read_number_array(indep, indep_specs));
-            MATHFP_TRY_LET(DoubleArray<1>, split_para_values, read_number_array(split_para, split_para_specs));
+            MATHFP_TRY_LET(
+                  DoubleArray<4>
+                , split_imp_values
+                , read_number_array(split_imp, schema::kParamsTxtSchema.split_impedance)
+            );
+            MATHFP_TRY_LET(
+                  DoubleArray<3>
+                , split_pjt_values
+                , read_number_array(split_pjt, schema::kParamsTxtSchema.split_perceived_journey_time)
+            );
+            MATHFP_TRY_LET(
+                  DoubleArray<4>
+                , indep_values
+                , read_number_array(indep, schema::kParamsTxtSchema.split_independence)
+            );
+            MATHFP_TRY_LET(
+                  DoubleArray<1>
+                , split_para_values
+                , read_number_array(split_para, schema::kParamsTxtSchema.split_scalars)
+            );
             MATHFP_TRY_LET(double, beta, parse_choice_model_beta(split_para));
 
             const auto [q_time, q_dep_early, q_dep_late, q_fare]                                     = split_imp_values;
@@ -302,40 +444,39 @@ namespace timetable::infra::params_txt::detail {
     ) {
         using namespace timetable::domain;
 
-        constexpr auto root_specs = std::array{
-              FieldSpec  { "searchPara", "root" }
-            , FieldSpec{ "choicePara", "root" }
-            , FieldSpec{ "splitPara" , "root" }
-        };
-        constexpr auto search_specs = std::array{
-              FieldSpec  { "ToleranceConstraints", "root.searchPara" }
-            , FieldSpec{ "TemporalSuitability" , "root.searchPara" }
-            , FieldSpec{ "SearchImp"           , "root.searchPara" }
-        };
-        constexpr auto choice_specs = std::array{
-            FieldSpec{ "ToleranceConstraints", "root.choicePara" }
-        };
-        constexpr auto split_specs = std::array{
-              FieldSpec  { "Independence", "root.splitPara" }
-            , FieldSpec{ "SplitImp"    , "root.splitPara" }
-        };
-        constexpr auto split_imp_specs = std::array{
-            FieldSpec{ "PerceivedJourneyTime", "root.splitPara.SplitImp" }
-        };
-
-        MATHFP_TRY_LET(ObjectArray<3>, root_objects, read_object_array(root, root_specs));
+        MATHFP_TRY_LET(
+              ObjectArray<3>
+            , root_objects
+            , read_object_array(root, schema::kParamsTxtSchema.root_objects)
+        );
         const auto [search_para, choice_para, split_para] = root_objects;
 
-        MATHFP_TRY_LET(ObjectArray<3>, search_objects, read_object_array(*search_para, search_specs));
+        MATHFP_TRY_LET(
+              ObjectArray<3>
+            , search_objects
+            , read_object_array(*search_para, schema::kParamsTxtSchema.search_objects)
+        );
         const auto [search_tol, temporal, search_imp] = search_objects;
 
-        MATHFP_TRY_LET(ObjectArray<1>, choice_objects, read_object_array(*choice_para, choice_specs));
+        MATHFP_TRY_LET(
+              ObjectArray<1>
+            , choice_objects
+            , read_object_array(*choice_para, schema::kParamsTxtSchema.choice_objects)
+        );
         const auto [choice_tol] = choice_objects;
 
-        MATHFP_TRY_LET(ObjectArray<2>, split_objects, read_object_array(*split_para, split_specs));
+        MATHFP_TRY_LET(
+              ObjectArray<2>
+            , split_objects
+            , read_object_array(*split_para, schema::kParamsTxtSchema.split_objects)
+        );
         const auto [indep, split_imp] = split_objects;
 
-        MATHFP_TRY_LET(ObjectArray<1>, split_imp_objects, read_object_array(*split_imp, split_imp_specs));
+        MATHFP_TRY_LET(
+              ObjectArray<1>
+            , split_imp_objects
+            , read_object_array(*split_imp, schema::kParamsTxtSchema.split_imp_objects)
+        );
         const auto [split_pjt] = split_imp_objects;
 
         MATHFP_TRY_LET(
