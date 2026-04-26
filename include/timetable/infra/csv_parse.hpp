@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <cstdlib>
 #include <exception>
@@ -13,6 +14,7 @@
 #include <mathfp/core/error.hpp>
 #include <mathfp/core/expected.hpp>
 #include <mathfp/core/try.hpp>
+#include <mathfp/core/unit.hpp>
 
 #include "timetable/infra/text_parse.hpp"
 
@@ -20,6 +22,20 @@ namespace timetable::infra::csv_parse {
 
     template <class Columns>
     using ColumnDef = std::pair<std::string_view, std::size_t Columns::*>;
+
+    template <class Columns, class Row>
+    struct Int64RowFieldSpec final {
+        std::string_view         csv_name{};
+        std::size_t Columns::*   column_member{};
+        std::int64_t Row::*      value_member{};
+    };
+
+    template <class Columns, class Row>
+    struct DoubleRowFieldSpec final {
+        std::string_view         csv_name{};
+        std::size_t Columns::*   column_member{};
+        double Row::*            value_member{};
+    };
 
     [[nodiscard]] inline mathfp::Unexpected parse_error(
           const char*      message
@@ -159,6 +175,52 @@ namespace timetable::infra::csv_parse {
     [[nodiscard]] inline std::string_view field_text(const ::csv::CSVField& field) {
         const auto sv = field.get_sv();
         return std::string_view(sv.data(), sv.size());
+    }
+
+    template <class Columns, class Row, std::size_t N>
+    inline mathfp::Expected<mathfp::Unit> decode_int64_row_fields(
+          Row&                                               out
+        , const ::csv::CSVRow&                               row_data
+        , const Columns&                                     columns
+        , std::size_t                                        row
+        , const std::array<Int64RowFieldSpec<Columns, Row>, N>& field_specs
+    ) {
+        for (const auto& spec : field_specs) {
+            MATHFP_TRY_LET(
+                  std::int64_t
+                , value
+                , parse_int64_cell(
+                      field_text(row_data[columns.*(spec.column_member)])
+                    , row
+                    , spec.csv_name
+                )
+            );
+            out.*(spec.value_member) = value;
+        }
+        return mathfp::ok();
+    }
+
+    template <class Columns, class Row, std::size_t N>
+    inline mathfp::Expected<mathfp::Unit> decode_double_row_fields(
+          Row&                                                out
+        , const ::csv::CSVRow&                                row_data
+        , const Columns&                                      columns
+        , std::size_t                                         row
+        , const std::array<DoubleRowFieldSpec<Columns, Row>, N>& field_specs
+    ) {
+        for (const auto& spec : field_specs) {
+            MATHFP_TRY_LET(
+                  double
+                , value
+                , parse_double_cell(
+                      field_text(row_data[columns.*(spec.column_member)])
+                    , row
+                    , spec.csv_name
+                )
+            );
+            out.*(spec.value_member) = value;
+        }
+        return mathfp::ok();
     }
 
 }  // namespace timetable::infra::csv_parse

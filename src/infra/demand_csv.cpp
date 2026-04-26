@@ -54,6 +54,47 @@ namespace timetable::infra::csv {
             double       passengers{};
         };
 
+        constexpr auto interval_int_row_field_specs() {
+            return std::array<csv_parse::Int64RowFieldSpec<IntervalCsvColumns, ParsedIntervalRow>, 1>{
+                csv_parse::Int64RowFieldSpec<IntervalCsvColumns, ParsedIntervalRow>{
+                    "interval_id", &IntervalCsvColumns::interval_id, &ParsedIntervalRow::interval_id
+                }
+            };
+        }
+
+        constexpr auto interval_double_row_field_specs() {
+            return std::array<csv_parse::DoubleRowFieldSpec<IntervalCsvColumns, ParsedIntervalRow>, 2>{
+                  csv_parse::DoubleRowFieldSpec<IntervalCsvColumns, ParsedIntervalRow>{
+                      "start_sec", &IntervalCsvColumns::start_sec, &ParsedIntervalRow::start_sec
+                  }
+                , csv_parse::DoubleRowFieldSpec<IntervalCsvColumns, ParsedIntervalRow>{
+                      "end_sec", &IntervalCsvColumns::end_sec, &ParsedIntervalRow::end_sec
+                  }
+            };
+        }
+
+        constexpr auto demand_int_row_field_specs() {
+            return std::array<csv_parse::Int64RowFieldSpec<DemandCsvColumns, ParsedDemandRow>, 3>{
+                  csv_parse::Int64RowFieldSpec<DemandCsvColumns, ParsedDemandRow>{
+                      "origin_zone_id", &DemandCsvColumns::origin_zone_id, &ParsedDemandRow::origin_zone_id
+                  }
+                , csv_parse::Int64RowFieldSpec<DemandCsvColumns, ParsedDemandRow>{
+                      "destination_zone_id", &DemandCsvColumns::destination_zone_id, &ParsedDemandRow::destination_zone_id
+                  }
+                , csv_parse::Int64RowFieldSpec<DemandCsvColumns, ParsedDemandRow>{
+                      "interval_id", &DemandCsvColumns::interval_id, &ParsedDemandRow::interval_id
+                  }
+            };
+        }
+
+        constexpr auto demand_double_row_field_specs() {
+            return std::array<csv_parse::DoubleRowFieldSpec<DemandCsvColumns, ParsedDemandRow>, 1>{
+                csv_parse::DoubleRowFieldSpec<DemandCsvColumns, ParsedDemandRow>{
+                    "passengers", &DemandCsvColumns::passengers, &ParsedDemandRow::passengers
+                }
+            };
+        }
+
         constexpr auto interval_csv_column_defs() {
             return std::array<csv_parse::ColumnDef<IntervalCsvColumns>, 3>{
                   csv_parse::ColumnDef<IntervalCsvColumns>{ "interval_id", &IntervalCsvColumns::interval_id }
@@ -76,27 +117,22 @@ namespace timetable::infra::csv {
             , const IntervalCsvColumns& columns
             , std::size_t               row
         ) {
-            MATHFP_TRY_LET(
-                  std::int64_t
-                , interval_id
-                , csv_parse::parse_int64_cell(csv_parse::field_text(row_data[columns.interval_id]), row, "interval_id")
-            );
-            MATHFP_TRY_LET(
-                  double
-                , start_sec
-                , csv_parse::parse_double_cell(csv_parse::field_text(row_data[columns.start_sec]), row, "start_sec")
-            );
-            MATHFP_TRY_LET(
-                  double
-                , end_sec
-                , csv_parse::parse_double_cell(csv_parse::field_text(row_data[columns.end_sec]), row, "end_sec")
-            );
-
-            return ParsedIntervalRow{
-                  .interval_id = interval_id
-                , .start_sec   = start_sec
-                , .end_sec     = end_sec
-            };
+            ParsedIntervalRow parsed_row{};
+            MATHFP_TRY(csv_parse::decode_int64_row_fields(
+                  parsed_row
+                , row_data
+                , columns
+                , row
+                , interval_int_row_field_specs()
+            ));
+            MATHFP_TRY(csv_parse::decode_double_row_fields(
+                  parsed_row
+                , row_data
+                , columns
+                , row
+                , interval_double_row_field_specs()
+            ));
+            return parsed_row;
         }
 
         mathfp::Expected<TimeInterval> build_time_interval(
@@ -130,33 +166,22 @@ namespace timetable::infra::csv {
             , const DemandCsvColumns& columns
             , std::size_t             row
         ) {
-            MATHFP_TRY_LET(
-                  std::int64_t
-                , origin_zone_id
-                , csv_parse::parse_int64_cell(csv_parse::field_text(row_data[columns.origin_zone_id]), row, "origin_zone_id")
-            );
-            MATHFP_TRY_LET(
-                  std::int64_t
-                , destination_zone_id
-                , csv_parse::parse_int64_cell(csv_parse::field_text(row_data[columns.destination_zone_id]), row, "destination_zone_id")
-            );
-            MATHFP_TRY_LET(
-                  std::int64_t
-                , interval_id
-                , csv_parse::parse_int64_cell(csv_parse::field_text(row_data[columns.interval_id]), row, "interval_id")
-            );
-            MATHFP_TRY_LET(
-                  double
-                , passengers
-                , csv_parse::parse_double_cell(csv_parse::field_text(row_data[columns.passengers]), row, "passengers")
-            );
-
-            return ParsedDemandRow{
-                  .origin_zone_id      = origin_zone_id
-                , .destination_zone_id = destination_zone_id
-                , .interval_id         = interval_id
-                , .passengers          = passengers
-            };
+            ParsedDemandRow parsed_row{};
+            MATHFP_TRY(csv_parse::decode_int64_row_fields(
+                  parsed_row
+                , row_data
+                , columns
+                , row
+                , demand_int_row_field_specs()
+            ));
+            MATHFP_TRY(csv_parse::decode_double_row_fields(
+                  parsed_row
+                , row_data
+                , columns
+                , row
+                , demand_double_row_field_specs()
+            ));
+            return parsed_row;
         }
 
         mathfp::Expected<DemandEntry> build_demand_entry(

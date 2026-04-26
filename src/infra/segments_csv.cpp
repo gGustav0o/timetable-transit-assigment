@@ -64,18 +64,6 @@ namespace timetable::infra::csv {
             std::unordered_set<std::int64_t> zone_set{};
         };
 
-        struct IntRowFieldSpec final {
-            std::string_view                 csv_name{};
-            std::size_t SegmentCsvColumns::* column_member{};
-            std::int64_t ParsedSegmentRow::* value_member{};
-        };
-
-        struct DoubleRowFieldSpec final {
-            std::string_view                 csv_name{};
-            std::size_t SegmentCsvColumns::* column_member{};
-            double ParsedSegmentRow::*       value_member{};
-        };
-
         constexpr auto segment_csv_column_defs() {
             return std::array<csv_parse::ColumnDef<SegmentCsvColumns>, 13>{
                   csv_parse::ColumnDef<SegmentCsvColumns>{ "FROM_STOP_ID", &SegmentCsvColumns::from_stop }
@@ -95,25 +83,51 @@ namespace timetable::infra::csv {
         }
 
         constexpr auto int_row_field_specs() {
-            return std::array<IntRowFieldSpec, 8>{
-                  IntRowFieldSpec{ "FROM_ZONE_ID", &SegmentCsvColumns::from_zone, &ParsedSegmentRow::from_zone }
-                , IntRowFieldSpec{ "FROM_STOP_ID", &SegmentCsvColumns::from_stop, &ParsedSegmentRow::from_stop }
-                , IntRowFieldSpec{ "TO_ZONE_ID", &SegmentCsvColumns::to_zone, &ParsedSegmentRow::to_zone }
-                , IntRowFieldSpec{ "TO_STOP_ID", &SegmentCsvColumns::to_stop, &ParsedSegmentRow::to_stop }
-                , IntRowFieldSpec{ "TRIP_ID", &SegmentCsvColumns::trip, &ParsedSegmentRow::trip_id }
-                , IntRowFieldSpec{ "LINE_ID", &SegmentCsvColumns::line, &ParsedSegmentRow::line_id }
-                , IntRowFieldSpec{ "FROM_INDEX", &SegmentCsvColumns::from_index, &ParsedSegmentRow::from_index }
-                , IntRowFieldSpec{ "TO_INDEX", &SegmentCsvColumns::to_index, &ParsedSegmentRow::to_index }
+            return std::array<csv_parse::Int64RowFieldSpec<SegmentCsvColumns, ParsedSegmentRow>, 8>{
+                  csv_parse::Int64RowFieldSpec<SegmentCsvColumns, ParsedSegmentRow>{
+                      "FROM_ZONE_ID", &SegmentCsvColumns::from_zone, &ParsedSegmentRow::from_zone
+                  }
+                , csv_parse::Int64RowFieldSpec<SegmentCsvColumns, ParsedSegmentRow>{
+                      "FROM_STOP_ID", &SegmentCsvColumns::from_stop, &ParsedSegmentRow::from_stop
+                  }
+                , csv_parse::Int64RowFieldSpec<SegmentCsvColumns, ParsedSegmentRow>{
+                      "TO_ZONE_ID", &SegmentCsvColumns::to_zone, &ParsedSegmentRow::to_zone
+                  }
+                , csv_parse::Int64RowFieldSpec<SegmentCsvColumns, ParsedSegmentRow>{
+                      "TO_STOP_ID", &SegmentCsvColumns::to_stop, &ParsedSegmentRow::to_stop
+                  }
+                , csv_parse::Int64RowFieldSpec<SegmentCsvColumns, ParsedSegmentRow>{
+                      "TRIP_ID", &SegmentCsvColumns::trip, &ParsedSegmentRow::trip_id
+                  }
+                , csv_parse::Int64RowFieldSpec<SegmentCsvColumns, ParsedSegmentRow>{
+                      "LINE_ID", &SegmentCsvColumns::line, &ParsedSegmentRow::line_id
+                  }
+                , csv_parse::Int64RowFieldSpec<SegmentCsvColumns, ParsedSegmentRow>{
+                      "FROM_INDEX", &SegmentCsvColumns::from_index, &ParsedSegmentRow::from_index
+                  }
+                , csv_parse::Int64RowFieldSpec<SegmentCsvColumns, ParsedSegmentRow>{
+                      "TO_INDEX", &SegmentCsvColumns::to_index, &ParsedSegmentRow::to_index
+                  }
             };
         }
 
         constexpr auto double_row_field_specs() {
-            return std::array<DoubleRowFieldSpec, 5>{
-                  DoubleRowFieldSpec{ "LENGTH", &SegmentCsvColumns::length, &ParsedSegmentRow::length }
-                , DoubleRowFieldSpec{ "TIME", &SegmentCsvColumns::time, &ParsedSegmentRow::time }
-                , DoubleRowFieldSpec{ "DEP", &SegmentCsvColumns::dep, &ParsedSegmentRow::dep }
-                , DoubleRowFieldSpec{ "ARR", &SegmentCsvColumns::arr, &ParsedSegmentRow::arr }
-                , DoubleRowFieldSpec{ "FARE", &SegmentCsvColumns::fare, &ParsedSegmentRow::fare }
+            return std::array<csv_parse::DoubleRowFieldSpec<SegmentCsvColumns, ParsedSegmentRow>, 5>{
+                  csv_parse::DoubleRowFieldSpec<SegmentCsvColumns, ParsedSegmentRow>{
+                      "LENGTH", &SegmentCsvColumns::length, &ParsedSegmentRow::length
+                  }
+                , csv_parse::DoubleRowFieldSpec<SegmentCsvColumns, ParsedSegmentRow>{
+                      "TIME", &SegmentCsvColumns::time, &ParsedSegmentRow::time
+                  }
+                , csv_parse::DoubleRowFieldSpec<SegmentCsvColumns, ParsedSegmentRow>{
+                      "DEP", &SegmentCsvColumns::dep, &ParsedSegmentRow::dep
+                  }
+                , csv_parse::DoubleRowFieldSpec<SegmentCsvColumns, ParsedSegmentRow>{
+                      "ARR", &SegmentCsvColumns::arr, &ParsedSegmentRow::arr
+                  }
+                , csv_parse::DoubleRowFieldSpec<SegmentCsvColumns, ParsedSegmentRow>{
+                      "FARE", &SegmentCsvColumns::fare, &ParsedSegmentRow::fare
+                  }
             };
         }
 
@@ -156,19 +170,13 @@ namespace timetable::infra::csv {
             , const SegmentCsvColumns& cols
             , std::size_t              row
         ) {
-            for (const auto& spec : int_row_field_specs()) {
-                MATHFP_TRY_LET(
-                      std::int64_t
-                    , value
-                    , csv_parse::parse_int64_cell(
-                          csv_parse::field_text(row_data[cols.*(spec.column_member)])
-                        , row
-                        , spec.csv_name
-                    )
-                );
-                out.*(spec.value_member) = value;
-            }
-            return mathfp::ok();
+            return csv_parse::decode_int64_row_fields(
+                  out
+                , row_data
+                , cols
+                , row
+                , int_row_field_specs()
+            );
         }
 
         mathfp::Expected<mathfp::Unit> decode_double_row_fields(
@@ -177,19 +185,13 @@ namespace timetable::infra::csv {
             , const SegmentCsvColumns& cols
             , std::size_t              row
         ) {
-            for (const auto& spec : double_row_field_specs()) {
-                MATHFP_TRY_LET(
-                      double
-                    , value
-                    , csv_parse::parse_double_cell(
-                          csv_parse::field_text(row_data[cols.*(spec.column_member)])
-                        , row
-                        , spec.csv_name
-                    )
-                );
-                out.*(spec.value_member) = value;
-            }
-            return mathfp::ok();
+            return csv_parse::decode_double_row_fields(
+                  out
+                , row_data
+                , cols
+                , row
+                , double_row_field_specs()
+            );
         }
 
         mathfp::Expected<ParsedSegmentRow> parse_segment_row(
