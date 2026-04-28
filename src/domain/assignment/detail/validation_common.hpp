@@ -87,11 +87,11 @@ namespace timetable::domain::assignment::detail::validation {
     }
 
     inline mathfp::Expected<mathfp::Unit> validate_unique_connection_traces(
-          std::span<const DiscoveredConnection> connections
+          std::span<const SearchConnection> connections
         , std::string_view                      where
     ) {
         std::map<ConnectionTraceKey, std::size_t> seen;
-        return validate_each_index(connections, [&](const DiscoveredConnection& connection, std::size_t i) {
+        return validate_each_index(connections, [&](const SearchConnection& connection, std::size_t i) {
             auto key = connection_trace_key(connection);
             if (const auto [it, inserted] = seen.emplace(std::move(key), i); !inserted) {
                 return mathfp::unexpected(
@@ -99,8 +99,8 @@ namespace timetable::domain::assignment::detail::validation {
                         .ctx("stage"          , std::string(where))
                         .ctx("first_index"    , static_cast<std::int64_t>(it->second))
                         .ctx("duplicate_index", static_cast<std::int64_t>(i))
-                        .ctx("origin"         , connection.origin     .get())
-                        .ctx("destination"    , connection.destination.get())
+                        .ctx("origin"         , origin_of(connection)     .get())
+                        .ctx("destination"    , destination_of(connection).get())
                 );
             }
             return mathfp::kUnit;

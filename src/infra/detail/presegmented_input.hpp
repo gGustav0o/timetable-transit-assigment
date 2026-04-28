@@ -134,6 +134,8 @@ namespace timetable::infra::detail::presegmented_input {
         bool                                             is_walk_segment{};
         std::optional<timetable::domain::StopOccurrence> from_occurrence{};
         std::optional<timetable::domain::StopOccurrence> to_occurrence{};
+        std::optional<timetable::domain::RoutePosition>  connection_from_index{};
+        std::optional<timetable::domain::RoutePosition>  connection_to_index{};
         std::optional<timetable::domain::Time>           dep{};
         std::optional<timetable::domain::Time>           arr{};
         std::optional<double>                            fare{};

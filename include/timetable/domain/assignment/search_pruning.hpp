@@ -21,10 +21,10 @@ namespace timetable::domain::assignment {
     struct SearchPruningExecutionPlan;
 
     /**
-     * @brief Search-state identity for state-local label retention.
+     * @brief Search-state identity for state-local metric retention.
      *
      * Mathematical role:
-     * labels are compared for dominance only within the same state key.
+     * partial metric vectors are compared for dominance only within the same state key.
      * The correctness of exact dominance therefore depends on whether this key
      * is extension-safe for the current search semantics.
      *
@@ -54,50 +54,28 @@ namespace timetable::domain::assignment {
     };
 
     /**
-     * @brief Primitive coordinates of a partial connection label.
+     * @brief Metric vector of a partial connection prefix used by pruning.
      *
-     * These coordinates are treated as primitive with respect to pruning
-     * semantics and future extension reasoning:
-     * - departure
-     * - arrival
-     * - transfers
-     * - fare
+     * The first six fields are parameter-independent partial metrics. The last
+     * field is the current search-model evaluation of these metrics. Dominance
+     * and approximate retention are functions of this vector, never of a
+     * connection entity.
      */
-    struct SearchPruningLabelPrimitive final {
+    struct SearchPruningMetrics final {
         Time          departure{};
         Time          arrival{};
-        TransferCount transfers{};
-        double        fare{};
-    };
-
-    /**
-     * @brief Derived coordinates of a partial connection label.
-     *
-     * These values are deterministic functions of the partial connection under
-     * the current metric model and are stored explicitly to keep pruning pure:
-     * - journey_time
-     * - walk_time
-     * - impedance
-     */
-    struct SearchPruningLabelDerived final {
         Time          journey_time{};
         Time          walk_time{};
+        TransferCount transfers{};
+        double        fare{};
         double        impedance{};
-    };
-
-    /**
-     * @brief Self-contained partial connection label used by pruning.
-     */
-    struct SearchPruningLabel final {
-        SearchPruningLabelPrimitive primitive{};
-        SearchPruningLabelDerived   derived{};
     };
 
     /**
      * @brief Exact-dominance contract for the current pruning state space.
      *
      * ExtensionSafeCurrentState means:
-     * if two labels share the same SearchPruningStateKey, exact dominance is
+     * if two metric vectors share the same SearchPruningStateKey, exact dominance is
      * assumed safe for the current search semantics and state factorization.
      *
      * This contract is a specification object, not a runtime optimization knob.
@@ -130,7 +108,7 @@ namespace timetable::domain::assignment {
     /**
      * @brief State-local summary used by approximate retention.
      *
-     * It stores minima over a canonical label set at one state key.
+     * It stores minima over a canonical metric set at one state key.
      */
     struct SearchPruningSummary final {
         double min_impedance    { 0.0 };
@@ -142,16 +120,16 @@ namespace timetable::domain::assignment {
     };
 
     /**
-     * @brief Canonical state-local label container for pruning.
+     * @brief Canonical state-local metric container for pruning.
      *
      * Invariant:
-     * - labels are exact-nondominated within one state key
-     * - labels are ordered by arrival time
-     * - summary agrees with labels
+     * - metrics are exact-nondominated within one state key
+     * - metrics are ordered by arrival time
+     * - summary agrees with metrics
      */
-    struct SearchPruningLabelSet final {
-        std::vector<SearchPruningLabel> labels{};
-        SearchPruningSummary            summary{};
+    struct SearchPruningMetricSet final {
+        std::vector<SearchPruningMetrics> metrics{};
+        SearchPruningSummary              summary{};
     };
 
     /**
@@ -159,7 +137,7 @@ namespace timetable::domain::assignment {
      *
      * This layer is mathematically exact:
      * a candidate is rejected only when already exact-dominated in the same
-     * state, or when it exact-dominates existing labels which should then be
+     * state, or when it exact-dominates existing metric vectors which should then be
      * removed from the canonical set.
      *
      * The contract explicitly states under which state factorization the
@@ -256,57 +234,56 @@ namespace timetable::domain::assignment {
         bool                accepted { true };
     };
 
-    mathfp::Expected<SearchPruningLabel> make_search_pruning_label(
-          SearchPruningLabelPrimitive primitive
-        , SearchPruningLabelDerived   derived
+    mathfp::Expected<SearchPruningMetrics> make_search_pruning_metrics(
+        SearchPruningMetrics metrics
     );
 
-    mathfp::Expected<mathfp::Unit> validate_search_pruning_label(
-        const SearchPruningLabel& label
+    mathfp::Expected<mathfp::Unit> validate_search_pruning_metrics(
+        const SearchPruningMetrics& metrics
     );
 
     mathfp::Expected<mathfp::Unit> validate_search_pruning_summary(
         const SearchPruningSummary& summary
     );
 
-    mathfp::Expected<mathfp::Unit> validate_search_pruning_label_set(
-        const SearchPruningLabelSet& label_set
+    mathfp::Expected<mathfp::Unit> validate_search_pruning_metric_set(
+        const SearchPruningMetricSet& metric_set
     );
 
     [[nodiscard]] bool dominates_exactly(
           ExactDominanceContract    contract
-        , const SearchPruningLabel& lhs
-        , const SearchPruningLabel& rhs
+        , const SearchPruningMetrics& lhs
+        , const SearchPruningMetrics& rhs
     ) noexcept;
 
     [[nodiscard]] bool dominates_exactly(
           const ExactPruningPolicy& policy
-        , const SearchPruningLabel& lhs
-        , const SearchPruningLabel& rhs
+        , const SearchPruningMetrics& lhs
+        , const SearchPruningMetrics& rhs
     ) noexcept;
 
     [[nodiscard]] bool dominates_exactly(
-          const SearchPruningLabel& lhs
-        , const SearchPruningLabel& rhs
+          const SearchPruningMetrics& lhs
+        , const SearchPruningMetrics& rhs
     ) noexcept;
 
     [[nodiscard]] bool is_exactly_relevant(
           const ExactPruningPolicy&           policy
-        , const SearchPruningLabel&           candidate
-        , std::span<const SearchPruningLabel> known
+        , const SearchPruningMetrics&         candidate
+        , std::span<const SearchPruningMetrics> known
     ) noexcept;
 
     [[nodiscard]] bool is_exactly_relevant(
-          const SearchPruningLabel&           candidate
-        , std::span<const SearchPruningLabel> known
+          const SearchPruningMetrics&         candidate
+        , std::span<const SearchPruningMetrics> known
     ) noexcept;
 
-    [[nodiscard]] SearchPruningSummary summarize_pruning_labels(
-        std::span<const SearchPruningLabel> labels
+    [[nodiscard]] SearchPruningSummary summarize_pruning_metrics(
+        std::span<const SearchPruningMetrics> metrics
     ) noexcept;
 
     [[nodiscard]] bool within_approximate_retention(
-          const SearchPruningLabel&       candidate
+          const SearchPruningMetrics&     candidate
         , const SearchPruningSummary&     summary
         , const ApproximatePruningPolicy& policy
         , const TransferLimits&           limits
@@ -314,31 +291,31 @@ namespace timetable::domain::assignment {
 
     [[nodiscard]] ExactPruningDecision evaluate_exact_pruning(
           const ExactPruningPolicy&    exact_policy
-        , const SearchPruningLabel&    candidate
-        , const SearchPruningLabelSet& label_set
+        , const SearchPruningMetrics&  candidate
+        , const SearchPruningMetricSet& metric_set
     ) noexcept;
 
     [[nodiscard]] ExactPruningDecision evaluate_exact_pruning(
-          const SearchPruningLabel&    candidate
-        , const SearchPruningLabelSet& label_set
+          const SearchPruningMetrics&  candidate
+        , const SearchPruningMetricSet& metric_set
     ) noexcept;
 
     [[nodiscard]] ApproximatePruningDecision evaluate_approximate_pruning(
           const ApproximatePruningPolicy& approximate_policy
-        , const SearchPruningLabel&       candidate
+        , const SearchPruningMetrics&     candidate
         , const SearchPruningSummary&     summary
         , const TransferLimits&           limits
     ) noexcept;
 
-    SearchPruningLabelSet insert_exact_pruning_label(
+    SearchPruningMetricSet insert_exact_pruning_metrics(
           const ExactPruningPolicy& exact_policy
-        , SearchPruningLabelSet     label_set
-        , SearchPruningLabel        label
+        , SearchPruningMetricSet    metric_set
+        , SearchPruningMetrics      metrics
     );
 
-    SearchPruningLabelSet insert_exact_pruning_label(
-          SearchPruningLabelSet label_set
-        , SearchPruningLabel    label
+    SearchPruningMetricSet insert_exact_pruning_metrics(
+          SearchPruningMetricSet metric_set
+        , SearchPruningMetrics   metrics
     );
 
     /**
@@ -348,38 +325,38 @@ namespace timetable::domain::assignment {
      * 1. exact dominance
      * 2. approximate retention
      *
-     * This function is intentionally pure and does not mutate the label set.
+     * This function is intentionally pure and does not mutate the metric set.
      */
     [[nodiscard]] SearchPruningDecision evaluate_search_pruning(
           const ExactPruningPolicy&       exact_policy
-        , const SearchPruningLabel&       candidate
-        , const SearchPruningLabelSet&    label_set
+        , const SearchPruningMetrics&     candidate
+        , const SearchPruningMetricSet&   metric_set
         , const ApproximatePruningPolicy& approximate_policy
         , const TransferLimits&           limits
     ) noexcept;
 
     [[nodiscard]] SearchPruningDecision evaluate_search_pruning(
-          const SearchPruningLabel&       candidate
-        , const SearchPruningLabelSet&    label_set
+          const SearchPruningMetrics&     candidate
+        , const SearchPruningMetricSet&   metric_set
         , const ApproximatePruningPolicy& approximate_policy
         , const TransferLimits&           limits
     ) noexcept;
 
-    [[nodiscard]] bool stores_search_pruning_labels(
+    [[nodiscard]] bool stores_search_pruning_metrics(
         const SearchPruningExecutionPlan& execution
     ) noexcept;
 
     [[nodiscard]] SearchPruningDecision evaluate_search_pruning(
           const SearchPruningExecutionPlan& execution
-        , const SearchPruningLabel&         candidate
-        , const SearchPruningLabelSet&      label_set
+        , const SearchPruningMetrics&       candidate
+        , const SearchPruningMetricSet&     metric_set
         , const TransferLimits&             limits
     ) noexcept;
 
-    SearchPruningLabelSet insert_search_pruning_label(
+    SearchPruningMetricSet insert_search_pruning_metrics(
           const SearchPruningExecutionPlan& execution
-        , SearchPruningLabelSet             label_set
-        , SearchPruningLabel                label
+        , SearchPruningMetricSet            metric_set
+        , SearchPruningMetrics              metrics
     );
 
 }  // namespace timetable::domain::assignment

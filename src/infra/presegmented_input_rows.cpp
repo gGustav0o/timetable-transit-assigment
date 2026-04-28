@@ -124,6 +124,55 @@ namespace timetable::infra::detail::presegmented_input {
                 && row.arr_sec < row.dep_sec;
         }
 
+        mathfp::Expected<mathfp::Unit> ensure_missing_or_nonnegative(
+              double           value
+            , std::string_view field
+            , std::size_t      index
+        ) {
+            if (value == static_cast<double>(kMissingId) || value >= 0.0) {
+                return mathfp::kUnit;
+            }
+
+            return mathfp::unexpected(
+                mathfp::invalid_arg("field must be -1 or non-negative")
+                    .ctx(std::string(kCtxIndex), static_cast<std::int64_t>(index))
+                    .ctx(std::string(kCtxField), std::string(field))
+                    .ctx("value", value)
+            );
+        }
+
+        mathfp::Expected<mathfp::Unit> ensure_missing_or_nonnegative(
+              std::int64_t     value
+            , std::string_view field
+            , std::size_t      index
+        ) {
+            if (value == kMissingId || value >= 0) {
+                return mathfp::kUnit;
+            }
+
+            return mathfp::unexpected(
+                mathfp::invalid_arg("field must be -1 or non-negative")
+                    .ctx(std::string(kCtxIndex), static_cast<std::int64_t>(index))
+                    .ctx(std::string(kCtxField), std::string(field))
+                    .ctx("value", value)
+            );
+        }
+
+        mathfp::Expected<mathfp::Unit> ensure_sentinel_fields(
+            const SegmentRowView& row
+        ) {
+            MATHFP_TRY(ensure_missing_or_nonnegative(row.from_zone , kCtxFromZoneId, row.index));
+            MATHFP_TRY(ensure_missing_or_nonnegative(row.to_zone   , kCtxToZoneId  , row.index));
+            MATHFP_TRY(ensure_missing_or_nonnegative(row.profile   , kCtxLineId    , row.index));
+            MATHFP_TRY(ensure_missing_or_nonnegative(row.trip_id   , kCtxTripId    , row.index));
+            MATHFP_TRY(ensure_missing_or_nonnegative(row.from_index, kCtxFromIndex , row.index));
+            MATHFP_TRY(ensure_missing_or_nonnegative(row.to_index  , kCtxToIndex   , row.index));
+            MATHFP_TRY(ensure_missing_or_nonnegative(row.dep_sec   , kCtxDep       , row.index));
+            MATHFP_TRY(ensure_missing_or_nonnegative(row.arr_sec   , kCtxArr       , row.index));
+            MATHFP_TRY(ensure_missing_or_nonnegative(row.fare      , kFieldFare    , row.index));
+            return mathfp::kUnit;
+        }
+
         [[nodiscard]] bool try_drop_overnight_timed_row(
               BuildState&           state
             , const SegmentRowView& row
@@ -160,6 +209,8 @@ namespace timetable::infra::detail::presegmented_input {
         using timetable::domain::StopOccurrence;
         using timetable::domain::Time;
 
+        MATHFP_TRY(ensure_sentinel_fields(row));
+
         MATHFP_TRY_LET(
               timetable::domain::WalkEndpoint
             , from_endpoint
@@ -175,6 +226,8 @@ namespace timetable::infra::detail::presegmented_input {
         std::optional<Time>           arr{};
         std::optional<StopOccurrence> from_occurrence{};
         std::optional<StopOccurrence> to_occurrence{};
+        std::optional<RoutePosition>  connection_from_index{};
+        std::optional<RoutePosition>  connection_to_index{};
         if (row.dep_sec >= 0.0 || row.arr_sec >= 0.0) {
             if (!(row.dep_sec >= 0.0 && row.arr_sec >= 0.0)) {
                 return mathfp::unexpected(
@@ -188,13 +241,6 @@ namespace timetable::infra::detail::presegmented_input {
 
         const auto is_walk_segment = (row.profile == kMissingId);
         if (!is_walk_segment) {
-            if (row.profile < 0) {
-                return mathfp::unexpected(
-                    mathfp::invalid_arg("profile_id must be -1 or non-negative")
-                        .ctx(std::string(kCtxIndex)    , static_cast<std::int64_t>(row.index))
-                        .ctx(std::string(kCtxProfileId), row.profile)
-                );
-            }
             if (row.trip_id == kMissingId) {
                 return mathfp::unexpected(
                     mathfp::invalid_arg("timed line segment must have trip_id")
@@ -202,24 +248,28 @@ namespace timetable::infra::detail::presegmented_input {
                         .ctx(std::string(kCtxLineId), row.profile)
                 );
             }
-            if (row.trip_id < 0) {
+            if (!(row.dep_sec >= 0.0 && row.arr_sec >= 0.0)) {
                 return mathfp::unexpected(
-                    mathfp::invalid_arg("trip_id must be -1 or non-negative")
-                        .ctx(std::string(kCtxIndex) , static_cast<std::int64_t>(row.index))
-                        .ctx(std::string(kCtxTripId), row.trip_id)
+                    mathfp::invalid_arg("timed line segment must have departure/arrival times")
+                        .ctx(std::string(kCtxIndex), static_cast<std::int64_t>(row.index))
+                        .ctx(std::string(kCtxDep)  , row.dep_sec)
+                        .ctx(std::string(kCtxArr)  , row.arr_sec)
                 );
             }
-            if (row.from_index < 0 || row.to_index < 0) {
+
+            const auto has_from_index = row.from_index != kMissingId;
+            const auto has_to_index   = row.to_index   != kMissingId;
+            if (has_from_index != has_to_index) {
                 return mathfp::unexpected(
-                    mathfp::invalid_arg("timed line segment must have non-negative stop indices")
+                    mathfp::invalid_arg("from_index and to_index must both be set or both be -1")
                         .ctx(std::string(kCtxIndex)    , static_cast<std::int64_t>(row.index))
                         .ctx(std::string(kCtxFromIndex), row.from_index)
                         .ctx(std::string(kCtxToIndex)  , row.to_index)
                 );
             }
-            if (row.to_index <= row.from_index) {
+            if (has_from_index && row.to_index <= row.from_index) {
                 return mathfp::unexpected(
-                    mathfp::invalid_arg("to_index must be greater than from_index")
+                    mathfp::invalid_arg("to_index must be greater than from_index when stop indices are provided")
                         .ctx(std::string(kCtxIndex)    , static_cast<std::int64_t>(row.index))
                         .ctx(std::string(kCtxFromIndex), row.from_index)
                         .ctx(std::string(kCtxToIndex)  , row.to_index)
@@ -236,14 +286,28 @@ namespace timetable::infra::detail::presegmented_input {
                         .ctx(std::string(kCtxToStopId)  , row.to_stop)
                 );
             }
+
+            // Presegmented input may omit trip stop indices; the route topology
+            // still needs a local order, but connection metadata remains absent.
+            const auto topology_from_index = has_from_index
+                ? RoutePosition{ row.from_index }
+                : RoutePosition{ 0 };
+            const auto topology_to_index = has_to_index
+                ? RoutePosition{ row.to_index }
+                : RoutePosition{ 1 };
+
             from_occurrence = StopOccurrence{
                   .stop     = std::get<StopId>(from_endpoint)
-                , .position = RoutePosition{ row.from_index }
+                , .position = topology_from_index
             };
             to_occurrence = StopOccurrence{
                   .stop     = std::get<StopId>(to_endpoint)
-                , .position = RoutePosition{ row.to_index }
+                , .position = topology_to_index
             };
+            if (has_from_index) {
+                connection_from_index = RoutePosition{ row.from_index };
+                connection_to_index   = RoutePosition{ row.to_index };
+            }
             MATHFP_TRY(ensure_time_matches_departure_arrival(
                   row.time_sec
                 , row.dep_sec
@@ -271,7 +335,7 @@ namespace timetable::infra::detail::presegmented_input {
             }
             if (row.from_index != kMissingId || row.to_index != kMissingId) {
                 return mathfp::unexpected(
-                    mathfp::invalid_arg("walk segment must not carry stop indices")
+                    mathfp::invalid_arg("walk segment must have from_index = to_index = -1")
                         .ctx(std::string(kCtxIndex)    , static_cast<std::int64_t>(row.index))
                         .ctx(std::string(kCtxFromIndex), row.from_index)
                         .ctx(std::string(kCtxToIndex)  , row.to_index)
@@ -290,6 +354,8 @@ namespace timetable::infra::detail::presegmented_input {
             , .is_walk_segment = is_walk_segment
             , .from_occurrence = std::move(from_occurrence)
             , .to_occurrence   = std::move(to_occurrence)
+            , .connection_from_index = std::move(connection_from_index)
+            , .connection_to_index   = std::move(connection_to_index)
             , .dep             = std::move(dep)
             , .arr             = std::move(arr)
             , .fare            = std::move(fare)

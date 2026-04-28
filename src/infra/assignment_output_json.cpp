@@ -306,32 +306,33 @@ namespace timetable::infra {
             writer.end_object();
         }
 
-        void write_discovered_connection(
+        void write_search_connection(
               JsonWriter&                                                writer
-            , const timetable::domain::assignment::DiscoveredConnection& connection
+            , const timetable::domain::assignment::SearchConnection& connection
         ) {
+            const auto metrics  = timetable::domain::assignment::metrics_of(connection);
+            const auto transfer_time = metrics.transfer_wait_time + metrics.transfer_walk_time;
+            const auto segments = timetable::domain::assignment::connection_segment_trace(connection);
             writer.begin_object();
             writer.key("origin");
-            write_strong_id(writer, connection.origin);
+            write_strong_id(writer, timetable::domain::assignment::origin_of(connection));
             writer.key("destination");
-            write_strong_id(writer, connection.destination);
+            write_strong_id(writer, timetable::domain::assignment::destination_of(connection));
             writer.key("departure");
-            write_time(writer, connection.departure);
+            write_time(writer, metrics.departure_time);
             writer.key("arrival");
-            write_time(writer, connection.arrival);
+            write_time(writer, metrics.arrival_time);
             writer.key("journey_time");
-            write_time(writer, connection.journey_time);
+            write_time(writer, metrics.journey_time);
             writer.key("transfer_time");
-            write_time(writer, connection.transfer_time);
+            write_time(writer, transfer_time);
             writer.key("transfers");
-            write_strong_id(writer, connection.transfers);
+            write_strong_id(writer, metrics.transfer_count);
             writer.key("fare");
-            writer.number(connection.fare);
-            writer.key("impedance");
-            writer.number(connection.impedance);
+            writer.number(metrics.fare);
             writer.key("segments");
             writer.begin_array();
-            for (const auto segment_id : connection.segments) {
+            for (const auto segment_id : segments) {
                 write_strong_id(writer, segment_id);
             }
             writer.end_array();
@@ -344,7 +345,7 @@ namespace timetable::infra {
         ) {
             writer.begin_object();
             writer.key("summary");
-            write_discovered_connection(writer, connection.summary);
+            write_search_connection(writer, connection.summary);
             writer.key("path_segments");
             writer.begin_array();
             for (const auto& path_segment : connection.segments) {
@@ -401,6 +402,94 @@ namespace timetable::infra {
             writer.begin_array();
             for (const auto& share : interval.shares) {
                 write_interval_share(writer, share);
+            }
+            writer.end_array();
+            writer.end_object();
+        }
+
+        void write_line_load(
+              JsonWriter&                                  writer
+            , const timetable::domain::AssignmentLineLoad& load
+        ) {
+            writer.begin_object();
+            writer.key("interval_id");
+            write_strong_id(writer, load.interval);
+            writer.key("line_id");
+            write_strong_id(writer, load.line);
+            writer.key("passenger_segments");
+            writer.number(load.passenger_segments);
+            writer.key("segment_load_count");
+            writer.integer(static_cast<std::int64_t>(load.segment_load_count));
+            writer.end_object();
+        }
+
+        void write_trip_load(
+              JsonWriter&                                  writer
+            , const timetable::domain::AssignmentTripLoad& load
+        ) {
+            writer.begin_object();
+            writer.key("interval_id");
+            write_strong_id(writer, load.interval);
+            writer.key("line_id");
+            write_strong_id(writer, load.line);
+            writer.key("trip_id");
+            write_strong_id(writer, load.trip);
+            writer.key("passenger_segments");
+            writer.number(load.passenger_segments);
+            writer.key("segment_load_count");
+            writer.integer(static_cast<std::int64_t>(load.segment_load_count));
+            writer.end_object();
+        }
+
+        void write_segment_load(
+              JsonWriter&                                     writer
+            , const timetable::domain::AssignmentSegmentLoad& load
+        ) {
+            writer.begin_object();
+            writer.key("interval_id");
+            write_strong_id(writer, load.interval);
+            writer.key("line_id");
+            write_strong_id(writer, load.line);
+            writer.key("trip_id");
+            write_strong_id(writer, load.trip);
+            writer.key("route_segment_id");
+            write_strong_id(writer, load.route_segment);
+            writer.key("connection_segment_id");
+            write_strong_id(writer, load.connection_segment);
+            writer.key("from");
+            write_stop_occurrence(writer, load.from);
+            writer.key("to");
+            write_stop_occurrence(writer, load.to);
+            writer.key("departure");
+            write_time(writer, load.departure);
+            writer.key("arrival");
+            write_time(writer, load.arrival);
+            writer.key("passengers");
+            writer.number(load.passengers);
+            writer.end_object();
+        }
+
+        void write_loads(
+              JsonWriter&                               writer
+            , const timetable::domain::AssignmentLoads& loads
+        ) {
+            writer.begin_object();
+            writer.key("line_loads");
+            writer.begin_array();
+            for (const auto& load : loads.line_loads) {
+                write_line_load(writer, load);
+            }
+            writer.end_array();
+            writer.key("trip_loads");
+            writer.begin_array();
+            for (const auto& load : loads.trip_loads) {
+                write_trip_load(writer, load);
+            }
+            writer.end_array();
+            writer.key("segment_loads");
+            writer.begin_array();
+            for (const auto& load : loads.segment_loads) {
+                write_segment_load(writer, load);
             }
             writer.end_array();
             writer.end_object();
@@ -466,7 +555,7 @@ namespace timetable::infra {
         JsonWriter writer;
         writer.begin_object();
         writer.key("schema");
-        writer.string("timetable.assignment_output.v1");
+        writer.string("timetable.assignment_output.v2");
         writer.key("units");
         writer.begin_object();
         writer.key("time");
@@ -486,6 +575,8 @@ namespace timetable::infra {
             write_od_result(writer, od_result);
         }
         writer.end_array();
+        writer.key("loads");
+        write_loads(writer, output.loads);
         writer.end_object();
         return std::move(writer).finish();
     }

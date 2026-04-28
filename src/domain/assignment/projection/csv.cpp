@@ -58,7 +58,6 @@ namespace timetable::domain::assignment::projection {
                 , .fastest_journey_time     = summary.fastest_journey_time
                 , .lowest_fare              = summary.lowest_fare
                 , .minimum_transfers        = summary.minimum_transfers
-                , .minimum_search_impedance = summary.minimum_search_impedance
             };
         }
 
@@ -98,7 +97,6 @@ namespace timetable::domain::assignment::projection {
                 , .transfer_time       = summary   .transfer_time
                 , .transfers           = summary   .transfers
                 , .fare                = summary   .fare
-                , .search_impedance    = summary   .search_impedance
                 , .assigned_passengers = summary   .assigned_passengers
                 , .share_count         = summary   .share_count
                 , .path_segment_count  = connection.segments.size()
@@ -152,6 +150,14 @@ namespace timetable::domain::assignment::projection {
                 count += count_od_segment_rows(od_result);
             }
             return count;
+        }
+
+        std::size_t count_total_load_rows(
+            const AssignmentOutput& output
+        ) noexcept {
+            return output.loads.line_loads.size()
+                 + output.loads.trip_loads.size()
+                 + output.loads.segment_loads.size();
         }
 
         AssignmentSegmentCsvRow build_segment_row(
@@ -276,6 +282,77 @@ namespace timetable::domain::assignment::projection {
             );
         }
 
+        void append_load_projection_rows(
+              AssignmentCsvProjection& projection
+            , const AssignmentLoads&   loads
+        ) {
+            for (const auto& load : loads.line_loads) {
+                projection.load_rows.push_back(
+                    AssignmentLoadCsvRow{
+                          .level                  = AssignmentLoadLevel::Line
+                        , .interval_id            = load.interval
+                        , .line_id                = load.line
+                        , .trip_id                = std::nullopt
+                        , .route_segment_id       = std::nullopt
+                        , .connection_segment_id  = std::nullopt
+                        , .from_stop_id           = std::nullopt
+                        , .from_position          = std::nullopt
+                        , .to_stop_id             = std::nullopt
+                        , .to_position            = std::nullopt
+                        , .departure              = std::nullopt
+                        , .arrival                = std::nullopt
+                        , .passengers             = std::nullopt
+                        , .passenger_segments     = load.passenger_segments
+                        , .segment_load_count     = load.segment_load_count
+                    }
+                );
+            }
+
+            for (const auto& load : loads.trip_loads) {
+                projection.load_rows.push_back(
+                    AssignmentLoadCsvRow{
+                          .level                  = AssignmentLoadLevel::Trip
+                        , .interval_id            = load.interval
+                        , .line_id                = load.line
+                        , .trip_id                = load.trip
+                        , .route_segment_id       = std::nullopt
+                        , .connection_segment_id  = std::nullopt
+                        , .from_stop_id           = std::nullopt
+                        , .from_position          = std::nullopt
+                        , .to_stop_id             = std::nullopt
+                        , .to_position            = std::nullopt
+                        , .departure              = std::nullopt
+                        , .arrival                = std::nullopt
+                        , .passengers             = std::nullopt
+                        , .passenger_segments     = load.passenger_segments
+                        , .segment_load_count     = load.segment_load_count
+                    }
+                );
+            }
+
+            for (const auto& load : loads.segment_loads) {
+                projection.load_rows.push_back(
+                    AssignmentLoadCsvRow{
+                          .level                  = AssignmentLoadLevel::Segment
+                        , .interval_id            = load.interval
+                        , .line_id                = load.line
+                        , .trip_id                = load.trip
+                        , .route_segment_id       = load.route_segment
+                        , .connection_segment_id  = load.connection_segment
+                        , .from_stop_id           = load.from.stop
+                        , .from_position          = load.from.position
+                        , .to_stop_id             = load.to.stop
+                        , .to_position            = load.to.position
+                        , .departure              = load.departure
+                        , .arrival                = load.arrival
+                        , .passengers             = load.passengers
+                        , .passenger_segments     = std::nullopt
+                        , .segment_load_count     = 1
+                    }
+                );
+            }
+        }
+
         mathfp::Expected<mathfp::Unit> append_od_projection_rows(
               AssignmentCsvProjection&   projection
             , const AssignmentOdResult&  od_result
@@ -308,18 +385,21 @@ namespace timetable::domain::assignment::projection {
         }
 
         const auto segment_row_count = count_total_segment_rows(output);
+        const auto load_row_count    = count_total_load_rows(output);
 
         AssignmentCsvProjection projection{};
         projection.od_summary_rows.reserve(summary.od_results.size());
         projection.connection_rows.reserve(output.summary.chosen_connection_count);
         projection.share_rows     .reserve(output.summary.demand_share_count);
         projection.segment_rows   .reserve(segment_row_count);
+        projection.load_rows      .reserve(load_row_count);
 
         for (std::size_t od_index = 0; od_index < output.od_results.size(); ++od_index) {
             const auto& od_result  = output .od_results[od_index];
             const auto& od_summary = summary.od_results[od_index];
             MATHFP_TRY(append_od_projection_rows(projection, od_result, od_summary));
         }
+        append_load_projection_rows(projection, output.loads);
 
         return projection;
     }

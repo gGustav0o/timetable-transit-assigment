@@ -27,9 +27,9 @@
 namespace timetable::domain::assignment {
     namespace {
 
-        using PartialConnectionLabel = SearchPruningLabel;
-        using NodeConnectionSet      = SearchPruningLabelSet;
-        using SearchNodeKey          = SearchPruningStateKey;
+        using PartialPruningMetrics = SearchPruningMetrics;
+        using NodeMetricSet         = SearchPruningMetricSet;
+        using SearchNodeKey         = SearchPruningStateKey;
 
 
         // TODO??
@@ -55,22 +55,44 @@ namespace timetable::domain::assignment {
             }
         };
 
-        struct SearchBranch final {
+        /**
+         * @brief Structural prefix of a connection explored by search.
+         *
+         * This is the trace state: current location, predecessor link and the
+         * timed context needed to decide future feasible extensions.
+         */
+        struct SearchPartialTrace final {
             ZoneId                             origin{};
             EndpointKey                        current_physical{};
             std::optional<StopOccurrenceKey>   current_occurrence{};
-            std::optional<Time>                departure{};
-            std::optional<Time>                current_time{};
-            // Total accumulated walk duration over all walk segments seen so far.
-            Time                               walk_time{};
-            Time                               access_walk_time{};
-            Time                               transfer_time{};
-            TransferCount                      transfers{};
-            double                             fare{};
+            ConnectionTrace                    connection_trace{};
             std::optional<std::size_t>         parent_branch{};
             std::optional<ConnectionSegmentId> incoming_segment{};
             const ConnectionSegment*           last_timed_segment{};
             const RouteSegment*                last_timed_route_segment{};
+        };
+
+        /**
+         * @brief Parameter-independent metrics of a partial connection prefix.
+         *
+         * Search may use parameterized evaluations of these metrics for pruning,
+         * but the branch state keeps the metrics themselves separate from those
+         * evaluations. The invariant is that these values are the incremental
+         * fold of SearchPartialTrace from the root to this branch.
+         */
+        struct SearchPartialMetrics final {
+            std::optional<Time> departure{};
+            std::optional<Time> current_time{};
+            Time                walk_time{};
+            Time                access_walk_time{};
+            Time                transfer_time{};
+            TransferCount       transfers{};
+            double              fare{};
+        };
+
+        struct SearchBranch final {
+            SearchPartialTrace   trace{};
+            SearchPartialMetrics metrics{};
         };
 
         struct OriginSearchStats final {
@@ -89,7 +111,7 @@ namespace timetable::domain::assignment {
             SearchPruningRuntimeStats pruning{};
         };
 
-        using NodeConnectionMap = std::unordered_map<SearchNodeKey, NodeConnectionSet, SearchNodeKeyHash>;
+        using NodeMetricMap = std::unordered_map<SearchNodeKey, NodeMetricSet, SearchNodeKeyHash>;
         using BranchArena       = std::vector<SearchBranch>;
 
         constexpr std::size_t kOriginProgressStep  = 10;
@@ -125,6 +147,14 @@ namespace timetable::domain::assignment {
             );
         }
 
+        [[nodiscard]] Time partial_journey_time(
+            const SearchPartialMetrics& metrics
+        ) noexcept {
+            return Time{
+                metrics.current_time->value() - metrics.departure->value()
+            };
+        }
+
         std::vector<ZoneId> search_origins(
             const PreprocessedNetwork& network
         ) {
@@ -150,11 +180,11 @@ namespace timetable::domain::assignment {
             const SearchBranch& branch
         ) noexcept {
             return SearchPruningTransferContext{
-                  .last_trip = branch.last_timed_segment != nullptr
-                    ? branch.last_timed_segment->trip
+                  .last_trip = branch.trace.last_timed_segment != nullptr
+                    ? branch.trace.last_timed_segment->trip
                     : std::optional<TripId>{}
-                , .last_line = branch.last_timed_route_segment != nullptr
-                    ? line_of(*branch.last_timed_route_segment)
+                , .last_line = branch.trace.last_timed_route_segment != nullptr
+                    ? line_of(*branch.trace.last_timed_route_segment)
                     : std::optional<LineId>{}
             };
         }
@@ -163,8 +193,8 @@ namespace timetable::domain::assignment {
             const SearchBranch& branch
         ) noexcept {
             return SearchNodeKey{
-                  .physical   = branch.current_physical
-                , .occurrence = branch.current_occurrence
+                  .physical   = branch.trace.current_physical
+                , .occurrence = branch.trace.current_occurrence
                 , .transfer   = search_transfer_context(branch)
             };
         }
@@ -174,17 +204,17 @@ namespace timetable::domain::assignment {
             , const SearchBranch& branch
             , EndpointKey         next
         ) {
-            if (branch.current_physical == next) {
+            if (branch.trace.current_physical == next) {
                 return true;
             }
 
-            auto cursor = branch.parent_branch;
+            auto cursor = branch.trace.parent_branch;
             while (cursor.has_value()) {
                 const auto& ancestor = branches[*cursor];
-                if (ancestor.current_physical == next) {
+                if (ancestor.trace.current_physical == next) {
                     return true;
                 }
-                cursor = ancestor.parent_branch;
+                cursor = ancestor.trace.parent_branch;
             }
 
             return false;
@@ -195,17 +225,17 @@ namespace timetable::domain::assignment {
             , const SearchBranch& branch
             , StopOccurrenceKey   next
         ) {
-            if (branch.current_occurrence.has_value() && branch.current_occurrence.value() == next) {
+            if (branch.trace.current_occurrence.has_value() && branch.trace.current_occurrence.value() == next) {
                 return true;
             }
 
-            auto cursor = branch.parent_branch;
+            auto cursor = branch.trace.parent_branch;
             while (cursor.has_value()) {
                 const auto& ancestor = branches[*cursor];
-                if (ancestor.current_occurrence.has_value() && ancestor.current_occurrence.value() == next) {
+                if (ancestor.trace.current_occurrence.has_value() && ancestor.trace.current_occurrence.value() == next) {
                     return true;
                 }
-                cursor = ancestor.parent_branch;
+                cursor = ancestor.trace.parent_branch;
             }
 
             return false;
@@ -214,9 +244,9 @@ namespace timetable::domain::assignment {
         bool is_complete_connection(
             const SearchBranch& branch
         ) noexcept {
-            return branch.departure.has_value()
-                && branch.current_physical.kind == EndpointKind::Zone
-                && branch.current_physical.id   != branch.origin.get();
+            return branch.metrics.departure.has_value()
+                && branch.trace.current_physical.kind == EndpointKind::Zone
+                && branch.trace.current_physical.id   != branch.trace.origin.get();
         }
 
         bool first_timed_departure_allowed(
@@ -225,7 +255,7 @@ namespace timetable::domain::assignment {
             , const SearchTimeDomain*  first_departure_domain
             , const TransferLimits&    limits
         ) noexcept {
-            if (branch.departure.has_value()) {
+            if (branch.metrics.departure.has_value()) {
                 return true;
             }
             if (first_departure_domain == nullptr || !successor.departure.has_value()) {
@@ -250,47 +280,41 @@ namespace timetable::domain::assignment {
             return successor.departure->value() >= domain_bounds->begin.value();
         }
 
-        PartialConnectionLabel make_partial_label(
+        PartialPruningMetrics make_partial_pruning_metrics(
               const SearchBranch&    branch
             , const SearchImpedance& impedance
             , double                 fare_scale
         ) {
-            const auto journey_time = Time{
-                branch.current_time->value() - branch.departure->value()
-            };
+            const auto journey_time = partial_journey_time(branch.metrics);
 
-            return PartialConnectionLabel{
-                  .primitive = SearchPruningLabelPrimitive{
-                        .departure = *branch.departure
-                      , .arrival   = *branch.current_time
-                      , .transfers = branch.transfers
-                      , .fare      = branch.fare
-                  }
-                , .derived = SearchPruningLabelDerived{
-                        .journey_time = journey_time
-                      , .walk_time    = branch.walk_time
-                      , .impedance    = branch_impedance_value(
-                            journey_time
-                          , branch.transfers
-                          , branch.fare
-                          , impedance
-                          , fare_scale
-                        )
-                  }
+            return PartialPruningMetrics{
+                  .departure    = *branch.metrics.departure
+                , .arrival      = *branch.metrics.current_time
+                , .journey_time = journey_time
+                , .walk_time    = branch.metrics.walk_time
+                , .transfers    = branch.metrics.transfers
+                , .fare         = branch.metrics.fare
+                , .impedance    = branch_impedance_value(
+                      journey_time
+                    , branch.metrics.transfers
+                    , branch.metrics.fare
+                    , impedance
+                    , fare_scale
+                  )
             };
         }
 
-        void insert_label(
-              NodeConnectionMap&                known_connections
+        void insert_pruning_metrics(
+              NodeMetricMap&                    known_metrics
             , const SearchPruningExecutionPlan& pruning_execution
             , SearchNodeKey                     node
-            , PartialConnectionLabel            label
+            , PartialPruningMetrics             metrics
         ) {
-            auto& known = known_connections[node];
-            known = insert_search_pruning_label(
+            auto& known = known_metrics[node];
+            known = insert_search_pruning_metrics(
                   pruning_execution
                 , std::move(known)
-                , std::move(label)
+                , std::move(metrics)
             );
         }
 
@@ -377,16 +401,16 @@ namespace timetable::domain::assignment {
             , const ConnectionSegment& successor
             , const RouteSegment&      successor_route_segment
         ) noexcept {
-            if (!branch.last_timed_segment || !branch.last_timed_route_segment) {
+            if (!branch.trace.last_timed_segment || !branch.trace.last_timed_route_segment) {
                 return false;
             }
             if (!is_timed_connection(successor)) {
                 return false;
             }
-            if (!same_line(*branch.last_timed_route_segment, successor_route_segment)) {
+            if (!same_line(*branch.trace.last_timed_route_segment, successor_route_segment)) {
                 return false;
             }
-            return successor.trip != branch.last_timed_segment->trip;
+            return successor.trip != branch.trace.last_timed_segment->trip;
         }
 
         bool is_repeated_stop_reboarding_case(
@@ -397,7 +421,7 @@ namespace timetable::domain::assignment {
             if (!is_same_line_transfer_candidate(branch, successor, successor_route_segment)) {
                 return false;
             }
-            const auto* current_line   = line_topology_of(*branch.last_timed_route_segment);
+            const auto* current_line   = line_topology_of(*branch.trace.last_timed_route_segment);
             const auto* successor_line = line_topology_of(successor_route_segment);
             if (!current_line || !successor_line) {
                 return false;
@@ -405,10 +429,10 @@ namespace timetable::domain::assignment {
             if (current_line->to.stop != successor_line->from.stop) {
                 return false;
             }
-            if (!branch.last_timed_segment->to_index.has_value() || !successor.from_index.has_value()) {
+            if (!branch.trace.last_timed_segment->to_index.has_value() || !successor.from_index.has_value()) {
                 return false;
             }
-            return successor.from_index.value() < branch.last_timed_segment->to_index.value();
+            return successor.from_index.value() < branch.trace.last_timed_segment->to_index.value();
         }
 
         std::optional<Time> same_trip_continuation_arrival(
@@ -417,18 +441,18 @@ namespace timetable::domain::assignment {
             , const ConnectionSegment&   successor
             , const RouteSegment&        successor_route_segment
         ) noexcept {
-            if (!branch.last_timed_segment || !branch.last_timed_route_segment) {
+            if (!branch.trace.last_timed_segment || !branch.trace.last_timed_route_segment) {
                 return std::nullopt;
             }
             if (
-                   !branch   .last_timed_segment->trip    .has_value()
-                || !branch   .last_timed_segment->to_index.has_value()
+                   !branch.trace.last_timed_segment->trip    .has_value()
+                || !branch.trace.last_timed_segment->to_index.has_value()
                 || !successor.to_index                    .has_value()
             ) {
                 return std::nullopt;
             }
 
-            const auto current_stop           = occurrence_key(line_topology_of(*branch.last_timed_route_segment)->to);
+            const auto current_stop           = occurrence_key(line_topology_of(*branch.trace.last_timed_route_segment)->to);
             const auto desired_route_to_index = successor.to_index.value();
             const auto range                  = timed_bucket_range(network.connection_index, current_stop);
             if (!range) {
@@ -443,13 +467,13 @@ namespace timetable::domain::assignment {
                       network
                     , continuation.route_segment
                 );
-                if (!same_line(*branch.last_timed_route_segment, continuation_route_segment)) {
+                if (!same_line(*branch.trace.last_timed_route_segment, continuation_route_segment)) {
                     continue;
                 }
-                if (continuation.trip != branch.last_timed_segment->trip) {
+                if (continuation.trip != branch.trace.last_timed_segment->trip) {
                     continue;
                 }
-                if (continuation.from_index != branch.last_timed_segment->to_index) {
+                if (continuation.from_index != branch.trace.last_timed_segment->to_index) {
                     continue;
                 }
                 // Repeated-stop geometry must match the same downstream route
@@ -484,69 +508,269 @@ namespace timetable::domain::assignment {
             return successor.arrival->value() < continuation_arrival->value();
         }
 
-        SearchBranch extend_with_walk(
+        [[nodiscard]] Time add_time(
+              Time lhs
+            , Time rhs
+        ) noexcept {
+            return Time{ lhs.value() + rhs.value() };
+        }
+
+        [[nodiscard]] Time duration_of(
+            const ConnectionLeg& leg
+        ) noexcept {
+            return Time{ leg.end_time.value() - leg.start_time.value() };
+        }
+
+        [[nodiscard]] Time next_relative_access_start(
+            const ConnectionTrace& trace
+        ) noexcept {
+            if (trace.legs.empty()) {
+                return Time{ 0.0 };
+            }
+            return trace.legs.back().end_time;
+        }
+
+        [[nodiscard]] ConnectionTrace anchor_access_trace(
+              ConnectionTrace trace
+            , Time            departure
+        ) {
+            auto cursor = departure;
+            for (auto& leg : trace.legs) {
+                const auto duration = duration_of(leg);
+                leg.start_time = cursor;
+                leg.end_time   = add_time(cursor, duration);
+                cursor         = leg.end_time;
+            }
+            return trace;
+        }
+
+        [[nodiscard]] ConnectionLegKind classify_walk_extension(
+              const SearchPartialMetrics& metrics
+            , EndpointKey                  next_physical
+        ) noexcept {
+            if (!metrics.departure.has_value()) {
+                return ConnectionLegKind::AccessWalk;
+            }
+            if (next_physical.kind == EndpointKind::Zone) {
+                return ConnectionLegKind::EgressWalk;
+            }
+            return ConnectionLegKind::TransferWalk;
+        }
+
+        [[nodiscard]] ConnectionLeg make_walk_leg(
+              ConnectionLegKind   kind
+            , ConnectionSegmentId segment_id
+            , const RouteSegment& route_segment
+            , Time                start_time
+        ) {
+            return ConnectionLeg{
+                  .kind               = kind
+                , .connection_segment = segment_id
+                , .route_segment      = route_segment.id
+                , .physical_from      = physical_from_key(route_segment)
+                , .physical_to        = physical_to_key(route_segment)
+                , .occurrence_from    = std::nullopt
+                , .occurrence_to      = std::nullopt
+                , .line               = std::nullopt
+                , .trip               = std::nullopt
+                , .start_time         = start_time
+                , .end_time           = add_time(start_time, route_segment.run_time)
+                , .length             = route_segment.length
+                , .fare               = 0.0
+            };
+        }
+
+        [[nodiscard]] std::optional<ConnectionLeg> make_transfer_wait_leg(
+              const SearchPartialMetrics& metrics
+            , const ConnectionSegment&    segment
+            , EndpointKey                  physical
+        ) noexcept {
+            if (!metrics.current_time.has_value() || !segment.departure.has_value()) {
+                return std::nullopt;
+            }
+            if (segment.departure->value() <= metrics.current_time->value()) {
+                return std::nullopt;
+            }
+            return ConnectionLeg{
+                  .kind               = ConnectionLegKind::TransferWait
+                , .connection_segment = std::nullopt
+                , .route_segment      = std::nullopt
+                , .physical_from      = physical
+                , .physical_to        = physical
+                , .occurrence_from    = std::nullopt
+                , .occurrence_to      = std::nullopt
+                , .line               = std::nullopt
+                , .trip               = std::nullopt
+                , .start_time         = *metrics.current_time
+                , .end_time           = *segment.departure
+                , .length             = Length{ 0.0 }
+                , .fare               = 0.0
+            };
+        }
+
+        [[nodiscard]] ConnectionLeg make_ride_leg(
+              const ConnectionSegment& segment
+            , const RouteSegment&      route_segment
+        ) {
+            const auto* line = line_topology_of(route_segment);
+            return ConnectionLeg{
+                  .kind               = ConnectionLegKind::Ride
+                , .connection_segment = segment.id
+                , .route_segment      = route_segment.id
+                , .physical_from      = physical_from_key(route_segment)
+                , .physical_to        = physical_to_key(route_segment)
+                , .occurrence_from    = occurrence_key(line->from)
+                , .occurrence_to      = occurrence_key(line->to)
+                , .line               = line->line
+                , .trip               = segment.trip
+                , .start_time         = *segment.departure
+                , .end_time           = *segment.arrival
+                , .length             = route_segment.length
+                , .fare               = segment.fare.value_or(0.0)
+            };
+        }
+
+        [[nodiscard]] SearchPartialTrace extend_trace_with_walk(
+              SearchPartialTrace trace
+            , std::size_t         branch_index
+            , const SearchPartialMetrics& metrics
+            , const RouteSegment& route_segment
+            , ConnectionSegmentId segment_id
+        ) {
+            const auto next_physical = physical_to_key(route_segment);
+            const auto kind          = classify_walk_extension(metrics, next_physical);
+            const auto start_time    = metrics.current_time.has_value()
+                ? *metrics.current_time
+                : next_relative_access_start(trace.connection_trace);
+
+            trace.connection_trace.legs.push_back(
+                make_walk_leg(kind, segment_id, route_segment, start_time)
+            );
+            trace.parent_branch      = branch_index;
+            trace.incoming_segment   = segment_id;
+            trace.current_physical   = next_physical;
+            trace.current_occurrence = std::nullopt;
+            return trace;
+        }
+
+        [[nodiscard]] SearchPartialMetrics extend_metrics_with_walk(
+              SearchPartialMetrics metrics
+            , const RouteSegment&   route_segment
+            , EndpointKey           next_physical
+        ) {
+            metrics.walk_time = Time{
+                metrics.walk_time.value() + route_segment.run_time.value()
+            };
+
+            if (metrics.departure.has_value()) {
+                metrics.current_time = Time{
+                    metrics.current_time->value() + route_segment.run_time.value()
+                };
+                if (next_physical.kind == EndpointKind::Stop) {
+                    metrics.transfer_time = Time{
+                        metrics.transfer_time.value() + route_segment.run_time.value()
+                    };
+                }
+            } else {
+                metrics.access_walk_time = Time{
+                    metrics.access_walk_time.value() + route_segment.run_time.value()
+                };
+            }
+
+            return metrics;
+        }
+
+        [[nodiscard]] SearchBranch extend_with_walk(
               const SearchBranch& branch
             , std::size_t         branch_index
             , const RouteSegment& route_segment
             , ConnectionSegmentId segment_id
         ) {
-            SearchBranch next = branch;
-            next.parent_branch      = branch_index;
-            next.incoming_segment   = segment_id;
-            next.current_physical   = physical_to_key(route_segment);
-            next.current_occurrence = std::nullopt;
-            next.walk_time          = Time{
-                branch.walk_time.value() + route_segment.run_time.value()
+            const auto trace = extend_trace_with_walk(
+                  branch.trace
+                , branch_index
+                , branch.metrics
+                , route_segment
+                , segment_id
+            );
+            return SearchBranch{
+                  .trace   = trace
+                , .metrics = extend_metrics_with_walk(
+                      branch.metrics
+                    , route_segment
+                    , trace.current_physical
+                  )
             };
-
-            if (branch.departure.has_value()) {
-                next.current_time = Time{
-                    branch.current_time->value() + route_segment.run_time.value()
-                };
-                if (next.current_physical.kind == EndpointKind::Stop) {
-                    next.transfer_time = Time{
-                        branch.transfer_time.value() + route_segment.run_time.value()
-                    };
-                }
-            } else {
-                next.access_walk_time = Time{
-                    branch.access_walk_time.value() + route_segment.run_time.value()
-                };
-            }
-
-            return next;
         }
 
-        SearchBranch extend_with_timed(
-              const SearchBranch&       branch
+        [[nodiscard]] SearchPartialTrace extend_trace_with_timed(
+              SearchPartialTrace       trace
             , std::size_t               branch_index
+            , const SearchPartialMetrics& metrics
             , const ConnectionSegment& segment
             , const RouteSegment&      route_segment
         ) {
-            SearchBranch next = branch;
             const auto next_occurrence = occurrence_key(line_topology_of(route_segment)->to);
-            const auto had_departure   = branch.departure.has_value();
-            next.parent_branch         = branch_index;
-            next.incoming_segment      = segment.id;
+            if (!metrics.departure.has_value()) {
+                trace.connection_trace = anchor_access_trace(
+                      std::move(trace.connection_trace)
+                    , Time{ segment.departure->value() - metrics.access_walk_time.value() }
+                );
+            } else if (auto wait_leg = make_transfer_wait_leg(
+                  metrics
+                , segment
+                , trace.current_physical
+            )) {
+                trace.connection_trace.legs.push_back(*wait_leg);
+            }
+            trace.connection_trace.legs.push_back(make_ride_leg(segment, route_segment));
+            trace.parent_branch                  = branch_index;
+            trace.incoming_segment               = segment.id;
+            trace.current_physical               = physical_to_key(route_segment);
+            trace.current_occurrence             = next_occurrence;
+            trace.last_timed_segment             = &segment;
+            trace.last_timed_route_segment       = &route_segment;
+            return trace;
+        }
+
+        [[nodiscard]] SearchPartialMetrics extend_metrics_with_timed(
+              SearchPartialMetrics      metrics
+            , const ConnectionSegment& segment
+        ) {
+            const auto had_departure = metrics.departure.has_value();
             if (!had_departure) {
-                next.departure = Time{
-                    segment.departure->value() - branch.access_walk_time.value()
+                metrics.departure = Time{
+                    segment.departure->value() - metrics.access_walk_time.value()
                 };
             } else {
-                next.transfer_time = Time{
-                    branch.transfer_time.value()
-                    + (segment.departure->value() - branch.current_time->value())
+                metrics.transfer_time = Time{
+                    metrics.transfer_time.value()
+                    + (segment.departure->value() - metrics.current_time->value())
                 };
-                next.transfers = TransferCount{ branch.transfers.get() + 1 };
+                metrics.transfers = TransferCount{ metrics.transfers.get() + 1 };
             }
 
-            next.current_time             = *segment.arrival;
-            next.current_physical         = physical_to_key(route_segment);
-            next.current_occurrence       = next_occurrence;
-            next.fare                     = branch.fare + segment.fare.value_or(0.0);
-            next.last_timed_segment       = &segment;
-            next.last_timed_route_segment = &route_segment;
-            return next;
+            metrics.current_time = *segment.arrival;
+            metrics.fare         = metrics.fare + segment.fare.value_or(0.0);
+            return metrics;
+        }
+
+        [[nodiscard]] SearchBranch extend_with_timed(
+              const SearchBranch&      branch
+            , std::size_t              branch_index
+            , const ConnectionSegment& segment
+            , const RouteSegment&      route_segment
+        ) {
+            return SearchBranch{
+                  .trace   = extend_trace_with_timed(
+                        branch.trace
+                      , branch_index
+                      , branch.metrics
+                      , segment
+                      , route_segment
+                  )
+                , .metrics = extend_metrics_with_timed(branch.metrics, segment)
+            };
         }
 
         std::optional<SearchBranch> extend_branch(
@@ -583,7 +807,7 @@ namespace timetable::domain::assignment {
             const auto lookup = preprocessing::lookup_from(
                   network.route_index
                 , network.connection_index
-                , branch .current_physical
+                , branch.trace.current_physical
             );
 
             for (const auto connection_id : lookup.walk_connections) {
@@ -592,92 +816,69 @@ namespace timetable::domain::assignment {
 
             for_each_timed_successor(
                   network
-                , branch.current_physical
-                , branch.current_time
+                , branch.trace.current_physical
+                , branch.metrics.current_time
                 , limits
                 , visitor
             );
         }
 
-        std::vector<ConnectionSegmentId> reconstruct_segment_trace(
-              const BranchArena&  branches
-            , const SearchBranch& branch
+        std::vector<ConnectionSegmentId> connection_segments_of(
+            const ConnectionTrace& trace
         ) {
-            std::vector<ConnectionSegmentId> reversed;
-
-            auto cursor_branch = &branch;
-            while (cursor_branch != nullptr) {
-                if (cursor_branch->incoming_segment.has_value()) {
-                    reversed.push_back(cursor_branch->incoming_segment.value());
+            std::vector<ConnectionSegmentId> segments;
+            segments.reserve(trace.legs.size());
+            for (const auto& leg : trace.legs) {
+                if (leg.connection_segment.has_value()) {
+                    segments.push_back(*leg.connection_segment);
                 }
-
-                if (!cursor_branch->parent_branch.has_value()) {
-                    break;
-                }
-                cursor_branch = &branches[*cursor_branch->parent_branch];
             }
-
-            std::reverse(reversed.begin(), reversed.end());
-            return reversed;
+            return segments;
         }
 
-        std::optional<DiscoveredConnection> complete_connection(
-              const BranchArena&         branches
-            , const SearchBranch&        branch
+        mathfp::Expected<std::optional<SearchConnection>> complete_connection(
+              const SearchBranch&        branch
             , const PreprocessedNetwork& network
-            , const SearchImpedance&     impedance
             , const TransferLimits&      limits
-            , double                     fare_scale
         ) {
             if (!is_complete_connection(branch)) {
                 return std::nullopt;
             }
 
             if (!limits.allow_end_wait
-                && branch.last_timed_segment != nullptr
-                && branch.incoming_segment.has_value()) {
+                && branch.trace.last_timed_segment != nullptr
+                && branch.trace.incoming_segment.has_value()) {
                 const auto& last_segment = connection_segment_at(
                       network
-                    , branch.incoming_segment.value()
+                    , branch.trace.incoming_segment.value()
                 );
                 if (is_walk_connection(last_segment)) {
                     return std::nullopt;
                 }
             }
 
-            const auto destination  = ZoneId{ branch.current_physical.id };
-            const auto journey_time = Time{
-                branch.current_time->value() - branch.departure->value()
-            };
-            return DiscoveredConnection{
-                  .origin        = branch.origin
-                , .destination   = destination
-                , .departure     = *branch.departure
-                , .arrival       = *branch.current_time
-                , .journey_time  = journey_time
-                , .transfer_time = branch.transfer_time
-                , .transfers     = branch.transfers
-                , .fare          = branch.fare
-                , .impedance     = branch_impedance_value(
-                      journey_time
-                    , branch.transfers
-                    , branch.fare
-                    , impedance
-                    , fare_scale
+            const auto destination  = ZoneId{ branch.trace.current_physical.id };
+            MATHFP_TRY_LET(
+                  SearchConnection
+                , connection
+                , make_search_connection(
+                      branch.trace.origin
+                    , destination
+                    , branch.trace.connection_trace
                 )
-                , .segments = reconstruct_segment_trace(branches, branch)
-            };
+            );
+            return std::optional<SearchConnection>{ std::move(connection) };
         }
 
         SearchPruningDecision retain_branch(
               const SearchBranch&               branch
-            , NodeConnectionMap&                known_connections
+            , NodeMetricMap&                    known_metrics
             , const SearchParams&               params
             , const SearchPruningExecutionPlan& pruning_execution
             , SearchPruningRuntimeStats&        pruning_stats
             , double                            fare_scale
         ) {
-            if (!branch.departure.has_value() || !branch.current_time.has_value()) {
+            if (!branch.metrics.departure.has_value() || !branch.metrics.current_time.has_value()) {
                 return SearchPruningDecision{
                       .layer    = SearchPruningLayer::Exact
                     , .reason   = SearchPruningReason::Accepted
@@ -686,13 +887,13 @@ namespace timetable::domain::assignment {
             }
 
             ++pruning_stats.evaluated_candidates;
-            const auto label = make_partial_label(branch, params.impedance, fare_scale);
+            auto metrics = make_partial_pruning_metrics(branch, params.impedance, fare_scale);
             const auto node  = search_node_key(branch);
-            auto it          = known_connections.find(node);
-            if (it == known_connections.end()) {
-                if (stores_search_pruning_labels(pruning_execution)) {
-                    insert_label(known_connections, pruning_execution, node, label);
-                    ++pruning_stats.inserted_labels;
+            auto it          = known_metrics.find(node);
+            if (it == known_metrics.end()) {
+                if (stores_search_pruning_metrics(pruning_execution)) {
+                    insert_pruning_metrics(known_metrics, pruning_execution, node, std::move(metrics));
+                    ++pruning_stats.inserted_metrics;
                 } else {
                     ++pruning_stats.skipped_insertions;
                 }
@@ -706,7 +907,7 @@ namespace timetable::domain::assignment {
 
             const auto decision = evaluate_search_pruning(
                   pruning_execution
-                , label
+                , metrics
                 , it->second
                 , params.transfers
             );
@@ -719,9 +920,9 @@ namespace timetable::domain::assignment {
                 return decision;
             }
 
-            if (stores_search_pruning_labels(pruning_execution)) {
-                insert_label(known_connections, pruning_execution, node, label);
-                ++pruning_stats.inserted_labels;
+            if (stores_search_pruning_metrics(pruning_execution)) {
+                insert_pruning_metrics(known_metrics, pruning_execution, node, std::move(metrics));
+                ++pruning_stats.inserted_metrics;
             } else {
                 ++pruning_stats.skipped_insertions;
             }
@@ -733,16 +934,16 @@ namespace timetable::domain::assignment {
             const SearchBranch& branch
         ) noexcept {
             return BranchState{
-                  .current_arrival_time = branch.current_time
-                , .last_segment         = branch.last_timed_segment
-                , .last_route_segment   = branch.last_timed_route_segment
-                , .transfer_count       = branch.departure.has_value()
-                    ? std::optional<TransferCount>{ branch.transfers }
+                  .current_arrival_time = branch.metrics.current_time
+                , .last_segment         = branch.trace.last_timed_segment
+                , .last_route_segment   = branch.trace.last_timed_route_segment
+                , .transfer_count       = branch.metrics.departure.has_value()
+                    ? std::optional<TransferCount>{ branch.metrics.transfers }
                     : std::nullopt
             };
         }
 
-        mathfp::Expected<std::vector<DiscoveredConnection>> search_from_origin(
+        mathfp::Expected<std::vector<SearchConnection>> search_from_origin(
               ZoneId                            origin
             , const PreprocessedNetwork&        network
             , double                            fare_scale
@@ -756,8 +957,8 @@ namespace timetable::domain::assignment {
             using timetable::infra::progress::log;
             using timetable::infra::progress::status;
 
-            std::vector<DiscoveredConnection> found;
-            NodeConnectionMap                 known_connections;
+            std::vector<SearchConnection> found;
+            NodeMetricMap                 known_metrics;
             OriginSearchStats                 stats;
             BranchArena                       branches;
             const SearchTimeDomain*           first_departure_domain =
@@ -771,20 +972,25 @@ namespace timetable::domain::assignment {
             std::deque<std::size_t> next_frontier;
             branches.push_back(
                 SearchBranch{
-                      .origin                   = origin
-                    , .current_physical         = endpoint_key(origin)
-                    , .current_occurrence       = std::nullopt
-                    , .departure                = std::nullopt
-                    , .current_time             = std::nullopt
-                    , .walk_time                = Time{ 0.0 }
-                    , .access_walk_time         = Time{ 0.0 }
-                    , .transfer_time            = Time{ 0.0 }
-                    , .transfers                = TransferCount{ 0 }
-                    , .fare                     = 0.0
-                    , .parent_branch            = std::nullopt
-                    , .incoming_segment         = std::nullopt
-                    , .last_timed_segment       = nullptr
-                    , .last_timed_route_segment = nullptr
+                      .trace = SearchPartialTrace{
+                            .origin                   = origin
+                          , .current_physical         = endpoint_key(origin)
+                          , .current_occurrence       = std::nullopt
+                          , .connection_trace         = ConnectionTrace{}
+                          , .parent_branch            = std::nullopt
+                          , .incoming_segment         = std::nullopt
+                          , .last_timed_segment       = nullptr
+                          , .last_timed_route_segment = nullptr
+                      }
+                    , .metrics = SearchPartialMetrics{
+                            .departure        = std::nullopt
+                          , .current_time     = std::nullopt
+                          , .walk_time        = Time{ 0.0 }
+                          , .access_walk_time = Time{ 0.0 }
+                          , .transfer_time    = Time{ 0.0 }
+                          , .transfers        = TransferCount{ 0 }
+                          , .fare             = 0.0
+                      }
                 }
             );
             current_frontier.push_back(0);
@@ -846,7 +1052,7 @@ namespace timetable::domain::assignment {
                             , stats.rejected_dominance_or_tolerance
                             , stats.pruning.rejected_exact
                             , stats.pruning.rejected_approximate
-                            , stats.pruning.inserted_labels
+                            , stats.pruning.inserted_metrics
                             , stats.pruning.skipped_insertions
                             , current_frontier.size()
                             , next_frontier   .size()
@@ -860,9 +1066,12 @@ namespace timetable::domain::assignment {
                 }
 
                 if (is_complete_connection(branch)) {
-                    if (const auto complete = complete_connection(
-                        branches, branch, network, params.impedance, params.transfers, fare_scale
-                    ); complete.has_value()) {
+                    MATHFP_TRY_LET(
+                          std::optional<SearchConnection>
+                        , complete
+                        , complete_connection(branch, network, params.transfers)
+                    );
+                    if (complete.has_value()) {
                         found.push_back(std::move(*complete));
                         ++stats.completed_connections;
                     }
@@ -910,14 +1119,14 @@ namespace timetable::domain::assignment {
                         return;
                     }
 
-                    if (candidate->transfers > params.transfers.max_transfers) {
+                    if (candidate->metrics.transfers > params.transfers.max_transfers) {
                         ++stats.rejected_transfer_limit;
                         return;
                     }
 
                     const auto pruning_decision = retain_branch(
                           *candidate
-                        , known_connections
+                        , known_metrics
                         , params
                         , pruning_execution
                         , stats.pruning
@@ -929,7 +1138,7 @@ namespace timetable::domain::assignment {
                     }
                     ++stats.accepted_branches;
                     const auto same_level =
-                        is_walk_connection(successor) || !branch.departure.has_value();
+                        is_walk_connection(successor) || !branch.metrics.departure.has_value();
                     branches.push_back(std::move(*candidate));
                     const auto candidate_index = branches.size() - 1;
                     if (same_level) {
@@ -971,6 +1180,101 @@ namespace timetable::domain::assignment {
         }
 
     }  // namespace
+
+    SearchConnection::SearchConnection(
+        Connection connection
+    )
+        : connection_(std::move(connection)) {}
+
+    mathfp::Expected<SearchConnection> make_search_connection(
+        Connection connection
+    ) {
+        return make_search_connection(
+              connection.origin
+            , connection.destination
+            , std::move(connection.trace)
+        );
+    }
+
+    mathfp::Expected<SearchConnection> make_search_connection(
+          ZoneId          origin
+        , ZoneId          destination
+        , ConnectionTrace trace
+    ) {
+        MATHFP_TRY_LET(
+              Connection
+            , connection
+            , make_connection(origin, destination, std::move(trace))
+        );
+        return SearchConnection{ std::move(connection) };
+    }
+
+    const Connection& canonical_connection(
+        const SearchConnection& connection
+    ) noexcept {
+        return connection.connection_;
+    }
+
+    ZoneId origin_of(
+        const SearchConnection& connection
+    ) noexcept {
+        return canonical_connection(connection).origin;
+    }
+
+    ZoneId destination_of(
+        const SearchConnection& connection
+    ) noexcept {
+        return canonical_connection(connection).destination;
+    }
+
+    ConnectionMetrics metrics_of(
+        const SearchConnection& connection
+    ) {
+        return *compute_connection_metrics(canonical_connection(connection));
+    }
+
+    Time departure_time_of(
+        const SearchConnection& connection
+    ) {
+        return metrics_of(connection).departure_time;
+    }
+
+    Time arrival_time_of(
+        const SearchConnection& connection
+    ) {
+        return metrics_of(connection).arrival_time;
+    }
+
+    Time journey_time_of(
+        const SearchConnection& connection
+    ) {
+        return metrics_of(connection).journey_time;
+    }
+
+    Time transfer_time_of(
+        const SearchConnection& connection
+    ) {
+        const auto metrics = metrics_of(connection);
+        return metrics.transfer_wait_time + metrics.transfer_walk_time;
+    }
+
+    TransferCount transfer_count_of(
+        const SearchConnection& connection
+    ) {
+        return metrics_of(connection).transfer_count;
+    }
+
+    double fare_of(
+        const SearchConnection& connection
+    ) {
+        return metrics_of(connection).fare;
+    }
+
+    std::vector<ConnectionSegmentId> connection_segment_trace(
+        const SearchConnection& connection
+    ) {
+        return connection_segments_of(canonical_connection(connection).trace);
+    }
 
     mathfp::Expected<ConnectionSearchResult> search_connections_branch_and_bound(
           const PreprocessedNetwork& network
@@ -1054,7 +1358,7 @@ namespace timetable::domain::assignment {
                 , LogLevel::Info
             );
             MATHFP_TRY_LET(
-                  std::vector<DiscoveredConnection>
+                  std::vector<SearchConnection>
                 , origin_connections
                 , search_from_origin(
                       origin

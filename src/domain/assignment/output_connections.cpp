@@ -7,23 +7,24 @@
 namespace timetable::domain::assignment::detail {
 
     mathfp::Expected<AssignmentConnection> build_assignment_connection(
-          const DiscoveredConnection& connection
+          const SearchConnection& connection
         , const PreprocessedNetwork&  network
     ) {
+        const auto segments = connection_segment_trace(connection);
         AssignmentConnection output{
               .summary  = connection
             , .segments = {}
         };
-        output.segments.reserve(connection.segments.size());
+        output.segments.reserve(segments.size());
 
-        for (const auto segment_id : connection.segments) {
+        for (const auto segment_id : segments) {
             const auto connection_segment_index = static_cast<std::size_t>(segment_id.get());
             if (connection_segment_index >= network.connection_segments.size()) {
                 return mathfp::unexpected(
                     mathfp::internal_error("assignment output mapping references unknown connection segment")
                         .ctx("connection_segment_id" , segment_id.get())
-                        .ctx("connection_origin"     , connection.origin.get())
-                        .ctx("connection_destination", connection.destination.get())
+                        .ctx("connection_origin"     , origin_of(connection).get())
+                        .ctx("connection_destination", destination_of(connection).get())
                 );
             }
 

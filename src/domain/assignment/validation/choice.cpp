@@ -25,7 +25,7 @@ namespace timetable::domain::assignment {
         const auto search_trace_map = detail::validation::trace_index_map(search_result.connections);
         MATHFP_TRY(detail::validation::validate_each_index(
               choice_result.connections
-            , [&](const DiscoveredConnection& connection, std::size_t i) {
+            , [&](const SearchConnection& connection, std::size_t i) {
                 return detail::validation::ensure_contains(
                       search_trace_map
                     , detail::validation::connection_trace_key(connection)
@@ -34,8 +34,8 @@ namespace timetable::domain::assignment {
                             "choice output contains a connection that was not present in search output"
                         )
                             .ctx("choice_index", static_cast<std::int64_t>(i))
-                            .ctx("origin"      , connection.origin.get())
-                            .ctx("destination" , connection.destination.get());
+                            .ctx("origin"      , origin_of(connection).get())
+                            .ctx("destination" , destination_of(connection).get());
                     }
                 );
             }

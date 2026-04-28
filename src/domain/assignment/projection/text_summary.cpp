@@ -88,6 +88,9 @@ namespace timetable::domain::assignment::projection {
                   "Search connections:  {}\n"
                   "Chosen connections:  {}\n"
                   "Demand shares:       {}\n"
+                  "Line loads:          {}\n"
+                  "Trip loads:          {}\n"
+                  "Segment loads:       {}\n"
                   "Total demand:        {}\n"
                   "Assigned passengers: {}\n"
                 , format_count (summary.totals.od_count)
@@ -96,6 +99,9 @@ namespace timetable::domain::assignment::projection {
                 , format_count (summary.totals.search_connection_count)
                 , format_count (summary.totals.chosen_connection_count)
                 , format_count (summary.totals.demand_share_count)
+                , format_count (summary.line_load_count)
+                , format_count (summary.trip_load_count)
+                , format_count (summary.segment_load_count)
                 , format_scalar(summary.totals.total_demand_passengers)
                 , format_scalar(summary.totals.assigned_passengers)
             );
@@ -111,7 +117,7 @@ namespace timetable::domain::assignment::projection {
                 , "\nOD {} -> {}\n"
                   "  search  = {} chosen      = {} intervals    = {} shares  = {}\n"
                   "  demand  = {} assigned    = {}                               \n"
-                  "  fastest = {} lowest_fare = {} min_transfers= {} min_imp = {}\n"
+                  "  fastest = {} lowest_fare = {} min_transfers= {}\n"
                 , od.origin     .get()
                 , od.destination.get()
                 , format_count             (od.search_connection_count)
@@ -123,7 +129,6 @@ namespace timetable::domain::assignment::projection {
                 , format_optional_time     (od.fastest_journey_time)
                 , format_optional_scalar   (od.lowest_fare)
                 , format_optional_transfers(od.minimum_transfers)
-                , format_optional_scalar   (od.minimum_search_impedance)
             );
 
             const auto limit = std::min(
@@ -134,7 +139,7 @@ namespace timetable::domain::assignment::projection {
                 const auto& connection = od.connections[i];
                 fmt::format_to(
                       std::back_inserter(out)
-                    , "  #{} dep={} arr={} jt={} tt={} nt={} fare={} imp={} assigned={} shares={}\n"
+                    , "  #{} dep={} arr={} jt={} tt={} nt={} fare={} assigned={} shares={}\n"
                     , connection.index.get()
                     , format_clock_like_time(connection.departure)
                     , format_clock_like_time(connection.arrival)
@@ -142,7 +147,6 @@ namespace timetable::domain::assignment::projection {
                     , format_clock_like_time(connection.transfer_time)
                     , connection.transfers.get()
                     , format_scalar(connection.fare)
-                    , format_scalar(connection.search_impedance)
                     , format_scalar(connection.assigned_passengers)
                     , format_count(connection.share_count)
                 );

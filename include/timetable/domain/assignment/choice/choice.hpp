@@ -11,7 +11,7 @@
 namespace timetable::domain::assignment {
 
     struct ConnectionChoiceResult final {
-        std::vector<DiscoveredConnection> connections{};
+        std::vector<SearchConnection> connections{};
     };
 
     /**
@@ -20,6 +20,7 @@ namespace timetable::domain::assignment {
     mathfp::Expected<ConnectionChoiceResult> choose_connections(
           const ConnectionSearchResult& search_result
         , const SearchParams&           params
+        , double                        fare_scale
         , const ChoiceConfig&           config
     );
 

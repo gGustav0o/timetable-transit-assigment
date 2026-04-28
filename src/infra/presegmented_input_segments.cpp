@@ -159,7 +159,6 @@ namespace timetable::infra::detail::presegmented_input {
     ) {
         using timetable::domain::ConnectionSegment;
         using timetable::domain::ConnectionSegmentId;
-        using timetable::domain::RoutePosition;
         using timetable::domain::TripId;
         using timetable::domain::preprocessing::make_connection_segment;
 
@@ -180,8 +179,8 @@ namespace timetable::infra::detail::presegmented_input {
                   ConnectionSegmentId{ state.next_connection_segment_id++ }
                 , route_segment
                 , semantics.is_walk_segment ? std::optional<TripId>        {} : std::optional<TripId>        { TripId{ row.trip_id } }
-                , semantics.is_walk_segment ? std::optional<RoutePosition> {} : std::optional<RoutePosition> { RoutePosition{ row.from_index } }
-                , semantics.is_walk_segment ? std::optional<RoutePosition> {} : std::optional<RoutePosition> { RoutePosition{ row.to_index } }
+                , semantics.connection_from_index
+                , semantics.connection_to_index
                 , semantics.dep
                 , semantics.arr
                 , semantics.fare

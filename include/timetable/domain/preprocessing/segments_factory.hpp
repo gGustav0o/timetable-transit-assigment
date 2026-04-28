@@ -226,18 +226,6 @@ namespace timetable::domain::preprocessing {
             return ensure_present(trip, "line segment must carry trip metadata");
         }
 
-        inline mathfp::Expected<mathfp::Unit> ensure_line_segment_has_indices(
-              const std::optional<RoutePosition>&   from_index
-            , const std::optional<RoutePosition>& to_index
-        ) {
-            const char* message = "line segment must carry route positions";
-
-            MATHFP_TRY(ensure_present(from_index, message));
-            MATHFP_TRY(ensure_present(to_index  , message));
-
-            return mathfp::kUnit;
-        }
-
         inline mathfp::Expected<mathfp::Unit> ensure_trip_id_nonnegative(
             const TripId& trip
         ) {
@@ -300,22 +288,16 @@ namespace timetable::domain::preprocessing {
             return mathfp::kUnit;
         }
 
-        inline mathfp::Expected<mathfp::Unit> ensure_trip_metadata_consistent(
+        inline mathfp::Expected<mathfp::Unit> ensure_line_segment_indices_consistent(
               const RouteSegment&                   route_segment
-            , const std::optional<TripId>&        trip
             , const std::optional<RoutePosition>& from_index
             , const std::optional<RoutePosition>& to_index
         ) {
             MATHFP_TRY(ensure_index_pair_presence_consistent(from_index, to_index));
-
-            if (is_walk(route_segment)) {
-                MATHFP_TRY(ensure_walk_segment_has_no_trip_metadata(trip, from_index, to_index));
+            if (!from_index.has_value()) {
                 return mathfp::kUnit;
             }
 
-            MATHFP_TRY(ensure_line_segment_has_trip(trip));
-            MATHFP_TRY(ensure_line_segment_has_indices(from_index, to_index));
-            MATHFP_TRY(ensure_trip_id_nonnegative(*trip));
             MATHFP_TRY(ensure_indices_nonnegative(from_index.value(), to_index.value()));
             MATHFP_TRY(ensure_indices_strictly_ordered(from_index.value(), to_index.value()));
             MATHFP_TRY(ensure_connection_route_positions_match(
@@ -323,6 +305,23 @@ namespace timetable::domain::preprocessing {
                 , from_index.value()
                 , to_index.value()
             ));
+            return mathfp::kUnit;
+        }
+
+        inline mathfp::Expected<mathfp::Unit> ensure_trip_metadata_consistent(
+              const RouteSegment&                   route_segment
+            , const std::optional<TripId>&        trip
+            , const std::optional<RoutePosition>& from_index
+            , const std::optional<RoutePosition>& to_index
+        ) {
+            if (is_walk(route_segment)) {
+                MATHFP_TRY(ensure_walk_segment_has_no_trip_metadata(trip, from_index, to_index));
+                return mathfp::kUnit;
+            }
+
+            MATHFP_TRY(ensure_line_segment_has_trip(trip));
+            MATHFP_TRY(ensure_trip_id_nonnegative(*trip));
+            MATHFP_TRY(ensure_line_segment_indices_consistent(route_segment, from_index, to_index));
 
             return mathfp::kUnit;
         }

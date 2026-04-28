@@ -10,7 +10,6 @@
 #include <mathfp/core/unit.hpp>
 
 #include "../detail/validation_common.hpp"
-#include "timetable/domain/impedance.hpp"
 #include "timetable/domain/segment_semantics.hpp"
 
 namespace timetable::domain::assignment {
@@ -41,90 +40,121 @@ namespace timetable::domain::assignment {
             return network.connection_segments.at(static_cast<std::size_t>(id.get()));
         }
 
-        [[nodiscard]] double expected_search_impedance(
-              Time                journey_time
-            , TransferCount       transfers
-            , double              fare
-            , double              fare_scale
-            , const SearchParams& params
-        ) noexcept {
-            return connection_impedance_value(
-                  journey_time
-                , transfers
-                , fare
-                , params.impedance
-                , fare_scale
-            );
-        }
-
-        mathfp::Expected<mathfp::Unit> validate_discovered_connection_basic(
-              const DiscoveredConnection& connection
+        mathfp::Expected<mathfp::Unit> validate_search_connection_basic(
+              const SearchConnection& connection
             , std::size_t                 index
         ) {
-            if (connection.origin == connection.destination) {
+            const auto origin      = origin_of(connection);
+            const auto destination = destination_of(connection);
+            const auto segments    = connection_segment_trace(connection);
+            const auto metrics     = metrics_of(connection);
+            const auto transfer_time =
+                metrics.transfer_wait_time + metrics.transfer_walk_time;
+
+            if (origin == destination) {
                 return mathfp::unexpected(
                     mathfp::invalid_arg("connection origin and destination must be distinct")
                         .ctx("connection_index", static_cast<std::int64_t>(index))
-                        .ctx("origin"          , connection.origin.get())
-                        .ctx("destination"     , connection.destination.get())
+                        .ctx("origin"          , origin.get())
+                        .ctx("destination"     , destination.get())
                 );
             }
-            if (connection.segments.empty()) {
+            if (segments.empty()) {
                 return mathfp::unexpected(
                     mathfp::invalid_arg("connection must contain at least one segment")
                         .ctx("connection_index", static_cast<std::int64_t>(index))
                 );
             }
-            if (   !detail::validation::is_finite_non_negative(connection.departure    .value())
-                || !detail::validation::is_finite_non_negative(connection.arrival      .value())
-                || !detail::validation::is_finite_non_negative(connection.journey_time .value())
-                || !detail::validation::is_finite_non_negative(connection.transfer_time.value())
-                || !detail::validation::is_finite_non_negative(connection.fare)
-                || !std::isfinite(connection.impedance)) {
+            if (canonical_connection(connection).trace.legs.empty()) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("connection must contain a materialized leg trace")
+                        .ctx("connection_index", static_cast<std::int64_t>(index))
+                );
+            }
+            if (   !detail::validation::is_finite_non_negative(metrics.departure_time.value())
+                || !detail::validation::is_finite_non_negative(metrics.arrival_time.value())
+                || !detail::validation::is_finite_non_negative(metrics.journey_time.value())
+                || !detail::validation::is_finite_non_negative(transfer_time.value())
+                || !detail::validation::is_finite_non_negative(metrics.fare)) {
                 return mathfp::unexpected(
                     mathfp::invalid_arg("connection carries non-finite metric")
                         .ctx("connection_index", static_cast<std::int64_t>(index))
                 );
             }
-            if (connection.arrival.value() < connection.departure.value()) {
+            if (metrics.arrival_time.value() < metrics.departure_time.value()) {
                 return mathfp::unexpected(
                     mathfp::invalid_arg("connection arrival precedes departure")
                         .ctx("connection_index", static_cast<std::int64_t>(index))
-                        .ctx("departure"       , connection.departure.value())
-                        .ctx("arrival"         , connection.arrival.value())
+                        .ctx("departure"       , metrics.departure_time.value())
+                        .ctx("arrival"         , metrics.arrival_time.value())
                 );
             }
             if (!detail::validation::almost_equal_scalar(
-                  connection.journey_time.value()
-                , connection.arrival.value() - connection.departure.value()
+                  metrics.journey_time.value()
+                , metrics.arrival_time.value() - metrics.departure_time.value()
             )) {
                 return mathfp::unexpected(
                     mathfp::invalid_arg("connection journey_time is inconsistent with departure/arrival")
                         .ctx("connection_index", static_cast<std::int64_t>(index))
                 );
             }
-            if (connection.transfer_time.value() > connection.journey_time.value()
+            if (transfer_time.value() > metrics.journey_time.value()
                 && !detail::validation::almost_equal_scalar(
-                      connection.transfer_time.value()
-                    , connection.journey_time.value()
+                      transfer_time.value()
+                    , metrics.journey_time.value()
                 )) {
                 return mathfp::unexpected(
                     mathfp::invalid_arg("connection transfer_time exceeds journey_time")
                         .ctx("connection_index", static_cast<std::int64_t>(index))
                 );
             }
-            if (connection.transfers.get() < 0) {
+            if (metrics.transfer_count.get() < 0) {
                 return mathfp::unexpected(
                     mathfp::invalid_arg("connection transfer count must be non-negative")
                         .ctx("connection_index", static_cast<std::int64_t>(index))
-                        .ctx("transfers"       , static_cast<std::int64_t>(connection.transfers.get()))
+                        .ctx("transfers"       , static_cast<std::int64_t>(metrics.transfer_count.get()))
                 );
             }
             return mathfp::kUnit;
         }
 
+        mathfp::Expected<mathfp::Unit> validate_materialized_trace_projection(
+              const SearchConnection& connection
+            , std::size_t                 index
+        ) {
+            const auto& trace = canonical_connection(connection).trace;
+            const auto segments = connection_segment_trace(connection);
+            MATHFP_TRY(validate_connection_trace(trace));
+
+            std::size_t segment_index = 0;
+            for (const auto& leg : trace.legs) {
+                if (!leg.connection_segment.has_value()) {
+                    continue;
+                }
+                if (segment_index >= segments.size()
+                    || segments[segment_index] != *leg.connection_segment) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("materialized leg trace disagrees with segment trace")
+                            .ctx("connection_index", static_cast<std::int64_t>(index))
+                            .ctx("segment_index"   , static_cast<std::int64_t>(segment_index))
+                    );
+                }
+                ++segment_index;
+            }
+            if (segment_index != segments.size()) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("materialized leg trace misses connection segments")
+                        .ctx("connection_index", static_cast<std::int64_t>(index))
+                        .ctx("trace_segments"  , static_cast<std::int64_t>(segment_index))
+                        .ctx("path_segments"   , static_cast<std::int64_t>(segments.size()))
+                );
+            }
+
+            return mathfp::kUnit;
+        }
+
         mathfp::Expected<EvaluatedConnectionTrace> evaluate_connection_trace(
-              const DiscoveredConnection& connection
+              const SearchConnection& connection
             , const PreprocessedNetwork&  network
             , std::size_t                 index
         ) {
@@ -138,9 +168,10 @@ namespace timetable::domain::assignment {
             TransferCount transfers{ 0 };
             double fare            = 0.0;
             bool has_timed_segment = false;
+            const auto segments = connection_segment_trace(connection);
 
-            for (std::size_t i = 0; i < connection.segments.size(); ++i) {
-                const auto segment_id    = connection.segments[i];
+            for (std::size_t i = 0; i < segments.size(); ++i) {
+                const auto segment_id    = segments[i];
                 const auto segment_index = static_cast<std::size_t>(segment_id.get());
                 if (segment_index >= network.connection_segments.size()) {
                     return mathfp::unexpected(
@@ -237,59 +268,46 @@ namespace timetable::domain::assignment {
             };
         }
 
-        mathfp::Expected<mathfp::Unit> validate_evaluated_connection_against_declared(
-              const DiscoveredConnection&     connection
+        mathfp::Expected<mathfp::Unit> validate_evaluated_segments_against_canonical_connection(
+              const SearchConnection&     connection
             , const EvaluatedConnectionTrace& evaluated
-            , double                          fare_scale
-            , const SearchParams&             params
             , std::size_t                     index
         ) {
-            if (evaluated.start.kind != EndpointKind::Zone || evaluated.start.id != connection.origin.get()) {
+            const auto origin      = origin_of(connection);
+            const auto destination = destination_of(connection);
+            const auto metrics     = metrics_of(connection);
+            const auto transfer_time =
+                metrics.transfer_wait_time + metrics.transfer_walk_time;
+
+            if (evaluated.start.kind != EndpointKind::Zone || evaluated.start.id != origin.get()) {
                 return mathfp::unexpected(
-                    mathfp::invalid_arg("connection trace does not start at declared origin zone")
+                    mathfp::invalid_arg("connection trace does not start at canonical origin zone")
                         .ctx("connection_index", static_cast<std::int64_t>(index))
-                        .ctx("origin"          , connection.origin.get())
+                        .ctx("origin"          , origin.get())
                 );
             }
-            if (evaluated.finish.kind != EndpointKind::Zone || evaluated.finish.id != connection.destination.get()) {
+            if (evaluated.finish.kind != EndpointKind::Zone || evaluated.finish.id != destination.get()) {
                 return mathfp::unexpected(
-                    mathfp::invalid_arg("connection trace does not end at declared destination zone")
+                    mathfp::invalid_arg("connection trace does not end at canonical destination zone")
                         .ctx("connection_index", static_cast<std::int64_t>(index))
-                        .ctx("destination"     , connection.destination.get())
+                        .ctx("destination"     , destination.get())
                 );
             }
-            if (!detail::validation::almost_equal_time(connection.departure, evaluated.departure)
-                || !detail::validation::almost_equal_time(connection.arrival, evaluated.arrival)
-                || !detail::validation::almost_equal_time(connection.journey_time, evaluated.journey_time)
-                || !detail::validation::almost_equal_time(connection.transfer_time, evaluated.transfer_time)
-                || connection.transfers != evaluated.transfers
-                || !detail::validation::almost_equal_scalar(connection.fare, evaluated.fare)) {
+            if (!detail::validation::almost_equal_time(metrics.departure_time, evaluated.departure)
+                || !detail::validation::almost_equal_time(metrics.arrival_time, evaluated.arrival)
+                || !detail::validation::almost_equal_time(metrics.journey_time, evaluated.journey_time)
+                || !detail::validation::almost_equal_time(transfer_time, evaluated.transfer_time)
+                || metrics.transfer_count != evaluated.transfers
+                || !detail::validation::almost_equal_scalar(metrics.fare, evaluated.fare)) {
                 return mathfp::unexpected(
-                    mathfp::internal_error("declared connection metrics disagree with segment trace")
+                    mathfp::internal_error("canonical connection metrics disagree with segment trace")
                         .ctx("connection_index"   , static_cast<std::int64_t>(index))
-                        .ctx("declared_departure" , connection.departure.value())
+                        .ctx("canonical_departure", metrics.departure_time.value())
                         .ctx("evaluated_departure", evaluated.departure.value())
-                        .ctx("declared_arrival"   , connection.arrival.value())
+                        .ctx("canonical_arrival"  , metrics.arrival_time.value())
                         .ctx("evaluated_arrival"  , evaluated.arrival.value())
                 );
             }
-
-            const auto impedance = expected_search_impedance(
-                  evaluated.journey_time
-                , evaluated.transfers
-                , evaluated.fare
-                , fare_scale
-                , params
-            );
-            if (!detail::validation::almost_equal_scalar(connection.impedance, impedance)) {
-                return mathfp::unexpected(
-                    mathfp::internal_error("declared connection impedance disagrees with search formula")
-                        .ctx("connection_index"   , static_cast<std::int64_t>(index))
-                        .ctx("declared_impedance" , connection.impedance)
-                        .ctx("evaluated_impedance", impedance)
-                );
-            }
-
             return mathfp::kUnit;
         }
 
@@ -299,7 +317,7 @@ namespace timetable::domain::assignment {
           const ConnectionSearchResult& result
         , const PreprocessedNetwork&    network
         , double                        fare_scale
-        , const SearchParams&           params
+        , const SearchParams&
     ) {
         if (!(fare_scale > 0.0) || !std::isfinite(fare_scale)) {
             return mathfp::unexpected(
@@ -316,18 +334,17 @@ namespace timetable::domain::assignment {
         MATHFP_TRY(detail::validation::validate_unique_connection_traces(result.connections, "search"));
         MATHFP_TRY(detail::validation::validate_each_index(
               result.connections
-            , [&](const DiscoveredConnection& connection, std::size_t i) {
-                MATHFP_TRY(validate_discovered_connection_basic(connection, i));
+            , [&](const SearchConnection& connection, std::size_t i) {
+                MATHFP_TRY(validate_search_connection_basic(connection, i));
+                MATHFP_TRY(validate_materialized_trace_projection(connection, i));
                 MATHFP_TRY_LET(
                       EvaluatedConnectionTrace
                     , evaluated
                     , evaluate_connection_trace(connection, network, i)
                 );
-                MATHFP_TRY(validate_evaluated_connection_against_declared(
+                MATHFP_TRY(validate_evaluated_segments_against_canonical_connection(
                       connection
                     , evaluated
-                    , fare_scale
-                    , params
                     , i
                 ));
                 return mathfp::kUnit;

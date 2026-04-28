@@ -35,17 +35,17 @@ namespace timetable::domain::assignment::detail::grouping {
         auto operator<=>(const ConnectionTraceKey&) const = default;
     };
 
-    using OwnedOdConnectionGroups    = std::map<OdKey    , std::vector<DiscoveredConnection>>;
-    using BorrowedOdConnectionGroups = std::map<OdKey    , std::vector<const DiscoveredConnection*>>;
+    using OwnedOdConnectionGroups    = std::map<OdKey    , std::vector<SearchConnection>>;
+    using BorrowedOdConnectionGroups = std::map<OdKey    , std::vector<const SearchConnection*>>;
     using DemandEntryGroups          = std::map<OdKey    , std::vector<const DemandEntry*>>;
     using ShareGroups                = std::map<DemandKey, std::vector<const ConnectionDemandShare*>>;
 
     [[nodiscard]] inline OdKey od_key(
-        const DiscoveredConnection& connection
+        const SearchConnection& connection
     ) noexcept {
         return OdKey{
-              .origin      = connection.origin
-            , .destination = connection.destination
+              .origin      = origin_of(connection)
+            , .destination = destination_of(connection)
         };
     }
 
@@ -59,12 +59,12 @@ namespace timetable::domain::assignment::detail::grouping {
     }
 
     [[nodiscard]] inline ConnectionTraceKey connection_trace_key(
-        const DiscoveredConnection& connection
+        const SearchConnection& connection
     ) {
         return ConnectionTraceKey{
-              .origin      = connection.origin
-            , .destination = connection.destination
-            , .segments    = connection.segments
+              .origin      = origin_of(connection)
+            , .destination = destination_of(connection)
+            , .segments    = connection_segment_trace(connection)
         };
     }
 
@@ -89,7 +89,7 @@ namespace timetable::domain::assignment::detail::grouping {
     }
 
     [[nodiscard]] inline std::map<OdKey, std::size_t> count_connections_by_od(
-        std::span<const DiscoveredConnection> connections
+        std::span<const SearchConnection> connections
     ) {
         std::map<OdKey, std::size_t> counts;
         for (const auto& connection : connections) {
@@ -99,7 +99,7 @@ namespace timetable::domain::assignment::detail::grouping {
     }
 
     [[nodiscard]] inline std::map<ConnectionTraceKey, std::size_t> trace_index_map(
-        std::span<const DiscoveredConnection> connections
+        std::span<const SearchConnection> connections
     ) {
         std::map<ConnectionTraceKey, std::size_t> indices;
         for (std::size_t i = 0; i < connections.size(); ++i) {
@@ -109,7 +109,7 @@ namespace timetable::domain::assignment::detail::grouping {
     }
 
     [[nodiscard]] inline OwnedOdConnectionGroups group_connections_by_od(
-        std::span<const DiscoveredConnection> connections
+        std::span<const SearchConnection> connections
     ) {
         OwnedOdConnectionGroups groups;
         for (const auto& connection : connections) {
@@ -119,7 +119,7 @@ namespace timetable::domain::assignment::detail::grouping {
     }
 
     [[nodiscard]] inline BorrowedOdConnectionGroups group_connection_ptrs_by_od(
-        std::span<const DiscoveredConnection> connections
+        std::span<const SearchConnection> connections
     ) {
         BorrowedOdConnectionGroups groups;
         for (const auto& connection : connections) {

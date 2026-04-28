@@ -14,7 +14,7 @@ namespace timetable::domain::assignment::detail {
     );
 
     mathfp::Expected<AssignmentConnection> build_assignment_connection(
-          const DiscoveredConnection& connection
+          const SearchConnection& connection
         , const PreprocessedNetwork&  network
     );
 
@@ -24,6 +24,10 @@ namespace timetable::domain::assignment::detail {
 
     mathfp::Expected<mathfp::Unit> validate_output_summary_semantics(
         const AssignmentOutput& output
+    );
+
+    mathfp::Expected<AssignmentLoads> build_assignment_loads(
+        const DemandSplitResult& split_result
     );
 
     mathfp::Expected<AssignmentOutput> build_assignment_output_impl(

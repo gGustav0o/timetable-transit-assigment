@@ -14,7 +14,7 @@ namespace timetable::domain::assignment {
         ZoneId               origin{};
         ZoneId               destination{};
         IntervalId           interval{};
-        DiscoveredConnection connection{};
+        SearchConnection     connection;
         double               passengers{};
         double               probability{};
         double               independence{};

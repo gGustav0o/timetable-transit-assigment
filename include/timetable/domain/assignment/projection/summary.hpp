@@ -25,7 +25,6 @@ namespace timetable::domain::assignment::projection {
         Time                    transfer_time{};
         TransferCount           transfers{};
         double                  fare{};
-        double                  search_impedance{};
         double                  assigned_passengers{};
         std::size_t             share_count{};
     };
@@ -45,7 +44,6 @@ namespace timetable::domain::assignment::projection {
         std::optional<Time>                      fastest_journey_time{};
         std::optional<double>                    lowest_fare{};
         std::optional<TransferCount>             minimum_transfers{};
-        std::optional<double>                    minimum_search_impedance{};
         std::vector<AssignmentConnectionSummary> connections{};
     };
 
@@ -60,6 +58,9 @@ namespace timetable::domain::assignment::projection {
         AssignmentOutput::Summary        totals{};
         std::size_t                      interval_count{};
         std::size_t                      nonempty_od_count{};
+        std::size_t                      line_load_count{};
+        std::size_t                      trip_load_count{};
+        std::size_t                      segment_load_count{};
         std::vector<AssignmentOdSummary> od_results{};
     };
 

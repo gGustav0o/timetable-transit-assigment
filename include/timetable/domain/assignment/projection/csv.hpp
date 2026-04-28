@@ -14,6 +14,12 @@
 
 namespace timetable::domain::assignment::projection {
 
+    enum class AssignmentLoadLevel : std::uint8_t {
+          Line
+        , Trip
+        , Segment
+    };
+
     /**
      * @brief One flat row for od_summary.csv.
      *
@@ -31,7 +37,6 @@ namespace timetable::domain::assignment::projection {
         std::optional<Time>          fastest_journey_time{};
         std::optional<double>        lowest_fare{};
         std::optional<TransferCount> minimum_transfers{};
-        std::optional<double>        minimum_search_impedance{};
     };
 
     /**
@@ -50,7 +55,6 @@ namespace timetable::domain::assignment::projection {
         Time                    transfer_time{};
         TransferCount           transfers{};
         double                  fare{};
-        double                  search_impedance{};
         double                  assigned_passengers{};
         std::size_t             share_count{};
         std::size_t             path_segment_count{};
@@ -109,6 +113,30 @@ namespace timetable::domain::assignment::projection {
     };
 
     /**
+     * @brief One flat row for loads.csv.
+     *
+     * Segment rows contain primary passenger flow. Line and trip rows contain
+     * passenger-segment aggregates derived from segment rows.
+     */
+    struct AssignmentLoadCsvRow final {
+        AssignmentLoadLevel                 level{};
+        IntervalId                          interval_id{};
+        LineId                              line_id{};
+        std::optional<TripId>               trip_id{};
+        std::optional<RouteSegmentId>       route_segment_id{};
+        std::optional<ConnectionSegmentId>  connection_segment_id{};
+        std::optional<StopId>               from_stop_id{};
+        std::optional<RoutePosition>        from_position{};
+        std::optional<StopId>               to_stop_id{};
+        std::optional<RoutePosition>        to_position{};
+        std::optional<Time>                 departure{};
+        std::optional<Time>                 arrival{};
+        std::optional<double>               passengers{};
+        std::optional<double>               passenger_segments{};
+        std::size_t                         segment_load_count{};
+    };
+
+    /**
      * @brief Flat analytical export tables derived from AssignmentOutput.
      *
      * The four vectors correspond directly to:
@@ -122,6 +150,7 @@ namespace timetable::domain::assignment::projection {
         std::vector<AssignmentConnectionCsvRow> connection_rows{};
         std::vector<AssignmentShareCsvRow>      share_rows{};
         std::vector<AssignmentSegmentCsvRow>    segment_rows{};
+        std::vector<AssignmentLoadCsvRow>       load_rows{};
     };
 
     mathfp::Expected<AssignmentCsvProjection> build_assignment_csv_projection(

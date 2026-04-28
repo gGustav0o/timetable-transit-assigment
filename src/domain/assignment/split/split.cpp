@@ -39,50 +39,64 @@ namespace timetable::domain::assignment {
             return mathfp::units::as_dimless(weight) * transfer_count_value(transfers);
         }
 
+        struct SplitAlternative final {
+            SearchConnection  connection;
+            ConnectionMetrics metrics{};
+            double            perceived_journey_time{};
+            double            independence{};
+        };
+
         double perceived_journey_time(
-              const DiscoveredConnection&        connection
+              const ConnectionMetrics&          metrics
             , const PerceivedJourneyTimeWeights& weights
         ) noexcept {
-            return weighted_duration(connection.journey_time, weights.journey_time)
-                + weighted_duration(connection.transfer_time, weights.transfer_time)
-                + weighted_transfer_count(connection.transfers, weights.transfer_count);
+            const auto transfer_time = metrics.transfer_wait_time + metrics.transfer_walk_time;
+            return weighted_duration(metrics.journey_time, weights.journey_time)
+                + weighted_duration(transfer_time, weights.transfer_time)
+                + weighted_transfer_count(metrics.transfer_count, weights.transfer_count);
         }
 
         double early_departure_deviation(
-              const DiscoveredConnection& connection
+              const SplitAlternative& alternative
             , const TimeInterval&         interval
         ) noexcept {
-            return std::max(0.0, interval.start.value() - connection.departure.value());
+            return std::max(
+                  0.0
+                , interval.start.value() - alternative.metrics.departure_time.value()
+            );
         }
 
         double late_departure_deviation(
-              const DiscoveredConnection& connection
+              const SplitAlternative& alternative
             , const TimeInterval&         interval
         ) noexcept {
-            return std::max(0.0, connection.departure.value() - interval.end.value());
+            return std::max(
+                  0.0
+                , alternative.metrics.departure_time.value() - interval.end.value()
+            );
         }
 
         double temporal_utility(
-              const DiscoveredConnection&   connection
+              const SplitAlternative&       alternative
             , const TimeInterval&           interval
             , const TemporalUtilityWeights& weights
         ) noexcept {
             return mathfp::units::as_dimless(weights.early_departure)
-                    * early_departure_deviation(connection, interval)
+                    * early_departure_deviation(alternative, interval)
                 + mathfp::units::as_dimless(weights.late_departure)
-                    * late_departure_deviation(connection, interval);
+                    * late_departure_deviation(alternative, interval);
         }
 
         double split_impedance(
-              const DiscoveredConnection& connection
+              const SplitAlternative& alternative
             , const TimeInterval&         interval
             , const SplitParams&          params
         ) noexcept {
             return mathfp::units::as_dimless(params.q_time)
-                    * perceived_journey_time(connection, params.perceived_journey_time)
+                    * alternative.perceived_journey_time
                 + mathfp::units::as_dimless(params.q_departure)
-                    * temporal_utility(connection, interval, params.temporal_utility)
-                + mathfp::units::as_dimless(params.q_fare) * connection.fare;
+                    * temporal_utility(alternative, interval, params.temporal_utility)
+                + mathfp::units::as_dimless(params.q_fare) * alternative.metrics.fare;
         }
 
         double box_cox_transform(
@@ -97,29 +111,27 @@ namespace timetable::domain::assignment {
         }
 
         double temporal_similarity(
-              const DiscoveredConnection& lhs
-            , const DiscoveredConnection& rhs
+              const SplitAlternative& lhs
+            , const SplitAlternative& rhs
         ) noexcept {
             return 0.5 * (
-                std::abs(rhs.departure.value() - lhs.departure.value())
-                + std::abs(rhs.arrival.value() - lhs.arrival.value())
+                std::abs(rhs.metrics.departure_time.value() - lhs.metrics.departure_time.value())
+                + std::abs(rhs.metrics.arrival_time.value() - lhs.metrics.arrival_time.value())
             );
         }
 
         double base_journey_quality_advantage(
-              const DiscoveredConnection& lhs
-            , const DiscoveredConnection& rhs
-            , const SplitParams&          params
+              const SplitAlternative& lhs
+            , const SplitAlternative& rhs
         ) noexcept {
-            return perceived_journey_time(rhs, params.perceived_journey_time)
-                - perceived_journey_time(lhs, params.perceived_journey_time);
+            return rhs.perceived_journey_time - lhs.perceived_journey_time;
         }
 
         double base_fare_quality_advantage(
-              const DiscoveredConnection& lhs
-            , const DiscoveredConnection& rhs
+              const SplitAlternative& lhs
+            , const SplitAlternative& rhs
         ) noexcept {
-            return rhs.fare - lhs.fare;
+            return rhs.metrics.fare - lhs.metrics.fare;
         }
 
         bool base_connection_is_superior(
@@ -159,12 +171,12 @@ namespace timetable::domain::assignment {
         }
 
         double connection_influence(
-              const DiscoveredConnection& base
-            , const DiscoveredConnection& other
+              const SplitAlternative& base
+            , const SplitAlternative& other
             , const SplitParams&          params
         ) noexcept {
             const auto x = temporal_similarity(base, other);
-            const auto y = base_journey_quality_advantage(base, other, params);
+            const auto y = base_journey_quality_advantage(base, other);
             const auto z = base_fare_quality_advantage(base, other);
             const auto proximity = capped_proximity(
                   x
@@ -177,18 +189,74 @@ namespace timetable::domain::assignment {
         }
 
         double connection_independence(
-              std::span<const DiscoveredConnection> connections
+              std::span<const SplitAlternative> alternatives
             , std::size_t                           index
             , const SplitParams&                    params
         ) noexcept {
             double influence_sum = 0.0;
-            for (std::size_t i = 0; i < connections.size(); ++i) {
+            for (std::size_t i = 0; i < alternatives.size(); ++i) {
                 if (i == index) {
                     continue;
                 }
-                influence_sum += connection_influence(connections[index], connections[i], params);
+                influence_sum += connection_influence(alternatives[index], alternatives[i], params);
             }
             return 1.0 / (1.0 + influence_sum);
+        }
+
+        std::vector<SplitAlternative> derive_split_alternatives(
+              const std::vector<const SearchConnection*>& connections
+            , const SplitParams&            params
+        ) {
+            std::vector<SplitAlternative> alternatives;
+            alternatives.reserve(connections.size());
+
+            for (const auto* connection : connections) {
+                const auto metrics = metrics_of(*connection);
+                alternatives.push_back(
+                    SplitAlternative{
+                          .connection             = *connection
+                        , .metrics                = metrics
+                        , .perceived_journey_time = perceived_journey_time(
+                              metrics
+                            , params.perceived_journey_time
+                          )
+                        , .independence           = 0.0
+                    }
+                );
+            }
+
+            for (std::size_t i = 0; i < alternatives.size(); ++i) {
+                alternatives[i].independence = connection_independence(
+                      alternatives
+                    , i
+                    , params
+                );
+            }
+
+            return alternatives;
+        }
+
+        using SplitAlternativeGroups = std::map<
+              detail::grouping::OdKey
+            , std::vector<SplitAlternative>
+        >;
+
+        SplitAlternativeGroups build_split_alternative_groups(
+              const ConnectionChoiceResult& choice_result
+            , const SplitParams&            params
+        ) {
+            SplitAlternativeGroups alternative_groups;
+            const auto connection_groups
+                = detail::grouping::group_connection_ptrs_by_od(choice_result.connections);
+
+            for (const auto& [key, connections] : connection_groups) {
+                alternative_groups.emplace(
+                      key
+                    , derive_split_alternatives(connections, params)
+                );
+            }
+
+            return alternative_groups;
         }
 
         using IntervalLookup = std::map<IntervalId, const TimeInterval*>;
@@ -233,10 +301,10 @@ namespace timetable::domain::assignment {
         );
 
         DemandSplitResult result;
-        const auto groups          = detail::grouping::group_connections_by_od(choice_result.connections);
-        const auto interval_lookup = build_interval_lookup(input);
-        const auto beta            = mathfp::units::as_dimless(params.split.beta);
-        const auto boxcox_t        = mathfp::units::as_dimless(params.split.boxcox_t);
+        const auto alternatives_by_od = build_split_alternative_groups(choice_result, params.split);
+        const auto interval_lookup    = build_interval_lookup(input);
+        const auto beta               = mathfp::units::as_dimless(params.split.beta);
+        const auto boxcox_t           = mathfp::units::as_dimless(params.split.boxcox_t);
 
         for (const auto& demand : input.demand) {
             const auto interval = find_interval(interval_lookup, demand.interval);
@@ -247,29 +315,27 @@ namespace timetable::domain::assignment {
                 );
             }
 
-            const auto it = groups.find(detail::grouping::OdKey{ demand.origin, demand.destination });
-            if (it == groups.end() || it->second.empty() || demand.passengers <= 0.0) {
+            const auto it = alternatives_by_od.find(
+                detail::grouping::OdKey{ demand.origin, demand.destination }
+            );
+            if (it == alternatives_by_od.end() || it->second.empty() || demand.passengers <= 0.0) {
                 continue;
             }
 
-            const auto& connections = it->second;
+            const auto& alternatives = it->second;
             std::vector<double> independences;
             std::vector<double> split_impedances;
             std::vector<double> log_weights;
 
-            independences   .reserve(connections.size());
-            split_impedances.reserve(connections.size());
-            log_weights     .reserve(connections.size());
+            independences   .reserve(alternatives.size());
+            split_impedances.reserve(alternatives.size());
+            log_weights     .reserve(alternatives.size());
 
             double max_log_weight = -std::numeric_limits<double>::infinity();
-            for (std::size_t i = 0; i < connections.size(); ++i) {
-                const auto independence = connection_independence(
-                      connections
-                    , i
-                    , params.split
-                );
+            for (std::size_t i = 0; i < alternatives.size(); ++i) {
+                const auto independence = alternatives[i].independence;
                 const auto imp = split_impedance(
-                      connections[i]
+                      alternatives[i]
                     , *interval
                     , params.split
                 );
@@ -305,14 +371,14 @@ namespace timetable::domain::assignment {
                 );
             }
 
-            for (std::size_t i = 0; i < connections.size(); ++i) {
+            for (std::size_t i = 0; i < alternatives.size(); ++i) {
                 const auto probability = weights[i] / weight_sum;
                 result.shares.push_back(
                     ConnectionDemandShare{
                           .origin          = demand.origin
                         , .destination     = demand.destination
                         , .interval        = demand.interval
-                        , .connection      = connections[i]
+                        , .connection      = alternatives[i].connection
                         , .passengers      = demand.passengers * probability
                         , .probability     = probability
                         , .independence    = independences[i]

@@ -15,9 +15,9 @@ namespace timetable::domain::assignment {
      *
      * CurrentPhysicalOccurrenceAndTransferContext preserves the current search
      * semantics:
-     * pruning compares labels only within the same physical endpoint, the same
-     * optional stop occurrence, and the same continuation-relevant transfer
-     * context carried by the previous timed leg.
+     * pruning compares partial metric vectors only within the same physical
+     * endpoint, the same optional stop occurrence, and the same
+     * continuation-relevant transfer context carried by the previous timed leg.
      */
     enum class SearchPruningStateSpace : std::uint8_t {
         CurrentPhysicalOccurrenceAndTransferContext

@@ -14,74 +14,65 @@
 namespace timetable::domain::assignment {
     namespace {
 
-        void update_summary_with_label(
+        void update_summary_with_metrics(
               SearchPruningSummary&     summary
-            , const SearchPruningLabel& label
+            , const SearchPruningMetrics& metrics
         ) noexcept {
-            const auto& primitive = label.primitive;
-            const auto& derived   = label.derived;
             if (summary.empty) {
-                summary.min_impedance    = derived.impedance;
-                summary.min_journey_time = derived.journey_time.value();
-                summary.min_walk_time    = derived.walk_time.value();
-                summary.min_transfers    = static_cast<double>(primitive.transfers.get());
-                summary.min_fare         = primitive.fare;
+                summary.min_impedance    = metrics.impedance;
+                summary.min_journey_time = metrics.journey_time.value();
+                summary.min_walk_time    = metrics.walk_time.value();
+                summary.min_transfers    = static_cast<double>(metrics.transfers.get());
+                summary.min_fare         = metrics.fare;
                 summary.empty            = false;
                 return;
             }
 
-            summary.min_impedance    = std::min(summary.min_impedance   , derived.impedance);
-            summary.min_journey_time = std::min(summary.min_journey_time, derived.journey_time.value());
-            summary.min_walk_time    = std::min(summary.min_walk_time   , derived.walk_time.value());
-            summary.min_transfers    = std::min(summary.min_transfers   , static_cast<double>(primitive.transfers.get()));
-            summary.min_fare         = std::min(summary.min_fare        , primitive.fare);
+            summary.min_impedance    = std::min(summary.min_impedance   , metrics.impedance);
+            summary.min_journey_time = std::min(summary.min_journey_time, metrics.journey_time.value());
+            summary.min_walk_time    = std::min(summary.min_walk_time   , metrics.walk_time.value());
+            summary.min_transfers    = std::min(summary.min_transfers   , static_cast<double>(metrics.transfers.get()));
+            summary.min_fare         = std::min(summary.min_fare        , metrics.fare);
         }
 
     }  // namespace
 
-    mathfp::Expected<SearchPruningLabel> make_search_pruning_label(
-          SearchPruningLabelPrimitive primitive
-        , SearchPruningLabelDerived   derived
+    mathfp::Expected<SearchPruningMetrics> make_search_pruning_metrics(
+        SearchPruningMetrics metrics
     ) {
-        SearchPruningLabel label{
-              .primitive = std::move(primitive)
-            , .derived   = std::move(derived)
-        };
-        MATHFP_TRY(validate_search_pruning_label(label));
-        return label;
+        MATHFP_TRY(validate_search_pruning_metrics(metrics));
+        return metrics;
     }
 
-    mathfp::Expected<mathfp::Unit> validate_search_pruning_label(
-        const SearchPruningLabel& label
+    mathfp::Expected<mathfp::Unit> validate_search_pruning_metrics(
+        const SearchPruningMetrics& metrics
     ) {
-        const auto& primitive = label.primitive;
-        const auto& derived   = label.derived;
         if (
-            !(std::isfinite(primitive.departure.value()) && std::isfinite(primitive.arrival.value())
-            && std::isfinite(derived.journey_time.value()) && std::isfinite(derived.walk_time.value())
-            && std::isfinite(primitive.fare) && std::isfinite(derived.impedance))
+            !(std::isfinite(metrics.departure.value()) && std::isfinite(metrics.arrival.value())
+            && std::isfinite(metrics.journey_time.value()) && std::isfinite(metrics.walk_time.value())
+            && std::isfinite(metrics.fare) && std::isfinite(metrics.impedance))
         ) {
             return mathfp::unexpected(
-                mathfp::invalid_arg("search pruning label carries non-finite metric")
+                mathfp::invalid_arg("search pruning metrics carry non-finite value")
             );
         }
-        if (primitive.arrival.value() < primitive.departure.value()) {
+        if (metrics.arrival.value() < metrics.departure.value()) {
             return mathfp::unexpected(
-                mathfp::invalid_arg("search pruning label arrival precedes departure")
-                    .ctx("departure", primitive.departure.value())
-                    .ctx("arrival"  , primitive.arrival  .value())
+                mathfp::invalid_arg("search pruning metrics arrival precedes departure")
+                    .ctx("departure", metrics.departure.value())
+                    .ctx("arrival"  , metrics.arrival  .value())
             );
         }
-        if (derived.journey_time.value() < 0.0 || derived.walk_time.value() < 0.0
-            || primitive.fare < 0.0 || primitive.transfers.get() < 0) {
+        if (metrics.journey_time.value() < 0.0 || metrics.walk_time.value() < 0.0
+            || metrics.fare < 0.0 || metrics.transfers.get() < 0) {
             return mathfp::unexpected(
-                mathfp::invalid_arg("search pruning label contains negative metric")
+                mathfp::invalid_arg("search pruning metrics contain negative value")
             );
         }
-        if (derived.journey_time.value()
-            > primitive.arrival.value() - primitive.departure.value() + std::numeric_limits<double>::epsilon()) {
+        if (metrics.journey_time.value()
+            > metrics.arrival.value() - metrics.departure.value() + std::numeric_limits<double>::epsilon()) {
             return mathfp::unexpected(
-                mathfp::invalid_arg("search pruning label journey_time exceeds arrival - departure")
+                mathfp::invalid_arg("search pruning metrics journey_time exceeds arrival - departure")
             );
         }
         return mathfp::kUnit;
@@ -115,31 +106,31 @@ namespace timetable::domain::assignment {
         return mathfp::kUnit;
     }
 
-    mathfp::Expected<mathfp::Unit> validate_search_pruning_label_set(
-        const SearchPruningLabelSet& label_set
+    mathfp::Expected<mathfp::Unit> validate_search_pruning_metric_set(
+        const SearchPruningMetricSet& metric_set
     ) {
-        for (std::size_t i = 0; i < label_set.labels.size(); ++i) {
-            MATHFP_TRY(validate_search_pruning_label(label_set.labels[i]));
+        for (std::size_t i = 0; i < metric_set.metrics.size(); ++i) {
+            MATHFP_TRY(validate_search_pruning_metrics(metric_set.metrics[i]));
             if (
                    i > 0
-                && label_set.labels[i]    .primitive.arrival.value()
-                 < label_set.labels[i - 1].primitive.arrival.value()
+                && metric_set.metrics[i]    .arrival.value()
+                 < metric_set.metrics[i - 1].arrival.value()
             ) {
                 return mathfp::unexpected(
-                    mathfp::invalid_arg("search pruning label set must be ordered by arrival")
+                    mathfp::invalid_arg("search pruning metric set must be ordered by arrival")
                 );
             }
         }
-        MATHFP_TRY(validate_search_pruning_summary(label_set.summary));
+        MATHFP_TRY(validate_search_pruning_summary(metric_set.summary));
 
-        for (std::size_t i = 0; i < label_set.labels.size(); ++i) {
-            for (std::size_t j = 0; j < label_set.labels.size(); ++j) {
+        for (std::size_t i = 0; i < metric_set.metrics.size(); ++i) {
+            for (std::size_t j = 0; j < metric_set.metrics.size(); ++j) {
                 if (i == j) {
                     continue;
                 }
-                if (dominates_exactly(label_set.labels[i], label_set.labels[j])) {
+                if (dominates_exactly(metric_set.metrics[i], metric_set.metrics[j])) {
                     return mathfp::unexpected(
-                        mathfp::invalid_arg("search pruning label set contains exact-dominated label")
+                        mathfp::invalid_arg("search pruning metric set contains exact-dominated metric vector")
                             .ctx("dominator_index", static_cast<std::int64_t>(i))
                             .ctx("dominated_index", static_cast<std::int64_t>(j))
                     );
@@ -147,20 +138,20 @@ namespace timetable::domain::assignment {
             }
         }
 
-        const auto recomputed = summarize_pruning_labels(label_set.labels);
+        const auto recomputed = summarize_pruning_metrics(metric_set.metrics);
         if (
-            recomputed.empty != label_set.summary.empty
+            recomputed.empty != metric_set.summary.empty
             || (
                    !recomputed.empty
-                && (recomputed.min_impedance    != label_set.summary.min_impedance
-                 || recomputed.min_journey_time != label_set.summary.min_journey_time
-                 || recomputed.min_walk_time    != label_set.summary.min_walk_time
-                 || recomputed.min_transfers    != label_set.summary.min_transfers
-                 || recomputed.min_fare         != label_set.summary.min_fare)
+                && (recomputed.min_impedance    != metric_set.summary.min_impedance
+                 || recomputed.min_journey_time != metric_set.summary.min_journey_time
+                 || recomputed.min_walk_time    != metric_set.summary.min_walk_time
+                 || recomputed.min_transfers    != metric_set.summary.min_transfers
+                 || recomputed.min_fare         != metric_set.summary.min_fare)
             )
         ) {
             return mathfp::unexpected(
-                mathfp::internal_error("search pruning label set summary disagrees with labels")
+                mathfp::internal_error("search pruning metric set summary disagrees with metrics")
             );
         }
 
@@ -169,49 +160,44 @@ namespace timetable::domain::assignment {
 
     bool dominates_exactly(
           ExactDominanceContract    contract
-        , const SearchPruningLabel& lhs
-        , const SearchPruningLabel& rhs
+        , const SearchPruningMetrics& lhs
+        , const SearchPruningMetrics& rhs
     ) noexcept {
         (void)contract;
-        const auto& lp = lhs.primitive;
-        const auto& ld = lhs.derived;
-        const auto& rp = rhs.primitive;
-        const auto& rd = rhs.derived;
-
         const auto no_worse =
-               lp.departure.value() >= rp.departure.value()
-            && lp.arrival.value()   <= rp.arrival.value()
-            && ld.impedance         <= rd.impedance
-            && lp.transfers.get()   <= rp.transfers.get();
+               lhs.departure.value() >= rhs.departure.value()
+            && lhs.arrival.value()   <= rhs.arrival.value()
+            && lhs.impedance         <= rhs.impedance
+            && lhs.transfers.get()   <= rhs.transfers.get();
 
         const auto strictly_better =
-               lp.departure.value() > rp.departure.value()
-            || lp.arrival.value()   < rp.arrival.value()
-            || ld.impedance         < rd.impedance
-            || lp.transfers.get()   < rp.transfers.get();
+               lhs.departure.value() > rhs.departure.value()
+            || lhs.arrival.value()   < rhs.arrival.value()
+            || lhs.impedance         < rhs.impedance
+            || lhs.transfers.get()   < rhs.transfers.get();
 
         return no_worse && strictly_better;
     }
 
     bool dominates_exactly(
-          const SearchPruningLabel& lhs
-        , const SearchPruningLabel& rhs
+          const SearchPruningMetrics& lhs
+        , const SearchPruningMetrics& rhs
     ) noexcept {
         return dominates_exactly(ExactDominanceContract::ExtensionSafeCurrentState, lhs, rhs);
     }
 
     bool dominates_exactly(
           const ExactPruningPolicy& policy
-        , const SearchPruningLabel& lhs
-        , const SearchPruningLabel& rhs
+        , const SearchPruningMetrics& lhs
+        , const SearchPruningMetrics& rhs
     ) noexcept {
         return dominates_exactly(policy.contract, lhs, rhs);
     }
 
     bool is_exactly_relevant(
           const ExactPruningPolicy&           policy
-        , const SearchPruningLabel&           candidate
-        , std::span<const SearchPruningLabel> known
+        , const SearchPruningMetrics&           candidate
+        , std::span<const SearchPruningMetrics> known
     ) noexcept {
         for (const auto& existing : known) {
             if (dominates_exactly(policy, existing, candidate)) {
@@ -222,43 +208,43 @@ namespace timetable::domain::assignment {
     }
 
     bool is_exactly_relevant(
-          const SearchPruningLabel&           candidate
-        , std::span<const SearchPruningLabel> known
+          const SearchPruningMetrics&           candidate
+        , std::span<const SearchPruningMetrics> known
     ) noexcept {
         return is_exactly_relevant(ExactPruningPolicy{}, candidate, known);
     }
 
-    SearchPruningSummary summarize_pruning_labels(
-        std::span<const SearchPruningLabel> labels
+    SearchPruningSummary summarize_pruning_metrics(
+        std::span<const SearchPruningMetrics> metrics
     ) noexcept {
         SearchPruningSummary summary{};
-        for (const auto& label : labels) {
-            update_summary_with_label(summary, label);
+        for (const auto& metric : metrics) {
+            update_summary_with_metrics(summary, metric);
         }
         return summary;
     }
 
     bool within_approximate_retention(
-          const SearchPruningLabel&       candidate
+          const SearchPruningMetrics&       candidate
         , const SearchPruningSummary&     summary
         , const ApproximatePruningPolicy& policy
         , const TransferLimits&           limits
     ) noexcept {
         if (summary.empty) {
-            return candidate.primitive.transfers <= limits.max_transfers;
+            return candidate.transfers <= limits.max_transfers;
         }
 
         return
-               candidate.primitive.transfers <= limits.max_transfers
-            && candidate.derived.impedance
+               candidate.transfers <= limits.max_transfers
+            && candidate.impedance
                    <= mathfp::units::as_dimless(policy.tolerances.imp_mult)
                     * summary.min_impedance
                     + mathfp::units::as_dimless(policy.tolerances.imp_add)
-            && candidate.derived.journey_time.value()
+            && candidate.journey_time.value()
                    <= mathfp::units::as_dimless(policy.tolerances.jt_mult)
                     * summary.min_journey_time
                     + mathfp::units::as_dimless(policy.tolerances.jt_add)
-            && static_cast<double>(candidate.primitive.transfers.get())
+            && static_cast<double>(candidate.transfers.get())
                    <= mathfp::units::as_dimless(policy.tolerances.nt_mult)
                     * summary.min_transfers
                     + mathfp::units::as_dimless(policy.tolerances.nt_add);
@@ -266,10 +252,10 @@ namespace timetable::domain::assignment {
 
     ExactPruningDecision evaluate_exact_pruning(
           const ExactPruningPolicy&    exact_policy
-        , const SearchPruningLabel&    candidate
-        , const SearchPruningLabelSet& label_set
+        , const SearchPruningMetrics&    candidate
+        , const SearchPruningMetricSet& metric_set
     ) noexcept {
-        if (!is_exactly_relevant(exact_policy, candidate, label_set.labels)) {
+        if (!is_exactly_relevant(exact_policy, candidate, metric_set.metrics)) {
             return ExactPruningDecision{
                   .reason   = SearchPruningReason::RejectedExactDominance
                 , .accepted = false
@@ -283,15 +269,15 @@ namespace timetable::domain::assignment {
     }
 
     ExactPruningDecision evaluate_exact_pruning(
-          const SearchPruningLabel&    candidate
-        , const SearchPruningLabelSet& label_set
+          const SearchPruningMetrics&    candidate
+        , const SearchPruningMetricSet& metric_set
     ) noexcept {
-        return evaluate_exact_pruning(ExactPruningPolicy{}, candidate, label_set);
+        return evaluate_exact_pruning(ExactPruningPolicy{}, candidate, metric_set);
     }
 
     ApproximatePruningDecision evaluate_approximate_pruning(
           const ApproximatePruningPolicy& approximate_policy
-        , const SearchPruningLabel&       candidate
+        , const SearchPruningMetrics&       candidate
         , const SearchPruningSummary&     summary
         , const TransferLimits&           limits
     ) noexcept {
@@ -313,53 +299,53 @@ namespace timetable::domain::assignment {
         };
     }
 
-    SearchPruningLabelSet insert_exact_pruning_label(
+    SearchPruningMetricSet insert_exact_pruning_metrics(
           const ExactPruningPolicy& exact_policy
-        , SearchPruningLabelSet     label_set
-        , SearchPruningLabel        label
+        , SearchPruningMetricSet    metric_set
+        , SearchPruningMetrics      metrics
     ) {
-        label_set.labels.erase(
+        metric_set.metrics.erase(
             std::remove_if(
-                  label_set.labels.begin()
-                , label_set.labels.end()
-                , [&](const SearchPruningLabel& existing) {
-                    return dominates_exactly(exact_policy, label, existing);
+                  metric_set.metrics.begin()
+                , metric_set.metrics.end()
+                , [&](const SearchPruningMetrics& existing) {
+                    return dominates_exactly(exact_policy, metrics, existing);
                 }
             )
-          , label_set.labels.end()
+          , metric_set.metrics.end()
         );
 
         const auto insertion = std::lower_bound(
-              label_set.labels.begin()
-            , label_set.labels.end()
-            , label.primitive.arrival.value()
-            , [](const SearchPruningLabel& lhs, double arrival_value) {
-                return lhs.primitive.arrival.value() < arrival_value;
+              metric_set.metrics.begin()
+            , metric_set.metrics.end()
+            , metrics.arrival.value()
+            , [](const SearchPruningMetrics& lhs, double arrival_value) {
+                return lhs.arrival.value() < arrival_value;
             }
         );
-        label_set.labels.insert(insertion, std::move(label));
-        label_set.summary = summarize_pruning_labels(label_set.labels);
-        return label_set;
+        metric_set.metrics.insert(insertion, std::move(metrics));
+        metric_set.summary = summarize_pruning_metrics(metric_set.metrics);
+        return metric_set;
     }
 
-    SearchPruningLabelSet insert_exact_pruning_label(
-          SearchPruningLabelSet label_set
-        , SearchPruningLabel    label
+    SearchPruningMetricSet insert_exact_pruning_metrics(
+          SearchPruningMetricSet metric_set
+        , SearchPruningMetrics   metrics
     ) {
-        return insert_exact_pruning_label(ExactPruningPolicy{}, std::move(label_set), std::move(label));
+        return insert_exact_pruning_metrics(ExactPruningPolicy{}, std::move(metric_set), std::move(metrics));
     }
 
     SearchPruningDecision evaluate_search_pruning(
           const ExactPruningPolicy&       exact_policy
-        , const SearchPruningLabel&       candidate
-        , const SearchPruningLabelSet&    label_set
+        , const SearchPruningMetrics&       candidate
+        , const SearchPruningMetricSet&    metric_set
         , const ApproximatePruningPolicy& approximate_policy
         , const TransferLimits&           limits
     ) noexcept {
         const auto exact_decision = evaluate_exact_pruning(
               exact_policy
             , candidate
-            , label_set
+            , metric_set
         );
         if (!exact_decision.accepted) {
             return SearchPruningDecision{
@@ -372,7 +358,7 @@ namespace timetable::domain::assignment {
         const auto approximate_decision = evaluate_approximate_pruning(
               approximate_policy
             , candidate
-            , label_set.summary
+            , metric_set.summary
             , limits
         );
         if (!approximate_decision.accepted) {
@@ -391,21 +377,21 @@ namespace timetable::domain::assignment {
     }
 
     SearchPruningDecision evaluate_search_pruning(
-          const SearchPruningLabel&        candidate
-        , const SearchPruningLabelSet&     label_set
+          const SearchPruningMetrics&        candidate
+        , const SearchPruningMetricSet&     metric_set
         , const ApproximatePruningPolicy&  approximate_policy
         , const TransferLimits&            limits
     ) noexcept {
         return evaluate_search_pruning(
               ExactPruningPolicy{}
             , candidate
-            , label_set
+            , metric_set
             , approximate_policy
             , limits
         );
     }
 
-    bool stores_search_pruning_labels(
+    bool stores_search_pruning_metrics(
         const SearchPruningExecutionPlan& execution
     ) noexcept {
         return execution.exact_enabled;
@@ -413,8 +399,8 @@ namespace timetable::domain::assignment {
 
     SearchPruningDecision evaluate_search_pruning(
           const SearchPruningExecutionPlan& execution
-        , const SearchPruningLabel&         candidate
-        , const SearchPruningLabelSet&      label_set
+        , const SearchPruningMetrics&         candidate
+        , const SearchPruningMetricSet&      metric_set
         , const TransferLimits&             limits
     ) noexcept {
         if (!execution.exact_enabled && !execution.approximate_enabled) {
@@ -427,7 +413,7 @@ namespace timetable::domain::assignment {
 
         const auto exact_decision =
             execution.exact_enabled
-                ? evaluate_exact_pruning(execution.exact_policy, candidate, label_set)
+                ? evaluate_exact_pruning(execution.exact_policy, candidate, metric_set)
                 : ExactPruningDecision{};
         if (!exact_decision.accepted) {
             return SearchPruningDecision{
@@ -442,7 +428,7 @@ namespace timetable::domain::assignment {
                 ? evaluate_approximate_pruning(
                       *execution.approximate_policy
                     , candidate
-                    , label_set.summary
+                    , metric_set.summary
                     , limits
                 )
                 : ApproximatePruningDecision{};
@@ -463,15 +449,15 @@ namespace timetable::domain::assignment {
         };
     }
 
-    SearchPruningLabelSet insert_search_pruning_label(
+    SearchPruningMetricSet insert_search_pruning_metrics(
           const SearchPruningExecutionPlan& execution
-        , SearchPruningLabelSet             label_set
-        , SearchPruningLabel                label
+        , SearchPruningMetricSet             metric_set
+        , SearchPruningMetrics               metrics
     ) {
-        if (!stores_search_pruning_labels(execution)) {
-            return label_set;
+        if (!stores_search_pruning_metrics(execution)) {
+            return metric_set;
         }
-        return insert_exact_pruning_label(execution.exact_policy, std::move(label_set), std::move(label));
+        return insert_exact_pruning_metrics(execution.exact_policy, std::move(metric_set), std::move(metrics));
     }
 
 }  // namespace timetable::domain::assignment

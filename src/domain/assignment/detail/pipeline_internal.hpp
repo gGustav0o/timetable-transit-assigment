@@ -26,6 +26,11 @@ namespace timetable::domain::assignment::detail {
         DemandSplitResult      split{};
     };
 
+    struct SearchStepResult final {
+        ConnectionSearchResult result{};
+        double                 fare_scale{};
+    };
+
     inline mathfp::Expected<PreprocessedNetwork> build_preprocessed_step(
         AssignmentInput& input
     ) {
@@ -45,7 +50,7 @@ namespace timetable::domain::assignment::detail {
         return build_preprocessed_step(input);
     }
 
-    inline mathfp::Expected<ConnectionSearchResult> run_validated_search_step(
+    inline mathfp::Expected<SearchStepResult> run_validated_search_step(
           const PreprocessedNetwork& net
         , const AssignmentInput&     input
     ) {
@@ -109,18 +114,22 @@ namespace timetable::domain::assignment::detail {
             , fare_scale
             , params
         ));
-        return search_result;
+        return SearchStepResult{
+              .result     = std::move(search_result)
+            , .fare_scale = fare_scale
+        };
     }
 
     inline mathfp::Expected<ConnectionChoiceResult> run_validated_choice_step(
           const ConnectionSearchResult& search_result
         , const SearchParams&           params
+        , double                        fare_scale
         , const ChoiceConfig&           config
     ) {
         MATHFP_TRY_LET(
               ConnectionChoiceResult
             , choice_result
-            , choose_connections(search_result, params, config)
+            , choose_connections(search_result, params, fare_scale, config)
         );
         MATHFP_TRY(validate_choice_step_output(choice_result, search_result));
         return choice_result;
@@ -159,14 +168,19 @@ namespace timetable::domain::assignment::detail {
             , run_validated_preprocessing_step(input)
         );
         MATHFP_TRY_LET(
-              ConnectionSearchResult
-            , search_result
+              SearchStepResult
+            , search_step
             , run_validated_search_step(network, input)
         );
         MATHFP_TRY_LET(
               ConnectionChoiceResult
             , choice_result
-            , run_validated_choice_step(search_result, input.params, input.choice)
+            , run_validated_choice_step(
+                  search_step.result
+                , input.params
+                , search_step.fare_scale
+                , input.choice
+            )
         );
         MATHFP_TRY_LET(
               DemandSplitResult
@@ -177,7 +191,7 @@ namespace timetable::domain::assignment::detail {
         return AssignmentPipelineResult{
               .input   = std::move(input.input)
             , .network = std::move(network)
-            , .search  = std::move(search_result)
+            , .search  = std::move(search_step.result)
             , .choice  = std::move(choice_result)
             , .split   = std::move(split_result)
         };

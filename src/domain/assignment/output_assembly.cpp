@@ -254,10 +254,16 @@ namespace timetable::domain::assignment::detail {
         const auto demand_by_od  = grouping::group_demand_entries_by_od(input.demand);
         const auto shares_by_key = grouping::group_shares_by_demand_key(split_result.shares);
         const auto all_ods       = collect_all_ods(search_counts, chosen_by_od, demand_by_od);
+        MATHFP_TRY_LET(
+              AssignmentLoads
+            , loads
+            , build_assignment_loads(split_result)
+        );
 
         AssignmentOutput output{
               .summary    = build_output_summary(input, search_result, choice_result, split_result)
             , .od_results = {}
+            , .loads      = std::move(loads)
         };
         output.od_results.reserve(all_ods.size());
 

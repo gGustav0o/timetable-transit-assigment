@@ -19,7 +19,6 @@
 #include <mathfp/types/units.hpp>
 
 #include "timetable/domain/endpoints.hpp"
-#include "timetable/domain/impedance.hpp"
 #include "timetable/domain/preprocessing/segments_index.hpp"
 #include "timetable/domain/segment_semantics.hpp"
 #include "timetable/infra/progress_bus.hpp"
@@ -96,7 +95,7 @@ namespace timetable::domain::assignment {
         }
 
         ConnectionTraceKey connection_trace_key(
-            const DiscoveredConnection& connection
+            const SearchConnection& connection
         ) {
             return ConnectionTraceKey{
                   .origin      = connection.origin
@@ -105,7 +104,7 @@ namespace timetable::domain::assignment {
             };
         }
 
-        OdKey od_key(const DiscoveredConnection& connection) noexcept {
+        OdKey od_key(const SearchConnection& connection) noexcept {
             return OdKey{
                   .origin      = connection.origin
                 , .destination = connection.destination
@@ -118,22 +117,6 @@ namespace timetable::domain::assignment {
                 , .destination = demand.destination
                 , .interval    = demand.interval
             };
-        }
-
-        double expected_search_impedance(
-              Time                journey_time
-            , TransferCount       transfers
-            , double              fare
-            , double              fare_scale
-            , const SearchParams& params
-        ) noexcept {
-            return connection_impedance_value(
-                  journey_time
-                , transfers
-                , fare
-                , params.impedance
-                , fare_scale
-            );
         }
 
         mathfp::Expected<mathfp::Unit> validate_index_offsets(
@@ -168,8 +151,8 @@ namespace timetable::domain::assignment {
             return mathfp::kUnit;
         }
 
-        mathfp::Expected<mathfp::Unit> validate_discovered_connection_basic(
-              const DiscoveredConnection& connection
+        mathfp::Expected<mathfp::Unit> validate_search_connection_basic(
+              const SearchConnection& connection
             , std::size_t                 index
         ) {
             if (connection.origin == connection.destination) {
@@ -190,8 +173,7 @@ namespace timetable::domain::assignment {
                 || !is_finite_non_negative(connection.arrival      .value())
                 || !is_finite_non_negative(connection.journey_time .value())
                 || !is_finite_non_negative(connection.transfer_time.value())
-                || !is_finite_non_negative(connection.fare)
-                || !std::isfinite(connection.impedance)) {
+                || !is_finite_non_negative(connection.fare)) {
                 return mathfp::unexpected(
                     mathfp::invalid_arg("connection carries non-finite metric")
                         .ctx("connection_index", static_cast<std::int64_t>(index))
@@ -232,7 +214,7 @@ namespace timetable::domain::assignment {
         }
 
         mathfp::Expected<EvaluatedConnectionTrace> evaluate_connection_trace(
-              const DiscoveredConnection& connection
+              const SearchConnection& connection
             , const PreprocessedNetwork&  network
             , std::size_t                 index
         ) {
@@ -346,10 +328,8 @@ namespace timetable::domain::assignment {
         }
 
         mathfp::Expected<mathfp::Unit> validate_evaluated_connection_against_declared(
-              const DiscoveredConnection&     connection
+              const SearchConnection&     connection
             , const EvaluatedConnectionTrace& evaluated
-            , double                          fare_scale
-            , const SearchParams&             params
             , std::size_t                     index
         ) {
             if (evaluated.start.kind != EndpointKind::Zone || evaluated.start.id != connection.origin.get()) {
@@ -373,7 +353,7 @@ namespace timetable::domain::assignment {
                 || connection.transfers != evaluated.transfers
                 || !almost_equal_scalar(connection.fare, evaluated.fare)) {
                 return mathfp::unexpected(
-                    mathfp::internal_error("declared connection metrics disagree with segment trace")
+                    mathfp::internal_error("canonical connection metrics disagree with segment trace")
                         .ctx("connection_index"   , static_cast<std::int64_t>(index))
                         .ctx("declared_departure" , connection.departure.value())
                         .ctx("evaluated_departure", evaluated.departure.value())
@@ -381,28 +361,11 @@ namespace timetable::domain::assignment {
                         .ctx("evaluated_arrival"  , evaluated.arrival.value())
                 );
             }
-
-            const auto impedance = expected_search_impedance(
-                  evaluated.journey_time
-                , evaluated.transfers
-                , evaluated.fare
-                , fare_scale
-                , params
-            );
-            if (!almost_equal_scalar(connection.impedance, impedance)) {
-                return mathfp::unexpected(
-                    mathfp::internal_error("declared connection impedance disagrees with search formula")
-                        .ctx("connection_index"   , static_cast<std::int64_t>(index))
-                        .ctx("declared_impedance" , connection.impedance)
-                        .ctx("evaluated_impedance", impedance)
-                );
-            }
-
             return mathfp::kUnit;
         }
 
         mathfp::Expected<mathfp::Unit> validate_unique_connection_traces(
-              std::span<const DiscoveredConnection> connections
+              std::span<const SearchConnection> connections
             , std::string_view                      where
         ) {
             std::map<ConnectionTraceKey, std::size_t> seen;
@@ -423,7 +386,7 @@ namespace timetable::domain::assignment {
         }
 
         std::map<OdKey, std::size_t> count_connections_by_od(
-            std::span<const DiscoveredConnection> connections
+            std::span<const SearchConnection> connections
         ) {
             std::map<OdKey, std::size_t> counts;
             for (const auto& connection : connections) {
@@ -433,7 +396,7 @@ namespace timetable::domain::assignment {
         }
 
         std::map<ConnectionTraceKey, std::size_t> trace_index_map(
-            std::span<const DiscoveredConnection> connections
+            std::span<const SearchConnection> connections
         ) {
             std::map<ConnectionTraceKey, std::size_t> indices;
             for (std::size_t i = 0; i < connections.size(); ++i) {
@@ -472,7 +435,7 @@ namespace timetable::domain::assignment {
 
         mathfp::Expected<std::map<DemandKey, const DemandEntry*>> validate_and_index_demand_entries(
               const InputModel&                     input
-            , std::span<const DiscoveredConnection> choice_connections
+            , std::span<const SearchConnection> choice_connections
             , bool                                  emit_warnings
         ) {
             const auto intervals     = build_interval_map(input);
@@ -680,7 +643,7 @@ namespace timetable::domain::assignment {
           const ConnectionSearchResult& result
         , const PreprocessedNetwork&    network
         , double                        fare_scale
-        , const SearchParams&           params
+        , const SearchParams&
     ) {
         if (!(fare_scale > 0.0) || !std::isfinite(fare_scale)) {
             return mathfp::unexpected(
@@ -697,7 +660,7 @@ namespace timetable::domain::assignment {
         MATHFP_TRY(validate_unique_connection_traces(result.connections, "search"));
         for (std::size_t i = 0; i < result.connections.size(); ++i) {
             const auto& connection = result.connections[i];
-            MATHFP_TRY(validate_discovered_connection_basic(connection, i));
+            MATHFP_TRY(validate_search_connection_basic(connection, i));
             MATHFP_TRY_LET(
                   EvaluatedConnectionTrace
                 , evaluated
@@ -706,8 +669,6 @@ namespace timetable::domain::assignment {
             MATHFP_TRY(validate_evaluated_connection_against_declared(
                   connection
                 , evaluated
-                , fare_scale
-                , params
                 , i
             ));
         }

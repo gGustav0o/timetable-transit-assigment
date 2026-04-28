@@ -101,31 +101,31 @@ namespace timetable::domain::assignment::projection {
                 , .fastest_journey_time     = std::nullopt
                 , .lowest_fare              = std::nullopt
                 , .minimum_transfers        = std::nullopt
-                , .minimum_search_impedance = std::nullopt
                 , .connections              = {}
             };
 
             summary.connections.reserve(od_result.connections.size());
             for (std::size_t i = 0; i < od_result.connections.size(); ++i) {
                 const auto& connection = od_result.connections[i].summary;
-                const auto& shares     = share_aggregates[i];
+                const auto metrics     = metrics_of(connection);
+                const auto transfer_time =
+                    metrics.transfer_wait_time + metrics.transfer_walk_time;
+                const auto& shares = share_aggregates[i];
 
-                update_best_time     (summary.fastest_journey_time    , connection.journey_time);
-                update_best_scalar   (summary.lowest_fare             , connection.fare);
-                update_best_transfers(summary.minimum_transfers       , connection.transfers);
-                update_best_scalar   (summary.minimum_search_impedance, connection.impedance);
+                update_best_time     (summary.fastest_journey_time    , metrics.journey_time);
+                update_best_scalar   (summary.lowest_fare             , metrics.fare);
+                update_best_transfers(summary.minimum_transfers       , metrics.transfer_count);
                 summary.share_count += shares.share_count;
 
                 summary.connections.push_back(
                     AssignmentConnectionSummary{
                           .index               = AssignmentConnectionRef{ static_cast<std::int64_t>(i) }
-                        , .departure           = connection.departure
-                        , .arrival             = connection.arrival
-                        , .journey_time        = connection.journey_time
-                        , .transfer_time       = connection.transfer_time
-                        , .transfers           = connection.transfers
-                        , .fare                = connection.fare
-                        , .search_impedance    = connection.impedance
+                        , .departure           = metrics.departure_time
+                        , .arrival             = metrics.arrival_time
+                        , .journey_time        = metrics.journey_time
+                        , .transfer_time       = transfer_time
+                        , .transfers           = metrics.transfer_count
+                        , .fare                = metrics.fare
                         , .assigned_passengers = shares    .assigned_passengers
                         , .share_count         = shares    .share_count
                     }
@@ -144,6 +144,9 @@ namespace timetable::domain::assignment::projection {
               .totals            = output.summary
             , .interval_count    = 0
             , .nonempty_od_count = 0
+            , .line_load_count    = output.loads.line_loads.size()
+            , .trip_load_count    = output.loads.trip_loads.size()
+            , .segment_load_count = output.loads.segment_loads.size()
             , .od_results        = {}
         };
         summary.od_results.reserve(output.od_results.size());

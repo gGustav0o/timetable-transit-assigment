@@ -71,7 +71,7 @@ namespace timetable::domain::assignment {
             , summary.accepted_candidates
             , summary.rejected_exact
             , summary.rejected_approximate
-            , summary.inserted_labels
+            , summary.inserted_metrics
             , summary.skipped_insertions
         );
     }

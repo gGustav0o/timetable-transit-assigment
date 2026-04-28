@@ -55,11 +55,11 @@ namespace timetable::domain {
     /**
      * @brief One chosen connection for an OD pair after the choice step.
      *
-     * summary stores the aggregate connection indicators used by search/choice.
-     * segments stores the expanded trace in traversal order.
+     * summary stores the strict canonical connection selected by search/choice.
+     * segments stores the expanded supply-backed path projection in traversal order.
      */
     struct AssignmentConnection final {
-        assignment::DiscoveredConnection   summary{};
+        assignment::SearchConnection      summary;
         std::vector<AssignmentPathSegment> segments{};
     };
 
@@ -116,6 +116,63 @@ namespace timetable::domain {
     };
 
     /**
+     * @brief Aggregate transit load for one public-transport line in one demand interval.
+     *
+     * passenger_segments is the sum of segment passenger flows over all loaded
+     * ride legs of the line. It is a passenger-segment volume, not a distinct
+     * passenger or boarding count.
+     */
+    struct AssignmentLineLoad final {
+        IntervalId  interval{};
+        LineId      line{};
+        double      passenger_segments{};
+        std::size_t segment_load_count{};
+    };
+
+    /**
+     * @brief Aggregate transit load for one concrete trip in one demand interval.
+     *
+     * passenger_segments is derived from segment loads for the trip. The segment
+     * profile remains the primary load representation.
+     */
+    struct AssignmentTripLoad final {
+        IntervalId  interval{};
+        LineId      line{};
+        TripId      trip{};
+        double      passenger_segments{};
+        std::size_t segment_load_count{};
+    };
+
+    /**
+     * @brief Primary transit load on one time-realized route segment.
+     *
+     * The key is interval + line + trip + route segment + connection segment.
+     * Stop occurrences are included so loop lines retain their route-position
+     * semantics in downstream projections.
+     */
+    struct AssignmentSegmentLoad final {
+        IntervalId          interval{};
+        LineId              line{};
+        TripId              trip{};
+        RouteSegmentId      route_segment{};
+        ConnectionSegmentId connection_segment{};
+        StopOccurrence      from{};
+        StopOccurrence      to{};
+        Time                departure{};
+        Time                arrival{};
+        double              passengers{};
+    };
+
+    /**
+     * @brief Demand-induced public-transport loads derived from split shares.
+     */
+    struct AssignmentLoads final {
+        std::vector<AssignmentLineLoad>    line_loads{};
+        std::vector<AssignmentTripLoad>    trip_loads{};
+        std::vector<AssignmentSegmentLoad> segment_loads{};
+    };
+
+    /**
      * @brief Public canonical result of the full timetable assignment pipeline.
      *
      * This is the lossless domain-level result from which UI, text and file
@@ -133,6 +190,7 @@ namespace timetable::domain {
 
         Summary                         summary{};
         std::vector<AssignmentOdResult> od_results{};
+        AssignmentLoads                 loads{};
     };
 
 }  // namespace timetable::domain

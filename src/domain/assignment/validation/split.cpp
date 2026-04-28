@@ -49,7 +49,7 @@ namespace timetable::domain::assignment {
 
         mathfp::Expected<std::map<detail::validation::DemandKey, const DemandEntry*>> validate_and_index_demand_entries(
               const InputModel&                     input
-            , std::span<const DiscoveredConnection> choice_connections
+            , std::span<const SearchConnection> choice_connections
             , bool                                  emit_warnings
         ) {
             const auto intervals     = build_interval_map(input);

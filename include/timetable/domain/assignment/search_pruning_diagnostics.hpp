@@ -38,7 +38,7 @@ namespace timetable::domain::assignment {
         std::size_t accepted_candidates{};
         std::size_t rejected_exact{};
         std::size_t rejected_approximate{};
-        std::size_t inserted_labels{};
+        std::size_t inserted_metrics{};
         std::size_t skipped_insertions{};
     };
 

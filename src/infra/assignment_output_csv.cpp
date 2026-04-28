@@ -101,6 +101,20 @@ namespace timetable::infra {
             return "stop";
         }
 
+        std::string load_level_name(
+            projection::AssignmentLoadLevel level
+        ) {
+            switch (level) {
+                case projection::AssignmentLoadLevel::Line:
+                    return "line";
+                case projection::AssignmentLoadLevel::Trip:
+                    return "trip";
+                case projection::AssignmentLoadLevel::Segment:
+                    return "segment";
+            }
+            return "segment";
+        }
+
         template <class StrongId>
         void write_strong_field(
               CsvWriter& writer
@@ -185,7 +199,6 @@ namespace timetable::infra {
         writer.text("fastest_journey_time");
         writer.text("lowest_fare");
         writer.text("minimum_transfers");
-        writer.text("minimum_search_impedance");
         writer.end_row();
 
         for (const auto& row : projection.od_summary_rows) {
@@ -200,7 +213,6 @@ namespace timetable::infra {
             write_optional_time_field(writer, row.fastest_journey_time);
             write_optional_double_field(writer, row.lowest_fare);
             write_optional_transfer_count_field(writer, row.minimum_transfers);
-            write_optional_double_field(writer, row.minimum_search_impedance);
             writer.end_row();
         }
 
@@ -220,7 +232,6 @@ namespace timetable::infra {
         writer.text("transfer_time");
         writer.text("transfers");
         writer.text("fare");
-        writer.text("search_impedance");
         writer.text("assigned_passengers");
         writer.text("share_count");
         writer.text("path_segment_count");
@@ -236,7 +247,6 @@ namespace timetable::infra {
             write_time_field(writer, row.transfer_time);
             write_strong_field(writer, row.transfers);
             writer.number(row.fare);
-            writer.number(row.search_impedance);
             writer.number(row.assigned_passengers);
             writer.integer(static_cast<std::int64_t>(row.share_count));
             writer.integer(static_cast<std::int64_t>(row.path_segment_count));
@@ -340,6 +350,49 @@ namespace timetable::infra {
             write_optional_time_field(writer, row.departure);
             write_optional_time_field(writer, row.arrival);
             write_optional_double_field(writer, row.fare);
+            writer.end_row();
+        }
+
+        return std::move(writer).finish();
+    }
+
+    std::string serialize_assignment_loads_csv(
+        const projection::AssignmentCsvProjection& projection
+    ) {
+        CsvWriter writer;
+        writer.text("load_level");
+        writer.text("interval_id");
+        writer.text("line_id");
+        writer.text("trip_id");
+        writer.text("route_segment_id");
+        writer.text("connection_segment_id");
+        writer.text("from_stop_id");
+        writer.text("from_position");
+        writer.text("to_stop_id");
+        writer.text("to_position");
+        writer.text("departure");
+        writer.text("arrival");
+        writer.text("passengers");
+        writer.text("passenger_segments");
+        writer.text("segment_load_count");
+        writer.end_row();
+
+        for (const auto& row : projection.load_rows) {
+            writer.text(load_level_name(row.level));
+            write_strong_field(writer, row.interval_id);
+            write_strong_field(writer, row.line_id);
+            write_optional_strong_field(writer, row.trip_id);
+            write_optional_strong_field(writer, row.route_segment_id);
+            write_optional_strong_field(writer, row.connection_segment_id);
+            write_optional_strong_field(writer, row.from_stop_id);
+            write_optional_strong_field(writer, row.from_position);
+            write_optional_strong_field(writer, row.to_stop_id);
+            write_optional_strong_field(writer, row.to_position);
+            write_optional_time_field(writer, row.departure);
+            write_optional_time_field(writer, row.arrival);
+            write_optional_double_field(writer, row.passengers);
+            write_optional_double_field(writer, row.passenger_segments);
+            writer.integer(static_cast<std::int64_t>(row.segment_load_count));
             writer.end_row();
         }
 

@@ -4,6 +4,7 @@
 #include "timetable/domain/assignment.hpp"
 #include "timetable/domain/assignment/choice.hpp"
 #include "timetable/domain/assignment/choice/choice_config.hpp"
+#include "timetable/domain/assignment/connection.hpp"
 #include "timetable/domain/assignment/output.hpp"
 #include "timetable/domain/assignment/pipeline.hpp"
 #include "timetable/domain/assignment/projection.hpp"

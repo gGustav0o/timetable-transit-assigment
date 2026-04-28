@@ -1,10 +1,10 @@
 #include "timetable/domain/assignment/choice/choice.hpp"
 
 #include <algorithm>
+#include <cstddef>
 #include <iterator>
 #include <limits>
 #include <span>
-#include <utility>
 #include <vector>
 
 #include <mathfp/types/units.hpp>
@@ -12,136 +12,223 @@
 #include <fmt/format.h>
 
 #include "../detail/grouping.hpp"
+#include "timetable/domain/impedance.hpp"
 #include "timetable/infra/progress_bus.hpp"
 
 namespace timetable::domain::assignment {
     namespace {
 
-        struct ChoiceGroupStats final {
+        struct ChoiceMetrics final {
+            Time          departure{};
+            Time          arrival{};
+            Time          journey_time{};
+            TransferCount transfers{};
+            double        impedance{};
+        };
+
+        struct ChoiceMetricSummary final {
             double min_impedance   { std::numeric_limits<double>::infinity() };
             double min_journey_time{ std::numeric_limits<double>::infinity() };
             double min_transfers   { std::numeric_limits<double>::infinity() };
         };
 
+        struct ChoiceAlternative final {
+            const SearchConnection* connection{};
+            ChoiceMetrics           metrics{};
+        };
+
+        [[nodiscard]] double choice_impedance(
+              const ConnectionMetrics& connection_metrics
+            , const SearchParams&         params
+            , double                      fare_scale
+        ) noexcept {
+            return connection_impedance_value(
+                  connection_metrics.journey_time
+                , connection_metrics.transfer_count
+                , connection_metrics.fare
+                , params.impedance
+                , fare_scale
+            );
+        }
+
+        [[nodiscard]] ChoiceMetrics derive_choice_metrics(
+              const SearchConnection& connection
+            , const SearchParams&     params
+            , double                  fare_scale
+        ) {
+            const auto connection_metrics = metrics_of(connection);
+            return ChoiceMetrics{
+                  .departure   = connection_metrics.departure_time
+                , .arrival     = connection_metrics.arrival_time
+                , .journey_time = connection_metrics.journey_time
+                , .transfers    = connection_metrics.transfer_count
+                , .impedance    = choice_impedance(connection_metrics, params, fare_scale)
+            };
+        }
+
+        [[nodiscard]] std::vector<ChoiceAlternative> derive_choice_alternatives(
+              const std::vector<const SearchConnection*>& connections
+            , const SearchParams&               params
+            , double                            fare_scale
+        ) {
+            std::vector<ChoiceAlternative> alternatives;
+            alternatives.reserve(connections.size());
+            for (const auto* connection : connections) {
+                const auto metrics = derive_choice_metrics(*connection, params, fare_scale);
+                alternatives.push_back(
+                    ChoiceAlternative{
+                          .connection = connection
+                        , .metrics    = metrics
+                    }
+                );
+            }
+            return alternatives;
+        }
+
         bool choice_dominates(
-              const DiscoveredConnection& lhs
-            , const DiscoveredConnection& rhs
+              const ChoiceAlternative& lhs
+            , const ChoiceAlternative& rhs
         ) noexcept {
             const auto no_worse =
-                   lhs.departure.value() >= rhs.departure.value()
-                && lhs.arrival  .value() <= rhs.arrival  .value()
-                && lhs.impedance         <= rhs.impedance
-                && lhs.transfers.get()   <= rhs.transfers.get();
+                   lhs.metrics.departure.value() >= rhs.metrics.departure.value()
+                && lhs.metrics.arrival  .value() <= rhs.metrics.arrival  .value()
+                && lhs.metrics.impedance          <= rhs.metrics.impedance
+                && lhs.metrics.transfers.get()    <= rhs.metrics.transfers.get();
 
             const auto strictly_better =
-                   lhs.departure.value() > rhs.departure.value()
-                || lhs.arrival  .value() < rhs.arrival  .value()
-                || lhs.impedance         < rhs.impedance
-                || lhs.transfers.get()   < rhs.transfers.get();
+                   lhs.metrics.departure.value() > rhs.metrics.departure.value()
+                || lhs.metrics.arrival  .value() < rhs.metrics.arrival  .value()
+                || lhs.metrics.impedance          < rhs.metrics.impedance
+                || lhs.metrics.transfers.get()    < rhs.metrics.transfers.get();
 
             return no_worse && strictly_better;
         }
 
         bool is_choice_relevant(
-              std::span<const DiscoveredConnection> connections
+              std::span<const ChoiceAlternative> alternatives
             , std::size_t                           candidate_index
         ) noexcept {
-            const auto& candidate = connections[candidate_index];
-            for (std::size_t i = 0; i < connections.size(); ++i) {
+            const auto& candidate = alternatives[candidate_index];
+            for (std::size_t i = 0; i < alternatives.size(); ++i) {
                 if (i == candidate_index) {
                     continue;
                 }
-                if (choice_dominates(connections[i], candidate)) {
+                if (choice_dominates(alternatives[i], candidate)) {
                     return false;
                 }
             }
             return true;
         }
 
-        ChoiceGroupStats collect_choice_group_stats(
-            std::span<const DiscoveredConnection> connections
+        ChoiceMetricSummary summarize_choice_metrics(
+            std::span<const ChoiceAlternative> alternatives
         ) noexcept {
-            ChoiceGroupStats stats;
-            for (const auto& connection : connections) {
-                stats.min_impedance    = std::min(stats.min_impedance, connection.impedance);
+            ChoiceMetricSummary stats;
+            for (const auto& alternative : alternatives) {
+                stats.min_impedance    = std::min(stats.min_impedance, alternative.metrics.impedance);
                 stats.min_journey_time
-                    = std::min(stats.min_journey_time, connection.journey_time.value());
+                    = std::min(stats.min_journey_time, alternative.metrics.journey_time.value());
                 stats.min_transfers = std::min(
                       stats.min_transfers
-                    , static_cast<double>(connection.transfers.get())
+                    , static_cast<double>(alternative.metrics.transfers.get())
                 );
             }
             return stats;
         }
 
         bool within_choice_tolerances(
-              const DiscoveredConnection& connection
-            , const ChoiceGroupStats&     stats
-            , const ChoiceTolerances&     tolerances
+              const ChoiceAlternative&         alternative
+            , const ChoiceMetricSummary&       stats
+            , const ChoiceTolerances&          tolerances
         ) noexcept {
-            // TODO: ?
             return
-                   connection.impedance
+                   alternative.metrics.impedance
                 <= mathfp::units::as_dimless(tolerances.imp_mult)
                  * stats.min_impedance
                  + mathfp::units::as_dimless(tolerances.imp_add)
 
-                && connection.journey_time.value()
+                && alternative.metrics.journey_time.value()
                 <= mathfp::units::as_dimless(tolerances.jt_mult) * stats.min_journey_time
                  + mathfp::units::as_dimless(tolerances.jt_add)
 
-                && static_cast<double>(connection.transfers.get())
+                && static_cast<double>(alternative.metrics.transfers.get())
                 <= mathfp::units::as_dimless(tolerances.nt_mult) * stats.min_transfers
                  + mathfp::units::as_dimless(tolerances.nt_add);
         }
 
         bool connection_order_less(
-              const DiscoveredConnection& lhs
-            , const DiscoveredConnection& rhs
-        ) noexcept {
-            if (lhs.departure != rhs.departure) {
-                return lhs.departure.value() < rhs.departure.value();
+              const ChoiceAlternative& lhs
+            , const ChoiceAlternative& rhs
+        ) {
+            if (lhs.metrics.departure != rhs.metrics.departure) {
+                return lhs.metrics.departure.value() < rhs.metrics.departure.value();
             }
-            if (lhs.arrival != rhs.arrival) {
-                return lhs.arrival.value() < rhs.arrival.value();
+            if (lhs.metrics.arrival != rhs.metrics.arrival) {
+                return lhs.metrics.arrival.value() < rhs.metrics.arrival.value();
             }
-            if (lhs.impedance != rhs.impedance) {
-                return lhs.impedance < rhs.impedance;
+            if (lhs.metrics.impedance != rhs.metrics.impedance) {
+                return lhs.metrics.impedance < rhs.metrics.impedance;
             }
-            if (lhs.transfers != rhs.transfers) {
-                return lhs.transfers.get() < rhs.transfers.get();
+            if (lhs.metrics.transfers != rhs.metrics.transfers) {
+                return lhs.metrics.transfers.get() < rhs.metrics.transfers.get();
             }
-            return lhs.segments < rhs.segments;
+            return connection_segment_trace(*lhs.connection)
+                < connection_segment_trace(*rhs.connection);
         }
 
-        std::vector<DiscoveredConnection> filter_choice_group(
-              std::vector<DiscoveredConnection> connections
+        std::vector<SearchConnection> filter_choice_group(
+              const std::vector<const SearchConnection*>& connections
+            , const SearchParams&               params
+            , double                            fare_scale
             , const ChoiceTolerances&           tolerances
             , const ChoiceConfig&               config
         ) {
-            std::vector<DiscoveredConnection> relevant;
-            relevant.reserve(connections.size());
-            for (std::size_t i = 0; i < connections.size(); ++i) {
-                if (is_choice_relevant(connections, i)) {
-                    relevant.push_back(std::move(connections[i]));
+            auto evaluated = derive_choice_alternatives(
+                  connections
+                , params
+                , fare_scale
+            );
+
+            std::vector<std::size_t> relevant_indices;
+            relevant_indices.reserve(evaluated.size());
+            for (std::size_t i = 0; i < evaluated.size(); ++i) {
+                if (is_choice_relevant(evaluated, i)) {
+                    relevant_indices.push_back(i);
                 }
+            }
+
+            std::vector<ChoiceAlternative> relevant;
+            relevant.reserve(relevant_indices.size());
+            for (const auto index : relevant_indices) {
+                relevant.push_back(evaluated[index]);
             }
 
             if (config.rollout_stage == ChoiceRolloutStage::ExactOnly) {
                 std::sort(relevant.begin(), relevant.end(), connection_order_less);
-                return relevant;
+                std::vector<SearchConnection> chosen;
+                chosen.reserve(relevant.size());
+                for (const auto& alternative : relevant) {
+                    chosen.push_back(*alternative.connection);
+                }
+                return chosen;
             }
 
-            const auto stats = collect_choice_group_stats(relevant);
-            std::vector<DiscoveredConnection> chosen;
-            chosen.reserve(relevant.size());
-            for (auto& connection : relevant) {
-                if (within_choice_tolerances(connection, stats, tolerances)) {
-                    chosen.push_back(std::move(connection));
+            const auto stats = summarize_choice_metrics(relevant);
+            std::vector<ChoiceAlternative> filtered;
+            filtered.reserve(relevant.size());
+            for (const auto& alternative : relevant) {
+                if (within_choice_tolerances(alternative, stats, tolerances)) {
+                    filtered.push_back(alternative);
                 }
             }
 
-            std::sort(chosen.begin(), chosen.end(), connection_order_less);
+            std::sort(filtered.begin(), filtered.end(), connection_order_less);
+
+            std::vector<SearchConnection> chosen;
+            chosen.reserve(filtered.size());
+            for (const auto& alternative : filtered) {
+                chosen.push_back(*alternative.connection);
+            }
 
             return chosen;
         }
@@ -151,6 +238,7 @@ namespace timetable::domain::assignment {
     mathfp::Expected<ConnectionChoiceResult> choose_connections(
           const ConnectionSearchResult& search_result
         , const SearchParams&           params
+        , double                        fare_scale
         , const ChoiceConfig&           config
     ) {
         using timetable::infra::LogLevel;
@@ -168,9 +256,15 @@ namespace timetable::domain::assignment {
         );
 
         ConnectionChoiceResult result;
-        const auto groups = detail::grouping::group_connections_by_od(search_result.connections);
+        const auto groups = detail::grouping::group_connection_ptrs_by_od(search_result.connections);
         for (const auto& [key, group_connections] : groups) {
-            auto chosen = filter_choice_group(group_connections, params.choice_tolerances, config);
+            auto chosen = filter_choice_group(
+                  group_connections
+                , params
+                , fare_scale
+                , params.choice_tolerances
+                , config
+            );
             log(
                 fmt::format(
                     "choice group: origin = {:>6}  destination = {:>6}"

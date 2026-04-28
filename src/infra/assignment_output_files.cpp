@@ -29,7 +29,7 @@ namespace timetable::infra {
             std::string           contents{};
         };
 
-        using PreparedArtifacts = std::array<PreparedArtifact, 6>;
+        using PreparedArtifacts = std::array<PreparedArtifact, 7>;
 
         std::filesystem::path sibling_results_dir(
             const std::filesystem::path& log_dir
@@ -154,6 +154,17 @@ namespace timetable::infra {
             };
         }
 
+        PreparedArtifact prepare_loads_csv_artifact(
+              const projection::AssignmentCsvProjection& csv_projection
+            , const std::filesystem::path&               path
+        ) {
+            return PreparedArtifact{
+                  .kind     = "loads_csv"
+                , .path     = path
+                , .contents = serialize_assignment_loads_csv(csv_projection)
+            };
+        }
+
         mathfp::Expected<PreparedArtifacts> prepare_assignment_artifacts(
               const timetable::domain::AssignmentOutput& output
             , const projection::AssignmentCsvProjection& csv_projection
@@ -169,6 +180,7 @@ namespace timetable::infra {
                 , prepare_connections_csv_artifact(csv_projection, paths.connections_csv_path)
                 , prepare_shares_csv_artifact(csv_projection, paths.shares_csv_path)
                 , prepare_segments_csv_artifact(csv_projection, paths.segments_csv_path)
+                , prepare_loads_csv_artifact(csv_projection, paths.loads_csv_path)
             };
         }
 
@@ -198,6 +210,7 @@ namespace timetable::infra {
             , .connections_csv_path = results_dir / "connections.csv"
             , .shares_csv_path      = results_dir / "shares.csv"
             , .segments_csv_path    = results_dir / "segments.csv"
+            , .loads_csv_path       = results_dir / "loads.csv"
         };
     }
 

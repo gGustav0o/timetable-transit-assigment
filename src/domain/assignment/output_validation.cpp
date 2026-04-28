@@ -1,7 +1,11 @@
 #include "detail/output_internal.hpp"
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <map>
+#include <tuple>
+#include <vector>
 
 #include <mathfp/core/error.hpp>
 #include <mathfp/core/numeric_tolerance.hpp>
@@ -17,6 +21,158 @@ namespace timetable::domain::assignment::detail {
             , double rhs
         ) noexcept {
             return mathfp::almost_equal(lhs, rhs);
+        }
+
+        struct LoadAggregate final {
+            double      passenger_segments{};
+            std::size_t segment_load_count{};
+        };
+
+        using LineLoadKey = std::tuple<std::int64_t, std::int64_t>;
+        using TripLoadKey = std::tuple<std::int64_t, std::int64_t, std::int64_t>;
+
+        [[nodiscard]] LineLoadKey line_load_key(
+            const AssignmentSegmentLoad& load
+        ) noexcept {
+            return LineLoadKey{ load.interval.get(), load.line.get() };
+        }
+
+        [[nodiscard]] LineLoadKey line_load_key(
+            const AssignmentLineLoad& load
+        ) noexcept {
+            return LineLoadKey{ load.interval.get(), load.line.get() };
+        }
+
+        [[nodiscard]] TripLoadKey trip_load_key(
+            const AssignmentSegmentLoad& load
+        ) noexcept {
+            return TripLoadKey{ load.interval.get(), load.line.get(), load.trip.get() };
+        }
+
+        [[nodiscard]] TripLoadKey trip_load_key(
+            const AssignmentTripLoad& load
+        ) noexcept {
+            return TripLoadKey{ load.interval.get(), load.line.get(), load.trip.get() };
+        }
+
+        [[nodiscard]] bool valid_segment_load(
+            const AssignmentSegmentLoad& load
+        ) noexcept {
+            return load.passengers >= 0.0
+                && std::isfinite(load.passengers)
+                && load.departure.value() <= load.arrival.value();
+        }
+
+        [[nodiscard]] bool valid_aggregate_load(
+              double      passenger_segments
+            , std::size_t segment_load_count
+        ) noexcept {
+            return passenger_segments >= 0.0
+                && std::isfinite(passenger_segments)
+                && segment_load_count > 0;
+        }
+
+        [[nodiscard]] std::map<LineLoadKey, LoadAggregate> aggregate_line_loads(
+            const std::vector<AssignmentSegmentLoad>& segment_loads
+        ) {
+            std::map<LineLoadKey, LoadAggregate> aggregates;
+            for (const auto& load : segment_loads) {
+                auto& aggregate = aggregates[line_load_key(load)];
+                aggregate.passenger_segments += load.passengers;
+                aggregate.segment_load_count += 1;
+            }
+            return aggregates;
+        }
+
+        [[nodiscard]] std::map<TripLoadKey, LoadAggregate> aggregate_trip_loads(
+            const std::vector<AssignmentSegmentLoad>& segment_loads
+        ) {
+            std::map<TripLoadKey, LoadAggregate> aggregates;
+            for (const auto& load : segment_loads) {
+                auto& aggregate = aggregates[trip_load_key(load)];
+                aggregate.passenger_segments += load.passengers;
+                aggregate.segment_load_count += 1;
+            }
+            return aggregates;
+        }
+
+        mathfp::Expected<mathfp::Unit> validate_loads_semantics(
+            const AssignmentLoads& loads
+        ) {
+            for (std::size_t i = 0; i < loads.segment_loads.size(); ++i) {
+                const auto& load = loads.segment_loads[i];
+                if (!valid_segment_load(load)) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("assignment output contains invalid segment load")
+                            .ctx("load_index"           , static_cast<std::int64_t>(i))
+                            .ctx("interval_id"          , load.interval.get())
+                            .ctx("line_id"              , load.line.get())
+                            .ctx("trip_id"              , load.trip.get())
+                            .ctx("route_segment_id"     , load.route_segment.get())
+                            .ctx("connection_segment_id", load.connection_segment.get())
+                            .ctx("passengers"           , load.passengers)
+                    );
+                }
+            }
+
+            const auto line_aggregates = aggregate_line_loads(loads.segment_loads);
+            if (loads.line_loads.size() != line_aggregates.size()) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("assignment output line load count disagrees with segment-load aggregates")
+                        .ctx("declared_line_loads", static_cast<std::int64_t>(loads.line_loads.size()))
+                        .ctx("actual_line_loads"  , static_cast<std::int64_t>(line_aggregates.size()))
+                );
+            }
+
+            for (std::size_t i = 0; i < loads.line_loads.size(); ++i) {
+                const auto& load = loads.line_loads[i];
+                const auto aggregate_it = line_aggregates.find(line_load_key(load));
+                if (
+                       aggregate_it == line_aggregates.end()
+                    || !valid_aggregate_load(load.passenger_segments, load.segment_load_count)
+                    || !almost_equal_scalar(load.passenger_segments, aggregate_it->second.passenger_segments)
+                    || load.segment_load_count != aggregate_it->second.segment_load_count
+                ) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("assignment output line load disagrees with segment-load aggregate")
+                            .ctx("load_index"       , static_cast<std::int64_t>(i))
+                            .ctx("interval_id"      , load.interval.get())
+                            .ctx("line_id"          , load.line.get())
+                            .ctx("passenger_segments", load.passenger_segments)
+                    );
+                }
+            }
+
+            const auto trip_aggregates = aggregate_trip_loads(loads.segment_loads);
+            if (loads.trip_loads.size() != trip_aggregates.size()) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("assignment output trip load count disagrees with segment-load aggregates")
+                        .ctx("declared_trip_loads", static_cast<std::int64_t>(loads.trip_loads.size()))
+                        .ctx("actual_trip_loads"  , static_cast<std::int64_t>(trip_aggregates.size()))
+                );
+            }
+
+            for (std::size_t i = 0; i < loads.trip_loads.size(); ++i) {
+                const auto& load = loads.trip_loads[i];
+                const auto aggregate_it = trip_aggregates.find(trip_load_key(load));
+                if (
+                       aggregate_it == trip_aggregates.end()
+                    || !valid_aggregate_load(load.passenger_segments, load.segment_load_count)
+                    || !almost_equal_scalar(load.passenger_segments, aggregate_it->second.passenger_segments)
+                    || load.segment_load_count != aggregate_it->second.segment_load_count
+                ) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("assignment output trip load disagrees with segment-load aggregate")
+                            .ctx("load_index"       , static_cast<std::int64_t>(i))
+                            .ctx("interval_id"      , load.interval.get())
+                            .ctx("line_id"          , load.line.get())
+                            .ctx("trip_id"          , load.trip.get())
+                            .ctx("passenger_segments", load.passenger_segments)
+                    );
+                }
+            }
+
+            return mathfp::kUnit;
         }
 
     }  // namespace
@@ -112,6 +268,8 @@ namespace timetable::domain::assignment::detail {
                 share_count += interval.shares.size();
             }
         }
+
+        MATHFP_TRY(validate_loads_semantics(output.loads));
 
         if (output.summary.od_count != output.od_results.size()) {
             return mathfp::unexpected(
