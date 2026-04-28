@@ -224,7 +224,7 @@ namespace timetable::infra {
             , std::string_view             name
         ) {
             const auto direct_path    = root / std::string(name);
-            const auto generated_path = root / "generated_demand" / std::string(name);
+            const auto generated_path = root / "generated_demand_smoke_50" / std::string(name);
 
             if (std::filesystem::exists(direct_path)) {
                 if (!std::filesystem::is_regular_file(direct_path)) {

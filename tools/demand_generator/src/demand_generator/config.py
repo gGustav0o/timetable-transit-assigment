@@ -18,6 +18,8 @@ DEFAULT_SEED = 42
 DEFAULT_DEMAND_SCALE = 1.0
 DEFAULT_INCLUDE_INTRAZONAL = False
 DEFAULT_SPARSE_OD_THRESHOLD = 0.0
+DEFAULT_MAX_WRITTEN_OD_PAIRS: int | None = None
+DEFAULT_MAX_WRITTEN_DEMAND_ROWS: int | None = None
 DEFAULT_AUTO_TIME_RANGE = False
 DEFAULT_VERBOSE = False
 
@@ -33,6 +35,8 @@ class GeneratorConfig:
     demand_scale: float
     include_intrazonal: bool
     sparse_od_threshold: float
+    max_written_od_pairs: int | None
+    max_written_demand_rows: int | None
     auto_time_range: bool
     verbose: bool
     strategies: RuntimeStrategies
@@ -58,6 +62,8 @@ def make_generator_config(
     demand_scale: float = DEFAULT_DEMAND_SCALE,
     include_intrazonal: bool = DEFAULT_INCLUDE_INTRAZONAL,
     sparse_od_threshold: float = DEFAULT_SPARSE_OD_THRESHOLD,
+    max_written_od_pairs: int | None = DEFAULT_MAX_WRITTEN_OD_PAIRS,
+    max_written_demand_rows: int | None = DEFAULT_MAX_WRITTEN_DEMAND_ROWS,
     auto_time_range: bool = DEFAULT_AUTO_TIME_RANGE,
     verbose: bool = DEFAULT_VERBOSE,
     strategies: RuntimeStrategies | None = None,
@@ -74,6 +80,8 @@ def make_generator_config(
         demand_scale=demand_scale,
         include_intrazonal=include_intrazonal,
         sparse_od_threshold=sparse_od_threshold,
+        max_written_od_pairs=max_written_od_pairs,
+        max_written_demand_rows=max_written_demand_rows,
         auto_time_range=auto_time_range,
         verbose=verbose,
         strategies=build_runtime_strategies(demand_scale) if strategies is None else strategies,
@@ -89,6 +97,16 @@ def validate_generator_config(config: GeneratorConfig) -> GeneratorConfig:
     if config.sparse_od_threshold < 0.0:
         raise ValueError(
             f"sparse_od_threshold must be non-negative, got {config.sparse_od_threshold}"
+        )
+    if config.max_written_od_pairs is not None and config.max_written_od_pairs <= 0:
+        raise ValueError(
+            "max_written_od_pairs must be positive when specified, got "
+            f"{config.max_written_od_pairs}"
+        )
+    if config.max_written_demand_rows is not None and config.max_written_demand_rows <= 0:
+        raise ValueError(
+            "max_written_demand_rows must be positive when specified, got "
+            f"{config.max_written_demand_rows}"
         )
     if not config.auto_time_range:
         validate_explicit_time_range(

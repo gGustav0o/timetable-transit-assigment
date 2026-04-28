@@ -9,6 +9,7 @@
 
 #include <mathfp/core/error.hpp>
 #include <mathfp/core/numeric_tolerance.hpp>
+#include <mathfp/core/summation.hpp>
 #include <mathfp/core/try.hpp>
 #include <mathfp/core/unit.hpp>
 
@@ -24,7 +25,7 @@ namespace timetable::domain::assignment::detail {
         }
 
         struct LoadAggregate final {
-            double      passenger_segments{};
+            mathfp::CompensatedSum<double> passenger_segments{};
             std::size_t segment_load_count{};
         };
 
@@ -91,7 +92,7 @@ namespace timetable::domain::assignment::detail {
             std::map<LineLoadKey, LoadAggregate> aggregates;
             for (const auto& load : segment_loads) {
                 auto& aggregate = aggregates[line_load_key(load)];
-                aggregate.passenger_segments += load.passengers;
+                aggregate.passenger_segments.add(load.passengers);
                 aggregate.segment_load_count += 1;
             }
             return aggregates;
@@ -103,7 +104,7 @@ namespace timetable::domain::assignment::detail {
             std::map<TripLoadKey, LoadAggregate> aggregates;
             for (const auto& load : segment_loads) {
                 auto& aggregate = aggregates[trip_load_key(load)];
-                aggregate.passenger_segments += load.passengers;
+                aggregate.passenger_segments.add(load.passengers);
                 aggregate.segment_load_count += 1;
             }
             return aggregates;
@@ -115,7 +116,7 @@ namespace timetable::domain::assignment::detail {
             std::map<RouteLoadKey, LoadAggregate> aggregates;
             for (const auto& load : segment_loads) {
                 auto& aggregate = aggregates[route_load_key(load)];
-                aggregate.passenger_segments += load.passengers;
+                aggregate.passenger_segments.add(load.passengers);
                 aggregate.segment_load_count += 1;
             }
             return aggregates;
@@ -156,7 +157,7 @@ namespace timetable::domain::assignment::detail {
                 if (
                        aggregate_it == line_aggregates.end()
                     || !valid_aggregate_load(load.passenger_segments, load.segment_load_count)
-                    || !almost_equal_scalar(load.passenger_segments, aggregate_it->second.passenger_segments)
+                    || !almost_equal_scalar(load.passenger_segments, aggregate_it->second.passenger_segments.value())
                     || load.segment_load_count != aggregate_it->second.segment_load_count
                 ) {
                     return mathfp::unexpected(
@@ -184,7 +185,7 @@ namespace timetable::domain::assignment::detail {
                 if (
                        aggregate_it == route_aggregates.end()
                     || !valid_aggregate_load(load.passenger_segments, load.segment_load_count)
-                    || !almost_equal_scalar(load.passenger_segments, aggregate_it->second.passenger_segments)
+                    || !almost_equal_scalar(load.passenger_segments, aggregate_it->second.passenger_segments.value())
                     || load.segment_load_count != aggregate_it->second.segment_load_count
                 ) {
                     return mathfp::unexpected(
@@ -213,7 +214,7 @@ namespace timetable::domain::assignment::detail {
                 if (
                        aggregate_it == trip_aggregates.end()
                     || !valid_aggregate_load(load.passenger_segments, load.segment_load_count)
-                    || !almost_equal_scalar(load.passenger_segments, aggregate_it->second.passenger_segments)
+                    || !almost_equal_scalar(load.passenger_segments, aggregate_it->second.passenger_segments.value())
                     || load.segment_load_count != aggregate_it->second.segment_load_count
                 ) {
                     return mathfp::unexpected(
@@ -246,10 +247,10 @@ namespace timetable::domain::assignment::detail {
             );
         }
 
-        double demand_sum   = 0.0;
-        double assigned_sum = 0.0;
+        mathfp::CompensatedSum<double> demand_sum;
+        mathfp::CompensatedSum<double> assigned_sum;
         for (const auto& interval : od_result.intervals) {
-            double interval_assigned_sum = 0.0;
+            mathfp::CompensatedSum<double> interval_assigned_sum;
             for (const auto& share : interval.shares) {
                 const auto connection_index = share.connection_index.get();
                 if (connection_index < 0
@@ -263,41 +264,41 @@ namespace timetable::domain::assignment::detail {
                             .ctx("connection_count", static_cast<std::int64_t>(od_result.connections.size()))
                     );
                 }
-                interval_assigned_sum += share.passengers;
+                interval_assigned_sum.add(share.passengers);
             }
 
-            if (!almost_equal_scalar(interval.assigned_passengers, interval_assigned_sum)) {
+            if (!almost_equal_scalar(interval.assigned_passengers, interval_assigned_sum.value())) {
                 return mathfp::unexpected(
                     mathfp::internal_error("assignment output interval assigned_passengers disagrees with its shares")
                         .ctx("origin"           , od_result.origin.get())
                         .ctx("destination"      , od_result.destination.get())
                         .ctx("interval_id"      , interval.interval.id.get())
                         .ctx("declared_assigned", interval.assigned_passengers)
-                        .ctx("actual_assigned"  , interval_assigned_sum)
+                        .ctx("actual_assigned"  , interval_assigned_sum.value())
                 );
             }
 
-            demand_sum += interval.demand_passengers;
-            assigned_sum += interval.assigned_passengers;
+            demand_sum.add(interval.demand_passengers);
+            assigned_sum.add(interval.assigned_passengers);
         }
 
-        if (!almost_equal_scalar(od_result.total_demand_passengers, demand_sum)) {
+        if (!almost_equal_scalar(od_result.total_demand_passengers, demand_sum.value())) {
             return mathfp::unexpected(
                 mathfp::internal_error("assignment output OD total_demand_passengers disagrees with interval totals")
                     .ctx("origin"               , od_result.origin.get())
                     .ctx("destination"          , od_result.destination.get())
                     .ctx("declared_total_demand", od_result.total_demand_passengers)
-                    .ctx("actual_total_demand"  , demand_sum)
+                    .ctx("actual_total_demand"  , demand_sum.value())
             );
         }
 
-        if (!almost_equal_scalar(od_result.assigned_passengers, assigned_sum)) {
+        if (!almost_equal_scalar(od_result.assigned_passengers, assigned_sum.value())) {
             return mathfp::unexpected(
                 mathfp::internal_error("assignment output OD assigned_passengers disagrees with interval totals")
                     .ctx("origin"           , od_result.origin.get())
                     .ctx("destination"      , od_result.destination.get())
                     .ctx("declared_assigned", od_result.assigned_passengers)
-                    .ctx("actual_assigned"  , assigned_sum)
+                    .ctx("actual_assigned"  , assigned_sum.value())
             );
         }
 
@@ -311,15 +312,15 @@ namespace timetable::domain::assignment::detail {
         std::size_t chosen_count = 0;
         std::size_t share_count  = 0;
 
-        double total_demand = 0.0;
-        double assigned     = 0.0;
+        mathfp::CompensatedSum<double> total_demand;
+        mathfp::CompensatedSum<double> assigned;
 
         for (const auto& od_result : output.od_results) {
             MATHFP_TRY(validate_od_result_semantics(od_result));
             search_count += od_result.search_connection_count;
             chosen_count += od_result.chosen_connection_count;
-            total_demand += od_result.total_demand_passengers;
-            assigned += od_result.assigned_passengers;
+            total_demand.add(od_result.total_demand_passengers);
+            assigned.add(od_result.assigned_passengers);
             for (const auto& interval : od_result.intervals) {
                 share_count += interval.shares.size();
             }
@@ -338,8 +339,8 @@ namespace timetable::domain::assignment::detail {
         if (output.summary.search_connection_count != search_count
             || output.summary.chosen_connection_count != chosen_count
             || output.summary.demand_share_count != share_count
-            || !almost_equal_scalar(output.summary.total_demand_passengers, total_demand)
-            || !almost_equal_scalar(output.summary.assigned_passengers, assigned)) {
+            || !almost_equal_scalar(output.summary.total_demand_passengers, total_demand.value())
+            || !almost_equal_scalar(output.summary.assigned_passengers, assigned.value())) {
             return mathfp::unexpected(
                 mathfp::internal_error("assignment output summary disagrees with OD aggregates")
                     .ctx("declared_search_connections", static_cast<std::int64_t>(output.summary.search_connection_count))
@@ -349,9 +350,9 @@ namespace timetable::domain::assignment::detail {
                     .ctx("declared_share_count"       , static_cast<std::int64_t>(output.summary.demand_share_count))
                     .ctx("actual_share_count"         , static_cast<std::int64_t>(share_count))
                     .ctx("declared_total_demand"      , output.summary.total_demand_passengers)
-                    .ctx("actual_total_demand"        , total_demand)
+                    .ctx("actual_total_demand"        , total_demand.value())
                     .ctx("declared_assigned"          , output.summary.assigned_passengers)
-                    .ctx("actual_assigned"            , assigned)
+                    .ctx("actual_assigned"            , assigned.value())
             );
         }
 

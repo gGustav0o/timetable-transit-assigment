@@ -185,6 +185,12 @@ def validate_diagnostics_summary(
     expected_filtered = len(result.synthesis.demand_entries) - len(result.written_demand_entries)
     if summary.filtered_out_demand_row_count != expected_filtered:
         raise ValueError("diagnostics filtered_out_demand_row_count does not match output filtering")
+    expected_written_od_pairs = len({
+        (entry.origin_zone_id, entry.destination_zone_id)
+        for entry in result.written_demand_entries
+    })
+    if summary.written_od_pair_count != expected_written_od_pairs:
+        raise ValueError("diagnostics written_od_pair_count does not match written demand")
     if summary.written_demand_row_count != len(result.written_demand_entries):
         raise ValueError("diagnostics written_demand_row_count does not match output filtering")
 

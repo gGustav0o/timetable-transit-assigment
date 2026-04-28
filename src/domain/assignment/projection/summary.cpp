@@ -3,15 +3,17 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <set>
 #include <vector>
 
 #include <mathfp/core/error.hpp>
+#include <mathfp/core/summation.hpp>
 
 namespace timetable::domain::assignment::projection {
     namespace {
 
         struct ConnectionShareAggregate final {
-            double      assigned_passengers{};
+            mathfp::CompensatedSum<double> assigned_passengers{};
             std::size_t share_count{};
         };
 
@@ -45,7 +47,7 @@ namespace timetable::domain::assignment::projection {
                         );
                     }
 
-                    aggregates[index].assigned_passengers += share.passengers;
+                    aggregates[index].assigned_passengers.add(share.passengers);
                     aggregates[index].share_count += 1;
                 }
             }
@@ -131,7 +133,7 @@ namespace timetable::domain::assignment::projection {
                         , .transfer_time       = transfer_time
                         , .transfers           = metrics.transfer_count
                         , .fare                = metrics.fare
-                        , .assigned_passengers = shares    .assigned_passengers
+                        , .assigned_passengers = shares    .assigned_passengers.value()
                         , .share_count         = shares    .share_count
                     }
                 );
@@ -146,29 +148,35 @@ namespace timetable::domain::assignment::projection {
         const AssignmentOutput& output
     ) {
         AssignmentResultSummary summary{
-              .totals            = output.summary
-            , .interval_count    = 0
-            , .nonempty_od_count = 0
-            , .line_load_count    = output.loads.line_loads.size()
-            , .route_load_count   = output.loads.route_loads.size()
-            , .trip_load_count    = output.loads.trip_loads.size()
-            , .segment_load_count = output.loads.segment_loads.size()
-            , .od_results        = {}
+              .totals              = output.summary
+            , .time_interval_count = 0
+            , .task_count          = 0
+            , .nonempty_od_count   = 0
+            , .line_load_count     = output.loads.line_loads.size()
+            , .route_load_count    = output.loads.route_loads.size()
+            , .trip_load_count     = output.loads.trip_loads.size()
+            , .segment_load_count  = output.loads.segment_loads.size()
+            , .od_results          = {}
         };
         summary.od_results.reserve(output.od_results.size());
 
+        std::set<IntervalId> time_intervals;
         for (const auto& od_result : output.od_results) {
             auto od_summary_result = build_od_summary(od_result);
             if (!od_summary_result) {
                 return mathfp::unexpected(std::move(od_summary_result.error()));
             }
 
-            summary.interval_count += od_summary_result->interval_count;
+            summary.task_count += od_summary_result->interval_count;
+            for (const auto& interval : od_result.intervals) {
+                time_intervals.insert(interval.interval.id);
+            }
             if (!od_summary_result->connections.empty() || !od_result.intervals.empty()) {
                 summary.nonempty_od_count += 1;
             }
             summary.od_results.push_back(std::move(*od_summary_result));
         }
+        summary.time_interval_count = time_intervals.size();
 
         return summary;
     }

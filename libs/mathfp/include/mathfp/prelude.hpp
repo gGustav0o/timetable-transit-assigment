@@ -4,6 +4,7 @@
 #include <mathfp/core/context.hpp>
 #include <mathfp/core/error.hpp>
 #include <mathfp/core/expected.hpp>
+#include <mathfp/core/summation.hpp>
 #include <mathfp/core/try.hpp>
 #include <mathfp/core/utility.hpp>
 
@@ -25,6 +26,10 @@ namespace mathfp::prelude {
     using ::mathfp::Expected;
     using ::mathfp::Unexpected;
     using ::mathfp::unexpected;
+
+    using ::mathfp::CompensatedSum;
+    using ::mathfp::compensated_sum;
+    using ::mathfp::compensated_sum_by;
 
     // error DSL
     using ::mathfp::make_error;

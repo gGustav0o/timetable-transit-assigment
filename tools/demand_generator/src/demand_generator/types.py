@@ -197,6 +197,7 @@ class DiagnosticsSummary:
     total_daily_demand: PassengerCount
     total_interval_demand: PassengerCount
     filtered_out_demand_row_count: int
+    written_od_pair_count: int
     written_demand_row_count: int
 
 

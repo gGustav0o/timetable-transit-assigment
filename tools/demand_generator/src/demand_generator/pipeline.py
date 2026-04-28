@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from demand_generator.config import GeneratorConfig
 from demand_generator.csv_input import load_parsed_supply
-from demand_generator.csv_output import filter_sparse_demand_entries
+from demand_generator.csv_output import select_written_demand_entries
 from demand_generator.demand_model import build_daily_od_demand
 from demand_generator.diagnostics import build_diagnostics_summary
 from demand_generator.network_features import build_structural_model
@@ -48,9 +48,11 @@ def run_generation_pipeline(config: GeneratorConfig) -> PipelineResult:
         daily_demand=daily_demand,
         temporal_shares=temporal_shares,
     )
-    written_demand_entries = filter_sparse_demand_entries(
+    written_demand_entries = select_written_demand_entries(
         demand_entries=demand_entries,
         sparse_od_threshold=config.sparse_od_threshold,
+        max_written_od_pairs=config.max_written_od_pairs,
+        max_written_demand_rows=config.max_written_demand_rows,
     )
 
     synthesis = SynthesisModel(

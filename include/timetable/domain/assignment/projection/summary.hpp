@@ -58,10 +58,14 @@ namespace timetable::domain::assignment::projection {
      * This representation is intended for UI/text/export projections and keeps
      * only compact aggregate information. The canonical domain result remains
      * AssignmentOutput.
+     *
+     * time_interval_count counts distinct input time interval identifiers.
+     * task_count counts OD-interval demand tasks present in the output.
      */
     struct AssignmentResultSummary final {
         AssignmentOutput::Summary        totals{};
-        std::size_t                      interval_count{};
+        std::size_t                      time_interval_count{};
+        std::size_t                      task_count{};
         std::size_t                      nonempty_od_count{};
         std::size_t                      line_load_count{};
         std::size_t                      route_load_count{};

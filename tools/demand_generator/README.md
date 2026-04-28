@@ -299,6 +299,29 @@ Seed детерминированного шума.
 0.0
 ```
 
+#### `--max-written-od-pairs <int>`
+
+Необязательное ограничение числа OD-пар, записываемых в `od_demand.csv`.
+
+Ограничение применяется после `sparse_od_threshold`. Утилита выбирает пары с
+наибольшим суммарным записываемым спросом по всем интервалам; при равенстве
+используется детерминированный порядок по `origin_zone_id`,
+`destination_zone_id`.
+
+Параметр предназначен для воспроизводимых smoke-прогонов. Он не меняет
+синтетическую модель спроса, а только выбирает меньший сценарий для записи.
+
+#### `--max-written-demand-rows <int>`
+
+Необязательное ограничение числа строк, записываемых в `od_demand.csv`.
+
+Ограничение применяется после `sparse_od_threshold` и после
+`--max-written-od-pairs`, если он задан. Выбираются строки с наибольшим
+значением `passengers`; при равенстве используется детерминированный порядок по
+`origin_zone_id`, `destination_zone_id`, `interval_id`.
+
+Этот параметр напрямую ограничивает число demand tasks для расчетного бинарника.
+
 ### Диагностика
 
 #### `--verbose`
@@ -311,6 +334,7 @@ Seed детерминированного шума.
 - число интервалов;
 - число OD-пар;
 - суммарный спрос;
+- число записанных OD-пар;
 - число записанных строк;
 - статус прохождения стадий.
 
@@ -328,6 +352,23 @@ python -m demand_generator `
   --seed 42 `
   --demand-scale 1.0 `
   --sparse-od-threshold 0.0 `
+  --verbose
+```
+
+Для быстрого smoke-прогона на крупном тестовом файле лучше явно ограничить
+записываемый сценарий, например:
+
+```powershell
+python -m demand_generator `
+  --input ..\..\..\data\test\connection_segments_input.csv `
+  --output-dir ..\..\..\data\test\generated_demand_smoke `
+  --start-sec 21600 `
+  --end-sec 25200 `
+  --interval-sec 3600 `
+  --seed 42 `
+  --demand-scale 1.0 `
+  --sparse-od-threshold 0.0 `
+  --max-written-demand-rows 50 `
   --verbose
 ```
 

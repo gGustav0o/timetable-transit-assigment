@@ -84,7 +84,8 @@ namespace timetable::domain::assignment::projection {
                 , "Assignment Summary\n"
                   "OD pairs:            {}\n"
                   "Non-empty OD pairs:  {}\n"
-                  "Intervals:           {}\n"
+                  "Time intervals:      {}\n"
+                  "OD-time tasks:       {}\n"
                   "Search connections:  {}\n"
                   "Chosen connections:  {}\n"
                   "Demand shares:       {}\n"
@@ -96,7 +97,8 @@ namespace timetable::domain::assignment::projection {
                   "Assigned passengers: {}\n"
                 , format_count (summary.totals.od_count)
                 , format_count (summary.nonempty_od_count)
-                , format_count (summary.interval_count)
+                , format_count (summary.time_interval_count)
+                , format_count (summary.task_count)
                 , format_count (summary.totals.search_connection_count)
                 , format_count (summary.totals.chosen_connection_count)
                 , format_count (summary.totals.demand_share_count)

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -48,6 +49,22 @@ namespace timetable::domain::assignment::detail::validation {
 
     [[nodiscard]] inline bool almost_equal_scalar(double lhs, double rhs) noexcept {
         return mathfp::almost_equal(lhs, rhs);
+    }
+
+    [[nodiscard]] inline bool almost_equal_accumulated(
+          double      lhs
+        , double      rhs
+        , std::size_t term_count
+    ) noexcept {
+        const auto count = static_cast<double>((std::max)(std::size_t{1}, term_count));
+        const auto scale = mathfp::scalar_scale(lhs, rhs);
+        const auto k     = (std::max)(16.0, 8.0 * count);
+        return mathfp::almost_equal(
+              lhs
+            , rhs
+            , mathfp::abs_tolerance_scaled(scale, k)
+            , k * mathfp::rel_tolerance_coeff<double>()
+        );
     }
 
     template <class Range, class Validator>

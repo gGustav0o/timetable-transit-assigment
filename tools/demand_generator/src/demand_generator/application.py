@@ -28,6 +28,9 @@ def build_application_report_lines(
         f"output_dir={output_paths.output_dir}",
         f"time_intervals_csv={output_paths.time_intervals_csv}",
         f"od_demand_csv={output_paths.od_demand_csv}",
+        f"sparse_od_threshold={config.sparse_od_threshold}",
+        f"max_written_od_pairs={format_optional_int(config.max_written_od_pairs)}",
+        f"max_written_demand_rows={format_optional_int(config.max_written_demand_rows)}",
         *render_diagnostics_summary(pipeline.diagnostics),
         "input_stage=ok",
         "network_features_stage=ok",
@@ -39,3 +42,7 @@ def build_application_report_lines(
         "output_stage=ok",
     ]
     return tuple(lines)
+
+
+def format_optional_int(value: int | None) -> str:
+    return "<none>" if value is None else str(value)

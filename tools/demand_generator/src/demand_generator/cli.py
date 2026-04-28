@@ -9,6 +9,8 @@ from demand_generator.config import (
     DEFAULT_DEMAND_SCALE,
     DEFAULT_END_SEC,
     DEFAULT_INTERVAL_SEC,
+    DEFAULT_MAX_WRITTEN_DEMAND_ROWS,
+    DEFAULT_MAX_WRITTEN_OD_PAIRS,
     DEFAULT_SEED,
     DEFAULT_SPARSE_OD_THRESHOLD,
     DEFAULT_START_SEC,
@@ -31,6 +33,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--demand-scale", type=float, default=DEFAULT_DEMAND_SCALE)
     parser.add_argument("--include-intrazonal", action="store_true")
     parser.add_argument("--sparse-od-threshold", type=float, default=DEFAULT_SPARSE_OD_THRESHOLD)
+    parser.add_argument("--max-written-od-pairs", type=int, default=DEFAULT_MAX_WRITTEN_OD_PAIRS)
+    parser.add_argument(
+        "--max-written-demand-rows",
+        type=int,
+        default=DEFAULT_MAX_WRITTEN_DEMAND_ROWS,
+    )
     parser.add_argument("--auto-time-range", action="store_true", default=DEFAULT_AUTO_TIME_RANGE)
     parser.add_argument("--verbose", action="store_true")
     return parser
@@ -47,6 +55,8 @@ def config_from_args(args: argparse.Namespace) -> GeneratorConfig:
         demand_scale=args.demand_scale,
         include_intrazonal=args.include_intrazonal,
         sparse_od_threshold=args.sparse_od_threshold,
+        max_written_od_pairs=args.max_written_od_pairs,
+        max_written_demand_rows=args.max_written_demand_rows,
         auto_time_range=args.auto_time_range,
         verbose=args.verbose,
     )
@@ -61,3 +71,7 @@ def main() -> int:
             print(line)
 
     return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

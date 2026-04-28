@@ -65,6 +65,7 @@ set(MATHFP_HEADERS
   ${MATHFP_INCLUDE_DIR}/mathfp/version.hpp
   ${MATHFP_INCLUDE_DIR}/mathfp/core/expected.hpp
   ${MATHFP_INCLUDE_DIR}/mathfp/core/numeric_tolerance.hpp
+  ${MATHFP_INCLUDE_DIR}/mathfp/core/summation.hpp
   ${MATHFP_INCLUDE_DIR}/mathfp/core/error.hpp
   ${MATHFP_INCLUDE_DIR}/mathfp/core/context.hpp
   ${MATHFP_INCLUDE_DIR}/mathfp/core/try.hpp

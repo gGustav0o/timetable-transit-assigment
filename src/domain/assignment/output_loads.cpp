@@ -7,6 +7,7 @@
 #include <tuple>
 
 #include <mathfp/core/error.hpp>
+#include <mathfp/core/summation.hpp>
 #include <mathfp/core/try.hpp>
 
 namespace timetable::domain::assignment::detail {
@@ -205,11 +206,11 @@ namespace timetable::domain::assignment::detail {
         }
 
         struct LoadAggregate final {
-            double      passenger_segments{};
+            mathfp::CompensatedSum<double> passenger_segments{};
             std::size_t segment_load_count{};
         };
 
-        using SegmentLoadMap = std::map<SegmentLoadKey, double>;
+        using SegmentLoadMap = std::map<SegmentLoadKey, mathfp::CompensatedSum<double>>;
         using LineLoadMap    = std::map<LineLoadKey, LoadAggregate>;
         using RouteLoadMap   = std::map<RouteLoadKey, LoadAggregate>;
         using TripLoadMap    = std::map<TripLoadKey, LoadAggregate>;
@@ -233,7 +234,7 @@ namespace timetable::domain::assignment::detail {
                     , key
                     , segment_load_key(share.interval, leg)
                 );
-                segment_loads[key] += share.passengers;
+                segment_loads[key].add(share.passengers);
             }
 
             return mathfp::kUnit;
@@ -250,13 +251,14 @@ namespace timetable::domain::assignment::detail {
             loads.segment_loads.reserve(segment_load_map.size());
 
             for (const auto& [key, passengers] : segment_load_map) {
-                loads.segment_loads.push_back(make_segment_load(key, passengers));
+                const auto passenger_count = passengers.value();
+                loads.segment_loads.push_back(make_segment_load(key, passenger_count));
 
                 auto& line_load = line_load_map[LineLoadKey{
                       .interval = key.interval
                     , .line     = key.line
                 }];
-                line_load.passenger_segments += passengers;
+                line_load.passenger_segments.add(passenger_count);
                 line_load.segment_load_count += 1;
 
                 auto& trip_load = trip_load_map[TripLoadKey{
@@ -265,7 +267,7 @@ namespace timetable::domain::assignment::detail {
                     , .route    = key.route
                     , .trip     = key.trip
                 }];
-                trip_load.passenger_segments += passengers;
+                trip_load.passenger_segments.add(passenger_count);
                 trip_load.segment_load_count += 1;
 
                 auto& route_load = route_load_map[RouteLoadKey{
@@ -273,7 +275,7 @@ namespace timetable::domain::assignment::detail {
                     , .line     = key.line
                     , .route    = key.route
                 }];
-                route_load.passenger_segments += passengers;
+                route_load.passenger_segments.add(passenger_count);
                 route_load.segment_load_count += 1;
             }
 
@@ -281,8 +283,8 @@ namespace timetable::domain::assignment::detail {
             for (const auto& [key, aggregate] : line_load_map) {
                 loads.line_loads.push_back(
                     make_line_load(
-                          key
-                        , aggregate.passenger_segments
+                        key
+                        , aggregate.passenger_segments.value()
                         , aggregate.segment_load_count
                     )
                 );
@@ -292,8 +294,8 @@ namespace timetable::domain::assignment::detail {
             for (const auto& [key, aggregate] : route_load_map) {
                 loads.route_loads.push_back(
                     make_route_load(
-                          key
-                        , aggregate.passenger_segments
+                        key
+                        , aggregate.passenger_segments.value()
                         , aggregate.segment_load_count
                     )
                 );
@@ -303,8 +305,8 @@ namespace timetable::domain::assignment::detail {
             for (const auto& [key, aggregate] : trip_load_map) {
                 loads.trip_loads.push_back(
                     make_trip_load(
-                          key
-                        , aggregate.passenger_segments
+                        key
+                        , aggregate.passenger_segments.value()
                         , aggregate.segment_load_count
                     )
                 );

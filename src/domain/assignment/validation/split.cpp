@@ -12,6 +12,7 @@
 
 #include <mathfp/core/error.hpp>
 #include <mathfp/core/numeric_tolerance.hpp>
+#include <mathfp/core/summation.hpp>
 #include <mathfp/core/try.hpp>
 #include <mathfp/core/unit.hpp>
 
@@ -234,15 +235,15 @@ namespace timetable::domain::assignment {
             , choice_task_lookup
             , build_choice_task_lookup(choice_result)
         );
-        MATHFP_TRY_LET(
-              std::map<detail::validation::DemandKey, const DemandEntry*>
-            , demand_by_key
-            , validate_and_index_demand_entries(
+        auto demand_by_key_result = validate_and_index_demand_entries(
               input
             , count_choice_task_connections_by_demand_key(choice_result)
             , true
-            )
         );
+        if (!demand_by_key_result) {
+            return mathfp::unexpected(std::move(demand_by_key_result.error()));
+        }
+        auto demand_by_key = std::move(*demand_by_key_result);
 
         for (const auto& [key, demand] : demand_by_key) {
             if (demand->passengers <= 0.0) {
@@ -291,8 +292,8 @@ namespace timetable::domain::assignment {
         }
         const auto& demand_by_key = *demand_by_key_result;
 
-        std::map<detail::validation::DemandKey, double> probability_sum_by_key;
-        std::map<detail::validation::DemandKey, double> passengers_sum_by_key;
+        std::map<detail::validation::DemandKey, mathfp::CompensatedSum<double>> probability_sum_by_key;
+        std::map<detail::validation::DemandKey, mathfp::CompensatedSum<double>> passengers_sum_by_key;
 
         MATHFP_TRY(detail::validation::validate_each_index(
               split_result.shares
@@ -373,8 +374,8 @@ namespace timetable::domain::assignment {
                     );
                 }
 
-                probability_sum_by_key[key] += share.probability;
-                passengers_sum_by_key[key] += share.passengers;
+                probability_sum_by_key[key].add(share.probability);
+                passengers_sum_by_key[key].add(share.passengers);
                 return mathfp::kUnit;
             }
         ));
@@ -394,18 +395,20 @@ namespace timetable::domain::assignment {
                 );
             }
 
-            const auto probability_sum = probability_sum_by_key[key];
-            const auto passengers_sum  = passengers_sum_by_key[key];
-            if (!detail::validation::almost_equal_scalar(probability_sum, 1.0)) {
+            const auto probability_sum = probability_sum_by_key[key].value();
+            const auto passengers_sum  = passengers_sum_by_key[key].value();
+            const auto share_count = choice_counts.at(key);
+            if (!detail::validation::almost_equal_accumulated(probability_sum, 1.0, share_count)) {
                 return mathfp::unexpected(
                     mathfp::internal_error("split probabilities do not sum to one")
                         .ctx("origin"         , key.origin     .get())
                         .ctx("destination"    , key.destination.get())
                         .ctx("interval_id"    , key.interval   .get())
                         .ctx("probability_sum", probability_sum)
+                        .ctx("share_count"    , static_cast<std::int64_t>(share_count))
                 );
             }
-            if (!detail::validation::almost_equal_scalar(passengers_sum, demand->passengers)) {
+            if (!detail::validation::almost_equal_accumulated(passengers_sum, demand->passengers, share_count)) {
                 return mathfp::unexpected(
                     mathfp::internal_error("split passengers do not conserve demand")
                         .ctx("origin"           , key.origin     .get())
@@ -413,6 +416,7 @@ namespace timetable::domain::assignment {
                         .ctx("interval_id"      , key.interval   .get())
                         .ctx("passengers_sum"   , passengers_sum)
                         .ctx("demand_passengers", demand->passengers)
+                        .ctx("share_count"      , static_cast<std::int64_t>(share_count))
                 );
             }
         }

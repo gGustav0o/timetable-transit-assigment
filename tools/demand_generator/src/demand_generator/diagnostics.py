@@ -27,6 +27,11 @@ def build_diagnostics_summary(
         else len(written_demand_entries)
     )
     filtered_out_row_count = len(demand_entries) - written_row_count
+    effective_written_entries = demand_entries if written_demand_entries is None else written_demand_entries
+    written_od_pair_count = len({
+        (entry.origin_zone_id, entry.destination_zone_id)
+        for entry in effective_written_entries
+    })
 
     return DiagnosticsSummary(
         input_row_count=len(structure.supply.rows),
@@ -41,6 +46,7 @@ def build_diagnostics_summary(
         total_daily_demand=total_daily_demand,
         total_interval_demand=total_interval_demand,
         filtered_out_demand_row_count=filtered_out_row_count,
+        written_od_pair_count=written_od_pair_count,
         written_demand_row_count=written_row_count,
     )
 
@@ -64,6 +70,7 @@ def render_diagnostics_summary(summary: DiagnosticsSummary) -> tuple[str, ...]:
         f"total_daily_demand={float(summary.total_daily_demand)}",
         f"total_interval_demand={float(summary.total_interval_demand)}",
         f"filtered_out_demand_row_count={summary.filtered_out_demand_row_count}",
+        f"written_od_pair_count={summary.written_od_pair_count}",
         f"written_demand_row_count={summary.written_demand_row_count}",
     )
 

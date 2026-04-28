@@ -8,6 +8,7 @@
 
 #include <mathfp/core/error.hpp>
 #include <mathfp/core/numeric_tolerance.hpp>
+#include <mathfp/core/summation.hpp>
 #include <mathfp/core/try.hpp>
 
 namespace timetable::domain::assignment::detail {
@@ -35,21 +36,17 @@ namespace timetable::domain::assignment::detail {
         double total_input_demand(
             const InputModel& input
         ) {
-            double total = 0.0;
-            for (const auto& demand : input.demand) {
-                total += demand.passengers;
-            }
-            return total;
+            return mathfp::compensated_sum_by(input.demand, [](const DemandEntry& demand) {
+                return demand.passengers;
+            });
         }
 
         double total_assigned_passengers(
             const DemandSplitResult& split_result
         ) {
-            double total = 0.0;
-            for (const auto& share : split_result.shares) {
-                total += share.passengers;
-            }
-            return total;
+            return mathfp::compensated_sum_by(split_result.shares, [](const ConnectionDemandShare& share) {
+                return share.passengers;
+            });
         }
 
         bool almost_equal_scalar(
@@ -138,28 +135,26 @@ namespace timetable::domain::assignment::detail {
         double expected_segment_load_passenger_sum(
             const DemandSplitResult& split_result
         ) {
-            double total = 0.0;
+            mathfp::CompensatedSum<double> total;
             for (const auto& share : split_result.shares) {
                 if (!(share.passengers > 0.0)) {
                     continue;
                 }
                 for (const auto& leg : canonical_connection(share.connection).trace.legs) {
                     if (is_ride_leg(leg.kind)) {
-                        total += share.passengers;
+                        total.add(share.passengers);
                     }
                 }
             }
-            return total;
+            return total.value();
         }
 
         double actual_segment_load_passenger_sum(
             const AssignmentLoads& loads
         ) noexcept {
-            double total = 0.0;
-            for (const auto& load : loads.segment_loads) {
-                total += load.passengers;
-            }
-            return total;
+            return mathfp::compensated_sum_by(loads.segment_loads, [](const AssignmentSegmentLoad& load) {
+                return load.passengers;
+            });
         }
 
         mathfp::Expected<mathfp::Unit> validate_loads_are_split_projection(
@@ -273,6 +268,7 @@ namespace timetable::domain::assignment::detail {
             }
 
             interval_result.shares.reserve(shares_it->second.size());
+            mathfp::CompensatedSum<double> assigned_passengers;
             for (const auto* share : shares_it->second) {
                 const auto trace_key     = grouping::connection_trace_key(share->connection);
                 const auto connection_it = chosen_connection_indices.find(trace_key);
@@ -296,8 +292,9 @@ namespace timetable::domain::assignment::detail {
                         , .split_impedance = share->split_impedance
                     }
                 );
-                interval_result.assigned_passengers += share->passengers;
+                assigned_passengers.add(share->passengers);
             }
+            interval_result.assigned_passengers = assigned_passengers.value();
 
             return interval_result;
         }
@@ -316,8 +313,10 @@ namespace timetable::domain::assignment::detail {
             }
 
             od_result.intervals.reserve(demand_it->second.size());
+            mathfp::CompensatedSum<double> total_demand_passengers;
+            mathfp::CompensatedSum<double> assigned_passengers;
             for (const auto* demand : demand_it->second) {
-                od_result.total_demand_passengers += demand->passengers;
+                total_demand_passengers.add(demand->passengers);
 
                 MATHFP_TRY_LET(
                       AssignmentDemandInterval
@@ -329,9 +328,11 @@ namespace timetable::domain::assignment::detail {
                         , chosen_connection_indices
                     )
                 );
-                od_result.assigned_passengers += interval_result.assigned_passengers;
+                assigned_passengers.add(interval_result.assigned_passengers);
                 od_result.intervals.push_back(std::move(interval_result));
             }
+            od_result.total_demand_passengers = total_demand_passengers.value();
+            od_result.assigned_passengers = assigned_passengers.value();
 
             return mathfp::kUnit;
         }

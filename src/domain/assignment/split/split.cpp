@@ -8,6 +8,8 @@
 #include <vector>
 
 #include <mathfp/core/error.hpp>
+#include <mathfp/core/numeric_tolerance.hpp>
+#include <mathfp/core/summation.hpp>
 #include <mathfp/core/try.hpp>
 #include <mathfp/types/units.hpp>
 
@@ -46,6 +48,87 @@ namespace timetable::domain::assignment {
             double            perceived_journey_time{};
             double            independence{};
         };
+
+        std::size_t max_weight_index(
+            std::span<const double> weights
+        ) noexcept {
+            std::size_t index = 0;
+            for (std::size_t i = 1; i < weights.size(); ++i) {
+                if (weights[i] > weights[index]) {
+                    index = i;
+                }
+            }
+            return index;
+        }
+
+        bool is_non_negative_roundoff(
+              double value
+            , double scale
+        ) noexcept {
+            return value >= 0.0
+                || mathfp::almost_equal(
+                      value
+                    , 0.0
+                    , mathfp::abs_tolerance(scale)
+                    , mathfp::rel_tolerance_coeff<double>()
+                );
+        }
+
+        double split_support_probability_tolerance() noexcept {
+            return mathfp::abs_tolerance(1.0);
+        }
+
+        double split_support_passenger_tolerance(
+            double demand_passengers
+        ) noexcept {
+            return mathfp::abs_tolerance(demand_passengers);
+        }
+
+        bool is_numerically_significant_share(
+              double probability
+            , double passengers
+            , double demand_passengers
+        ) noexcept {
+            return probability > split_support_probability_tolerance()
+                && passengers   > split_support_passenger_tolerance(demand_passengers);
+        }
+
+        std::size_t compact_numerical_support(
+              std::vector<double>& probabilities
+            , std::vector<double>& passengers
+            , std::size_t          residual_index
+            , double               demand_passengers
+        ) noexcept {
+            mathfp::CompensatedSum<double> suppressed_probability;
+            mathfp::CompensatedSum<double> suppressed_passengers;
+            std::size_t suppressed_count = 0;
+
+            // Values below floating-point resolution do not form a meaningful
+            // numerical support; move their mass to the residual alternative so
+            // the reported split still conserves probability and passengers.
+            for (std::size_t i = 0; i < probabilities.size(); ++i) {
+                if (i == residual_index) {
+                    continue;
+                }
+                if (is_numerically_significant_share(
+                      probabilities[i]
+                    , passengers[i]
+                    , demand_passengers
+                )) {
+                    continue;
+                }
+
+                suppressed_probability.add(probabilities[i]);
+                suppressed_passengers .add(passengers[i]);
+                probabilities[i] = 0.0;
+                passengers[i]    = 0.0;
+                ++suppressed_count;
+            }
+
+            probabilities[residual_index] += suppressed_probability.value();
+            passengers   [residual_index] += suppressed_passengers .value();
+            return suppressed_count;
+        }
 
         double perceived_journey_time(
               const ConnectionMetrics&          metrics
@@ -196,14 +279,14 @@ namespace timetable::domain::assignment {
             , std::size_t                           index
             , const SplitParams&                    params
         ) noexcept {
-            double influence_sum = 0.0;
+            mathfp::CompensatedSum<double> influence_sum;
             for (std::size_t i = 0; i < alternatives.size(); ++i) {
                 if (i == index) {
                     continue;
                 }
-                influence_sum += connection_influence(alternatives[index], alternatives[i], params);
+                influence_sum.add(connection_influence(alternatives[index], alternatives[i], params));
             }
-            return 1.0 / (1.0 + influence_sum);
+            return 1.0 / (1.0 + influence_sum.value());
         }
 
         std::vector<SplitAlternative> derive_split_alternatives(
@@ -314,6 +397,7 @@ namespace timetable::domain::assignment {
         const auto interval_lookup    = build_interval_lookup(input);
         const auto beta               = mathfp::units::as_dimless(params.split.beta);
         const auto boxcox_t           = mathfp::units::as_dimless(params.split.boxcox_t);
+        std::size_t suppressed_numerical_shares = 0;
 
         for (const auto& demand : input.demand) {
             if (demand.passengers <= 0.0) {
@@ -393,14 +477,13 @@ namespace timetable::domain::assignment {
                 max_log_weight = std::max(max_log_weight, log_weight);
             }
 
-            double weight_sum = 0.0;
             std::vector<double> weights;
             weights.reserve(log_weights.size());
             for (const auto log_weight : log_weights) {
                 const auto weight = std::exp(log_weight - max_log_weight);
                 weights.push_back(weight);
-                weight_sum += weight;
             }
+            const auto weight_sum = mathfp::compensated_sum(weights);
 
             if (!(weight_sum > 0.0) || !std::isfinite(weight_sum)) {
                 return mathfp::unexpected(
@@ -411,16 +494,61 @@ namespace timetable::domain::assignment {
                 );
             }
 
+            const auto residual_index = max_weight_index(weights);
+            std::vector<double> probabilities(alternatives.size(), 0.0);
+            std::vector<double> passengers(alternatives.size(), 0.0);
+
+            mathfp::CompensatedSum<double> probability_prefix;
+            mathfp::CompensatedSum<double> passenger_prefix;
             for (std::size_t i = 0; i < alternatives.size(); ++i) {
+                if (i == residual_index) {
+                    continue;
+                }
                 const auto probability = weights[i] / weight_sum;
+                const auto passenger_count = demand.passengers * probability;
+                probabilities[i] = probability;
+                passengers[i] = passenger_count;
+                probability_prefix.add(probability);
+                passenger_prefix.add(passenger_count);
+            }
+
+            auto residual_probability = 1.0 - probability_prefix.value();
+            auto residual_passengers = demand.passengers - passenger_prefix.value();
+            if (!is_non_negative_roundoff(residual_probability, 1.0)
+                || !is_non_negative_roundoff(residual_passengers, demand.passengers)) {
+                return mathfp::unexpected(
+                    mathfp::domain_error("invalid residual split normalization")
+                        .ctx("origin"              , demand.origin.get())
+                        .ctx("destination"         , demand.destination.get())
+                        .ctx("interval"            , task_result.task.interval.id.get())
+                        .ctx("residual_probability", residual_probability)
+                        .ctx("residual_passengers" , residual_passengers)
+                );
+            }
+            residual_probability = std::max(0.0, residual_probability);
+            residual_passengers = std::max(0.0, residual_passengers);
+            probabilities[residual_index] = residual_probability;
+            passengers[residual_index] = residual_passengers;
+
+            suppressed_numerical_shares += compact_numerical_support(
+                  probabilities
+                , passengers
+                , residual_index
+                , demand.passengers
+            );
+
+            for (std::size_t i = 0; i < alternatives.size(); ++i) {
+                if (!(probabilities[i] > 0.0) && !(passengers[i] > 0.0)) {
+                    continue;
+                }
                 result.shares.push_back(
                     ConnectionDemandShare{
                           .origin          = demand.origin
                         , .destination     = demand.destination
                         , .interval        = demand.interval
                         , .connection      = alternatives[i].connection
-                        , .passengers      = demand.passengers * probability
-                        , .probability     = probability
+                        , .passengers      = passengers[i]
+                        , .probability     = probabilities[i]
                         , .independence    = independences[i]
                         , .split_impedance = split_impedances[i]
                     }
@@ -430,8 +558,9 @@ namespace timetable::domain::assignment {
 
         log(
             fmt::format(
-                  "split result: shares = {:>8}"
+                  "split result: shares = {:>8}  suppressed_numerical_shares = {:>8}"
                 , result.shares.size()
+                , suppressed_numerical_shares
             )
             , LogLevel::Info
         );

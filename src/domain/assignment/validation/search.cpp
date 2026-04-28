@@ -279,6 +279,33 @@ namespace timetable::domain::assignment {
             return std::nullopt;
         }
 
+        mathfp::Expected<mathfp::Unit> validate_no_intermediate_zone_endpoints(
+              const SearchConnection& connection
+            , std::size_t             index
+        ) {
+            const auto& legs = canonical_connection(connection).trace.legs;
+            for (std::size_t i = 0; i < legs.size(); ++i) {
+                const auto& leg = legs[i];
+                if (i > 0 && leg.physical_from.kind == EndpointKind::Zone) {
+                    return mathfp::unexpected(
+                        mathfp::invalid_arg("connection trace contains an intermediate zone origin")
+                            .ctx("connection_index", static_cast<std::int64_t>(index))
+                            .ctx("leg_index"       , static_cast<std::int64_t>(i))
+                            .ctx("zone"            , leg.physical_from.id)
+                    );
+                }
+                if (i + 1 < legs.size() && leg.physical_to.kind == EndpointKind::Zone) {
+                    return mathfp::unexpected(
+                        mathfp::invalid_arg("connection trace contains an intermediate zone destination")
+                            .ctx("connection_index", static_cast<std::int64_t>(index))
+                            .ctx("leg_index"       , static_cast<std::int64_t>(i))
+                            .ctx("zone"            , leg.physical_to.id)
+                    );
+                }
+            }
+            return mathfp::kUnit;
+        }
+
         mathfp::Expected<mathfp::Unit> validate_evaluated_segments_against_canonical_connection(
               const SearchConnection&     connection
             , const EvaluatedConnectionTrace& evaluated
@@ -366,6 +393,7 @@ namespace timetable::domain::assignment {
 
                     MATHFP_TRY(validate_search_connection_basic(connection, i));
                     MATHFP_TRY(validate_materialized_trace_projection(connection, i));
+                    MATHFP_TRY(validate_no_intermediate_zone_endpoints(connection, i));
                     MATHFP_TRY_LET(
                           EvaluatedConnectionTrace
                         , evaluated
