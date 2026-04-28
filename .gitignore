@@ -29,3 +29,4 @@ __pycache__/
 
 # Local datasets / large input files
 data/
+/AGENTS.md
