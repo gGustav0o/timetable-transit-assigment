@@ -324,6 +324,16 @@ namespace timetable::infra {
             write_time(writer, metrics.arrival_time);
             writer.key("journey_time");
             write_time(writer, metrics.journey_time);
+            writer.key("in_vehicle_time");
+            write_time(writer, metrics.in_vehicle_time);
+            writer.key("access_time");
+            write_time(writer, metrics.access_time);
+            writer.key("egress_time");
+            write_time(writer, metrics.egress_time);
+            writer.key("transfer_walk_time");
+            write_time(writer, metrics.transfer_walk_time);
+            writer.key("transfer_wait_time");
+            write_time(writer, metrics.transfer_wait_time);
             writer.key("transfer_time");
             write_time(writer, transfer_time);
             writer.key("transfers");
@@ -555,7 +565,7 @@ namespace timetable::infra {
         JsonWriter writer;
         writer.begin_object();
         writer.key("schema");
-        writer.string("timetable.assignment_output.v2");
+        writer.string("timetable.assignment_output.v3");
         writer.key("units");
         writer.begin_object();
         writer.key("time");

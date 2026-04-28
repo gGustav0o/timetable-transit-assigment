@@ -94,6 +94,11 @@ namespace timetable::domain::assignment::projection {
                 , .departure           = summary   .departure
                 , .arrival             = summary   .arrival
                 , .journey_time        = summary   .journey_time
+                , .in_vehicle_time     = summary   .in_vehicle_time
+                , .access_time         = summary   .access_time
+                , .egress_time         = summary   .egress_time
+                , .transfer_walk_time  = summary   .transfer_walk_time
+                , .transfer_wait_time  = summary   .transfer_wait_time
                 , .transfer_time       = summary   .transfer_time
                 , .transfers           = summary   .transfers
                 , .fare                = summary   .fare

@@ -229,6 +229,11 @@ namespace timetable::infra {
         writer.text("departure");
         writer.text("arrival");
         writer.text("journey_time");
+        writer.text("in_vehicle_time");
+        writer.text("access_time");
+        writer.text("egress_time");
+        writer.text("transfer_walk_time");
+        writer.text("transfer_wait_time");
         writer.text("transfer_time");
         writer.text("transfers");
         writer.text("fare");
@@ -244,6 +249,11 @@ namespace timetable::infra {
             write_time_field(writer, row.departure);
             write_time_field(writer, row.arrival);
             write_time_field(writer, row.journey_time);
+            write_time_field(writer, row.in_vehicle_time);
+            write_time_field(writer, row.access_time);
+            write_time_field(writer, row.egress_time);
+            write_time_field(writer, row.transfer_walk_time);
+            write_time_field(writer, row.transfer_wait_time);
             write_time_field(writer, row.transfer_time);
             write_strong_field(writer, row.transfers);
             writer.number(row.fare);

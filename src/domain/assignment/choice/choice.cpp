@@ -43,9 +43,15 @@ namespace timetable::domain::assignment {
             , double                      fare_scale
         ) noexcept {
             return connection_impedance_value(
-                  connection_metrics.journey_time
-                , connection_metrics.transfer_count
-                , connection_metrics.fare
+                  ConnectionImpedanceComponents{
+                      .in_vehicle_time    = connection_metrics.in_vehicle_time
+                    , .access_time        = connection_metrics.access_time
+                    , .egress_time        = connection_metrics.egress_time
+                    , .transfer_walk_time = connection_metrics.transfer_walk_time
+                    , .transfer_wait_time = connection_metrics.transfer_wait_time
+                    , .transfer_count     = connection_metrics.transfer_count
+                    , .fare               = connection_metrics.fare
+                  }
                 , params.impedance
                 , fare_scale
             );

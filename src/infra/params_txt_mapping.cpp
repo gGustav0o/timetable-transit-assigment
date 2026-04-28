@@ -74,8 +74,12 @@ namespace timetable::infra::params_txt::detail {
         };
 
         struct SearchImpedanceFields final {
-            double journey_time{};
-            double transfers{};
+            double in_vehicle_time{};
+            double access_time{};
+            double egress_time{};
+            double transfer_walk_time{};
+            double transfer_wait_time{};
+            double transfer_count{};
             double fare{};
         };
 
@@ -87,8 +91,11 @@ namespace timetable::infra::params_txt::detail {
         };
 
         struct PerceivedJourneyTimeFields final {
-            double journey_time{};
-            double transfer_time{};
+            double in_vehicle_time{};
+            double access_time{};
+            double egress_time{};
+            double transfer_walk_time{};
+            double transfer_wait_time{};
             double transfer_count{};
         };
 
@@ -162,10 +169,14 @@ namespace timetable::infra::params_txt::detail {
                     NumberFieldSpec{ "maxTWT", "root.searchPara.TemporalSuitability", "transfer_limits.max_transfer_wait" }
                 };
 
-                std::array<NumberFieldSpec, 3> search_impedance{
-                    NumberFieldSpec{ "inVehTimeFactor"   , "root.searchPara.SearchImp", "search_impedance.a_journey_time" },
-                    NumberFieldSpec{ "numTransfersFactor", "root.searchPara.SearchImp", "search_impedance.a_transfers" },
-                    NumberFieldSpec{ "supplementsFactor" , "root.searchPara.SearchImp", "search_impedance.a_fare" }
+                std::array<NumberFieldSpec, 7> search_impedance{
+                    NumberFieldSpec{ "inVehTimeFactor"      , "root.searchPara.SearchImp", "search_impedance.in_vehicle_time" },
+                    NumberFieldSpec{ "accessTimeFactor"     , "root.searchPara.SearchImp", "search_impedance.access_time" },
+                    NumberFieldSpec{ "egressTimeFactor"     , "root.searchPara.SearchImp", "search_impedance.egress_time" },
+                    NumberFieldSpec{ "walkTimeFactor"       , "root.searchPara.SearchImp", "search_impedance.transfer_walk_time" },
+                    NumberFieldSpec{ "transferWaitTimeFactor", "root.searchPara.SearchImp", "search_impedance.transfer_wait_time" },
+                    NumberFieldSpec{ "numTransfersFactor"   , "root.searchPara.SearchImp", "search_impedance.transfer_count" },
+                    NumberFieldSpec{ "supplementsFactor"    , "root.searchPara.SearchImp", "search_impedance.fare" }
                 };
 
                 std::array<StringFieldSpec, 1> split_choice_model{
@@ -179,16 +190,31 @@ namespace timetable::infra::params_txt::detail {
                     NumberFieldSpec{ "fareFactor"                 , "root.splitPara.SplitImp", "split_impedance.q_fare" }
                 };
 
-                std::array<NumberFieldSpec, 3> split_perceived_journey_time{
+                std::array<NumberFieldSpec, 6> split_perceived_journey_time{
                     NumberFieldSpec{
                           "inVehTimeFactor"
                         , "root.splitPara.SplitImp.PerceivedJourneyTime"
-                        , "split_perceived_journey_time.journey_time"
+                        , "split_perceived_journey_time.in_vehicle_time"
+                    },
+                    NumberFieldSpec{
+                          "accessTimeFactor"
+                        , "root.splitPara.SplitImp.PerceivedJourneyTime"
+                        , "split_perceived_journey_time.access_time"
+                    },
+                    NumberFieldSpec{
+                          "egressTimeFactor"
+                        , "root.splitPara.SplitImp.PerceivedJourneyTime"
+                        , "split_perceived_journey_time.egress_time"
+                    },
+                    NumberFieldSpec{
+                          "walkTimeFactor"
+                        , "root.splitPara.SplitImp.PerceivedJourneyTime"
+                        , "split_perceived_journey_time.transfer_walk_time"
                     },
                     NumberFieldSpec{
                           "transferWaitTimeFactor"
                         , "root.splitPara.SplitImp.PerceivedJourneyTime"
-                        , "split_perceived_journey_time.transfer_time"
+                        , "split_perceived_journey_time.transfer_wait_time"
                     },
                     NumberFieldSpec{
                           "numTransfersFactor"
@@ -319,14 +345,26 @@ namespace timetable::infra::params_txt::detail {
 
         mathfp::Expected<SearchImpedanceFields> read_search_impedance_fields(
               const Object&                                         obj
-            , const std::array<NumberFieldSpec, 3>& field_specs
+            , const std::array<NumberFieldSpec, 7>& field_specs
         ) {
-            MATHFP_TRY_LET(DoubleArray<3>, values, read_number_array(obj, field_specs));
-            const auto [journey_time, transfers, fare] = values;
+            MATHFP_TRY_LET(DoubleArray<7>, values, read_number_array(obj, field_specs));
+            const auto [
+                  in_vehicle_time
+                , access_time
+                , egress_time
+                , transfer_walk_time
+                , transfer_wait_time
+                , transfer_count
+                , fare
+            ] = values;
             return SearchImpedanceFields{
-                  .journey_time = journey_time
-                , .transfers    = transfers
-                , .fare         = fare
+                  .in_vehicle_time    = in_vehicle_time
+                , .access_time        = access_time
+                , .egress_time        = egress_time
+                , .transfer_walk_time = transfer_walk_time
+                , .transfer_wait_time = transfer_wait_time
+                , .transfer_count     = transfer_count
+                , .fare               = fare
             };
         }
 
@@ -346,14 +384,24 @@ namespace timetable::infra::params_txt::detail {
 
         mathfp::Expected<PerceivedJourneyTimeFields> read_perceived_journey_time_fields(
               const Object&                                         obj
-            , const std::array<NumberFieldSpec, 3>& field_specs
+            , const std::array<NumberFieldSpec, 6>& field_specs
         ) {
-            MATHFP_TRY_LET(DoubleArray<3>, values, read_number_array(obj, field_specs));
-            const auto [journey_time, transfer_time, transfer_count] = values;
+            MATHFP_TRY_LET(DoubleArray<6>, values, read_number_array(obj, field_specs));
+            const auto [
+                  in_vehicle_time
+                , access_time
+                , egress_time
+                , transfer_walk_time
+                , transfer_wait_time
+                , transfer_count
+            ] = values;
             return PerceivedJourneyTimeFields{
-                  .journey_time   = journey_time
-                , .transfer_time  = transfer_time
-                , .transfer_count = transfer_count
+                  .in_vehicle_time    = in_vehicle_time
+                , .access_time        = access_time
+                , .egress_time        = egress_time
+                , .transfer_walk_time = transfer_walk_time
+                , .transfer_wait_time = transfer_wait_time
+                , .transfer_count     = transfer_count
             };
         }
 
@@ -457,8 +505,12 @@ namespace timetable::infra::params_txt::detail {
                 )
             );
             return make_search_impedance(
-                  Dimless{ fields.journey_time }
-                , Dimless{ fields.transfers }
+                  Dimless{ fields.in_vehicle_time }
+                , Dimless{ fields.access_time }
+                , Dimless{ fields.egress_time }
+                , Dimless{ fields.transfer_walk_time }
+                , Dimless{ fields.transfer_wait_time }
+                , Dimless{ fields.transfer_count }
                 , Dimless{ fields.fare }
             );
         }
@@ -565,9 +617,12 @@ namespace timetable::infra::params_txt::detail {
                 , Dimless{ 1.0 }
                 , Dimless{ split_imp_fields.fare }
                 , PerceivedJourneyTimeWeights{
-                      .journey_time   = Dimless{ split_pjt_fields.journey_time }
-                    , .transfer_time  = Dimless{ split_pjt_fields.transfer_time }
-                    , .transfer_count = Dimless{ split_pjt_fields.transfer_count }
+                      .in_vehicle_time    = Dimless{ split_pjt_fields.in_vehicle_time }
+                    , .access_time        = Dimless{ split_pjt_fields.access_time }
+                    , .egress_time        = Dimless{ split_pjt_fields.egress_time }
+                    , .transfer_walk_time = Dimless{ split_pjt_fields.transfer_walk_time }
+                    , .transfer_wait_time = Dimless{ split_pjt_fields.transfer_wait_time }
+                    , .transfer_count     = Dimless{ split_pjt_fields.transfer_count }
                 }
                 , TemporalUtilityWeights{
                       .early_departure = Dimless{ split_imp_fields.departure_early }

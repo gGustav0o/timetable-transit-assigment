@@ -123,6 +123,11 @@ namespace timetable::domain::assignment::projection {
                         , .departure           = metrics.departure_time
                         , .arrival             = metrics.arrival_time
                         , .journey_time        = metrics.journey_time
+                        , .in_vehicle_time     = metrics.in_vehicle_time
+                        , .access_time         = metrics.access_time
+                        , .egress_time         = metrics.egress_time
+                        , .transfer_walk_time  = metrics.transfer_walk_time
+                        , .transfer_wait_time  = metrics.transfer_wait_time
                         , .transfer_time       = transfer_time
                         , .transfers           = metrics.transfer_count
                         , .fare                = metrics.fare

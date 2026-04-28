@@ -52,6 +52,11 @@ namespace timetable::domain::assignment::projection {
         Time                    departure{};
         Time                    arrival{};
         Time                    journey_time{};
+        Time                    in_vehicle_time{};
+        Time                    access_time{};
+        Time                    egress_time{};
+        Time                    transfer_walk_time{};
+        Time                    transfer_wait_time{};
         Time                    transfer_time{};
         TransferCount           transfers{};
         double                  fare{};

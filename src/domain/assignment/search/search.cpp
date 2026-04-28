@@ -83,9 +83,11 @@ namespace timetable::domain::assignment {
         struct SearchPartialMetrics final {
             std::optional<Time> departure{};
             std::optional<Time> current_time{};
-            Time                walk_time{};
-            Time                access_walk_time{};
-            Time                transfer_time{};
+            Time                access_time{};
+            Time                in_vehicle_time{};
+            Time                transfer_wait_time{};
+            Time                transfer_walk_time{};
+            Time                egress_time{};
             TransferCount       transfers{};
             double              fare{};
         };
@@ -131,27 +133,31 @@ namespace timetable::domain::assignment {
             return network.connection_segments.at(static_cast<std::size_t>(id.get()));
         }
 
-        double branch_impedance_value(
-              Time                   journey_time
-            , TransferCount          transfers
-            , double                 fare
-            , const SearchImpedance& impedance
-            , double                 fare_scale
-        ) noexcept {
-            return connection_impedance_value(
-                  journey_time
-                , transfers
-                , fare
-                , impedance
-                , fare_scale
-            );
-        }
-
         [[nodiscard]] Time partial_journey_time(
             const SearchPartialMetrics& metrics
         ) noexcept {
             return Time{
                 metrics.current_time->value() - metrics.departure->value()
+            };
+        }
+
+        [[nodiscard]] Time partial_walk_time(
+            const SearchPartialMetrics& metrics
+        ) noexcept {
+            return metrics.access_time + metrics.transfer_walk_time + metrics.egress_time;
+        }
+
+        [[nodiscard]] ConnectionImpedanceComponents partial_impedance_components(
+            const SearchPartialMetrics& metrics
+        ) noexcept {
+            return ConnectionImpedanceComponents{
+                  .in_vehicle_time    = metrics.in_vehicle_time
+                , .access_time        = metrics.access_time
+                , .egress_time        = metrics.egress_time
+                , .transfer_walk_time = metrics.transfer_walk_time
+                , .transfer_wait_time = metrics.transfer_wait_time
+                , .transfer_count     = metrics.transfers
+                , .fare               = metrics.fare
             };
         }
 
@@ -291,16 +297,14 @@ namespace timetable::domain::assignment {
                   .departure    = *branch.metrics.departure
                 , .arrival      = *branch.metrics.current_time
                 , .journey_time = journey_time
-                , .walk_time    = branch.metrics.walk_time
+                , .walk_time    = partial_walk_time(branch.metrics)
                 , .transfers    = branch.metrics.transfers
                 , .fare         = branch.metrics.fare
-                , .impedance    = branch_impedance_value(
-                      journey_time
-                    , branch.metrics.transfers
-                    , branch.metrics.fare
+                , .impedance    = connection_impedance_value(
+                      partial_impedance_components(branch.metrics)
                     , impedance
                     , fare_scale
-                  )
+                )
             };
         }
 
@@ -658,22 +662,22 @@ namespace timetable::domain::assignment {
             , const RouteSegment&   route_segment
             , EndpointKey           next_physical
         ) {
-            metrics.walk_time = Time{
-                metrics.walk_time.value() + route_segment.run_time.value()
-            };
-
             if (metrics.departure.has_value()) {
                 metrics.current_time = Time{
                     metrics.current_time->value() + route_segment.run_time.value()
                 };
                 if (next_physical.kind == EndpointKind::Stop) {
-                    metrics.transfer_time = Time{
-                        metrics.transfer_time.value() + route_segment.run_time.value()
+                    metrics.transfer_walk_time = Time{
+                        metrics.transfer_walk_time.value() + route_segment.run_time.value()
+                    };
+                } else {
+                    metrics.egress_time = Time{
+                        metrics.egress_time.value() + route_segment.run_time.value()
                     };
                 }
             } else {
-                metrics.access_walk_time = Time{
-                    metrics.access_walk_time.value() + route_segment.run_time.value()
+                metrics.access_time = Time{
+                    metrics.access_time.value() + route_segment.run_time.value()
                 };
             }
 
@@ -714,7 +718,7 @@ namespace timetable::domain::assignment {
             if (!metrics.departure.has_value()) {
                 trace.connection_trace = anchor_access_trace(
                       std::move(trace.connection_trace)
-                    , Time{ segment.departure->value() - metrics.access_walk_time.value() }
+                    , Time{ segment.departure->value() - metrics.access_time.value() }
                 );
             } else if (auto wait_leg = make_transfer_wait_leg(
                   metrics
@@ -740,16 +744,20 @@ namespace timetable::domain::assignment {
             const auto had_departure = metrics.departure.has_value();
             if (!had_departure) {
                 metrics.departure = Time{
-                    segment.departure->value() - metrics.access_walk_time.value()
+                    segment.departure->value() - metrics.access_time.value()
                 };
             } else {
-                metrics.transfer_time = Time{
-                    metrics.transfer_time.value()
+                metrics.transfer_wait_time = Time{
+                    metrics.transfer_wait_time.value()
                     + (segment.departure->value() - metrics.current_time->value())
                 };
                 metrics.transfers = TransferCount{ metrics.transfers.get() + 1 };
             }
 
+            metrics.in_vehicle_time = Time{
+                metrics.in_vehicle_time.value()
+                + (segment.arrival->value() - segment.departure->value())
+            };
             metrics.current_time = *segment.arrival;
             metrics.fare         = metrics.fare + segment.fare.value_or(0.0);
             return metrics;
@@ -985,9 +993,11 @@ namespace timetable::domain::assignment {
                     , .metrics = SearchPartialMetrics{
                             .departure        = std::nullopt
                           , .current_time     = std::nullopt
-                          , .walk_time        = Time{ 0.0 }
-                          , .access_walk_time = Time{ 0.0 }
-                          , .transfer_time    = Time{ 0.0 }
+                          , .access_time      = Time{ 0.0 }
+                          , .in_vehicle_time  = Time{ 0.0 }
+                          , .transfer_wait_time = Time{ 0.0 }
+                          , .transfer_walk_time = Time{ 0.0 }
+                          , .egress_time      = Time{ 0.0 }
                           , .transfers        = TransferCount{ 0 }
                           , .fare             = 0.0
                       }

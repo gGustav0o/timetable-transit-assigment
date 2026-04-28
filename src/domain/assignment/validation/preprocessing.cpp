@@ -194,7 +194,7 @@ namespace timetable::domain::assignment {
             );
         }
 
-        const auto fare_required = mathfp::units::as_dimless(params.impedance.a_fare) > 0.0;
+        const auto fare_required = mathfp::units::as_dimless(params.impedance.fare) > 0.0;
         const auto has_any_fare = std::any_of(
               network.connection_segments.begin()
             , network.connection_segments.end()

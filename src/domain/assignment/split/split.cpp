@@ -50,9 +50,11 @@ namespace timetable::domain::assignment {
               const ConnectionMetrics&          metrics
             , const PerceivedJourneyTimeWeights& weights
         ) noexcept {
-            const auto transfer_time = metrics.transfer_wait_time + metrics.transfer_walk_time;
-            return weighted_duration(metrics.journey_time, weights.journey_time)
-                + weighted_duration(transfer_time, weights.transfer_time)
+            return weighted_duration(metrics.in_vehicle_time, weights.in_vehicle_time)
+                + weighted_duration(metrics.access_time, weights.access_time)
+                + weighted_duration(metrics.egress_time, weights.egress_time)
+                + weighted_duration(metrics.transfer_walk_time, weights.transfer_walk_time)
+                + weighted_duration(metrics.transfer_wait_time, weights.transfer_wait_time)
                 + weighted_transfer_count(metrics.transfer_count, weights.transfer_count);
         }
 

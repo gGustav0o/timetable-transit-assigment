@@ -84,8 +84,12 @@ namespace timetable::infra {
         };
 
         struct PairSearchImpedanceSpec final {
-            double                               journey_time{};
-            double                               transfers{};
+            double                               in_vehicle_time{};
+            double                               access_time{};
+            double                               egress_time{};
+            double                               transfer_walk_time{};
+            double                               transfer_wait_time{};
+            double                               transfer_count{};
             double                               fare{};
             timetable::domain::FareNormalization fare_normalization{};
         };
@@ -111,8 +115,11 @@ namespace timetable::infra {
             double q_time{};
             double q_departure{};
             double q_fare{};
-            double pjt_journey_time{};
-            double pjt_transfer_time{};
+            double pjt_in_vehicle_time{};
+            double pjt_access_time{};
+            double pjt_egress_time{};
+            double pjt_transfer_walk_time{};
+            double pjt_transfer_wait_time{};
             double pjt_transfer_count{};
             double departure_early{};
             double departure_late{};
@@ -160,8 +167,12 @@ namespace timetable::infra {
                   , .time_aggregation           = timetable::domain::TimeAggregationKind::Mean
                 }
             , .search_impedance = PairSearchImpedanceSpec{
-                    .journey_time       = 1.0
-                  , .transfers          = 12.0
+                    .in_vehicle_time    = 1.0
+                  , .access_time        = 1.2
+                  , .egress_time        = 1.3
+                  , .transfer_walk_time = 1.5
+                  , .transfer_wait_time = 2.25
+                  , .transfer_count     = 12.0
                   , .fare               = 1.0
                   , .fare_normalization = timetable::domain::FareNormalization{
                           .kind        = timetable::domain::FareNormalization::Kind::Median
@@ -181,8 +192,11 @@ namespace timetable::infra {
                     .q_time                    = 1.0
                   , .q_departure               = 1.0
                   , .q_fare                    = 1.0
-                  , .pjt_journey_time          = 1.0
-                  , .pjt_transfer_time         = 2.0
+                  , .pjt_in_vehicle_time       = 1.0
+                  , .pjt_access_time           = 1.2
+                  , .pjt_egress_time           = 1.3
+                  , .pjt_transfer_walk_time    = 1.5
+                  , .pjt_transfer_wait_time    = 2.25
                   , .pjt_transfer_count        = 2.0
                   , .departure_early           = 1.0
                   , .departure_late            = 1.0
@@ -368,8 +382,12 @@ namespace timetable::infra {
                         , kPairRuntimeDefaultSpec.preprocess.stable_ordering
                     )
                     , make_search_impedance(
-                          Dimless{ kPairRuntimeDefaultSpec.search_impedance.journey_time }
-                        , Dimless{ kPairRuntimeDefaultSpec.search_impedance.transfers }
+                          Dimless{ kPairRuntimeDefaultSpec.search_impedance.in_vehicle_time }
+                        , Dimless{ kPairRuntimeDefaultSpec.search_impedance.access_time }
+                        , Dimless{ kPairRuntimeDefaultSpec.search_impedance.egress_time }
+                        , Dimless{ kPairRuntimeDefaultSpec.search_impedance.transfer_walk_time }
+                        , Dimless{ kPairRuntimeDefaultSpec.search_impedance.transfer_wait_time }
+                        , Dimless{ kPairRuntimeDefaultSpec.search_impedance.transfer_count }
                         , Dimless{ kPairRuntimeDefaultSpec.search_impedance.fare }
                         , kPairRuntimeDefaultSpec.search_impedance.fare_normalization
                     )
@@ -418,9 +436,12 @@ namespace timetable::infra {
                     , Dimless{ kPairRuntimeDefaultSpec.split.q_departure }
                     , Dimless{ kPairRuntimeDefaultSpec.split.q_fare }
                     , PerceivedJourneyTimeWeights{
-                          .journey_time   = Dimless{ kPairRuntimeDefaultSpec.split.pjt_journey_time }
-                        , .transfer_time  = Dimless{ kPairRuntimeDefaultSpec.split.pjt_transfer_time }
-                        , .transfer_count = Dimless{ kPairRuntimeDefaultSpec.split.pjt_transfer_count }
+                          .in_vehicle_time    = Dimless{ kPairRuntimeDefaultSpec.split.pjt_in_vehicle_time }
+                        , .access_time        = Dimless{ kPairRuntimeDefaultSpec.split.pjt_access_time }
+                        , .egress_time        = Dimless{ kPairRuntimeDefaultSpec.split.pjt_egress_time }
+                        , .transfer_walk_time = Dimless{ kPairRuntimeDefaultSpec.split.pjt_transfer_walk_time }
+                        , .transfer_wait_time = Dimless{ kPairRuntimeDefaultSpec.split.pjt_transfer_wait_time }
+                        , .transfer_count     = Dimless{ kPairRuntimeDefaultSpec.split.pjt_transfer_count }
                     }
                     , TemporalUtilityWeights{
                           .early_departure = Dimless{ kPairRuntimeDefaultSpec.split.departure_early }

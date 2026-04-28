@@ -18,11 +18,6 @@ namespace timetable::domain {
         , mathfp::strong_detail::Ordered
     >;
 
-    /**
-     * @brief Search impedance weights for branch-and-bound connection search.
-     *
-     * IMP(c) = a_journey_time * JT(c) + a_transfers * NT(c) + a_fare * FARE(c).
-     */
     struct FareNormalization final {
         enum class Kind : std::uint8_t {
               None
@@ -36,10 +31,31 @@ namespace timetable::domain {
         double fixed_scale{ 1.0 };
     };
 
+    /**
+     * @brief Component search impedance weights for branch-and-bound search.
+     *
+     * The search cost is a generalized cost over parameter-independent
+     * connection metrics. It keeps time components separated so dominance and
+     * choice are evaluated in the same behavioral space as the assignment
+     * model, rather than through an already aggregated journey time.
+     *
+     * IMP(c) =
+     *   w_ivt  * IVT(c)
+     * + w_acc  * ACC(c)
+     * + w_egr  * EGR(c)
+     * + w_walk * TWalk(c)
+     * + w_twt  * TWait(c)
+     * + w_nt   * NT(c)
+     * + w_fare * FARE(c).
+     */
     struct SearchImpedance final {
-        Dimless           a_journey_time{};
-        Dimless           a_transfers{};
-        Dimless           a_fare{};
+        Dimless           in_vehicle_time{};
+        Dimless           access_time{};
+        Dimless           egress_time{};
+        Dimless           transfer_walk_time{};
+        Dimless           transfer_wait_time{};
+        Dimless           transfer_count{};
+        Dimless           fare{};
         FareNormalization fare_normalization{};
     };
 
@@ -95,7 +111,13 @@ namespace timetable::domain {
     /**
      * @brief Submodels used by the demand split step.
      *
-     * PJT(c) = w_jt * JT(c) + w_tt * TT(c) + w_nt * NT(c)
+     * PJT(c) =
+     *   w_ivt  * IVT(c)
+     * + w_acc  * ACC(c)
+     * + w_egr  * EGR(c)
+     * + w_walk * TWalk(c)
+     * + w_twt  * TWait(c)
+     * + w_nt   * NT(c)
      * U_a(c) = u_early * max(0, start(a) - DEP(c))
      *        + u_late  * max(0, DEP(c) - end(a))
      * IMP_a(c) = q_time * PJT(c) + q_departure * U_a(c) + q_fare * FARE(c).
@@ -104,8 +126,11 @@ namespace timetable::domain {
      * user-defined subfunctions PJT and U_a explicit in the domain model.
      */
     struct PerceivedJourneyTimeWeights final {
-        Dimless journey_time{};
-        Dimless transfer_time{};
+        Dimless in_vehicle_time{};
+        Dimless access_time{};
+        Dimless egress_time{};
+        Dimless transfer_walk_time{};
+        Dimless transfer_wait_time{};
         Dimless transfer_count{};
     };
 
