@@ -85,16 +85,16 @@ namespace timetable::domain::assignment {
             );
         }
 
-        [[nodiscard]] mathfp::Expected<mathfp::Unit> ensure_no_line_trip(
+        [[nodiscard]] mathfp::Expected<mathfp::Unit> ensure_no_line_route_trip(
               const ConnectionLeg& leg
             , std::size_t          leg_index
         ) {
-            if (!leg.line.has_value() && !leg.trip.has_value()) {
+            if (!leg.line.has_value() && !leg.route.has_value() && !leg.trip.has_value()) {
                 return mathfp::kUnit;
             }
 
             return mathfp::unexpected(
-                trace_error("non-ride leg must not carry line or trip", leg_index)
+                trace_error("non-ride leg must not carry line, route or trip", leg_index)
                     .ctx("kind", std::string(to_string(leg.kind)))
             );
         }
@@ -119,6 +119,7 @@ namespace timetable::domain::assignment {
         ) {
             if (
                    leg.line.has_value()
+                && leg.route.has_value()
                 && leg.trip.has_value()
                 && leg.occurrence_from.has_value()
                 && leg.occurrence_to.has_value()
@@ -127,7 +128,7 @@ namespace timetable::domain::assignment {
             }
 
             return mathfp::unexpected(
-                trace_error("ride leg must carry line, trip and stop occurrences", leg_index)
+                trace_error("ride leg must carry line, route, trip and stop occurrences", leg_index)
             );
         }
 
@@ -163,7 +164,7 @@ namespace timetable::domain::assignment {
             , std::size_t          leg_index
         ) {
             MATHFP_TRY(ensure_absent_supply_segment(leg, leg_index));
-            MATHFP_TRY(ensure_no_line_trip(leg, leg_index));
+            MATHFP_TRY(ensure_no_line_route_trip(leg, leg_index));
             MATHFP_TRY(ensure_no_occurrences(leg, leg_index));
 
             if (!same_endpoint(leg.physical_from, leg.physical_to)) {
@@ -191,7 +192,7 @@ namespace timetable::domain::assignment {
             , std::size_t          leg_index
         ) {
             MATHFP_TRY(ensure_present_supply_segment(leg, leg_index));
-            MATHFP_TRY(ensure_no_line_trip(leg, leg_index));
+            MATHFP_TRY(ensure_no_line_route_trip(leg, leg_index));
             MATHFP_TRY(ensure_no_occurrences(leg, leg_index));
             return mathfp::kUnit;
         }

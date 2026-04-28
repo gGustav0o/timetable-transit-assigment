@@ -89,6 +89,7 @@ namespace timetable::domain::assignment::projection {
                   "Chosen connections:  {}\n"
                   "Demand shares:       {}\n"
                   "Line loads:          {}\n"
+                  "Route loads:         {}\n"
                   "Trip loads:          {}\n"
                   "Segment loads:       {}\n"
                   "Total demand:        {}\n"
@@ -100,6 +101,7 @@ namespace timetable::domain::assignment::projection {
                 , format_count (summary.totals.chosen_connection_count)
                 , format_count (summary.totals.demand_share_count)
                 , format_count (summary.line_load_count)
+                , format_count (summary.route_load_count)
                 , format_count (summary.trip_load_count)
                 , format_count (summary.segment_load_count)
                 , format_scalar(summary.totals.total_demand_passengers)

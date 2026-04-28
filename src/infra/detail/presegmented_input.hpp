@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <map>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -44,6 +45,7 @@ namespace timetable::infra::detail::presegmented_input {
     inline constexpr std::string_view kCtxLength     = "length";
     inline constexpr std::string_view kCtxLineId     = "line_id";
     inline constexpr std::string_view kCtxProfileId  = "profile_id";
+    inline constexpr std::string_view kCtxRouteId    = "route_id";
     inline constexpr std::string_view kCtxSample     = "sample";
     inline constexpr std::string_view kCtxStopId     = "stop_id";
     inline constexpr std::string_view kCtxTime       = "time";
@@ -63,6 +65,7 @@ namespace timetable::infra::detail::presegmented_input {
         timetable::domain::StopOccurrenceKey from{};
         timetable::domain::StopOccurrenceKey to{};
         std::int64_t                         line_id{};
+        std::int64_t                         route_id{};
 
         auto operator<=>(const LineRouteKey&) const = default;
     };
@@ -75,6 +78,7 @@ namespace timetable::infra::detail::presegmented_input {
             boost::hash_combine(seed, key.to.stop.get());
             boost::hash_combine(seed, key.to.position.get());
             boost::hash_combine(seed, key.line_id);
+            boost::hash_combine(seed, key.route_id);
             return seed;
         }
     };
@@ -119,6 +123,7 @@ namespace timetable::infra::detail::presegmented_input {
         std::int64_t to_stop{};
         std::int64_t profile{};
         std::int64_t trip_id{};
+        std::int64_t route_id{};
         std::int64_t from_index{};
         std::int64_t to_index{};
         double       length_km{};
@@ -145,6 +150,10 @@ namespace timetable::infra::detail::presegmented_input {
         const SegmentColumns& columns
     );
 
+    mathfp::Expected<std::vector<std::int64_t>> infer_presegmented_route_ids(
+        const SegmentColumns& columns
+    );
+
     mathfp::Expected<RawIdSet> build_declared_zone_set(
         const std::vector<std::int64_t>& zone_ids
     );
@@ -168,6 +177,7 @@ namespace timetable::infra::detail::presegmented_input {
                 , std::int64_t to_stop
                 , std::int64_t profile
                 , std::int64_t trip_id
+                , std::int64_t route_id
                 , std::int64_t from_index
                 , std::int64_t to_index
                 , double length_km
@@ -184,6 +194,7 @@ namespace timetable::infra::detail::presegmented_input {
                     , .to_stop    = to_stop
                     , .profile    = profile
                     , .trip_id    = trip_id
+                    , .route_id   = route_id
                     , .from_index = from_index
                     , .to_index   = to_index
                     , .length_km  = length_km
@@ -200,6 +211,7 @@ namespace timetable::infra::detail::presegmented_input {
             , columns.to_stop_id
             , columns.profile_id
             , columns.trip_id
+            , columns.route_id
             , columns.from_index
             , columns.to_index
             , columns.length_km

@@ -113,6 +113,7 @@ namespace timetable::domain::assignment {
         std::optional<StopOccurrenceKey>   occurrence_to{};
 
         std::optional<LineId>              line{};
+        std::optional<RouteId>             route{};
         std::optional<TripId>              trip{};
 
         Time                               start_time{};

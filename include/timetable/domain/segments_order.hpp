@@ -22,6 +22,11 @@ namespace timetable::domain {
             ; a_line != b_line
         ) return a_line < b_line;
 
+        if (const auto a_route = route_of(a).has_value() ? route_of(a)->get() : 0
+            ,          b_route = route_of(b).has_value() ? route_of(b)->get() : 0
+            ; a_route != b_route
+        ) return a_route < b_route;
+
         return a.id.get() < b.id.get();
     }
 

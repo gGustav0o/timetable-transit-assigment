@@ -107,6 +107,8 @@ namespace timetable::infra {
             switch (level) {
                 case projection::AssignmentLoadLevel::Line:
                     return "line";
+                case projection::AssignmentLoadLevel::Route:
+                    return "route";
                 case projection::AssignmentLoadLevel::Trip:
                     return "trip";
                 case projection::AssignmentLoadLevel::Segment:
@@ -322,6 +324,7 @@ namespace timetable::infra {
         writer.text("route_run_time");
         writer.text("walk_path_link_count");
         writer.text("line_id");
+        writer.text("route_id");
         writer.text("line_from_stop_id");
         writer.text("line_from_position");
         writer.text("line_to_stop_id");
@@ -350,6 +353,7 @@ namespace timetable::infra {
             write_time_field(writer, row.route_run_time);
             writer.integer(static_cast<std::int64_t>(row.walk_path_link_count));
             write_optional_strong_field(writer, row.line_id);
+            write_optional_strong_field(writer, row.route_id);
             write_optional_strong_field(writer, row.line_from_stop_id);
             write_optional_strong_field(writer, row.line_from_position);
             write_optional_strong_field(writer, row.line_to_stop_id);
@@ -373,6 +377,7 @@ namespace timetable::infra {
         writer.text("load_level");
         writer.text("interval_id");
         writer.text("line_id");
+        writer.text("route_id");
         writer.text("trip_id");
         writer.text("route_segment_id");
         writer.text("connection_segment_id");
@@ -391,6 +396,7 @@ namespace timetable::infra {
             writer.text(load_level_name(row.level));
             write_strong_field(writer, row.interval_id);
             write_strong_field(writer, row.line_id);
+            write_optional_strong_field(writer, row.route_id);
             write_optional_strong_field(writer, row.trip_id);
             write_optional_strong_field(writer, row.route_segment_id);
             write_optional_strong_field(writer, row.connection_segment_id);

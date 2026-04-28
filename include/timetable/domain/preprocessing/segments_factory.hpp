@@ -98,6 +98,13 @@ namespace timetable::domain::preprocessing {
         ) {
             MATHFP_TRY(ensure_route_position_nonnegative(topology.from.position, "from.position"));
             MATHFP_TRY(ensure_route_position_nonnegative(topology.to.position, "to.position"));
+            if (topology.route.get() < 0) {
+                const char* message = "route_id must be non-negative";
+                return validation::fail(
+                      message
+                    , mathfp::invalid_arg(message).ctx("route_id", topology.route.get())
+                );
+            }
             MATHFP_TRY(ensure_occurrence_positions_strictly_ordered(topology.from, topology.to));
             return mathfp::kUnit;
         }
@@ -414,6 +421,7 @@ namespace timetable::domain::preprocessing {
         , Length         length
         , Time           run_time
         , LineId         line
+        , RouteId        route
     ) {
         return make_route_segment(
               id
@@ -424,6 +432,7 @@ namespace timetable::domain::preprocessing {
                       .from   = std::move(from)
                     , .to   = std::move(to)
                     , .line = line
+                    , .route = route
                 }
             }
         );

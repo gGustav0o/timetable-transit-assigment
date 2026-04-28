@@ -15,6 +15,7 @@ namespace timetable::domain::assignment::detail {
         struct SegmentLoadKey final {
             IntervalId          interval{};
             LineId              line{};
+            RouteId             route{};
             TripId              trip{};
             RouteSegmentId      route_segment{};
             ConnectionSegmentId connection_segment{};
@@ -32,7 +33,14 @@ namespace timetable::domain::assignment::detail {
         struct TripLoadKey final {
             IntervalId interval{};
             LineId     line{};
+            RouteId    route{};
             TripId     trip{};
+        };
+
+        struct RouteLoadKey final {
+            IntervalId interval{};
+            LineId     line{};
+            RouteId    route{};
         };
 
         [[nodiscard]] bool operator<(
@@ -42,6 +50,7 @@ namespace timetable::domain::assignment::detail {
             return std::tuple{
                   lhs.interval.get()
                 , lhs.line.get()
+                , lhs.route.get()
                 , lhs.trip.get()
                 , lhs.route_segment.get()
                 , lhs.connection_segment.get()
@@ -54,6 +63,7 @@ namespace timetable::domain::assignment::detail {
             } < std::tuple{
                   rhs.interval.get()
                 , rhs.line.get()
+                , rhs.route.get()
                 , rhs.trip.get()
                 , rhs.route_segment.get()
                 , rhs.connection_segment.get()
@@ -78,8 +88,16 @@ namespace timetable::domain::assignment::detail {
               const TripLoadKey& lhs
             , const TripLoadKey& rhs
         ) noexcept {
-            return std::tuple{ lhs.interval.get(), lhs.line.get(), lhs.trip.get() }
-                 < std::tuple{ rhs.interval.get(), rhs.line.get(), rhs.trip.get() };
+            return std::tuple{ lhs.interval.get(), lhs.line.get(), lhs.route.get(), lhs.trip.get() }
+                 < std::tuple{ rhs.interval.get(), rhs.line.get(), rhs.route.get(), rhs.trip.get() };
+        }
+
+        [[nodiscard]] bool operator<(
+              const RouteLoadKey& lhs
+            , const RouteLoadKey& rhs
+        ) noexcept {
+            return std::tuple{ lhs.interval.get(), lhs.line.get(), lhs.route.get() }
+                 < std::tuple{ rhs.interval.get(), rhs.line.get(), rhs.route.get() };
         }
 
         [[nodiscard]] mathfp::Expected<SegmentLoadKey> segment_load_key(
@@ -88,6 +106,7 @@ namespace timetable::domain::assignment::detail {
         ) {
             if (
                    !leg.line.has_value()
+                || !leg.route.has_value()
                 || !leg.trip.has_value()
                 || !leg.route_segment.has_value()
                 || !leg.connection_segment.has_value()
@@ -104,6 +123,7 @@ namespace timetable::domain::assignment::detail {
             return SegmentLoadKey{
                   .interval           = interval
                 , .line               = *leg.line
+                , .route              = *leg.route
                 , .trip               = *leg.trip
                 , .route_segment      = *leg.route_segment
                 , .connection_segment = *leg.connection_segment
@@ -121,6 +141,7 @@ namespace timetable::domain::assignment::detail {
             return AssignmentSegmentLoad{
                   .interval           = key.interval
                 , .line               = key.line
+                , .route              = key.route
                 , .trip               = key.trip
                 , .route_segment      = key.route_segment
                 , .connection_segment = key.connection_segment
@@ -153,7 +174,22 @@ namespace timetable::domain::assignment::detail {
             return AssignmentTripLoad{
                   .interval            = key.interval
                 , .line                = key.line
+                , .route               = key.route
                 , .trip                = key.trip
+                , .passenger_segments  = passenger_segments
+                , .segment_load_count  = segment_load_count
+            };
+        }
+
+        [[nodiscard]] AssignmentRouteLoad make_route_load(
+              const RouteLoadKey& key
+            , double              passenger_segments
+            , std::size_t         segment_load_count
+        ) noexcept {
+            return AssignmentRouteLoad{
+                  .interval            = key.interval
+                , .line                = key.line
+                , .route               = key.route
                 , .passenger_segments  = passenger_segments
                 , .segment_load_count  = segment_load_count
             };
@@ -166,6 +202,7 @@ namespace timetable::domain::assignment::detail {
 
         using SegmentLoadMap = std::map<SegmentLoadKey, double>;
         using LineLoadMap    = std::map<LineLoadKey, LoadAggregate>;
+        using RouteLoadMap   = std::map<RouteLoadKey, LoadAggregate>;
         using TripLoadMap    = std::map<TripLoadKey, LoadAggregate>;
 
         mathfp::Expected<mathfp::Unit> accumulate_share_load(
@@ -197,6 +234,7 @@ namespace timetable::domain::assignment::detail {
             const SegmentLoadMap& segment_load_map
         ) {
             LineLoadMap line_load_map;
+            RouteLoadMap route_load_map;
             TripLoadMap trip_load_map;
 
             AssignmentLoads loads;
@@ -215,16 +253,36 @@ namespace timetable::domain::assignment::detail {
                 auto& trip_load = trip_load_map[TripLoadKey{
                       .interval = key.interval
                     , .line     = key.line
+                    , .route    = key.route
                     , .trip     = key.trip
                 }];
                 trip_load.passenger_segments += passengers;
                 trip_load.segment_load_count += 1;
+
+                auto& route_load = route_load_map[RouteLoadKey{
+                      .interval = key.interval
+                    , .line     = key.line
+                    , .route    = key.route
+                }];
+                route_load.passenger_segments += passengers;
+                route_load.segment_load_count += 1;
             }
 
             loads.line_loads.reserve(line_load_map.size());
             for (const auto& [key, aggregate] : line_load_map) {
                 loads.line_loads.push_back(
                     make_line_load(
+                          key
+                        , aggregate.passenger_segments
+                        , aggregate.segment_load_count
+                    )
+                );
+            }
+
+            loads.route_loads.reserve(route_load_map.size());
+            for (const auto& [key, aggregate] : route_load_map) {
+                loads.route_loads.push_back(
+                    make_route_load(
                           key
                         , aggregate.passenger_segments
                         , aggregate.segment_load_count

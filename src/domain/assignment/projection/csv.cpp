@@ -161,6 +161,7 @@ namespace timetable::domain::assignment::projection {
             const AssignmentOutput& output
         ) noexcept {
             return output.loads.line_loads.size()
+                 + output.loads.route_loads.size()
                  + output.loads.trip_loads.size()
                  + output.loads.segment_loads.size();
         }
@@ -190,6 +191,7 @@ namespace timetable::domain::assignment::projection {
                 , .route_run_time        = segment.route_segment.run_time
                 , .walk_path_link_count  = 0
                 , .line_id               = std::nullopt
+                , .route_id              = std::nullopt
                 , .line_from_stop_id     = std::nullopt
                 , .line_from_position    = std::nullopt
                 , .line_to_stop_id       = std::nullopt
@@ -209,6 +211,7 @@ namespace timetable::domain::assignment::projection {
 
             const auto* line       = line_topology_of(segment.route_segment);
             row.line_id            = line->line;
+            row.route_id           = line->route;
             row.line_from_stop_id  = line->from.stop;
             row.line_from_position = line->from.position;
             row.line_to_stop_id    = line->to.stop;
@@ -297,6 +300,30 @@ namespace timetable::domain::assignment::projection {
                           .level                  = AssignmentLoadLevel::Line
                         , .interval_id            = load.interval
                         , .line_id                = load.line
+                        , .route_id               = std::nullopt
+                        , .trip_id                = std::nullopt
+                        , .route_segment_id       = std::nullopt
+                        , .connection_segment_id  = std::nullopt
+                        , .from_stop_id           = std::nullopt
+                        , .from_position          = std::nullopt
+                        , .to_stop_id             = std::nullopt
+                        , .to_position            = std::nullopt
+                        , .departure              = std::nullopt
+                        , .arrival                = std::nullopt
+                        , .passengers             = std::nullopt
+                        , .passenger_segments     = load.passenger_segments
+                        , .segment_load_count     = load.segment_load_count
+                    }
+                );
+            }
+
+            for (const auto& load : loads.route_loads) {
+                projection.load_rows.push_back(
+                    AssignmentLoadCsvRow{
+                          .level                  = AssignmentLoadLevel::Route
+                        , .interval_id            = load.interval
+                        , .line_id                = load.line
+                        , .route_id               = load.route
                         , .trip_id                = std::nullopt
                         , .route_segment_id       = std::nullopt
                         , .connection_segment_id  = std::nullopt
@@ -319,6 +346,7 @@ namespace timetable::domain::assignment::projection {
                           .level                  = AssignmentLoadLevel::Trip
                         , .interval_id            = load.interval
                         , .line_id                = load.line
+                        , .route_id               = load.route
                         , .trip_id                = load.trip
                         , .route_segment_id       = std::nullopt
                         , .connection_segment_id  = std::nullopt
@@ -341,6 +369,7 @@ namespace timetable::domain::assignment::projection {
                           .level                  = AssignmentLoadLevel::Segment
                         , .interval_id            = load.interval
                         , .line_id                = load.line
+                        , .route_id               = load.route
                         , .trip_id                = load.trip
                         , .route_segment_id       = load.route_segment
                         , .connection_segment_id  = load.connection_segment

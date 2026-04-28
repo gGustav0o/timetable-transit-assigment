@@ -29,7 +29,8 @@ namespace timetable::domain::assignment::detail {
         };
 
         using LineLoadKey = std::tuple<std::int64_t, std::int64_t>;
-        using TripLoadKey = std::tuple<std::int64_t, std::int64_t, std::int64_t>;
+        using RouteLoadKey = std::tuple<std::int64_t, std::int64_t, std::int64_t>;
+        using TripLoadKey = std::tuple<std::int64_t, std::int64_t, std::int64_t, std::int64_t>;
 
         [[nodiscard]] LineLoadKey line_load_key(
             const AssignmentSegmentLoad& load
@@ -46,13 +47,25 @@ namespace timetable::domain::assignment::detail {
         [[nodiscard]] TripLoadKey trip_load_key(
             const AssignmentSegmentLoad& load
         ) noexcept {
-            return TripLoadKey{ load.interval.get(), load.line.get(), load.trip.get() };
+            return TripLoadKey{ load.interval.get(), load.line.get(), load.route.get(), load.trip.get() };
         }
 
         [[nodiscard]] TripLoadKey trip_load_key(
             const AssignmentTripLoad& load
         ) noexcept {
-            return TripLoadKey{ load.interval.get(), load.line.get(), load.trip.get() };
+            return TripLoadKey{ load.interval.get(), load.line.get(), load.route.get(), load.trip.get() };
+        }
+
+        [[nodiscard]] RouteLoadKey route_load_key(
+            const AssignmentSegmentLoad& load
+        ) noexcept {
+            return RouteLoadKey{ load.interval.get(), load.line.get(), load.route.get() };
+        }
+
+        [[nodiscard]] RouteLoadKey route_load_key(
+            const AssignmentRouteLoad& load
+        ) noexcept {
+            return RouteLoadKey{ load.interval.get(), load.line.get(), load.route.get() };
         }
 
         [[nodiscard]] bool valid_segment_load(
@@ -96,6 +109,18 @@ namespace timetable::domain::assignment::detail {
             return aggregates;
         }
 
+        [[nodiscard]] std::map<RouteLoadKey, LoadAggregate> aggregate_route_loads(
+            const std::vector<AssignmentSegmentLoad>& segment_loads
+        ) {
+            std::map<RouteLoadKey, LoadAggregate> aggregates;
+            for (const auto& load : segment_loads) {
+                auto& aggregate = aggregates[route_load_key(load)];
+                aggregate.passenger_segments += load.passengers;
+                aggregate.segment_load_count += 1;
+            }
+            return aggregates;
+        }
+
         mathfp::Expected<mathfp::Unit> validate_loads_semantics(
             const AssignmentLoads& loads
         ) {
@@ -107,6 +132,7 @@ namespace timetable::domain::assignment::detail {
                             .ctx("load_index"           , static_cast<std::int64_t>(i))
                             .ctx("interval_id"          , load.interval.get())
                             .ctx("line_id"              , load.line.get())
+                            .ctx("route_id"             , load.route.get())
                             .ctx("trip_id"              , load.trip.get())
                             .ctx("route_segment_id"     , load.route_segment.get())
                             .ctx("connection_segment_id", load.connection_segment.get())
@@ -143,6 +169,35 @@ namespace timetable::domain::assignment::detail {
                 }
             }
 
+            const auto route_aggregates = aggregate_route_loads(loads.segment_loads);
+            if (loads.route_loads.size() != route_aggregates.size()) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("assignment output route load count disagrees with segment-load aggregates")
+                        .ctx("declared_route_loads", static_cast<std::int64_t>(loads.route_loads.size()))
+                        .ctx("actual_route_loads"  , static_cast<std::int64_t>(route_aggregates.size()))
+                );
+            }
+
+            for (std::size_t i = 0; i < loads.route_loads.size(); ++i) {
+                const auto& load = loads.route_loads[i];
+                const auto aggregate_it = route_aggregates.find(route_load_key(load));
+                if (
+                       aggregate_it == route_aggregates.end()
+                    || !valid_aggregate_load(load.passenger_segments, load.segment_load_count)
+                    || !almost_equal_scalar(load.passenger_segments, aggregate_it->second.passenger_segments)
+                    || load.segment_load_count != aggregate_it->second.segment_load_count
+                ) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("assignment output route load disagrees with segment-load aggregate")
+                            .ctx("load_index"       , static_cast<std::int64_t>(i))
+                            .ctx("interval_id"      , load.interval.get())
+                            .ctx("line_id"          , load.line.get())
+                            .ctx("route_id"         , load.route.get())
+                            .ctx("passenger_segments", load.passenger_segments)
+                    );
+                }
+            }
+
             const auto trip_aggregates = aggregate_trip_loads(loads.segment_loads);
             if (loads.trip_loads.size() != trip_aggregates.size()) {
                 return mathfp::unexpected(
@@ -166,6 +221,7 @@ namespace timetable::domain::assignment::detail {
                             .ctx("load_index"       , static_cast<std::int64_t>(i))
                             .ctx("interval_id"      , load.interval.get())
                             .ctx("line_id"          , load.line.get())
+                            .ctx("route_id"         , load.route.get())
                             .ctx("trip_id"          , load.trip.get())
                             .ctx("passenger_segments", load.passenger_segments)
                     );

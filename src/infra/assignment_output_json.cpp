@@ -260,6 +260,8 @@ namespace timetable::infra {
             } else if (const auto* line = timetable::domain::line_topology_of(route_segment)) {
                 writer.key("line_id");
                 write_strong_id(writer, line->line);
+                writer.key("route_id");
+                write_strong_id(writer, line->route);
                 writer.key("from");
                 write_stop_occurrence(writer, line->from);
                 writer.key("to");
@@ -442,8 +444,28 @@ namespace timetable::infra {
             write_strong_id(writer, load.interval);
             writer.key("line_id");
             write_strong_id(writer, load.line);
+            writer.key("route_id");
+            write_strong_id(writer, load.route);
             writer.key("trip_id");
             write_strong_id(writer, load.trip);
+            writer.key("passenger_segments");
+            writer.number(load.passenger_segments);
+            writer.key("segment_load_count");
+            writer.integer(static_cast<std::int64_t>(load.segment_load_count));
+            writer.end_object();
+        }
+
+        void write_route_load(
+              JsonWriter&                                   writer
+            , const timetable::domain::AssignmentRouteLoad& load
+        ) {
+            writer.begin_object();
+            writer.key("interval_id");
+            write_strong_id(writer, load.interval);
+            writer.key("line_id");
+            write_strong_id(writer, load.line);
+            writer.key("route_id");
+            write_strong_id(writer, load.route);
             writer.key("passenger_segments");
             writer.number(load.passenger_segments);
             writer.key("segment_load_count");
@@ -460,6 +482,8 @@ namespace timetable::infra {
             write_strong_id(writer, load.interval);
             writer.key("line_id");
             write_strong_id(writer, load.line);
+            writer.key("route_id");
+            write_strong_id(writer, load.route);
             writer.key("trip_id");
             write_strong_id(writer, load.trip);
             writer.key("route_segment_id");
@@ -488,6 +512,12 @@ namespace timetable::infra {
             writer.begin_array();
             for (const auto& load : loads.line_loads) {
                 write_line_load(writer, load);
+            }
+            writer.end_array();
+            writer.key("route_loads");
+            writer.begin_array();
+            for (const auto& load : loads.route_loads) {
+                write_route_load(writer, load);
             }
             writer.end_array();
             writer.key("trip_loads");
@@ -565,7 +595,7 @@ namespace timetable::infra {
         JsonWriter writer;
         writer.begin_object();
         writer.key("schema");
-        writer.string("timetable.assignment_output.v3");
+        writer.string("timetable.assignment_output.v4");
         writer.key("units");
         writer.begin_object();
         writer.key("time");

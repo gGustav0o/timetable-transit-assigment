@@ -130,6 +130,20 @@ namespace timetable::domain {
     };
 
     /**
+     * @brief Aggregate transit load for one route pattern in one demand interval.
+     *
+     * passenger_segments is derived from primary segment loads and must not be
+     * interpreted as distinct passenger count.
+     */
+    struct AssignmentRouteLoad final {
+        IntervalId  interval{};
+        LineId      line{};
+        RouteId     route{};
+        double      passenger_segments{};
+        std::size_t segment_load_count{};
+    };
+
+    /**
      * @brief Aggregate transit load for one concrete trip in one demand interval.
      *
      * passenger_segments is derived from segment loads for the trip. The segment
@@ -138,6 +152,7 @@ namespace timetable::domain {
     struct AssignmentTripLoad final {
         IntervalId  interval{};
         LineId      line{};
+        RouteId     route{};
         TripId      trip{};
         double      passenger_segments{};
         std::size_t segment_load_count{};
@@ -153,6 +168,7 @@ namespace timetable::domain {
     struct AssignmentSegmentLoad final {
         IntervalId          interval{};
         LineId              line{};
+        RouteId             route{};
         TripId              trip{};
         RouteSegmentId      route_segment{};
         ConnectionSegmentId connection_segment{};
@@ -168,6 +184,7 @@ namespace timetable::domain {
      */
     struct AssignmentLoads final {
         std::vector<AssignmentLineLoad>    line_loads{};
+        std::vector<AssignmentRouteLoad>   route_loads{};
         std::vector<AssignmentTripLoad>    trip_loads{};
         std::vector<AssignmentSegmentLoad> segment_loads{};
     };

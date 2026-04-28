@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_set>
@@ -31,6 +32,7 @@ namespace timetable::infra::csv {
             std::size_t to_zone{};
             std::size_t fare{};
             std::size_t trip{};
+            std::optional<std::size_t> route{};
             std::size_t line{};
             std::size_t from_index{};
             std::size_t dep{};
@@ -44,6 +46,7 @@ namespace timetable::infra::csv {
             std::int64_t to_zone{};
             std::int64_t to_stop{};
             std::int64_t trip_id{};
+            std::int64_t route_id{ -1 };
             std::int64_t line_id{};
             std::int64_t from_index{};
             std::int64_t to_index{};
@@ -157,6 +160,10 @@ namespace timetable::infra::csv {
                     , segment_csv_column_defs()
                 )
             );
+            const auto route_column = reader.index_of("ROUTE_ID");
+            if (route_column != ::csv::CSV_NOT_FOUND) {
+                columns.route = static_cast<std::size_t>(route_column);
+            }
 
             return ParsedCsvHeader{
                   .columns             = columns
@@ -201,6 +208,18 @@ namespace timetable::infra::csv {
         ) {
             ParsedSegmentRow parsed_row{};
             MATHFP_TRY(decode_int_row_fields(parsed_row, row_data, cols, row));
+            if (cols.route.has_value()) {
+                MATHFP_TRY_LET(
+                      std::int64_t
+                    , route_id
+                    , csv_parse::parse_int64_cell(
+                          csv_parse::field_text(row_data[*cols.route])
+                        , row
+                        , "ROUTE_ID"
+                    )
+                );
+                parsed_row.route_id = route_id;
+            }
             MATHFP_TRY(decode_double_row_fields(parsed_row, row_data, cols, row));
             return parsed_row;
         }
@@ -208,6 +227,7 @@ namespace timetable::infra::csv {
         void append_segment_row(
               SegmentColumns&         out
             , const ParsedSegmentRow& row
+            , bool                    include_route_id
         ) {
             out.from_zone_id.push_back(row.from_zone);
             out.from_stop_id.push_back(row.from_stop);
@@ -215,6 +235,9 @@ namespace timetable::infra::csv {
             out.to_stop_id  .push_back(row.to_stop);
             out.profile_id  .push_back(row.line_id);
             out.trip_id     .push_back(row.trip_id);
+            if (include_route_id) {
+                out.route_id.push_back(row.route_id);
+            }
             out.from_index  .push_back(row.from_index);
             out.to_index    .push_back(row.to_index);
             out.length_km   .push_back(row.length);
@@ -286,7 +309,7 @@ namespace timetable::infra::csv {
                     );
 
                     MATHFP_TRY_LET(ParsedSegmentRow, parsed_row, parse_segment_row(row_data, cols, row));
-                    append_segment_row(data.columns, parsed_row);
+                    append_segment_row(data.columns, parsed_row, cols.route.has_value());
                     collect_row_zones(data.zone_set, parsed_row);
                 }
             } catch (const std::exception& e) {

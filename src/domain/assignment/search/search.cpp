@@ -576,6 +576,7 @@ namespace timetable::domain::assignment {
                 , .occurrence_from    = std::nullopt
                 , .occurrence_to      = std::nullopt
                 , .line               = std::nullopt
+                , .route              = std::nullopt
                 , .trip               = std::nullopt
                 , .start_time         = start_time
                 , .end_time           = add_time(start_time, route_segment.run_time)
@@ -604,6 +605,7 @@ namespace timetable::domain::assignment {
                 , .occurrence_from    = std::nullopt
                 , .occurrence_to      = std::nullopt
                 , .line               = std::nullopt
+                , .route              = std::nullopt
                 , .trip               = std::nullopt
                 , .start_time         = *metrics.current_time
                 , .end_time           = *segment.departure
@@ -626,6 +628,7 @@ namespace timetable::domain::assignment {
                 , .occurrence_from    = occurrence_key(line->from)
                 , .occurrence_to      = occurrence_key(line->to)
                 , .line               = line->line
+                , .route              = line->route
                 , .trip               = segment.trip
                 , .start_time         = *segment.departure
                 , .end_time           = *segment.arrival

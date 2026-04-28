@@ -150,6 +150,7 @@ namespace timetable::domain::assignment::projection {
             , .interval_count    = 0
             , .nonempty_od_count = 0
             , .line_load_count    = output.loads.line_loads.size()
+            , .route_load_count   = output.loads.route_loads.size()
             , .trip_load_count    = output.loads.trip_loads.size()
             , .segment_load_count = output.loads.segment_loads.size()
             , .od_results        = {}

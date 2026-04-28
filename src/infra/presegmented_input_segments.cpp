@@ -88,6 +88,7 @@ namespace timetable::infra::detail::presegmented_input {
               .from    = timetable::domain::occurrence_key(*semantics.from_occurrence)
             , .to      = timetable::domain::occurrence_key(*semantics.to_occurrence)
             , .line_id = row.profile
+            , .route_id = row.route_id
         };
 
         if (const auto it = state.line_routes.find(key); it != state.line_routes.end()) {
@@ -134,6 +135,7 @@ namespace timetable::infra::detail::presegmented_input {
                 , Length{ row.length_km }
                 , Time{ row.time_sec }
                 , LineId{ row.profile }
+                , timetable::domain::RouteId{ row.route_id }
             )
         );
         state.route_segments.push_back(std::move(route));

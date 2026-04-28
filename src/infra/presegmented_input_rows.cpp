@@ -165,6 +165,7 @@ namespace timetable::infra::detail::presegmented_input {
             MATHFP_TRY(ensure_missing_or_nonnegative(row.to_zone   , kCtxToZoneId  , row.index));
             MATHFP_TRY(ensure_missing_or_nonnegative(row.profile   , kCtxLineId    , row.index));
             MATHFP_TRY(ensure_missing_or_nonnegative(row.trip_id   , kCtxTripId    , row.index));
+            MATHFP_TRY(ensure_missing_or_nonnegative(row.route_id  , kCtxRouteId   , row.index));
             MATHFP_TRY(ensure_missing_or_nonnegative(row.from_index, kCtxFromIndex , row.index));
             MATHFP_TRY(ensure_missing_or_nonnegative(row.to_index  , kCtxToIndex   , row.index));
             MATHFP_TRY(ensure_missing_or_nonnegative(row.dep_sec   , kCtxDep       , row.index));
@@ -246,6 +247,14 @@ namespace timetable::infra::detail::presegmented_input {
                     mathfp::invalid_arg("timed line segment must have trip_id")
                         .ctx(std::string(kCtxIndex) , static_cast<std::int64_t>(row.index))
                         .ctx(std::string(kCtxLineId), row.profile)
+                );
+            }
+            if (row.route_id == kMissingId) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("timed line segment must have route_id")
+                        .ctx(std::string(kCtxIndex) , static_cast<std::int64_t>(row.index))
+                        .ctx(std::string(kCtxLineId), row.profile)
+                        .ctx(std::string(kCtxTripId), row.trip_id)
                 );
             }
             if (!(row.dep_sec >= 0.0 && row.arr_sec >= 0.0)) {
@@ -331,6 +340,13 @@ namespace timetable::infra::detail::presegmented_input {
                     mathfp::invalid_arg("walk segment must have trip_id = -1")
                         .ctx(std::string(kCtxIndex) , static_cast<std::int64_t>(row.index))
                         .ctx(std::string(kCtxTripId), row.trip_id)
+                );
+            }
+            if (row.route_id != kMissingId) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("walk segment must have route_id = -1")
+                        .ctx(std::string(kCtxIndex)  , static_cast<std::int64_t>(row.index))
+                        .ctx(std::string(kCtxRouteId), row.route_id)
                 );
             }
             if (row.from_index != kMissingId || row.to_index != kMissingId) {

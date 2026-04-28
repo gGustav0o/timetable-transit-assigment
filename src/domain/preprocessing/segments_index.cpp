@@ -88,6 +88,9 @@ namespace timetable::domain::preprocessing {
             if (a_line->line != b_line->line)
                 return a_line->line.get() < b_line->line.get();
 
+            if (a_line->route != b_line->route)
+                return a_line->route.get() < b_line->route.get();
+
             return a.id.get() < b.id.get();
         }
 

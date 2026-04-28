@@ -87,6 +87,15 @@ namespace timetable::domain {
         return line_topology_of(segment)->line;
     }
 
+    [[nodiscard]] inline std::optional<RouteId> route_of(
+        const RouteSegment& segment
+    ) noexcept {
+        if (!is_line(segment)) {
+            return std::nullopt;
+        }
+        return line_topology_of(segment)->route;
+    }
+
     [[nodiscard]] inline bool same_line(
           const RouteSegment& lhs
         , const RouteSegment& rhs

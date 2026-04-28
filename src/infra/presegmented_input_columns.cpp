@@ -1,7 +1,11 @@
 #include "detail/presegmented_input.hpp"
 
 #include <array>
+#include <compare>
+#include <map>
+#include <optional>
 #include <string>
+#include <utility>
 
 #include <mathfp/core/error.hpp>
 #include <mathfp/core/traverse.hpp>
@@ -73,8 +77,127 @@ namespace timetable::infra::detail::presegmented_input {
             , ColumnLengthSpec{ .name = "fare"        , .actual = columns.fare        .size() }
         };
         MATHFP_TRY(validate_column_lengths(specs, n));
+        if (!columns.route_id.empty()) {
+            MATHFP_TRY(validate_column_length(
+                  ColumnLengthSpec{ .name = "route_id", .actual = columns.route_id.size() }
+                , n
+            ));
+        }
 
         return n;
+    }
+
+    mathfp::Expected<std::vector<std::int64_t>> infer_presegmented_route_ids(
+        const SegmentColumns& columns
+    ) {
+        struct TripDraft final {
+            std::int64_t line_id{ kMissingId };
+            bool indexed{ true };
+            std::map<std::int64_t, std::int64_t> stops_by_position{};
+        };
+
+        struct RouteSignature final {
+            std::int64_t line_id{};
+            std::vector<std::pair<std::int64_t, std::int64_t>> stops{};
+            std::optional<std::int64_t> fallback_trip_id{};
+
+            auto operator<=>(const RouteSignature&) const = default;
+        };
+
+        std::map<std::int64_t, TripDraft> trip_drafts;
+        const auto n = columns.profile_id.size();
+
+        for (std::size_t i = 0; i < n; ++i) {
+            const auto line_id = columns.profile_id[i];
+            if (line_id == kMissingId) {
+                continue;
+            }
+
+            const auto trip_id = columns.trip_id[i];
+            if (trip_id == kMissingId) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("timed segment must have trip_id for route inference")
+                        .ctx(std::string(kCtxIndex), static_cast<std::int64_t>(i))
+                        .ctx(std::string(kCtxLineId), line_id)
+                );
+            }
+
+            auto& draft = trip_drafts[trip_id];
+            if (draft.line_id == kMissingId) {
+                draft.line_id = line_id;
+            } else if (draft.line_id != line_id) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("one trip_id is attached to multiple line_id values")
+                        .ctx(std::string(kCtxTripId), trip_id)
+                        .ctx("first_line_id", draft.line_id)
+                        .ctx("actual_line_id", line_id)
+                );
+            }
+
+            const auto has_from_index = columns.from_index[i] != kMissingId;
+            const auto has_to_index   = columns.to_index[i]   != kMissingId;
+            if (!(has_from_index && has_to_index)) {
+                draft.indexed = false;
+                continue;
+            }
+
+            const auto put_stop = [&](std::int64_t position, std::int64_t stop_id)
+                -> mathfp::Expected<mathfp::Unit> {
+                const auto [it, inserted] = draft.stops_by_position.emplace(position, stop_id);
+                if (inserted || it->second == stop_id) {
+                    return mathfp::kUnit;
+                }
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("conflicting stop_id values for one trip route position")
+                        .ctx(std::string(kCtxTripId), trip_id)
+                        .ctx("position", position)
+                        .ctx("first_stop_id", it->second)
+                        .ctx("actual_stop_id", stop_id)
+                );
+            };
+
+            MATHFP_TRY(put_stop(columns.from_index[i], columns.from_stop_id[i]));
+            MATHFP_TRY(put_stop(columns.to_index[i], columns.to_stop_id[i]));
+        }
+
+        std::map<RouteSignature, std::int64_t> route_ids_by_signature;
+        std::map<std::int64_t, std::int64_t> trip_route_ids;
+        std::int64_t next_route_id = 0;
+
+        for (const auto& [trip_id, draft] : trip_drafts) {
+            RouteSignature signature{
+                  .line_id = draft.line_id
+                , .stops   = {}
+                , .fallback_trip_id = std::nullopt
+            };
+            if (draft.indexed && draft.stops_by_position.size() >= 2) {
+                signature.stops.assign(
+                      draft.stops_by_position.begin()
+                    , draft.stops_by_position.end()
+                );
+            } else {
+                signature.fallback_trip_id = trip_id;
+            }
+
+            auto [it, inserted] = route_ids_by_signature.emplace(signature, next_route_id);
+            if (inserted) {
+                ++next_route_id;
+            }
+            trip_route_ids.emplace(trip_id, it->second);
+        }
+
+        std::vector<std::int64_t> route_ids(n, kMissingId);
+        for (std::size_t i = 0; i < n; ++i) {
+            if (columns.profile_id[i] == kMissingId) {
+                continue;
+            }
+            const auto route_it = trip_route_ids.find(columns.trip_id[i]);
+            if (route_it != trip_route_ids.end()) {
+                route_ids[i] = route_it->second;
+            }
+        }
+
+        return route_ids;
     }
 
     mathfp::Expected<RawIdSet> build_declared_zone_set(

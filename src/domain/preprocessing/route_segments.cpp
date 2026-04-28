@@ -583,6 +583,7 @@ namespace timetable::domain::preprocessing {
                             , length
                             , run_time
                             , route.line
+                            , route.id
                         )
                     );
                     segments.push_back(std::move(segment));

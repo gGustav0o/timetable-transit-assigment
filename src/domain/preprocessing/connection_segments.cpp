@@ -618,7 +618,12 @@ namespace timetable::domain::preprocessing {
                 , occurrence_result.endpoints->first
                 , occurrence_result.endpoints->second
             ));
+            const auto route = route_of(route_segment).value();
             for (const auto& indexed_trip : line_trips) {
+                if (indexed_trip.trip->route != route) {
+                    continue;
+                }
+
                 MATHFP_TRY_LET(
                       TripTimesResult
                     , trip_times_result

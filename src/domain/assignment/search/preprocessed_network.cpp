@@ -41,6 +41,7 @@ namespace timetable::domain::assignment {
             std::optional<StopOccurrenceKey> line_from{};
             std::optional<StopOccurrenceKey> line_to{};
             std::optional<std::int64_t>      line_id{};
+            std::optional<std::int64_t>      route_id{};
             std::vector<WalkLinkId>          path{};
 
             auto operator<=>(const RouteSegmentKey&) const = default;
@@ -79,6 +80,7 @@ namespace timetable::domain::assignment {
                 , .line_from     = occurrence_key(line->from)
                 , .line_to       = occurrence_key(line->to)
                 , .line_id       = line->line.get()
+                , .route_id      = line->route.get()
             };
         }
 
@@ -481,6 +483,7 @@ namespace timetable::domain::assignment {
             if (duplicate->line_id.has_value()) {
                 error = std::move(error)
                     .ctx("line_id"      , *duplicate->line_id)
+                    .ctx("route_id"     , *duplicate->route_id)
                     .ctx("from_stop_id" , duplicate->line_from->stop.get())
                     .ctx("from_position", duplicate->line_from->position.get())
                     .ctx("to_stop_id"   , duplicate->line_to->stop.get())

@@ -1,6 +1,7 @@
 #include "timetable/infra/presegmented_input.hpp"
 
 #include <utility>
+#include <vector>
 
 #include <boost/range/irange.hpp>
 
@@ -37,6 +38,15 @@ namespace timetable::infra {
 
         status("parsing: validating columns");
         MATHFP_TRY_LET(std::size_t, n, detail::presegmented_input::validate_segment_columns(columns));
+        if (columns.route_id.empty()) {
+            status("parsing: inferring route ids");
+            MATHFP_TRY_LET(
+                  std::vector<std::int64_t>
+                , inferred_route_ids
+                , detail::presegmented_input::infer_presegmented_route_ids(columns)
+            );
+            columns.route_id = std::move(inferred_route_ids);
+        }
 
         log(
               fmt::format("parsing: validated columns; segments = {}", n)

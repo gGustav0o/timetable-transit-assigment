@@ -49,12 +49,14 @@ namespace timetable::domain {
      * @brief Timetable line topology.
      *
      * Line segments live in the route-occurrence space and therefore distinguish
-     * repeated appearances of the same physical stop on loop lines.
+     * route patterns and repeated appearances of the same physical stop on loop
+     * lines.
      */
     struct LineRouteTopology final {
         StopOccurrence from{};
         StopOccurrence to{};
         LineId         line{};
+        RouteId        route{};
     };
 
     using RouteTopology = std::variant<WalkRouteTopology, LineRouteTopology>;

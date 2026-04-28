@@ -16,6 +16,7 @@ namespace timetable::domain::assignment::projection {
 
     enum class AssignmentLoadLevel : std::uint8_t {
           Line
+        , Route
         , Trip
         , Segment
     };
@@ -105,6 +106,7 @@ namespace timetable::domain::assignment::projection {
         Time                         route_run_time{};
         std::size_t                  walk_path_link_count{};
         std::optional<LineId>        line_id{};
+        std::optional<RouteId>       route_id{};
         std::optional<StopId>        line_from_stop_id{};
         std::optional<RoutePosition> line_from_position{};
         std::optional<StopId>        line_to_stop_id{};
@@ -120,13 +122,14 @@ namespace timetable::domain::assignment::projection {
     /**
      * @brief One flat row for loads.csv.
      *
-     * Segment rows contain primary passenger flow. Line and trip rows contain
-     * passenger-segment aggregates derived from segment rows.
+     * Segment rows contain primary passenger flow. Line, route and trip rows
+     * contain passenger-segment aggregates derived from segment rows.
      */
     struct AssignmentLoadCsvRow final {
         AssignmentLoadLevel                 level{};
         IntervalId                          interval_id{};
         LineId                              line_id{};
+        std::optional<RouteId>              route_id{};
         std::optional<TripId>               trip_id{};
         std::optional<RouteSegmentId>       route_segment_id{};
         std::optional<ConnectionSegmentId>  connection_segment_id{};
