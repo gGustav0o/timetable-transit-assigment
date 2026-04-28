@@ -58,6 +58,14 @@ namespace timetable::domain::assignment {
             return mathfp::kUnit;
         }
 
+        [[nodiscard]] bool has_positive_fare(
+            const ConnectionSegment& segment
+        ) noexcept {
+            return segment.fare.has_value()
+                && std::isfinite(*segment.fare)
+                && *segment.fare > 0.0;
+        }
+
     }  // namespace
 
     mathfp::Expected<mathfp::Unit> validate_preprocessing_step_input(
@@ -195,16 +203,14 @@ namespace timetable::domain::assignment {
         }
 
         const auto fare_required = mathfp::units::as_dimless(params.impedance.fare) > 0.0;
-        const auto has_any_fare = std::any_of(
+        const auto has_any_positive_fare = std::any_of(
               network.connection_segments.begin()
             , network.connection_segments.end()
-            , [](const ConnectionSegment& segment) {
-                return segment.fare.has_value() && std::isfinite(*segment.fare);
-            }
+            , has_positive_fare
         );
-        if (fare_required && !has_any_fare) {
+        if (fare_required && !has_any_positive_fare) {
             detail::validation::warn(
-                "preprocessing output: fare weight is positive but no connection segment carries fare; fare term will collapse to zero"
+                "preprocessing output: fare weight is positive but no connection segment has positive fare; fare term will collapse to zero"
             );
         }
 

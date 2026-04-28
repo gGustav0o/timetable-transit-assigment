@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <string_view>
 #include <unordered_map>
 
 #include <fmt/format.h>
@@ -21,17 +22,40 @@
 namespace timetable::domain::assignment {
     namespace {
 
-        std::vector<double> collect_present_fares(
+        [[nodiscard]] bool is_positive_fare(
+            double fare
+        ) noexcept {
+            return std::isfinite(fare) && fare > 0.0;
+        }
+
+        std::vector<double> collect_positive_fares(
             std::span<const ConnectionSegment> segments
         ) {
             std::vector<double> fares;
             fares.reserve(segments.size());
             for (const auto& segment : segments) {
-                if (segment.fare && std::isfinite(*segment.fare)) {
+                if (segment.fare && is_positive_fare(*segment.fare)) {
                     fares.push_back(*segment.fare);
                 }
             }
             return fares;
+        }
+
+        double positive_or_unit_fare_scale(
+              double           scale
+            , std::string_view source
+        ) {
+            using timetable::infra::LogLevel;
+            using timetable::infra::progress::log;
+
+            if (std::isfinite(scale) && scale > 0.0) {
+                return scale;
+            }
+            log(
+                  fmt::format("fare normalization: {} produced non-positive scale; scale = 1", source)
+                , LogLevel::Warning
+            );
+            return 1.0;
         }
 
         struct RouteSegmentKey final {
@@ -604,13 +628,17 @@ namespace timetable::domain::assignment {
             return 1.0;
         }
         if (normalization.kind == Kind::FixedScale) {
-            log("fare normalization: fixed scale", LogLevel::Info);
-            return normalization.fixed_scale > 0.0 ? normalization.fixed_scale : 1.0;
+            const auto scale = positive_or_unit_fare_scale(
+                  normalization.fixed_scale
+                , "fixed scale"
+            );
+            log(fmt::format("fare normalization: fixed scale = {:.6f}", scale), LogLevel::Info);
+            return scale;
         }
 
-        auto fares = collect_present_fares(segments);
+        auto fares = collect_positive_fares(segments);
         if (fares.empty()) {
-            log("fare normalization: no fares present; scale = 1", LogLevel::Info);
+            log("fare normalization: no positive fares present; scale = 1", LogLevel::Info);
             return 1.0;
         }
 
@@ -624,8 +652,9 @@ namespace timetable::domain::assignment {
                 return 1.0;
             }
             const auto scale = *scale_result;
-            log(fmt::format("fare normalization: mean scale = {:.6f}", scale), LogLevel::Info);
-            return scale;
+            const auto positive_scale = positive_or_unit_fare_scale(scale, "mean");
+            log(fmt::format("fare normalization: mean scale = {:.6f}", positive_scale), LogLevel::Info);
+            return positive_scale;
         }
 
         if (normalization.kind == Kind::Median) {
@@ -638,8 +667,9 @@ namespace timetable::domain::assignment {
                 return 1.0;
             }
             const auto scale = *scale_result;
-            log(fmt::format("fare normalization: median scale = {:.6f}", scale), LogLevel::Info);
-            return scale;
+            const auto positive_scale = positive_or_unit_fare_scale(scale, "median");
+            log(fmt::format("fare normalization: median scale = {:.6f}", positive_scale), LogLevel::Info);
+            return positive_scale;
         }
 
         if (normalization.kind == Kind::P95) {
@@ -652,8 +682,9 @@ namespace timetable::domain::assignment {
                 return 1.0;
             }
             const auto scale = *scale_result;
-            log(fmt::format("fare normalization: p95 scale = {:.6f}", scale), LogLevel::Info);
-            return scale;
+            const auto positive_scale = positive_or_unit_fare_scale(scale, "p95");
+            log(fmt::format("fare normalization: p95 scale = {:.6f}", positive_scale), LogLevel::Info);
+            return positive_scale;
         }
 
         return 1.0;

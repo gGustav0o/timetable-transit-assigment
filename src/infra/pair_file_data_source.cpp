@@ -56,8 +56,6 @@ namespace timetable::infra {
             timetable::domain::assignment::SearchWindowMode             requested_mode{};
             timetable::domain::assignment::SearchArchitecture           architecture{};
             timetable::domain::assignment::SearchTimeDomainRolloutStage rollout_stage{};
-            double                                                     before_start{};
-            double                                                     after_end{};
         };
 
         struct PairSearchPruningSpec final {
@@ -215,11 +213,9 @@ namespace timetable::infra {
                   , .rollout_stage = timetable::domain::assignment::SearchPruningRolloutStage::ExactAndApproximateCurrentState
                 }
             , .search_time_domain = PairSearchTimeDomainSpec{
-                    .requested_mode = timetable::domain::assignment::SearchWindowMode::Global
+                    .requested_mode = timetable::domain::assignment::SearchWindowMode::PerOd
                   , .architecture   = timetable::domain::assignment::SearchArchitecture::OriginWideBranchAndBound
-                  , .rollout_stage  = timetable::domain::assignment::SearchTimeDomainRolloutStage::GlobalStrict
-                  , .before_start   = 0.0
-                  , .after_end      = 0.0
+                  , .rollout_stage  = timetable::domain::assignment::SearchTimeDomainRolloutStage::PerOdConservativeFallback
                 }
         };
 
@@ -311,12 +307,7 @@ namespace timetable::infra {
             MATHFP_TRY_LET(
                   SearchTimePaddingPolicy
                 , padding_policy
-                , make_fixed_search_time_padding_policy(
-                    SearchTimePadding{
-                          .before_start = Time{ kPairRuntimeDefaultSpec.search_time_domain.before_start }
-                        , .after_end    = Time{ kPairRuntimeDefaultSpec.search_time_domain.after_end }
-                    }
-                )
+                , make_split_temporal_utility_padding_policy(Dimless{ 0.0 })
             );
 
             return SearchTimeDomainConfig{

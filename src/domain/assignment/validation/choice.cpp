@@ -2,6 +2,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <map>
+#include <vector>
 
 #include <mathfp/core/error.hpp>
 #include <mathfp/core/try.hpp>
@@ -15,14 +17,15 @@ namespace timetable::domain::assignment {
           const ConnectionChoiceResult& choice_result
         , const ConnectionSearchResult& search_result
     ) {
-        if (search_result.connections.empty() && choice_result.connections.empty()) {
+        if (search_connection_count(search_result) == 0 && choice_result.connections.empty()) {
             detail::validation::warn("choice output: no search connections were available to prune");
-            return mathfp::kUnit;
         }
 
         MATHFP_TRY(detail::validation::validate_unique_connection_traces(choice_result.connections, "choice"));
 
-        const auto search_trace_map = detail::validation::trace_index_map(search_result.connections);
+        const auto search_connections = search_connection_ptrs(search_result);
+        const auto search_trace_map = detail::validation::trace_index_map(search_connections);
+        const auto choice_trace_map = detail::validation::trace_index_map(choice_result.connections);
         MATHFP_TRY(detail::validation::validate_each_index(
               choice_result.connections
             , [&](const SearchConnection& connection, std::size_t i) {
@@ -41,21 +44,143 @@ namespace timetable::domain::assignment {
             }
         ));
 
-        const auto search_groups = detail::validation::count_connections_by_od(search_result.connections);
-        const auto choice_groups = detail::validation::count_connections_by_od(choice_result.connections);
-        for (const auto& [od, search_count] : search_groups) {
-            if (search_count > 0 && !choice_groups.contains(od)) {
+        std::map<detail::validation::ConnectionTraceKey, bool> task_choice_traces;
+        std::map<SearchTaskRef, const SearchTaskResult*> search_task_by_ref;
+        for (const auto& task_result : search_result.task_results) {
+            MATHFP_TRY(detail::validation::emplace_unique(
+                  search_task_by_ref
+                , task_result.task.index
+                , &task_result
+                , [&]() {
+                    return mathfp::internal_error("search output contains duplicate task refs")
+                        .ctx("task", task_result.task.index.get());
+                }
+            ));
+        }
+
+        std::map<SearchTaskRef, const ChoiceTaskResult*> choice_task_by_ref;
+        for (const auto& task_result : choice_result.task_results) {
+            MATHFP_TRY(detail::validation::emplace_unique(
+                  choice_task_by_ref
+                , task_result.task.index
+                , &task_result
+                , [&]() {
+                    return mathfp::internal_error("choice output contains duplicate task refs")
+                        .ctx("task", task_result.task.index.get());
+                }
+            ));
+
+            for (const auto& connection : task_result.connections) {
+                task_choice_traces[detail::validation::connection_trace_key(connection)] = true;
+            }
+
+            const auto search_task_it = search_task_by_ref.find(task_result.task.index);
+            if (search_task_it == search_task_by_ref.end()) {
                 return mathfp::unexpected(
-                    mathfp::internal_error("choice step removed every connection from a non-empty OD group")
-                        .ctx("origin"      , od.origin.get())
-                        .ctx("destination" , od.destination.get())
-                        .ctx("search_count", static_cast<std::int64_t>(search_count))
+                    mathfp::internal_error("choice output contains task absent from search output")
+                        .ctx("task"       , task_result.task.index.get())
+                        .ctx("origin"     , task_result.task.origin.get())
+                        .ctx("destination", task_result.task.destination.get())
+                );
+            }
+            const auto& search_task_result = *search_task_it->second;
+            if (task_result.task.origin != search_task_result.task.origin
+                || task_result.task.destination != search_task_result.task.destination
+                || task_result.task.interval.id != search_task_result.task.interval.id) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("choice task metadata disagrees with search task metadata")
+                        .ctx("task", task_result.task.index.get())
+                );
+            }
+
+            std::vector<const SearchConnection*> search_task_connections;
+            search_task_connections.reserve(search_task_result.connections.size());
+            for (const auto& connection : search_task_result.connections) {
+                search_task_connections.push_back(&connection);
+            }
+            const auto search_task_trace_map = detail::validation::trace_index_map(search_task_connections);
+            MATHFP_TRY(detail::validation::validate_each_index(
+                  task_result.connections
+                , [&](const SearchConnection& connection, std::size_t i)
+                    -> mathfp::Expected<mathfp::Unit> {
+                    MATHFP_TRY(detail::validation::ensure_contains(
+                          choice_trace_map
+                        , detail::validation::connection_trace_key(connection)
+                        , [&]() {
+                            return mathfp::internal_error(
+                                "choice task contains a connection absent from the flat choice projection"
+                            )
+                                .ctx("task"        , task_result.task.index.get())
+                                .ctx("choice_index", static_cast<std::int64_t>(i))
+                                .ctx("origin"      , origin_of(connection).get())
+                                .ctx("destination" , destination_of(connection).get());
+                        }
+                    ));
+                    return detail::validation::ensure_contains(
+                          search_task_trace_map
+                        , detail::validation::connection_trace_key(connection)
+                        , [&]() {
+                            return mathfp::internal_error(
+                                "choice task contains a connection that was not present in the corresponding search task"
+                            )
+                                .ctx("task"        , task_result.task.index.get())
+                                .ctx("choice_index", static_cast<std::int64_t>(i))
+                                .ctx("origin"      , origin_of(connection).get())
+                                .ctx("destination" , destination_of(connection).get());
+                        }
+                    );
+                }
+            ));
+        }
+
+        if (choice_task_by_ref.size() != search_task_by_ref.size()) {
+            return mathfp::unexpected(
+                mathfp::internal_error("choice task result count disagrees with search task result count")
+                    .ctx("search_tasks", static_cast<std::int64_t>(search_task_by_ref.size()))
+                    .ctx("choice_tasks", static_cast<std::int64_t>(choice_task_by_ref.size()))
+            );
+        }
+
+        for (const auto& task_result : search_result.task_results) {
+            const auto choice_task_it = choice_task_by_ref.find(task_result.task.index);
+            if (choice_task_it == choice_task_by_ref.end()) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("choice output is missing a search task")
+                        .ctx("task"        , task_result.task.index.get())
+                        .ctx("origin"      , task_result.task.origin.get())
+                        .ctx("destination" , task_result.task.destination.get())
+                        .ctx("interval_id" , task_result.task.interval.id.get())
+                        .ctx("search_count", static_cast<std::int64_t>(task_result.connections.size()))
+                );
+            }
+            if (!task_result.connections.empty() && choice_task_it->second->connections.empty()) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("choice step removed every connection from a non-empty search task")
+                        .ctx("task"        , task_result.task.index.get())
+                        .ctx("origin"      , task_result.task.origin.get())
+                        .ctx("destination" , task_result.task.destination.get())
+                        .ctx("interval_id" , task_result.task.interval.id.get())
+                        .ctx("search_count", static_cast<std::int64_t>(task_result.connections.size()))
                 );
             }
         }
 
+        for (const auto& connection : choice_result.connections) {
+            MATHFP_TRY(detail::validation::ensure_contains(
+                  task_choice_traces
+                , detail::validation::connection_trace_key(connection)
+                , [&]() {
+                    return mathfp::internal_error(
+                        "flat choice projection contains a connection absent from all choice tasks"
+                    )
+                        .ctx("origin"     , origin_of(connection).get())
+                        .ctx("destination", destination_of(connection).get());
+                }
+            ));
+        }
+
         if (choice_result.connections.empty()) {
-            detail::validation::warn("choice output: every searched OD group is empty after pruning");
+            detail::validation::warn("choice output: every searched task is empty after pruning");
         }
 
         return mathfp::kUnit;

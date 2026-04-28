@@ -8,6 +8,7 @@
 #include <vector>
 
 #include <mathfp/core/error.hpp>
+#include <mathfp/core/try.hpp>
 #include <mathfp/types/units.hpp>
 
 #include <fmt/format.h>
@@ -238,29 +239,6 @@ namespace timetable::domain::assignment {
             return alternatives;
         }
 
-        using SplitAlternativeGroups = std::map<
-              detail::grouping::OdKey
-            , std::vector<SplitAlternative>
-        >;
-
-        SplitAlternativeGroups build_split_alternative_groups(
-              const ConnectionChoiceResult& choice_result
-            , const SplitParams&            params
-        ) {
-            SplitAlternativeGroups alternative_groups;
-            const auto connection_groups
-                = detail::grouping::group_connection_ptrs_by_od(choice_result.connections);
-
-            for (const auto& [key, connections] : connection_groups) {
-                alternative_groups.emplace(
-                      key
-                    , derive_split_alternatives(connections, params)
-                );
-            }
-
-            return alternative_groups;
-        }
-
         using IntervalLookup = std::map<IntervalId, const TimeInterval*>;
 
         IntervalLookup build_interval_lookup(
@@ -281,6 +259,30 @@ namespace timetable::domain::assignment {
             return it == lookup.end() ? nullptr : it->second;
         }
 
+        using ChoiceTaskLookup = std::map<detail::grouping::DemandKey, const ChoiceTaskResult*>;
+
+        mathfp::Expected<ChoiceTaskLookup> build_choice_task_lookup(
+            const ConnectionChoiceResult& choice_result
+        ) {
+            ChoiceTaskLookup lookup;
+            for (const auto& task_result : choice_result.task_results) {
+                const auto key = detail::grouping::DemandKey{
+                      .origin      = task_result.task.origin
+                    , .destination = task_result.task.destination
+                    , .interval    = task_result.task.interval.id
+                };
+                if (!lookup.emplace(key, &task_result).second) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("choice result contains duplicate task result for demand key")
+                            .ctx("origin"     , key.origin     .get())
+                            .ctx("destination", key.destination.get())
+                            .ctx("interval_id", key.interval   .get())
+                    );
+                }
+            }
+            return lookup;
+        }
+
     }  // namespace
 
     mathfp::Expected<DemandSplitResult> split_demand_over_connections(
@@ -295,20 +297,55 @@ namespace timetable::domain::assignment {
         both("split: demand assignment");
         log(
             fmt::format(
-                  "split input: chosen_connections = {:>8}  demand_entries = {:>8}"
+                  "split input: chosen_connections = {:>8}  choice_tasks = {:>8}  demand_entries = {:>8}"
                 , choice_result.connections.size()
+                , choice_result.task_results.size()
                 , input.demand.size()
             )
             , LogLevel::Info
         );
 
         DemandSplitResult result;
-        const auto alternatives_by_od = build_split_alternative_groups(choice_result, params.split);
+        MATHFP_TRY_LET(
+              ChoiceTaskLookup
+            , task_lookup
+            , build_choice_task_lookup(choice_result)
+        );
         const auto interval_lookup    = build_interval_lookup(input);
         const auto beta               = mathfp::units::as_dimless(params.split.beta);
         const auto boxcox_t           = mathfp::units::as_dimless(params.split.boxcox_t);
 
         for (const auto& demand : input.demand) {
+            if (demand.passengers <= 0.0) {
+                continue;
+            }
+
+            const auto demand_key = detail::grouping::demand_key(demand);
+            const auto task_it = task_lookup.find(demand_key);
+            if (task_it == task_lookup.end()) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("positive demand entry has no matching choice task")
+                        .ctx("origin"     , demand.origin     .get())
+                        .ctx("destination", demand.destination.get())
+                        .ctx("interval_id", demand.interval   .get())
+                );
+            }
+            const auto& task_result = *task_it->second;
+            if (task_result.connections.empty()) {
+                continue;
+            }
+
+            if (task_result.task.origin != demand.origin
+                || task_result.task.destination != demand.destination
+                || task_result.task.interval.id != demand.interval) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("choice task metadata does not match demand entry")
+                        .ctx("origin"     , demand.origin     .get())
+                        .ctx("destination", demand.destination.get())
+                        .ctx("interval_id", demand.interval   .get())
+                );
+            }
+
             const auto interval = find_interval(interval_lookup, demand.interval);
             if (!interval) {
                 return mathfp::unexpected(
@@ -317,14 +354,15 @@ namespace timetable::domain::assignment {
                 );
             }
 
-            const auto it = alternatives_by_od.find(
-                detail::grouping::OdKey{ demand.origin, demand.destination }
-            );
-            if (it == alternatives_by_od.end() || it->second.empty() || demand.passengers <= 0.0) {
-                continue;
+            std::vector<const SearchConnection*> task_connections;
+            task_connections.reserve(task_result.connections.size());
+            for (const auto& connection : task_result.connections) {
+                task_connections.push_back(&connection);
             }
-
-            const auto& alternatives = it->second;
+            const auto alternatives = derive_split_alternatives(
+                  task_connections
+                , params.split
+            );
             std::vector<double> independences;
             std::vector<double> split_impedances;
             std::vector<double> log_weights;
@@ -369,7 +407,7 @@ namespace timetable::domain::assignment {
                     mathfp::domain_error("invalid split weight normalization")
                         .ctx("origin"     , demand.origin.get())
                         .ctx("destination", demand.destination.get())
-                        .ctx("interval"   , demand.interval.get())
+                        .ctx("interval"   , task_result.task.interval.id.get())
                 );
             }
 

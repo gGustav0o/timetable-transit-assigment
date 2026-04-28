@@ -26,7 +26,7 @@ namespace timetable::domain::assignment {
     };
 
     /**
-     * @brief Split OD demand over remaining connections.
+     * @brief Split each demand entry over the chosen alternatives of its task.
      */
     mathfp::Expected<DemandSplitResult> split_demand_over_connections(
           const ConnectionChoiceResult& choice_result

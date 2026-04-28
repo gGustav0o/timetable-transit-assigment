@@ -4,9 +4,9 @@
 #include <cstddef>
 #include <deque>
 #include <iterator>
+#include <map>
 #include <optional>
 #include <unordered_map>
-#include <unordered_set>
 #include <utility>
 
 #include <mathfp/core/error.hpp>
@@ -16,6 +16,7 @@
 #include <fmt/format.h>
 
 #include "timetable/domain/endpoints.hpp"
+#include "timetable/domain/assignment/complete_connection_retention.hpp"
 #include "timetable/domain/assignment/search_pruning.hpp"
 #include "timetable/domain/assignment/search_pruning_diagnostics.hpp"
 #include "timetable/domain/impedance.hpp"
@@ -97,7 +98,7 @@ namespace timetable::domain::assignment {
             SearchPartialMetrics metrics{};
         };
 
-        struct OriginSearchStats final {
+        struct TaskSearchStats final {
             std::size_t expanded_branches{};
             std::size_t generated_successors{};
             std::size_t accepted_branches{};
@@ -108,16 +109,50 @@ namespace timetable::domain::assignment {
             std::size_t rejected_transfer_limit{};
             std::size_t rejected_dominance_or_tolerance{};
             std::size_t completed_connections{};
+            std::size_t rejected_complete_dominance{};
+            std::size_t removed_complete_dominated{};
+            std::size_t rejected_complete_tolerance{};
             std::size_t max_current_frontier{};
             std::size_t max_next_frontier{};
             SearchPruningRuntimeStats pruning{};
         };
 
+        [[nodiscard]] mathfp::Expected<std::map<IntervalId, const TimeInterval*>> interval_lookup(
+            const InputModel& input
+        ) {
+            std::map<IntervalId, const TimeInterval*> lookup;
+            for (const auto& interval : input.intervals) {
+                if (!lookup.emplace(interval.id, &interval).second) {
+                    return mathfp::unexpected(
+                        mathfp::invalid_arg("duplicate interval id while building search tasks")
+                            .ctx("interval_id", interval.id.get())
+                    );
+                }
+            }
+            return lookup;
+        }
+
         using NodeMetricMap = std::unordered_map<SearchNodeKey, NodeMetricSet, SearchNodeKeyHash>;
         using BranchArena       = std::vector<SearchBranch>;
 
-        constexpr std::size_t kOriginProgressStep  = 10;
+        /**
+         * @brief Retained pruning state for exactly one SearchTask.
+         *
+         * Dominance and approximate tolerance are meaningful only relative to
+         * one OD-interval task: the state-local minima of impedance, journey
+         * time and transfer count are induced by that task's destination and
+         * first-boarding time domain. This object must therefore never be
+         * shared between tasks, even when tasks have the same origin.
+         */
+        struct SearchTaskRetention final {
+            SearchTaskRef task{};
+            NodeMetricMap known_metrics{};
+            CompleteConnectionRetention complete_connections{};
+        };
+
+        constexpr std::size_t kTaskProgressStep    = 10;
         constexpr std::size_t kSearchHeartbeatStep = 100'000;
+        constexpr std::size_t kInitialTaskBranchReserve = 4'096;
 
         const RouteSegment& route_segment_at(
               const PreprocessedNetwork& network
@@ -159,27 +194,6 @@ namespace timetable::domain::assignment {
                 , .transfer_count     = metrics.transfers
                 , .fare               = metrics.fare
             };
-        }
-
-        std::vector<ZoneId> search_origins(
-            const PreprocessedNetwork& network
-        ) {
-            std::unordered_set<std::int64_t> ids;
-            for (const auto& key : network.connection_index.walk_buckets) {
-                if (key.kind == EndpointKind::Zone) {
-                    ids.insert(key.id);
-                }
-            }
-
-            std::vector<ZoneId> origins;
-            origins.reserve(ids.size());
-            for (const auto id : ids) {
-                origins.push_back(ZoneId{ id });
-            }
-            std::sort(origins.begin(), origins.end(), [](ZoneId a, ZoneId b) {
-                return a.get() < b.get();
-            });
-            return origins;
         }
 
         SearchPruningTransferContext search_transfer_context(
@@ -247,19 +261,30 @@ namespace timetable::domain::assignment {
             return false;
         }
 
-        bool is_complete_connection(
-            const SearchBranch& branch
+        bool is_terminal_zone(
+              const SearchBranch& branch
+            , ZoneId              task_destination
         ) noexcept {
             return branch.metrics.departure.has_value()
                 && branch.trace.current_physical.kind == EndpointKind::Zone
-                && branch.trace.current_physical.id   != branch.trace.origin.get();
+                && branch.trace.current_physical.id   != branch.trace.origin.get()
+                && branch.trace.current_physical.id   != task_destination.get();
+        }
+
+        bool is_complete_connection(
+              const SearchBranch& branch
+            , ZoneId              task_destination
+        ) noexcept {
+            return branch.metrics.departure.has_value()
+                && branch.trace.current_physical.kind == EndpointKind::Zone
+                && branch.trace.current_physical.id   == task_destination.get();
         }
 
         bool first_timed_departure_allowed(
               const SearchBranch&      branch
             , const ConnectionSegment& successor
             , const SearchTimeDomain*  first_departure_domain
-            , const TransferLimits&    limits
+            , const TransferLimits&
         ) noexcept {
             if (branch.metrics.departure.has_value()) {
                 return true;
@@ -267,23 +292,7 @@ namespace timetable::domain::assignment {
             if (first_departure_domain == nullptr || !successor.departure.has_value()) {
                 return true;
             }
-            if (contains(*first_departure_domain, *successor.departure)) {
-                return true;
-            }
-            if (!limits.allow_start_wait) {
-                return false;
-            }
-
-            const auto domain_bounds = bounds(*first_departure_domain);
-            if (!domain_bounds.has_value()) {
-                return false;
-            }
-
-            // In the current connection representation, initial waiting can only
-            // delay the first timed boarding beyond the desired departure-time
-            // domain; it cannot make that boarding earlier than the earliest
-            // demand-relevant departure bound.
-            return successor.departure->value() >= domain_bounds->begin.value();
+            return contains(*first_departure_domain, *successor.departure);
         }
 
         PartialPruningMetrics make_partial_pruning_metrics(
@@ -309,12 +318,12 @@ namespace timetable::domain::assignment {
         }
 
         void insert_pruning_metrics(
-              NodeMetricMap&                    known_metrics
+              SearchTaskRetention&              retention
             , const SearchPruningExecutionPlan& pruning_execution
             , SearchNodeKey                     node
             , PartialPruningMetrics             metrics
         ) {
-            auto& known = known_metrics[node];
+            auto& known = retention.known_metrics[node];
             known = insert_search_pruning_metrics(
                   pruning_execution
                 , std::move(known)
@@ -851,8 +860,9 @@ namespace timetable::domain::assignment {
               const SearchBranch&        branch
             , const PreprocessedNetwork& network
             , const TransferLimits&      limits
+            , ZoneId                     destination
         ) {
-            if (!is_complete_connection(branch)) {
+            if (!is_complete_connection(branch, destination)) {
                 return std::nullopt;
             }
 
@@ -868,7 +878,6 @@ namespace timetable::domain::assignment {
                 }
             }
 
-            const auto destination  = ZoneId{ branch.trace.current_physical.id };
             MATHFP_TRY_LET(
                   SearchConnection
                 , connection
@@ -883,7 +892,7 @@ namespace timetable::domain::assignment {
 
         SearchPruningDecision retain_branch(
               const SearchBranch&               branch
-            , NodeMetricMap&                    known_metrics
+            , SearchTaskRetention&              retention
             , const SearchParams&               params
             , const SearchPruningExecutionPlan& pruning_execution
             , SearchPruningRuntimeStats&        pruning_stats
@@ -900,10 +909,10 @@ namespace timetable::domain::assignment {
             ++pruning_stats.evaluated_candidates;
             auto metrics = make_partial_pruning_metrics(branch, params.impedance, fare_scale);
             const auto node  = search_node_key(branch);
-            auto it          = known_metrics.find(node);
-            if (it == known_metrics.end()) {
+            auto it          = retention.known_metrics.find(node);
+            if (it == retention.known_metrics.end()) {
                 if (stores_search_pruning_metrics(pruning_execution)) {
-                    insert_pruning_metrics(known_metrics, pruning_execution, node, std::move(metrics));
+                    insert_pruning_metrics(retention, pruning_execution, node, std::move(metrics));
                     ++pruning_stats.inserted_metrics;
                 } else {
                     ++pruning_stats.skipped_insertions;
@@ -932,7 +941,7 @@ namespace timetable::domain::assignment {
             }
 
             if (stores_search_pruning_metrics(pruning_execution)) {
-                insert_pruning_metrics(known_metrics, pruning_execution, node, std::move(metrics));
+                insert_pruning_metrics(retention, pruning_execution, node, std::move(metrics));
                 ++pruning_stats.inserted_metrics;
             } else {
                 ++pruning_stats.skipped_insertions;
@@ -954,38 +963,38 @@ namespace timetable::domain::assignment {
             };
         }
 
-        mathfp::Expected<std::vector<SearchConnection>> search_from_origin(
-              ZoneId                            origin
+        mathfp::Expected<SearchTaskResult> search_task_connections(
+              const SearchTask&                 task
             , const PreprocessedNetwork&        network
             , double                            fare_scale
             , const SearchParams&               params
+            , const ChoiceConfig&                choice_config
             , const SearchPruningExecutionPlan& pruning_execution
-            , const SearchTimeDomainExecution*  time_domain_execution
-            , std::size_t                       origin_index
-            , std::size_t                       origin_count
+            , std::size_t                       task_index
+            , std::size_t                       task_count
         ) {
             using timetable::infra::LogLevel;
             using timetable::infra::progress::log;
             using timetable::infra::progress::status;
 
-            std::vector<SearchConnection> found;
-            NodeMetricMap                 known_metrics;
-            OriginSearchStats                 stats;
+            SearchTaskResult result{
+                  .task        = task
+                , .connections = {}
+            };
+            SearchTaskRetention           retention{ .task = task.index };
+            TaskSearchStats                   stats;
             BranchArena                       branches;
-            const SearchTimeDomain*           first_departure_domain =
-                time_domain_execution != nullptr
-                    ? find_origin_search_time_domain(*time_domain_execution, origin)
-                    : nullptr;
+            const SearchTimeDomain*           first_departure_domain = &task.departure_domain;
 
-            branches.reserve(network.connection_segments.size() / 4 + 1);
+            branches.reserve(kInitialTaskBranchReserve);
 
             std::deque<std::size_t> current_frontier;
             std::deque<std::size_t> next_frontier;
             branches.push_back(
                 SearchBranch{
                       .trace = SearchPartialTrace{
-                            .origin                   = origin
-                          , .current_physical         = endpoint_key(origin)
+                            .origin                   = task.origin
+                          , .current_physical         = endpoint_key(task.origin)
                           , .current_occurrence       = std::nullopt
                           , .connection_trace         = ConnectionTrace{}
                           , .parent_branch            = std::nullopt
@@ -1010,12 +1019,14 @@ namespace timetable::domain::assignment {
 
             status(
                 fmt::format(
-                      "search: origin {}/{} zone={} frontier={} found={}"
-                    , origin_index + 1
-                    , origin_count
-                    , origin.get()
+                      "search: task {}/{} origin={} destination={} interval={} frontier={} found={}"
+                    , task_index + 1
+                    , task_count
+                    , task.origin.get()
+                    , task.destination.get()
+                    , task.interval.id.get()
                     , current_frontier.size()
-                    , found.size()
+                    , retention.complete_connections.alternatives.size()
                 )
             );
 
@@ -1035,28 +1046,33 @@ namespace timetable::domain::assignment {
                 if ((stats.expanded_branches % kSearchHeartbeatStep) == 0) {
                     status(
                         fmt::format(
-                              "search: origin {}/{} zone={} expanded={} accepted={} found={} frontier={}/{}"
-                            , origin_index + 1
-                            , origin_count
-                            , origin.get()
+                              "search: task {}/{} origin={} destination={} interval={} expanded={} accepted={} found={} frontier={}/{}"
+                            , task_index + 1
+                            , task_count
+                            , task.origin.get()
+                            , task.destination.get()
+                            , task.interval.id.get()
                             , stats.expanded_branches
                             , stats.accepted_branches
-                            , found.size()
+                            , retention.complete_connections.alternatives.size()
                             , current_frontier.size()
                             , next_frontier.size()
                         )
                     );
-                        log(
-                            fmt::format(
-                              "search heartbeat: origin={:>4} expanded={:>8} generated={:>8}"
+                    log(
+                        fmt::format(
+                              "search heartbeat: task={:>8} origin={:>4} destination={:>4} interval={:>4} expanded={:>8} generated={:>8}"
                               " accepted={:>8} found={:>8} rejected(time_domain/feasibility/reboarding/cycles/limit/dominance)={}/{}/{}/{}/{}/{}"
                               " pruning(exact/approx/inserted/skipped)={}/{}/{}/{}"
                               " frontier={}/{}"
-                            , origin.get()
+                            , task.index.get()
+                            , task.origin.get()
+                            , task.destination.get()
+                            , task.interval.id.get()
                             , stats.expanded_branches
                             , stats.generated_successors
                             , stats.accepted_branches
-                            , found.size()
+                            , retention.complete_connections.alternatives.size()
                             , stats.rejected_time_domain
                             , stats.rejected_feasibility
                             , stats.rejected_reboarding
@@ -1078,15 +1094,28 @@ namespace timetable::domain::assignment {
                     );
                 }
 
-                if (is_complete_connection(branch)) {
+                if (is_terminal_zone(branch, task.destination)) {
+                    continue;
+                }
+
+                if (is_complete_connection(branch, task.destination)) {
                     MATHFP_TRY_LET(
                           std::optional<SearchConnection>
                         , complete
-                        , complete_connection(branch, network, params.transfers)
+                        , complete_connection(branch, network, params.transfers, task.destination)
                     );
                     if (complete.has_value()) {
-                        found.push_back(std::move(*complete));
                         ++stats.completed_connections;
+                        const auto retention_decision = retain_exact_complete_connection(
+                              retention.complete_connections
+                            , std::move(*complete)
+                            , params
+                            , fare_scale
+                        );
+                        stats.removed_complete_dominated += retention_decision.removed_dominated;
+                        if (!retention_decision.accepted) {
+                            ++stats.rejected_complete_dominance;
+                        }
                     }
                     continue;
                 }
@@ -1139,7 +1168,7 @@ namespace timetable::domain::assignment {
 
                     const auto pruning_decision = retain_branch(
                           *candidate
-                        , known_metrics
+                        , retention
                         , params
                         , pruning_execution
                         , stats.pruning
@@ -1162,14 +1191,32 @@ namespace timetable::domain::assignment {
                 });
             }
 
+            const auto before_tolerance = retention.complete_connections.alternatives.size();
+            result.connections = finalize_complete_connection_retention(
+                  retention.complete_connections
+                , params.choice_tolerances
+                , choice_config.rollout_stage
+            );
+            stats.rejected_complete_tolerance = before_tolerance - result.connections.size();
+
             log(
                 fmt::format(
-                      "search origin done: {}/{} zone={} found={:>8} expanded={:>8} generated={:>8} accepted={:>8}"
+                      "search task done: {}/{} task={} origin={} destination={} interval={} found={:>8} completed={:>8}"
+                      " retained_complete={:>8} complete_rejected(dominance/tolerance)={}/{} complete_removed_dominated={}"
+                      " expanded={:>8} generated={:>8} accepted={:>8}"
                       " rejected(time_domain/feasibility/reboarding/cycles/limit/dominance)={}/{}/{}/{}/{}/{} max_frontier={}/{}"
-                    , origin_index + 1
-                    , origin_count
-                    , origin.get()
-                    , found.size()
+                    , task_index + 1
+                    , task_count
+                    , task.index.get()
+                    , task.origin.get()
+                    , task.destination.get()
+                    , task.interval.id.get()
+                    , result.connections.size()
+                    , stats.completed_connections
+                    , before_tolerance
+                    , stats.rejected_complete_dominance
+                    , stats.rejected_complete_tolerance
+                    , stats.removed_complete_dominated
                     , stats.expanded_branches
                     , stats.generated_successors
                     , stats.accepted_branches
@@ -1189,7 +1236,7 @@ namespace timetable::domain::assignment {
                 , LogLevel::Info
             );
 
-            return found;
+            return result;
         }
 
     }  // namespace
@@ -1198,6 +1245,86 @@ namespace timetable::domain::assignment {
         Connection connection
     )
         : connection_(std::move(connection)) {}
+
+    mathfp::Expected<std::vector<SearchTask>> build_search_tasks(
+          const InputModel&              input
+        , const SearchTimePaddingPolicy& padding_policy
+        , const SplitParams&             split
+    ) {
+        MATHFP_TRY_LET(
+              SearchTimePadding
+            , padding
+            , resolve_search_time_padding(padding_policy, split)
+        );
+
+        MATHFP_TRY_LET(
+              std::map<IntervalId, const TimeInterval*>
+            , intervals
+            , interval_lookup(input)
+        );
+        std::vector<SearchTask> tasks;
+        tasks.reserve(input.demand.size());
+
+        for (const auto& demand : input.demand) {
+            if (!(demand.passengers > 0.0)) {
+                continue;
+            }
+
+            const auto interval_it = intervals.find(demand.interval);
+            if (interval_it == intervals.end()) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("search task demand entry references unknown interval")
+                        .ctx("origin"     , demand.origin     .get())
+                        .ctx("destination", demand.destination.get())
+                        .ctx("interval_id", demand.interval   .get())
+                );
+            }
+
+            MATHFP_TRY_LET(
+                  SearchTimeDomain
+                , departure_domain
+                , make_search_time_domain(std::vector<SearchTimeWindow>{
+                    expand_interval_to_search_window(*interval_it->second, padding)
+                })
+            );
+
+            tasks.push_back(
+                SearchTask{
+                      .index            = SearchTaskRef{ static_cast<std::int64_t>(tasks.size()) }
+                    , .origin           = demand.origin
+                    , .destination      = demand.destination
+                    , .interval         = *interval_it->second
+                    , .departure_domain = std::move(departure_domain)
+                }
+            );
+        }
+
+        return tasks;
+    }
+
+    std::vector<const SearchConnection*> search_connection_ptrs(
+        const ConnectionSearchResult& result
+    ) {
+        std::vector<const SearchConnection*> connections;
+        const auto total = search_connection_count(result);
+        connections.reserve(total);
+        for (const auto& task_result : result.task_results) {
+            for (const auto& connection : task_result.connections) {
+                connections.push_back(&connection);
+            }
+        }
+        return connections;
+    }
+
+    std::size_t search_connection_count(
+        const ConnectionSearchResult& result
+    ) noexcept {
+        std::size_t total = 0;
+        for (const auto& task_result : result.task_results) {
+            total += task_result.connections.size();
+        }
+        return total;
+    }
 
     mathfp::Expected<SearchConnection> make_search_connection(
         Connection connection
@@ -1291,10 +1418,11 @@ namespace timetable::domain::assignment {
 
     mathfp::Expected<ConnectionSearchResult> search_connections_branch_and_bound(
           const PreprocessedNetwork& network
+        , std::span<const SearchTask> tasks
         , double                     fare_scale
         , const SearchParams&        params
+        , const ChoiceConfig&         choice_config
         , const SearchPruningExecutionPlan* pruning_execution
-        , const SearchTimeDomainExecution* time_domain_execution
     ) {
         using timetable::infra::LogLevel;
         using timetable::infra::progress::both;
@@ -1305,16 +1433,18 @@ namespace timetable::domain::assignment {
         log(
             fmt::format(
                 "search input: route_segments = {:>8}  connection_segments = {:>8}"
-                "  max_transfers = {}"
+                "  tasks = {:>8}  max_transfers = {}"
                 , network.route_segments     .size()
                 , network.connection_segments.size()
+                , tasks.size()
                 , params.transfers.max_transfers.get()
             )
             , LogLevel::Info
         );
 
-        const auto origins = search_origins(network);
         ConnectionSearchResult result;
+        result.task_results.reserve(tasks.size());
+
         MATHFP_TRY_LET(
               SearchPruningExecutionPlan
             , default_pruning_execution
@@ -1331,10 +1461,9 @@ namespace timetable::domain::assignment {
 
         log(
             fmt::format(
-                "search setup: origins = {:>6}  fare_scale = {:.6f}  time_domain = {}"
-                , origins.size()
+                "search setup: tasks = {:>8}  fare_scale = {:.6f}  time_domain = task"
+                , tasks.size()
                 , fare_scale
-                , time_domain_execution != nullptr ? "enabled" : "disabled"
             )
             , LogLevel::Info
         );
@@ -1343,59 +1472,61 @@ namespace timetable::domain::assignment {
             , LogLevel::Info
         );
 
-        if (origins.empty()) {
-            status("search: no origin zones available");
+        if (tasks.empty()) {
+            status("search: no positive-demand search tasks available");
         }
 
-        for (std::size_t i = 0; i < origins.size(); ++i) {
-            const auto origin = origins[i];
-            if (i == 0 || (i % kOriginProgressStep) == 0 || (i + 1) == origins.size()) {
+        for (std::size_t i = 0; i < tasks.size(); ++i) {
+            const auto& task = tasks[i];
+            const auto total_found = search_connection_count(result);
+            if (i == 0 || (i % kTaskProgressStep) == 0 || (i + 1) == tasks.size()) {
                 status(
                     fmt::format(
-                          "search: origin {}/{} zone={} total_found={}"
+                          "search: task {}/{} origin={} destination={} interval={} total_found={}"
                         , i + 1
-                        , origins.size()
-                        , origin.get()
-                        , result.connections.size()
+                        , tasks.size()
+                        , task.origin.get()
+                        , task.destination.get()
+                        , task.interval.id.get()
+                        , total_found
                     )
                 );
             }
             log(
                 fmt::format(
-                      "search origin start: {}/{} zone={} cumulative_found={}"
+                      "search task start: {}/{} task={} origin={} destination={} interval={} cumulative_found={}"
                     , i + 1
-                    , origins.size()
-                    , origin.get()
-                    , result.connections.size()
+                    , tasks.size()
+                    , task.index.get()
+                    , task.origin.get()
+                    , task.destination.get()
+                    , task.interval.id.get()
+                    , total_found
                 )
                 , LogLevel::Info
             );
             MATHFP_TRY_LET(
-                  std::vector<SearchConnection>
-                , origin_connections
-                , search_from_origin(
-                      origin
+                  SearchTaskResult
+                , task_result
+                , search_task_connections(
+                      task
                     , network
                     , fare_scale
                     , params
+                    , choice_config
                     , effective_pruning_execution
-                    , time_domain_execution
                     , i
-                    , origins.size()
+                    , tasks.size()
                 )
             );
-            result.connections.insert(
-                  result.connections.end()
-                , std::make_move_iterator(origin_connections.begin())
-                , std::make_move_iterator(origin_connections.end())
-            );
+            result.task_results.push_back(std::move(task_result));
         }
 
         log(
             fmt::format(
-                  "search result: origins = {:>6}  connections = {:>8}"
-                , origins.size()
-                , result.connections.size()
+                  "search result: tasks = {:>8}  connections = {:>8}"
+                , result.task_results.size()
+                , search_connection_count(result)
             )
             , LogLevel::Info
         );

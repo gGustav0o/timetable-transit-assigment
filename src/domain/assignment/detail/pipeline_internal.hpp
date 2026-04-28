@@ -1,6 +1,7 @@
 #pragma once
 
 #include <utility>
+#include <vector>
 
 #include <mathfp/core/expected.hpp>
 #include <mathfp/core/try.hpp>
@@ -11,7 +12,6 @@
 #include "timetable/domain/assignment/search.hpp"
 #include "timetable/domain/assignment/search_pruning_diagnostics.hpp"
 #include "timetable/domain/assignment/search_pruning_plan.hpp"
-#include "timetable/domain/assignment/search_time_domain_plan.hpp"
 #include "timetable/domain/assignment/split.hpp"
 #include "timetable/domain/assignment/validation.hpp"
 #include "timetable/infra/progress_bus.hpp"
@@ -85,16 +85,19 @@ namespace timetable::domain::assignment::detail {
             format_search_pruning_execution_summary(summarize(search_pruning_execution))
             , LogLevel::Info
         );
+        MATHFP_TRY(validate_search_time_domain_builder_input(
+              input.input
+            , SearchWindowMode::PerOd
+            , input.search_time_domain.model.padding_policy
+            , params.split
+        ));
         MATHFP_TRY_LET(
-              std::optional<SearchTimeDomainExecution>
-            , search_time_domain_execution
-            , prepare_search_time_domain_execution(
+              std::vector<SearchTask>
+            , search_tasks
+            , build_search_tasks(
                   input.input
                 , input.search_time_domain.model.padding_policy
                 , params.split
-                , input.search_time_domain.runtime.architecture
-                , input.search_time_domain.runtime.rollout_stage
-                , input.search_time_domain.model  .requested_mode
             )
         );
         MATHFP_TRY_LET(
@@ -102,10 +105,11 @@ namespace timetable::domain::assignment::detail {
             , search_result
             , search_connections_branch_and_bound(
                   net
+                , search_tasks
                 , fare_scale
                 , params
+                , input.choice
                 , &search_pruning_execution
-                , search_time_domain_execution ? &*search_time_domain_execution : nullptr
             )
         );
         MATHFP_TRY(validate_search_step_output(

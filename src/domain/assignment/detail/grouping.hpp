@@ -108,6 +108,16 @@ namespace timetable::domain::assignment::detail::grouping {
         return indices;
     }
 
+    [[nodiscard]] inline std::map<ConnectionTraceKey, std::size_t> trace_index_map(
+        const std::vector<const SearchConnection*>& connections
+    ) {
+        std::map<ConnectionTraceKey, std::size_t> indices;
+        for (std::size_t i = 0; i < connections.size(); ++i) {
+            indices.emplace(connection_trace_key(*connections[i]), i);
+        }
+        return indices;
+    }
+
     [[nodiscard]] inline OwnedOdConnectionGroups group_connections_by_od(
         std::span<const SearchConnection> connections
     ) {
@@ -126,6 +136,30 @@ namespace timetable::domain::assignment::detail::grouping {
             groups[od_key(connection)].push_back(&connection);
         }
         return groups;
+    }
+
+    [[nodiscard]] inline BorrowedOdConnectionGroups group_connection_ptrs_by_od(
+        const ConnectionSearchResult& result
+    ) {
+        BorrowedOdConnectionGroups groups;
+        for (const auto& task_result : result.task_results) {
+            for (const auto& connection : task_result.connections) {
+                groups[od_key(connection)].push_back(&connection);
+            }
+        }
+        return groups;
+    }
+
+    [[nodiscard]] inline std::map<OdKey, std::size_t> count_connections_by_od(
+        const ConnectionSearchResult& result
+    ) {
+        std::map<OdKey, std::size_t> counts;
+        for (const auto& task_result : result.task_results) {
+            for (const auto& connection : task_result.connections) {
+                ++counts[od_key(connection)];
+            }
+        }
+        return counts;
     }
 
     [[nodiscard]] inline DemandEntryGroups group_demand_entries_by_od(

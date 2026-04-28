@@ -40,7 +40,9 @@ namespace timetable::domain::assignment {
     /**
      * @brief Compute fare normalization scale from connection segments.
      *
-     * Missing fares are ignored. If no fares are present, scale is 1.0.
+     * Missing and zero fares are ignored when deriving the positive scale.
+     * Zero fare is a valid free-ride value, but it cannot define a
+     * normalization denominator. If no positive fares are present, scale is 1.0.
      */
     double compute_fare_scale(
           std::span<const ConnectionSegment> segments

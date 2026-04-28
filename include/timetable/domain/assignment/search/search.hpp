@@ -1,18 +1,47 @@
 #pragma once
 
+#include <cstdint>
+#include <span>
 #include <vector>
 
 #include <mathfp/core/expected.hpp>
+#include <mathfp/types/strong_type.hpp>
 
 #include "timetable/domain/model.hpp"
 #include "timetable/domain/params.hpp"
+#include "timetable/domain/assignment/choice/choice_config.hpp"
 #include "timetable/domain/assignment/connection.hpp"
+#include "timetable/domain/assignment/search_time_domain_builder.hpp"
 #include "timetable/domain/assignment/search_pruning_plan.hpp"
 #include "timetable/domain/assignment/search/preprocessed_network.hpp"
-#include "timetable/domain/assignment/search_time_domain_execution.hpp"
 #include <timetable/domain/segments.hpp>
 
 namespace timetable::domain::assignment {
+
+    struct SearchTaskRefTag {};
+
+    using SearchTaskRef = mathfp::StrongType<
+          std::int64_t
+        , SearchTaskRefTag
+        , mathfp::strong_detail::EqualityComparable
+        , mathfp::strong_detail::Ordered
+    >;
+
+    /**
+     * @brief Mathematical unit of timetable connection search.
+     *
+     * A task asks for feasible alternatives for exactly one
+     * origin-destination demand interval under one departure-time domain.
+     * Search algorithms may share implementation work between tasks, but the
+     * public search result must keep alternatives attached to this unit.
+     */
+    struct SearchTask final {
+        SearchTaskRef   index{};
+        ZoneId          origin{};
+        ZoneId          destination{};
+        TimeInterval    interval{};
+        SearchTimeDomain departure_domain{};
+    };
 
     /**
      * @brief Strict search-stage connection alternative.
@@ -35,14 +64,40 @@ namespace timetable::domain::assignment {
         friend mathfp::Expected<SearchConnection> make_search_connection(
             Connection connection
         );
+        friend mathfp::Expected<SearchConnection> make_search_connection(
+              ZoneId          origin
+            , ZoneId          destination
+            , ConnectionTrace trace
+        );
         friend const Connection& canonical_connection(
             const SearchConnection& connection
         ) noexcept;
     };
 
-    struct ConnectionSearchResult final {
+    struct SearchTaskResult final {
+        SearchTask                    task{};
+        // Complete alternatives retained for this task after exact dominance
+        // and the task-final tolerance pass requested by ChoiceConfig.
         std::vector<SearchConnection> connections{};
     };
+
+    struct ConnectionSearchResult final {
+        std::vector<SearchTaskResult> task_results{};
+    };
+
+    mathfp::Expected<std::vector<SearchTask>> build_search_tasks(
+          const InputModel&              input
+        , const SearchTimePaddingPolicy& padding_policy
+        , const SplitParams&             split
+    );
+
+    [[nodiscard]] std::vector<const SearchConnection*> search_connection_ptrs(
+        const ConnectionSearchResult& result
+    );
+
+    [[nodiscard]] std::size_t search_connection_count(
+        const ConnectionSearchResult& result
+    ) noexcept;
 
     mathfp::Expected<SearchConnection> make_search_connection(
         Connection connection
@@ -103,10 +158,11 @@ namespace timetable::domain::assignment {
      */
     mathfp::Expected<ConnectionSearchResult> search_connections_branch_and_bound(
           const PreprocessedNetwork&        network
+        , std::span<const SearchTask>        tasks
         , double                            fare_scale
         , const SearchParams&               params
-        , const SearchPruningExecutionPlan* pruning_execution     = nullptr
-        , const SearchTimeDomainExecution*  time_domain_execution = nullptr
+        , const ChoiceConfig&                choice_config
+        , const SearchPruningExecutionPlan* pruning_execution = nullptr
     );
 
 }  // namespace timetable::domain::assignment

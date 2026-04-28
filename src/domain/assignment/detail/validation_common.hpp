@@ -91,7 +91,10 @@ namespace timetable::domain::assignment::detail::validation {
         , std::string_view                      where
     ) {
         std::map<ConnectionTraceKey, std::size_t> seen;
-        return validate_each_index(connections, [&](const SearchConnection& connection, std::size_t i) {
+        return validate_each_index(
+              connections
+            , [&](const SearchConnection& connection, std::size_t i)
+                -> mathfp::Expected<mathfp::Unit> {
             auto key = connection_trace_key(connection);
             if (const auto [it, inserted] = seen.emplace(std::move(key), i); !inserted) {
                 return mathfp::unexpected(

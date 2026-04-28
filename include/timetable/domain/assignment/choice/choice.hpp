@@ -10,8 +10,18 @@
 
 namespace timetable::domain::assignment {
 
-    struct ConnectionChoiceResult final {
+    struct ChoiceTaskResult final {
+        SearchTask                    task{};
+        // Alternatives chosen for exactly this OD-interval task. Empty means
+        // no feasible retained alternative was available for the task.
         std::vector<SearchConnection> connections{};
+    };
+
+    struct ConnectionChoiceResult final {
+        // Unique flat projection used only for output indexing and validation.
+        // Behavioral split must consume task_results, not this projection.
+        std::vector<SearchConnection> connections{};
+        std::vector<ChoiceTaskResult> task_results{};
     };
 
     /**

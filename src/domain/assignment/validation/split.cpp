@@ -6,6 +6,7 @@
 #include <map>
 #include <span>
 #include <utility>
+#include <vector>
 
 #include <fmt/format.h>
 
@@ -48,13 +49,12 @@ namespace timetable::domain::assignment {
         }
 
         mathfp::Expected<std::map<detail::validation::DemandKey, const DemandEntry*>> validate_and_index_demand_entries(
-              const InputModel&                     input
-            , std::span<const SearchConnection> choice_connections
-            , bool                                  emit_warnings
+              const InputModel&                                 input
+            , const std::map<detail::validation::DemandKey, std::size_t>& choice_counts
+            , bool                                              emit_warnings
         ) {
             const auto intervals     = build_interval_map(input);
             const auto zones         = build_zone_map(input);
-            const auto choice_counts = detail::validation::count_connections_by_od(choice_connections);
 
             std::map<detail::validation::DemandKey, const DemandEntry*> demand_by_key;
             for (const auto& demand : input.demand) {
@@ -115,7 +115,7 @@ namespace timetable::domain::assignment {
                     ));
                 }
                 if (emit_warnings
-                    && !choice_counts.contains(detail::validation::OdKey{ demand.origin, demand.destination })
+                    && !choice_counts.contains(key)
                     && demand.passengers > 0.0) {
                     detail::validation::warn(fmt::format(
                           "split input: no chosen connections for demand origin={} destination={} interval={}"
@@ -127,6 +127,50 @@ namespace timetable::domain::assignment {
             }
 
             return demand_by_key;
+        }
+
+        [[nodiscard]] std::map<detail::validation::DemandKey, std::size_t> count_choice_task_connections_by_demand_key(
+            const ConnectionChoiceResult& choice_result
+        ) {
+            std::map<detail::validation::DemandKey, std::size_t> counts;
+            for (const auto& task_result : choice_result.task_results) {
+                if (task_result.connections.empty()) {
+                    continue;
+                }
+                counts[detail::validation::DemandKey{
+                      .origin      = task_result.task.origin
+                    , .destination = task_result.task.destination
+                    , .interval    = task_result.task.interval.id
+                }] += task_result.connections.size();
+            }
+            return counts;
+        }
+
+        using ChoiceTaskLookup = std::map<detail::validation::DemandKey, const ChoiceTaskResult*>;
+
+        mathfp::Expected<ChoiceTaskLookup> build_choice_task_lookup(
+            const ConnectionChoiceResult& choice_result
+        ) {
+            ChoiceTaskLookup lookup;
+            for (const auto& task_result : choice_result.task_results) {
+                const auto key = detail::validation::DemandKey{
+                      .origin      = task_result.task.origin
+                    , .destination = task_result.task.destination
+                    , .interval    = task_result.task.interval.id
+                };
+                MATHFP_TRY(detail::validation::emplace_unique(
+                      lookup
+                    , key
+                    , &task_result
+                    , [&]() {
+                        return mathfp::internal_error("choice output contains duplicate task for demand key")
+                            .ctx("origin"     , key.origin     .get())
+                            .ctx("destination", key.destination.get())
+                            .ctx("interval_id", key.interval   .get());
+                    }
+                ));
+            }
+            return lookup;
         }
 
     }  // namespace
@@ -185,7 +229,43 @@ namespace timetable::domain::assignment {
             detail::validation::warn("split input: no chosen connections are available; split output will be empty");
         }
 
-        MATHFP_TRY(validate_and_index_demand_entries(input, choice_result.connections, true));
+        MATHFP_TRY_LET(
+              ChoiceTaskLookup
+            , choice_task_lookup
+            , build_choice_task_lookup(choice_result)
+        );
+        MATHFP_TRY_LET(
+              std::map<detail::validation::DemandKey, const DemandEntry*>
+            , demand_by_key
+            , validate_and_index_demand_entries(
+              input
+            , count_choice_task_connections_by_demand_key(choice_result)
+            , true
+            )
+        );
+
+        for (const auto& [key, demand] : demand_by_key) {
+            if (demand->passengers <= 0.0) {
+                continue;
+            }
+            const auto task_it = choice_task_lookup.find(key);
+            if (task_it == choice_task_lookup.end()) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("split input is missing choice task for positive demand")
+                        .ctx("origin"     , key.origin     .get())
+                        .ctx("destination", key.destination.get())
+                        .ctx("interval_id", key.interval   .get())
+                );
+            }
+            if (task_it->second->connections.empty()) {
+                detail::validation::warn(fmt::format(
+                      "split input: choice task for positive demand origin={} destination={} interval={} has no alternatives"
+                    , key.origin     .get()
+                    , key.destination.get()
+                    , key.interval   .get()
+                ));
+            }
+        }
         return mathfp::kUnit;
     }
 
@@ -195,23 +275,29 @@ namespace timetable::domain::assignment {
         , const InputModel&             input
     ) {
         const auto choice_trace_map = detail::validation::trace_index_map(choice_result.connections);
+        const auto choice_counts = count_choice_task_connections_by_demand_key(choice_result);
+        MATHFP_TRY_LET(
+              ChoiceTaskLookup
+            , choice_task_lookup
+            , build_choice_task_lookup(choice_result)
+        );
         const auto demand_by_key_result = validate_and_index_demand_entries(
               input
-            , choice_result.connections
+            , choice_counts
             , false
         );
         if (!demand_by_key_result) {
             return mathfp::unexpected(std::move(demand_by_key_result.error()));
         }
         const auto& demand_by_key = *demand_by_key_result;
-        const auto choice_counts  = detail::validation::count_connections_by_od(choice_result.connections);
 
         std::map<detail::validation::DemandKey, double> probability_sum_by_key;
         std::map<detail::validation::DemandKey, double> passengers_sum_by_key;
 
         MATHFP_TRY(detail::validation::validate_each_index(
               split_result.shares
-            , [&](const ConnectionDemandShare& share, std::size_t i) {
+            , [&](const ConnectionDemandShare& share, std::size_t i)
+                -> mathfp::Expected<mathfp::Unit> {
                 const auto key = detail::validation::DemandKey{
                       .origin      = share.origin
                     , .destination = share.destination
@@ -244,6 +330,35 @@ namespace timetable::domain::assignment {
                             .ctx("interval_id", share.interval   .get());
                     }
                 ));
+                const auto task_it = choice_task_lookup.find(key);
+                if (task_it == choice_task_lookup.end()) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("split output share has no matching choice task")
+                            .ctx("share_index", static_cast<std::int64_t>(i))
+                            .ctx("origin"     , share.origin     .get())
+                            .ctx("destination", share.destination.get())
+                            .ctx("interval_id", share.interval   .get())
+                    );
+                }
+                std::vector<const SearchConnection*> task_connections;
+                task_connections.reserve(task_it->second->connections.size());
+                for (const auto& connection : task_it->second->connections) {
+                    task_connections.push_back(&connection);
+                }
+                const auto task_trace_map = detail::validation::trace_index_map(task_connections);
+                MATHFP_TRY(detail::validation::ensure_contains(
+                      task_trace_map
+                    , detail::validation::connection_trace_key(share.connection)
+                    , [&]() {
+                        return mathfp::internal_error(
+                            "split output share references a connection outside its choice task"
+                        )
+                            .ctx("share_index", static_cast<std::int64_t>(i))
+                            .ctx("origin"     , share.origin     .get())
+                            .ctx("destination", share.destination.get())
+                            .ctx("interval_id", share.interval   .get());
+                    }
+                ));
                 if (!std::isfinite(share.passengers) || share.passengers < 0.0
                     || !detail::validation::valid_probability(share.probability)
                     || !std::isfinite(share.independence) || share.independence <= 0.0 || share.independence > 1.0
@@ -265,10 +380,7 @@ namespace timetable::domain::assignment {
         ));
 
         for (const auto& [key, demand] : demand_by_key) {
-            const auto has_available_choice = choice_counts.contains(detail::validation::OdKey{
-                  .origin      = key.origin
-                , .destination = key.destination
-            });
+            const auto has_available_choice = choice_counts.contains(key);
             if (!has_available_choice || demand->passengers <= 0.0) {
                 continue;
             }

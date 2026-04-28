@@ -21,6 +21,7 @@ add_executable(timetable-transit-assigment
   src/app/app.cpp
   src/app/cli.cpp
   src/domain/assignment/choice/choice.cpp
+  src/domain/assignment/complete_connection_retention.cpp
   src/domain/assignment/connection.cpp
   src/domain/assignment/output.cpp
   src/domain/assignment/output_assembly.cpp

@@ -1,10 +1,13 @@
 #include "detail/output_internal.hpp"
 
+#include <cstddef>
 #include <cstdint>
 #include <map>
 #include <utility>
+#include <vector>
 
 #include <mathfp/core/error.hpp>
+#include <mathfp/core/numeric_tolerance.hpp>
 #include <mathfp/core/try.hpp>
 
 namespace timetable::domain::assignment::detail {
@@ -12,6 +15,7 @@ namespace timetable::domain::assignment::detail {
     namespace {
 
         using ChosenConnectionIndexMap = std::map<grouping::ConnectionTraceKey, std::size_t>;
+        using TaskConnectionTraceMap = std::map<grouping::DemandKey, std::map<grouping::ConnectionTraceKey, bool>>;
 
         AssignmentOdResult make_empty_od_result(
             const grouping::OdKey& od
@@ -48,6 +52,132 @@ namespace timetable::domain::assignment::detail {
             return total;
         }
 
+        bool almost_equal_scalar(
+              double lhs
+            , double rhs
+        ) noexcept {
+            return mathfp::almost_equal(lhs, rhs);
+        }
+
+        TaskConnectionTraceMap build_task_connection_trace_map(
+            const ConnectionChoiceResult& choice_result
+        ) {
+            TaskConnectionTraceMap traces;
+            for (const auto& task_result : choice_result.task_results) {
+                auto& task_traces = traces[grouping::DemandKey{
+                      .origin      = task_result.task.origin
+                    , .destination = task_result.task.destination
+                    , .interval    = task_result.task.interval.id
+                }];
+                for (const auto& connection : task_result.connections) {
+                    task_traces[grouping::connection_trace_key(connection)] = true;
+                }
+            }
+            return traces;
+        }
+
+        mathfp::Expected<mathfp::Unit> validate_choice_flat_projection(
+            const ConnectionChoiceResult& choice_result
+        ) {
+            std::map<grouping::ConnectionTraceKey, bool> task_traces;
+            for (const auto& task_result : choice_result.task_results) {
+                for (const auto& connection : task_result.connections) {
+                    task_traces[grouping::connection_trace_key(connection)] = true;
+                }
+            }
+
+            const auto flat_trace_map = grouping::trace_index_map(choice_result.connections);
+            for (const auto& [trace, _] : task_traces) {
+                if (!flat_trace_map.contains(trace)) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("output input: flat choice projection misses a task-local connection")
+                    );
+                }
+            }
+            for (const auto& [trace, _] : flat_trace_map) {
+                if (!task_traces.contains(trace)) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("output input: flat choice projection contains a non-task connection")
+                    );
+                }
+            }
+            return mathfp::kUnit;
+        }
+
+        mathfp::Expected<mathfp::Unit> validate_split_shares_are_task_local(
+              const ConnectionChoiceResult& choice_result
+            , const DemandSplitResult&      split_result
+        ) {
+            const auto task_traces = build_task_connection_trace_map(choice_result);
+            for (std::size_t i = 0; i < split_result.shares.size(); ++i) {
+                const auto& share = split_result.shares[i];
+                const auto key = grouping::demand_key(share);
+                const auto task_it = task_traces.find(key);
+                if (task_it == task_traces.end()) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("output input: split share has no matching choice task")
+                            .ctx("share_index", static_cast<std::int64_t>(i))
+                            .ctx("origin"     , share.origin     .get())
+                            .ctx("destination", share.destination.get())
+                            .ctx("interval_id", share.interval   .get())
+                    );
+                }
+                if (!task_it->second.contains(grouping::connection_trace_key(share.connection))) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("output input: split share connection is outside its choice task")
+                            .ctx("share_index", static_cast<std::int64_t>(i))
+                            .ctx("origin"     , share.origin     .get())
+                            .ctx("destination", share.destination.get())
+                            .ctx("interval_id", share.interval   .get())
+                    );
+                }
+            }
+            return mathfp::kUnit;
+        }
+
+        double expected_segment_load_passenger_sum(
+            const DemandSplitResult& split_result
+        ) {
+            double total = 0.0;
+            for (const auto& share : split_result.shares) {
+                if (!(share.passengers > 0.0)) {
+                    continue;
+                }
+                for (const auto& leg : canonical_connection(share.connection).trace.legs) {
+                    if (is_ride_leg(leg.kind)) {
+                        total += share.passengers;
+                    }
+                }
+            }
+            return total;
+        }
+
+        double actual_segment_load_passenger_sum(
+            const AssignmentLoads& loads
+        ) noexcept {
+            double total = 0.0;
+            for (const auto& load : loads.segment_loads) {
+                total += load.passengers;
+            }
+            return total;
+        }
+
+        mathfp::Expected<mathfp::Unit> validate_loads_are_split_projection(
+              const DemandSplitResult& split_result
+            , const AssignmentLoads&   loads
+        ) {
+            const auto expected = expected_segment_load_passenger_sum(split_result);
+            const auto actual   = actual_segment_load_passenger_sum(loads);
+            if (!almost_equal_scalar(expected, actual)) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("output input: loads are not a passenger-segment projection of split shares")
+                        .ctx("expected_passenger_segments", expected)
+                        .ctx("actual_passenger_segments"  , actual)
+                );
+            }
+            return mathfp::kUnit;
+        }
+
         std::map<grouping::OdKey, bool> collect_all_ods(
               const std::map<grouping::OdKey, std::size_t>& search_counts
             , const grouping::BorrowedOdConnectionGroups&   chosen_by_od
@@ -73,7 +203,7 @@ namespace timetable::domain::assignment::detail {
             , const DemandSplitResult&      split_result
         ) {
             return AssignmentOutput::Summary{
-                  .search_connection_count = search_result.connections.size()
+                  .search_connection_count = search_connection_count(search_result)
                 , .chosen_connection_count = choice_result.connections.size()
                 , .demand_share_count      = split_result .shares     .size()
                 , .total_demand_passengers = total_input_demand(input)
@@ -242,14 +372,19 @@ namespace timetable::domain::assignment::detail {
 
     }  // namespace
 
-    mathfp::Expected<AssignmentOutput> build_assignment_output_impl(
+        mathfp::Expected<AssignmentOutput> build_assignment_output_impl(
           const InputModel&             input
         , const PreprocessedNetwork&    network
         , const ConnectionSearchResult& search_result
         , const ConnectionChoiceResult& choice_result
         , const DemandSplitResult&      split_result
     ) {
-        const auto search_counts = grouping::count_connections_by_od(search_result.connections);
+        MATHFP_TRY(validate_choice_flat_projection(choice_result));
+        MATHFP_TRY(validate_split_shares_are_task_local(choice_result, split_result));
+
+        const auto search_counts = grouping::count_connections_by_od(search_result);
+        // Output remains OD-shaped by specification. This grouping is only an
+        // output projection over the task-local choice result.
         const auto chosen_by_od  = grouping::group_connection_ptrs_by_od(choice_result.connections);
         const auto demand_by_od  = grouping::group_demand_entries_by_od(input.demand);
         const auto shares_by_key = grouping::group_shares_by_demand_key(split_result.shares);
@@ -259,6 +394,7 @@ namespace timetable::domain::assignment::detail {
             , loads
             , build_assignment_loads(split_result)
         );
+        MATHFP_TRY(validate_loads_are_split_projection(split_result, loads));
 
         AssignmentOutput output{
               .summary    = build_output_summary(input, search_result, choice_result, split_result)

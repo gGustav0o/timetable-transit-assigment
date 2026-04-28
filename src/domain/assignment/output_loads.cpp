@@ -100,6 +100,15 @@ namespace timetable::domain::assignment::detail {
                  < std::tuple{ rhs.interval.get(), rhs.line.get(), rhs.route.get() };
         }
 
+        [[nodiscard]] StopOccurrence stop_occurrence_from_key(
+            const StopOccurrenceKey& key
+        ) noexcept {
+            return StopOccurrence{
+                  .stop     = key.stop
+                , .position = key.position
+            };
+        }
+
         [[nodiscard]] mathfp::Expected<SegmentLoadKey> segment_load_key(
               IntervalId           interval
             , const ConnectionLeg& leg
@@ -127,8 +136,8 @@ namespace timetable::domain::assignment::detail {
                 , .trip               = *leg.trip
                 , .route_segment      = *leg.route_segment
                 , .connection_segment = *leg.connection_segment
-                , .from               = *leg.occurrence_from
-                , .to                 = *leg.occurrence_to
+                , .from               = stop_occurrence_from_key(*leg.occurrence_from)
+                , .to                 = stop_occurrence_from_key(*leg.occurrence_to)
                 , .departure          = leg.start_time
                 , .arrival            = leg.end_time
             };

@@ -109,6 +109,8 @@ namespace timetable::domain::assignment {
      * @brief State-local summary used by approximate retention.
      *
      * It stores minima over a canonical metric set at one state key.
+     * The owning metric set is additionally task-local: these minima must not
+     * be reused across different OD-interval SearchTask instances.
      */
     struct SearchPruningSummary final {
         double min_impedance    { 0.0 };
@@ -123,6 +125,7 @@ namespace timetable::domain::assignment {
      * @brief Canonical state-local metric container for pruning.
      *
      * Invariant:
+     * - the container belongs to one SearchTask and one state key
      * - metrics are exact-nondominated within one state key
      * - metrics are ordered by arrival time
      * - summary agrees with metrics

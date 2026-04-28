@@ -27,6 +27,13 @@
     (lhs) = std::move(*res_name);                                                \
   } while (0)
 
+#define MATHFP_DETAIL_TRY_LET_IMPL(res_name, type, name, expr)                   \
+  auto res_name = (expr);                                                        \
+  if (!res_name) {                                                               \
+    return ::mathfp::unexpected(std::move(res_name.error()));                    \
+  }                                                                              \
+  type name = std::move(*res_name)
+
 // Evaluate an Expected<...> expression; on error, return it from the current function.
 #define MATHFP_TRY(expr) MATHFP_DETAIL_TRY_IMPL(MATHFP_DETAIL_UNIQUE_NAME(_mathfp_try_), (expr))
 
@@ -34,9 +41,7 @@
 #define MATHFP_TRY_ASSIGN(lhs, expr)                                             \
   MATHFP_DETAIL_TRY_ASSIGN_IMPL(MATHFP_DETAIL_UNIQUE_NAME(_mathfp_try_), (lhs), (expr))
 
-// Declare a variable and assign it from an Expected<...> expression.
+// Declare a variable and initialize it from an Expected<...> expression.
 // Usage: MATHFP_TRY_LET(Type, name, expr)
 #define MATHFP_TRY_LET(type, name, expr)                                         \
-  type name;                                                                     \
-  MATHFP_TRY_ASSIGN(name, expr)
-
+  MATHFP_DETAIL_TRY_LET_IMPL(MATHFP_DETAIL_UNIQUE_NAME(_mathfp_try_), type, name, (expr))
