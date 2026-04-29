@@ -356,6 +356,15 @@ namespace timetable::domain::assignment::detail {
             );
         }
 
+        if (output.summary.runtime_seconds.has_value()
+            && (!std::isfinite(*output.summary.runtime_seconds)
+                || *output.summary.runtime_seconds < 0.0)) {
+            return mathfp::unexpected(
+                mathfp::internal_error("assignment output summary runtime is invalid")
+                    .ctx("runtime_seconds", *output.summary.runtime_seconds)
+            );
+        }
+
         return mathfp::kUnit;
     }
 

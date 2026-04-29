@@ -14,6 +14,7 @@
 #include "timetable/domain/assignment/search_time_domain_builder.hpp"
 #include "timetable/domain/assignment/search_pruning_plan.hpp"
 #include "timetable/domain/assignment/search/preprocessed_network.hpp"
+#include "timetable/domain/assignment/search/residual_reachability.hpp"
 #include <timetable/domain/segments.hpp>
 
 namespace timetable::domain::assignment {

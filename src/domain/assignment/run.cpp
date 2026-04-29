@@ -1,10 +1,12 @@
 #include "timetable/domain/assignment/run.hpp"
 
+#include <chrono>
 #include <utility>
 
-#include <mathfp/core/fp.hpp>
+#include <fmt/format.h>
 
 #include "detail/pipeline_internal.hpp"
+#include "timetable/infra/progress_bus.hpp"
 
 namespace timetable::domain::assignment {
     namespace {
@@ -26,8 +28,30 @@ namespace timetable::domain::assignment {
     mathfp::Expected<AssignmentOutput> run_timetable_assignment(
         AssignmentInput input
     ) {
-        return detail::run_timetable_assignment_pipeline_with_context(std::move(input))
-            | mathfp::fp::pipe::and_then(build_assignment_output_from_pipeline_result);
+        const auto started_at = std::chrono::steady_clock::now();
+
+        auto pipeline_result = detail::run_timetable_assignment_pipeline_with_context(std::move(input));
+        if (!pipeline_result) {
+            return mathfp::unexpected(std::move(pipeline_result.error()));
+        }
+
+        auto output = build_assignment_output_from_pipeline_result(*pipeline_result);
+        if (!output) {
+            return mathfp::unexpected(std::move(output.error()));
+        }
+
+        const auto finished_at = std::chrono::steady_clock::now();
+        output->summary.runtime_seconds =
+            std::chrono::duration<double>(finished_at - started_at).count();
+
+        timetable::infra::progress::log(
+            fmt::format(
+                  "assignment runtime: {:.3f}s"
+                , *output->summary.runtime_seconds
+            )
+        );
+
+        return output;
     }
 
 }  // namespace timetable::domain::assignment

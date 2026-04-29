@@ -53,6 +53,36 @@ namespace timetable::domain::assignment::projection {
             return value.has_value() ? format_scalar(*value) : "-";
         }
 
+        std::string format_optional_duration_seconds(
+            const std::optional<double>& seconds
+        ) {
+            if (!seconds.has_value()) {
+                return "-";
+            }
+
+            const auto total_milliseconds = static_cast<std::int64_t>(
+                std::llround(*seconds * 1000.0)
+            );
+            const auto sign             = total_milliseconds < 0 ? "-" : "";
+            const auto abs_milliseconds = total_milliseconds < 0
+                ? -total_milliseconds
+                : total_milliseconds;
+            const auto total_seconds = abs_milliseconds / 1000;
+            const auto milliseconds  = abs_milliseconds % 1000;
+            const auto hours         = total_seconds / 3600;
+            const auto minutes       = (total_seconds % 3600) / 60;
+            const auto secs          = total_seconds % 60;
+
+            return fmt::format(
+                  "{}{:02d}:{:02d}:{:02d}.{:03d}"
+                , sign
+                , hours
+                , minutes
+                , secs
+                , milliseconds
+            );
+        }
+
         std::string format_optional_transfers(
             const std::optional<TransferCount>& value
         ) {
@@ -95,6 +125,7 @@ namespace timetable::domain::assignment::projection {
                   "Segment loads:       {}\n"
                   "Total demand:        {}\n"
                   "Assigned passengers: {}\n"
+                  "Runtime:             {}\n"
                 , format_count (summary.totals.od_count)
                 , format_count (summary.nonempty_od_count)
                 , format_count (summary.time_interval_count)
@@ -108,6 +139,7 @@ namespace timetable::domain::assignment::projection {
                 , format_count (summary.segment_load_count)
                 , format_scalar(summary.totals.total_demand_passengers)
                 , format_scalar(summary.totals.assigned_passengers)
+                , format_optional_duration_seconds(summary.totals.runtime_seconds)
             );
         }
 

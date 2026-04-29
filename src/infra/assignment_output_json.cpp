@@ -584,6 +584,10 @@ namespace timetable::infra {
             writer.number(summary.total_demand_passengers);
             writer.key("assigned_passengers");
             writer.number(summary.assigned_passengers);
+            if (summary.runtime_seconds.has_value()) {
+                writer.key("runtime_seconds");
+                writer.number(*summary.runtime_seconds);
+            }
             writer.end_object();
         }
 

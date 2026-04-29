@@ -1,12 +1,14 @@
 #include "timetable/domain/assignment/search/search.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <deque>
 #include <iterator>
 #include <limits>
 #include <map>
 #include <optional>
+#include <queue>
 #include <span>
 #include <unordered_map>
 #include <unordered_set>
@@ -26,6 +28,7 @@
 #include "timetable/domain/assignment/search_pruning_diagnostics.hpp"
 #include "timetable/domain/impedance.hpp"
 #include "timetable/domain/assignment/search/branch_state.hpp"
+#include "timetable/domain/assignment/search/residual_reachability.hpp"
 #include "timetable/domain/preprocessing/segments_index.hpp"
 #include "timetable/domain/segment_semantics.hpp"
 #include "timetable/infra/progress_bus.hpp"
@@ -103,6 +106,32 @@ namespace timetable::domain::assignment {
             SearchPartialMetrics metrics{};
         };
 
+        enum class ReachabilityRejectionReason : std::uint8_t {
+              Phase
+            , TransferBudget
+            , UnreachableDestination
+        };
+
+        struct ReachabilityRejectionStats final {
+            std::size_t phase{};
+            std::size_t transfer_budget{};
+            std::size_t unreachable_destination{};
+        };
+
+        enum class SuffixLowerBoundRejectionReason : std::uint8_t {
+              ExactDominance
+            , ToleranceImpedance
+            , ToleranceJourneyTime
+            , ToleranceTransfers
+        };
+
+        struct SuffixLowerBoundRejectionStats final {
+            std::size_t exact_dominance{};
+            std::size_t tolerance_impedance{};
+            std::size_t tolerance_journey_time{};
+            std::size_t tolerance_transfers{};
+        };
+
         struct TaskSearchStats final {
             std::size_t expanded_branches{};
             std::size_t generated_successors{};
@@ -113,6 +142,9 @@ namespace timetable::domain::assignment {
             std::size_t rejected_cycles{};
             std::size_t rejected_transfer_limit{};
             std::size_t rejected_reachability{};
+            ReachabilityRejectionStats reachability_rejections{};
+            std::size_t rejected_suffix_lower_bound{};
+            SuffixLowerBoundRejectionStats suffix_lower_bound_rejections{};
             std::size_t rejected_dominance_or_tolerance{};
             std::size_t completed_connections{};
             std::size_t rejected_complete_dominance{};
@@ -198,12 +230,94 @@ namespace timetable::domain::assignment {
             std::vector<BatchTaskRef> tasks{};
         };
 
-        struct BatchReachability final {
-            std::map<ZoneId, std::unordered_set<EndpointKey>> nodes_by_destination{};
+        struct ResidualReachabilityKey final {
+            EndpointKey       current_physical{};
+            SearchBranchPhase phase{ SearchBranchPhase::BeforeFirstBoarding };
+            TransferCount     remaining_transfers{};
         };
 
-        struct PhysicalReverseGraph final {
-            std::unordered_map<EndpointKey, std::vector<EndpointKey>> predecessors_by_node{};
+        [[nodiscard]] bool operator==(
+              const ResidualReachabilityKey& lhs
+            , const ResidualReachabilityKey& rhs
+        ) noexcept {
+            return lhs.current_physical    == rhs.current_physical
+                && lhs.phase               == rhs.phase
+                && lhs.remaining_transfers == rhs.remaining_transfers;
+        }
+
+        struct ResidualReachabilityKeyHash final {
+            std::size_t operator()(const ResidualReachabilityKey& key) const noexcept {
+                std::size_t seed = 17u;
+                seed = seed * 31u + std::hash<EndpointKey>{}(key.current_physical);
+                seed = seed * 31u + std::hash<std::uint8_t>{}(static_cast<std::uint8_t>(key.phase));
+                seed = seed * 31u + std::hash<std::int32_t>{}(key.remaining_transfers.get());
+                return seed;
+            }
+        };
+
+        struct ResidualReverseEdge final {
+            EndpointKey predecessor{};
+            Time        run_time{};
+        };
+
+        struct ResidualReverseGraph final {
+            std::unordered_map<EndpointKey, std::vector<ResidualReverseEdge>> walk_predecessors_by_node{};
+            std::unordered_map<EndpointKey, std::vector<ResidualReverseEdge>> timed_predecessors_by_node{};
+        };
+
+        struct ResidualPhysicalEdgeKey final {
+            EndpointKey from{};
+            EndpointKey to{};
+        };
+
+        [[nodiscard]] bool operator==(
+              const ResidualPhysicalEdgeKey& lhs
+            , const ResidualPhysicalEdgeKey& rhs
+        ) noexcept {
+            return lhs.from == rhs.from && lhs.to == rhs.to;
+        }
+
+        struct ResidualPhysicalEdgeKeyHash final {
+            std::size_t operator()(const ResidualPhysicalEdgeKey& key) const noexcept {
+                std::size_t seed = 17u;
+                seed = seed * 31u + std::hash<EndpointKey>{}(key.from);
+                seed = seed * 31u + std::hash<EndpointKey>{}(key.to);
+                return seed;
+            }
+        };
+
+        struct ResidualSuffixLowerBounds final {
+            Time          journey_time{};
+            TransferCount transfers{};
+            double        impedance{};
+        };
+
+        struct DestinationResidualReachability final {
+            std::unordered_set<ResidualReachabilityKey, ResidualReachabilityKeyHash> reachable_states{};
+            std::unordered_map<
+                  ResidualReachabilityKey
+                , ResidualSuffixLowerBounds
+                , ResidualReachabilityKeyHash
+            > suffix_lower_bounds{};
+        };
+
+        struct ResidualReachability final {
+            std::map<ZoneId, DestinationResidualReachability> destinations{};
+        };
+
+        struct ReachabilityDecision final {
+            bool                        feasible{};
+            ReachabilityRejectionReason rejection_reason{ ReachabilityRejectionReason::UnreachableDestination };
+        };
+
+        struct RejectedReachabilityTask final {
+            std::size_t                 task_position{};
+            ReachabilityRejectionReason reason{ ReachabilityRejectionReason::UnreachableDestination };
+        };
+
+        struct RejectedSuffixLowerBoundTask final {
+            std::size_t                     task_position{};
+            SuffixLowerBoundRejectionReason reason{ SuffixLowerBoundRejectionReason::ToleranceImpedance };
         };
 
         constexpr std::size_t kTaskProgressStep    = 10;
@@ -224,76 +338,927 @@ namespace timetable::domain::assignment {
             return network.connection_segments.at(static_cast<std::size_t>(id.get()));
         }
 
-        [[nodiscard]] PhysicalReverseGraph build_physical_reverse_graph(
-            std::span<const RouteSegment> route_segments
+        using ResidualPhysicalEdgeTimes = std::unordered_map<
+              ResidualPhysicalEdgeKey
+            , Time
+            , ResidualPhysicalEdgeKeyHash
+        >;
+
+        void retain_min_residual_edge_time(
+              ResidualPhysicalEdgeTimes& edge_times
+            , ResidualPhysicalEdgeKey    key
+            , Time                       run_time
         ) {
-            PhysicalReverseGraph graph;
-            for (const auto& segment : route_segments) {
-                const auto from = physical_from_key(segment);
-                const auto to   = physical_to_key(segment);
-                graph.predecessors_by_node[to].push_back(from);
-                graph.predecessors_by_node.try_emplace(from);
+            const auto [it, inserted] = edge_times.emplace(key, run_time);
+            if (!inserted && run_time.value() < it->second.value()) {
+                it->second = run_time;
             }
+        }
+
+        void append_residual_reverse_edges(
+              std::unordered_map<EndpointKey, std::vector<ResidualReverseEdge>>& target
+            , const ResidualPhysicalEdgeTimes&                                   edge_times
+        ) {
+            for (const auto& [key, run_time] : edge_times) {
+                target[key.to].push_back(
+                    ResidualReverseEdge{
+                          .predecessor = key.from
+                        , .run_time    = run_time
+                    }
+                );
+                target.try_emplace(key.from);
+            }
+        }
+
+        [[nodiscard]] ResidualReachabilityKey residual_reachability_key(
+            const RelaxedSuffixState& state
+        ) noexcept {
+            return ResidualReachabilityKey{
+                  .current_physical    = state.current_physical
+                , .phase               = state.phase
+                , .remaining_transfers = state.remaining_transfers
+            };
+        }
+
+        [[nodiscard]] ResidualReverseGraph build_residual_reverse_graph(
+              std::span<const RouteSegment>      route_segments
+            , std::span<const ConnectionSegment> connection_segments
+        ) {
+            ResidualPhysicalEdgeTimes walk_edges;
+            ResidualPhysicalEdgeTimes timed_edges;
+
+            for (const auto& segment : route_segments) {
+                if (is_walk(segment)) {
+                    retain_min_residual_edge_time(
+                          walk_edges
+                        , ResidualPhysicalEdgeKey{
+                              .from = physical_from_key(segment)
+                            , .to   = physical_to_key(segment)
+                          }
+                        , segment.run_time
+                    );
+                }
+            }
+
+            for (const auto& segment : connection_segments) {
+                if (!is_timed_connection(segment)
+                    || !segment.departure.has_value()
+                    || !segment.arrival.has_value()) {
+                    continue;
+                }
+                const auto& route_segment = route_segments[static_cast<std::size_t>(
+                    segment.route_segment.get()
+                )];
+                retain_min_residual_edge_time(
+                      timed_edges
+                    , ResidualPhysicalEdgeKey{
+                          .from = physical_from_key(route_segment)
+                        , .to   = physical_to_key(route_segment)
+                      }
+                    , Time{ segment.arrival->value() - segment.departure->value() }
+                );
+            }
+
+            ResidualReverseGraph graph;
+            append_residual_reverse_edges(graph.walk_predecessors_by_node, walk_edges);
+            append_residual_reverse_edges(graph.timed_predecessors_by_node, timed_edges);
             return graph;
         }
 
-        [[nodiscard]] std::unordered_set<EndpointKey> reverse_reachable_nodes(
-              const PhysicalReverseGraph& reverse_graph
-            , EndpointKey                 destination
+        [[nodiscard]] RelaxedSuffixState relaxed_suffix_state(
+              const SearchBranch&   branch
+            , const SearchTask&     task
+            , const TransferLimits& limits
+        ) noexcept;
+
+        [[nodiscard]] std::size_t reachability_rejection_count(
+            const ReachabilityRejectionStats& stats
+        ) noexcept {
+            return stats.phase
+                 + stats.transfer_budget
+                 + stats.unreachable_destination;
+        }
+
+        [[nodiscard]] std::size_t suffix_lower_bound_rejection_count(
+            const SuffixLowerBoundRejectionStats& stats
+        ) noexcept {
+            return stats.exact_dominance
+                 + stats.tolerance_impedance
+                 + stats.tolerance_journey_time
+                 + stats.tolerance_transfers;
+        }
+
+        mathfp::Expected<mathfp::Unit> validate_reachability_rejection_stats(
+            const TaskSearchStats& stats
         ) {
-            std::unordered_set<EndpointKey> reachable;
-            std::vector<EndpointKey> frontier;
-            reachable.insert(destination);
-            frontier.push_back(destination);
+            const auto detail_count = reachability_rejection_count(stats.reachability_rejections);
+            if (detail_count != stats.rejected_reachability) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("reachability rejection diagnostics do not sum to total")
+                        .ctx("total", static_cast<std::int64_t>(stats.rejected_reachability))
+                        .ctx("detail", static_cast<std::int64_t>(detail_count))
+                );
+            }
+            return mathfp::kUnit;
+        }
 
-            while (!frontier.empty()) {
-                const auto current = frontier.back();
-                frontier.pop_back();
+        mathfp::Expected<mathfp::Unit> validate_suffix_lower_bound_rejection_stats(
+            const TaskSearchStats& stats
+        ) {
+            const auto detail_count = suffix_lower_bound_rejection_count(
+                stats.suffix_lower_bound_rejections
+            );
+            if (detail_count != stats.rejected_suffix_lower_bound) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("suffix lower-bound rejection diagnostics do not sum to total")
+                        .ctx("total", static_cast<std::int64_t>(stats.rejected_suffix_lower_bound))
+                        .ctx("detail", static_cast<std::int64_t>(detail_count))
+                );
+            }
+            return mathfp::kUnit;
+        }
 
-                const auto it = reverse_graph.predecessors_by_node.find(current);
-                if (it == reverse_graph.predecessors_by_node.end()) {
+        void add_reachability_rejection(
+              TaskSearchStats&            stats
+            , ReachabilityRejectionReason reason
+        ) noexcept {
+            ++stats.rejected_reachability;
+            switch (reason) {
+                case ReachabilityRejectionReason::Phase:
+                    ++stats.reachability_rejections.phase;
+                    return;
+                case ReachabilityRejectionReason::TransferBudget:
+                    ++stats.reachability_rejections.transfer_budget;
+                    return;
+                case ReachabilityRejectionReason::UnreachableDestination:
+                    ++stats.reachability_rejections.unreachable_destination;
+                    return;
+            }
+        }
+
+        void add_suffix_lower_bound_rejection(
+              TaskSearchStats&                 stats
+            , SuffixLowerBoundRejectionReason reason
+        ) noexcept {
+            ++stats.rejected_suffix_lower_bound;
+            switch (reason) {
+                case SuffixLowerBoundRejectionReason::ExactDominance:
+                    ++stats.suffix_lower_bound_rejections.exact_dominance;
+                    return;
+                case SuffixLowerBoundRejectionReason::ToleranceImpedance:
+                    ++stats.suffix_lower_bound_rejections.tolerance_impedance;
+                    return;
+                case SuffixLowerBoundRejectionReason::ToleranceJourneyTime:
+                    ++stats.suffix_lower_bound_rejections.tolerance_journey_time;
+                    return;
+                case SuffixLowerBoundRejectionReason::ToleranceTransfers:
+                    ++stats.suffix_lower_bound_rejections.tolerance_transfers;
+                    return;
+            }
+        }
+
+        [[nodiscard]] bool has_reachable_state(
+              const DestinationResidualReachability& destination
+            , const ResidualReachabilityKey&         state
+        ) noexcept {
+            return destination.reachable_states.contains(state);
+        }
+
+        [[nodiscard]] bool has_more_budget_state(
+              const DestinationResidualReachability& destination
+            , const ResidualReachabilityKey&         state
+            , TransferCount                          max_transfers
+        ) noexcept {
+            for (
+                auto remaining = state.remaining_transfers.get() + 1;
+                remaining <= max_transfers.get();
+                ++remaining
+            ) {
+                if (has_reachable_state(
+                      destination
+                    , ResidualReachabilityKey{
+                          .current_physical    = state.current_physical
+                        , .phase               = state.phase
+                        , .remaining_transfers = TransferCount{ remaining }
+                      }
+                )) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        [[nodiscard]] bool has_any_phase_state_at_endpoint(
+              const DestinationResidualReachability& destination
+            , EndpointKey                            endpoint
+        ) noexcept {
+            return std::any_of(
+                  destination.reachable_states.begin()
+                , destination.reachable_states.end()
+                , [&](const ResidualReachabilityKey& state) {
+                    return state.current_physical == endpoint;
+                }
+            );
+        }
+
+        void enqueue_reachable_state(
+              DestinationResidualReachability& destination
+            , std::deque<ResidualReachabilityKey>& frontier
+            , ResidualReachabilityKey              state
+        ) {
+            if (destination.reachable_states.insert(state).second) {
+                frontier.push_back(state);
+            }
+        }
+
+        void enqueue_walk_predecessors(
+              const ResidualReverseGraph&          graph
+            , DestinationResidualReachability&      destination
+            , std::deque<ResidualReachabilityKey>& frontier
+            , const ResidualReachabilityKey&        state
+        ) {
+            const auto predecessors = graph.walk_predecessors_by_node.find(state.current_physical);
+            if (predecessors == graph.walk_predecessors_by_node.end()) {
+                return;
+            }
+
+            if (state.phase == SearchBranchPhase::Completed) {
+                for (const auto edge : predecessors->second) {
+                    const auto predecessor = edge.predecessor;
+                    if (predecessor.kind != EndpointKind::Stop) {
+                        continue;
+                    }
+                    enqueue_reachable_state(
+                          destination
+                        , frontier
+                        , ResidualReachabilityKey{
+                              .current_physical    = predecessor
+                            , .phase               = SearchBranchPhase::AfterTimedRide
+                            , .remaining_transfers = state.remaining_transfers
+                          }
+                    );
+                }
+                return;
+            }
+
+            if (state.phase == SearchBranchPhase::AfterTimedRide) {
+                for (const auto edge : predecessors->second) {
+                    const auto predecessor = edge.predecessor;
+                    if (predecessor.kind != EndpointKind::Stop) {
+                        continue;
+                    }
+                    enqueue_reachable_state(
+                          destination
+                        , frontier
+                        , ResidualReachabilityKey{
+                              .current_physical    = predecessor
+                            , .phase               = SearchBranchPhase::AfterTimedRide
+                            , .remaining_transfers = state.remaining_transfers
+                          }
+                    );
+                }
+                return;
+            }
+
+            if (state.phase == SearchBranchPhase::BeforeFirstBoarding) {
+                for (const auto edge : predecessors->second) {
+                    const auto predecessor = edge.predecessor;
+                    if (predecessor.kind != EndpointKind::Zone) {
+                        continue;
+                    }
+                    enqueue_reachable_state(
+                          destination
+                        , frontier
+                        , ResidualReachabilityKey{
+                              .current_physical    = predecessor
+                            , .phase               = SearchBranchPhase::BeforeFirstBoarding
+                            , .remaining_transfers = state.remaining_transfers
+                          }
+                    );
+                }
+            }
+        }
+
+        void enqueue_timed_predecessors(
+              const ResidualReverseGraph&          graph
+            , DestinationResidualReachability&      destination
+            , std::deque<ResidualReachabilityKey>& frontier
+            , const ResidualReachabilityKey&        state
+            , TransferCount                         max_transfers
+        ) {
+            if (state.phase != SearchBranchPhase::AfterTimedRide) {
+                return;
+            }
+
+            const auto predecessors = graph.timed_predecessors_by_node.find(state.current_physical);
+            if (predecessors == graph.timed_predecessors_by_node.end()) {
+                return;
+            }
+
+            for (const auto edge : predecessors->second) {
+                const auto predecessor = edge.predecessor;
+                if (predecessor.kind != EndpointKind::Stop) {
                     continue;
                 }
-                for (const auto predecessor : it->second) {
-                    if (reachable.insert(predecessor).second) {
-                        frontier.push_back(predecessor);
+
+                // First timed boarding does not count as a transfer.
+                enqueue_reachable_state(
+                      destination
+                    , frontier
+                    , ResidualReachabilityKey{
+                          .current_physical    = predecessor
+                        , .phase               = SearchBranchPhase::BeforeFirstBoarding
+                        , .remaining_transfers = state.remaining_transfers
+                      }
+                );
+
+                // Every later timed boarding consumes one remaining transfer.
+                if (state.remaining_transfers < max_transfers) {
+                    enqueue_reachable_state(
+                          destination
+                        , frontier
+                        , ResidualReachabilityKey{
+                              .current_physical    = predecessor
+                            , .phase               = SearchBranchPhase::AfterTimedRide
+                            , .remaining_transfers = TransferCount{
+                                  state.remaining_transfers.get() + 1
+                              }
+                          }
+                    );
+                }
+            }
+        }
+
+        enum class ResidualTransitionKind : std::uint8_t {
+              AccessWalk
+            , TransferWalk
+            , EgressWalk
+            , FirstTimedRide
+            , TransferTimedRide
+        };
+
+        struct ResidualPredecessorTransition final {
+            ResidualReachabilityKey predecessor{};
+            Time                    run_time{};
+            ResidualTransitionKind  kind{ ResidualTransitionKind::AccessWalk };
+        };
+
+        template <typename Visitor>
+        void for_each_residual_predecessor_transition(
+              const ResidualReverseGraph&   graph
+            , const ResidualReachabilityKey& state
+            , TransferCount                  max_transfers
+            , Visitor&&                      visit
+        ) {
+            auto&& visitor = visit;
+
+            const auto walk_predecessors = graph.walk_predecessors_by_node.find(state.current_physical);
+            if (walk_predecessors != graph.walk_predecessors_by_node.end()) {
+                if (state.phase == SearchBranchPhase::Completed) {
+                    for (const auto edge : walk_predecessors->second) {
+                        if (edge.predecessor.kind != EndpointKind::Stop) {
+                            continue;
+                        }
+                        visitor(ResidualPredecessorTransition{
+                              .predecessor = ResidualReachabilityKey{
+                                    .current_physical    = edge.predecessor
+                                  , .phase               = SearchBranchPhase::AfterTimedRide
+                                  , .remaining_transfers = state.remaining_transfers
+                                }
+                            , .run_time    = edge.run_time
+                            , .kind        = ResidualTransitionKind::EgressWalk
+                        });
+                    }
+                } else if (state.phase == SearchBranchPhase::AfterTimedRide) {
+                    for (const auto edge : walk_predecessors->second) {
+                        if (edge.predecessor.kind != EndpointKind::Stop) {
+                            continue;
+                        }
+                        visitor(ResidualPredecessorTransition{
+                              .predecessor = ResidualReachabilityKey{
+                                    .current_physical    = edge.predecessor
+                                  , .phase               = SearchBranchPhase::AfterTimedRide
+                                  , .remaining_transfers = state.remaining_transfers
+                                }
+                            , .run_time    = edge.run_time
+                            , .kind        = ResidualTransitionKind::TransferWalk
+                        });
+                    }
+                } else if (state.phase == SearchBranchPhase::BeforeFirstBoarding) {
+                    for (const auto edge : walk_predecessors->second) {
+                        if (edge.predecessor.kind != EndpointKind::Zone) {
+                            continue;
+                        }
+                        visitor(ResidualPredecessorTransition{
+                              .predecessor = ResidualReachabilityKey{
+                                    .current_physical    = edge.predecessor
+                                  , .phase               = SearchBranchPhase::BeforeFirstBoarding
+                                  , .remaining_transfers = state.remaining_transfers
+                                }
+                            , .run_time    = edge.run_time
+                            , .kind        = ResidualTransitionKind::AccessWalk
+                        });
                     }
                 }
             }
 
-            return reachable;
+            if (state.phase != SearchBranchPhase::AfterTimedRide) {
+                return;
+            }
+
+            const auto timed_predecessors = graph.timed_predecessors_by_node.find(state.current_physical);
+            if (timed_predecessors == graph.timed_predecessors_by_node.end()) {
+                return;
+            }
+
+            for (const auto edge : timed_predecessors->second) {
+                if (edge.predecessor.kind != EndpointKind::Stop) {
+                    continue;
+                }
+
+                visitor(ResidualPredecessorTransition{
+                      .predecessor = ResidualReachabilityKey{
+                            .current_physical    = edge.predecessor
+                          , .phase               = SearchBranchPhase::BeforeFirstBoarding
+                          , .remaining_transfers = state.remaining_transfers
+                        }
+                    , .run_time    = edge.run_time
+                    , .kind        = ResidualTransitionKind::FirstTimedRide
+                });
+
+                if (state.remaining_transfers < max_transfers) {
+                    visitor(ResidualPredecessorTransition{
+                          .predecessor = ResidualReachabilityKey{
+                                .current_physical    = edge.predecessor
+                              , .phase               = SearchBranchPhase::AfterTimedRide
+                              , .remaining_transfers = TransferCount{
+                                    state.remaining_transfers.get() + 1
+                                }
+                            }
+                        , .run_time    = edge.run_time
+                        , .kind        = ResidualTransitionKind::TransferTimedRide
+                    });
+                }
+            }
         }
 
-        [[nodiscard]] BatchReachability build_batch_reachability(
-              const PhysicalReverseGraph&   reverse_graph
-            , std::span<const BatchTaskRef> tasks
+        [[nodiscard]] double residual_transition_journey_time(
+            const ResidualPredecessorTransition& transition
+        ) noexcept {
+            return transition.run_time.value();
+        }
+
+        [[nodiscard]] double residual_transition_transfer_count(
+            const ResidualPredecessorTransition& transition
+        ) noexcept {
+            return transition.kind == ResidualTransitionKind::TransferTimedRide ? 1.0 : 0.0;
+        }
+
+        [[nodiscard]] double residual_transition_impedance(
+              const ResidualPredecessorTransition& transition
+            , const SearchImpedance&               impedance
+            , double                               fare_scale
+        ) noexcept {
+            ConnectionImpedanceComponents components{};
+            switch (transition.kind) {
+                case ResidualTransitionKind::AccessWalk:
+                    components.access_time = transition.run_time;
+                    break;
+                case ResidualTransitionKind::TransferWalk:
+                    components.transfer_walk_time = transition.run_time;
+                    break;
+                case ResidualTransitionKind::EgressWalk:
+                    components.egress_time = transition.run_time;
+                    break;
+                case ResidualTransitionKind::FirstTimedRide:
+                    components.in_vehicle_time = transition.run_time;
+                    break;
+                case ResidualTransitionKind::TransferTimedRide:
+                    components.in_vehicle_time = transition.run_time;
+                    components.transfer_count  = TransferCount{ 1 };
+                    break;
+            }
+            return connection_impedance_value(components, impedance, fare_scale);
+        }
+
+        using ResidualDistanceMap = std::unordered_map<
+              ResidualReachabilityKey
+            , double
+            , ResidualReachabilityKeyHash
+        >;
+
+        struct ResidualDistanceQueueItem final {
+            double                  distance{};
+            ResidualReachabilityKey state{};
+        };
+
+        struct ResidualDistanceQueueGreater final {
+            bool operator()(
+                  const ResidualDistanceQueueItem& lhs
+                , const ResidualDistanceQueueItem& rhs
+            ) const noexcept {
+                return lhs.distance > rhs.distance;
+            }
+        };
+
+        template <typename EdgeCost>
+        [[nodiscard]] ResidualDistanceMap compute_residual_suffix_distances(
+              const ResidualReverseGraph& graph
+            , ZoneId                      destination
+            , TransferCount               max_transfers
+            , EdgeCost&&                  edge_cost
         ) {
-            BatchReachability reachability;
+            ResidualDistanceMap distances;
+            std::priority_queue<
+                  ResidualDistanceQueueItem
+                , std::vector<ResidualDistanceQueueItem>
+                , ResidualDistanceQueueGreater
+            > frontier;
+
+            const auto destination_endpoint = endpoint_key(destination);
+            for (std::int32_t remaining = 0; remaining <= max_transfers.get(); ++remaining) {
+                const auto seed = ResidualReachabilityKey{
+                      .current_physical    = destination_endpoint
+                    , .phase               = SearchBranchPhase::Completed
+                    , .remaining_transfers = TransferCount{ remaining }
+                };
+                distances.emplace(seed, 0.0);
+                frontier.push(ResidualDistanceQueueItem{
+                      .distance = 0.0
+                    , .state    = seed
+                });
+            }
+
+            while (!frontier.empty()) {
+                const auto item = frontier.top();
+                frontier.pop();
+
+                const auto current_it = distances.find(item.state);
+                if (current_it == distances.end() || item.distance != current_it->second) {
+                    continue;
+                }
+
+                for_each_residual_predecessor_transition(
+                      graph
+                    , item.state
+                    , max_transfers
+                    , [&](const ResidualPredecessorTransition& transition) {
+                        const auto candidate =
+                            item.distance + edge_cost(transition);
+                        const auto known = distances.find(transition.predecessor);
+                        if (known != distances.end() && known->second <= candidate) {
+                            return;
+                        }
+                        distances[transition.predecessor] = candidate;
+                        frontier.push(ResidualDistanceQueueItem{
+                              .distance = candidate
+                            , .state    = transition.predecessor
+                        });
+                    }
+                );
+            }
+
+            return distances;
+        }
+
+        [[nodiscard]] std::unordered_map<
+              ResidualReachabilityKey
+            , ResidualSuffixLowerBounds
+            , ResidualReachabilityKeyHash
+        > build_residual_suffix_lower_bounds(
+              const ResidualReverseGraph& graph
+            , ZoneId                      destination
+            , TransferCount               max_transfers
+            , const SearchImpedance&      impedance
+            , double                      fare_scale
+        ) {
+            const auto journey_time_distances = compute_residual_suffix_distances(
+                  graph
+                , destination
+                , max_transfers
+                , [](const ResidualPredecessorTransition& transition) {
+                    return residual_transition_journey_time(transition);
+                }
+            );
+            const auto transfer_distances = compute_residual_suffix_distances(
+                  graph
+                , destination
+                , max_transfers
+                , [](const ResidualPredecessorTransition& transition) {
+                    return residual_transition_transfer_count(transition);
+                }
+            );
+            const auto impedance_distances = compute_residual_suffix_distances(
+                  graph
+                , destination
+                , max_transfers
+                , [&](const ResidualPredecessorTransition& transition) {
+                    return residual_transition_impedance(
+                          transition
+                        , impedance
+                        , fare_scale
+                    );
+                }
+            );
+
+            std::unordered_map<
+                  ResidualReachabilityKey
+                , ResidualSuffixLowerBounds
+                , ResidualReachabilityKeyHash
+            > lower_bounds;
+            lower_bounds.reserve(journey_time_distances.size());
+            for (const auto& [state, journey_time] : journey_time_distances) {
+                const auto transfers = transfer_distances.find(state);
+                const auto imp       = impedance_distances.find(state);
+                if (transfers == transfer_distances.end() || imp == impedance_distances.end()) {
+                    continue;
+                }
+                lower_bounds.emplace(
+                      state
+                    , ResidualSuffixLowerBounds{
+                          .journey_time = Time{ journey_time }
+                        , .transfers    = TransferCount{
+                              static_cast<std::int32_t>(transfers->second)
+                          }
+                        , .impedance    = imp->second
+                      }
+                );
+            }
+            return lower_bounds;
+        }
+
+        [[nodiscard]] DestinationResidualReachability build_destination_residual_reachability(
+              const ResidualReverseGraph& graph
+            , ZoneId                      destination
+            , TransferCount               max_transfers
+            , const SearchImpedance&      impedance
+            , double                      fare_scale
+        ) {
+            DestinationResidualReachability reachability;
+            std::deque<ResidualReachabilityKey> frontier;
+            const auto destination_endpoint = endpoint_key(destination);
+
+            for (std::int32_t remaining = 0; remaining <= max_transfers.get(); ++remaining) {
+                enqueue_reachable_state(
+                      reachability
+                    , frontier
+                    , ResidualReachabilityKey{
+                          .current_physical    = destination_endpoint
+                        , .phase               = SearchBranchPhase::Completed
+                        , .remaining_transfers = TransferCount{ remaining }
+                      }
+                );
+            }
+
+            while (!frontier.empty()) {
+                const auto state = frontier.front();
+                frontier.pop_front();
+
+                enqueue_walk_predecessors(
+                      graph
+                    , reachability
+                    , frontier
+                    , state
+                );
+                enqueue_timed_predecessors(
+                      graph
+                    , reachability
+                    , frontier
+                    , state
+                    , max_transfers
+                );
+            }
+
+            reachability.suffix_lower_bounds = build_residual_suffix_lower_bounds(
+                  graph
+                , destination
+                , max_transfers
+                , impedance
+                , fare_scale
+            );
+
+            return reachability;
+        }
+
+        [[nodiscard]] ResidualReachability build_residual_reachability(
+              const ResidualReverseGraph& graph
+            , std::span<const BatchTaskRef> tasks
+            , TransferCount               max_transfers
+            , const SearchImpedance&      impedance
+            , double                      fare_scale
+        ) {
+            ResidualReachability reachability;
 
             for (const auto& task_ref : tasks) {
                 const auto destination = task_ref.task->destination;
-                if (reachability.nodes_by_destination.contains(destination)) {
+                if (reachability.destinations.contains(destination)) {
                     continue;
                 }
-                reachability.nodes_by_destination.emplace(
+                reachability.destinations.emplace(
                       destination
-                    , reverse_reachable_nodes(reverse_graph, endpoint_key(destination))
+                    , build_destination_residual_reachability(
+                          graph
+                        , destination
+                        , max_transfers
+                        , impedance
+                        , fare_scale
+                    )
                 );
             }
 
             return reachability;
         }
 
-        [[nodiscard]] bool can_reach_destination_topologically(
-              const BatchReachability& reachability
-            , EndpointKey              from
-            , ZoneId                   destination
-        ) noexcept {
-            const auto it = reachability.nodes_by_destination.find(destination);
-            if (it == reachability.nodes_by_destination.end()) {
-                return true;
+        mathfp::Expected<mathfp::Unit> validate_destination_residual_reachability(
+              ZoneId                                destination
+            , const DestinationResidualReachability& reachability
+            , TransferCount                         max_transfers
+        ) {
+            const auto destination_endpoint = endpoint_key(destination);
+
+            for (std::int32_t remaining = 0; remaining <= max_transfers.get(); ++remaining) {
+                if (!has_reachable_state(
+                      reachability
+                    , ResidualReachabilityKey{
+                          .current_physical    = destination_endpoint
+                        , .phase               = SearchBranchPhase::Completed
+                        , .remaining_transfers = TransferCount{ remaining }
+                      }
+                )) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("residual reachability misses destination completion seed")
+                            .ctx("destination", destination.get())
+                            .ctx("remaining_transfers", remaining)
+                    );
+                }
             }
-            return it->second.contains(from);
+
+            for (const auto& state : reachability.reachable_states) {
+                if (state.remaining_transfers.get() < 0
+                    || state.remaining_transfers.get() > max_transfers.get()) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("residual reachability contains state outside transfer budget")
+                            .ctx("destination", destination.get())
+                            .ctx("remaining_transfers", state.remaining_transfers.get())
+                            .ctx("max_transfers", max_transfers.get())
+                    );
+                }
+
+                if (state.phase == SearchBranchPhase::Completed
+                    && state.current_physical != destination_endpoint) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("residual reachability contains non-destination completed state")
+                            .ctx("destination", destination.get())
+                            .ctx("endpoint_kind", static_cast<std::int64_t>(state.current_physical.kind))
+                            .ctx("endpoint_id", state.current_physical.id)
+                    );
+                }
+
+                if (state.remaining_transfers < max_transfers) {
+                    const auto relaxed_more_budget_state = ResidualReachabilityKey{
+                          .current_physical    = state.current_physical
+                        , .phase               = state.phase
+                        , .remaining_transfers = TransferCount{
+                              state.remaining_transfers.get() + 1
+                          }
+                    };
+                    if (!has_reachable_state(reachability, relaxed_more_budget_state)) {
+                        return mathfp::unexpected(
+                            mathfp::internal_error("residual reachability violates transfer-budget monotonicity")
+                                .ctx("destination", destination.get())
+                                .ctx("endpoint_kind", static_cast<std::int64_t>(state.current_physical.kind))
+                                .ctx("endpoint_id", state.current_physical.id)
+                                .ctx("remaining_transfers", state.remaining_transfers.get())
+                        );
+                    }
+                }
+
+                const auto lower_bounds = reachability.suffix_lower_bounds.find(state);
+                if (lower_bounds == reachability.suffix_lower_bounds.end()) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("residual reachability state misses suffix lower bounds")
+                            .ctx("destination", destination.get())
+                            .ctx("endpoint_kind", static_cast<std::int64_t>(state.current_physical.kind))
+                            .ctx("endpoint_id", state.current_physical.id)
+                            .ctx("remaining_transfers", state.remaining_transfers.get())
+                    );
+                }
+                if (
+                       !std::isfinite(lower_bounds->second.journey_time.value())
+                    || !std::isfinite(lower_bounds->second.impedance)
+                    || lower_bounds->second.journey_time.value() < 0.0
+                    || lower_bounds->second.impedance < 0.0
+                    || lower_bounds->second.transfers.get() < 0
+                ) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("residual suffix lower bounds contain invalid value")
+                            .ctx("destination", destination.get())
+                            .ctx("endpoint_kind", static_cast<std::int64_t>(state.current_physical.kind))
+                            .ctx("endpoint_id", state.current_physical.id)
+                    );
+                }
+            }
+
+            for (const auto& [state, lower_bounds] : reachability.suffix_lower_bounds) {
+                (void)lower_bounds;
+                if (!has_reachable_state(reachability, state)) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("residual suffix lower bounds contain unreachable state")
+                            .ctx("destination", destination.get())
+                            .ctx("endpoint_kind", static_cast<std::int64_t>(state.current_physical.kind))
+                            .ctx("endpoint_id", state.current_physical.id)
+                            .ctx("remaining_transfers", state.remaining_transfers.get())
+                    );
+                }
+            }
+
+            return mathfp::kUnit;
+        }
+
+        mathfp::Expected<mathfp::Unit> validate_residual_reachability(
+              const ResidualReachability& reachability
+            , TransferCount               max_transfers
+        ) {
+            for (const auto& [destination, destination_reachability] : reachability.destinations) {
+                MATHFP_TRY(validate_destination_residual_reachability(
+                      destination
+                    , destination_reachability
+                    , max_transfers
+                ));
+            }
+            return mathfp::kUnit;
+        }
+
+        [[nodiscard]] ReachabilityDecision evaluate_residual_reachability(
+              const ResidualReachability& reachability
+            , const RelaxedSuffixState&   state
+            , TransferCount               max_transfers
+        ) noexcept {
+            const auto destination_it = reachability.destinations.find(state.destination);
+            if (destination_it == reachability.destinations.end()) {
+                return ReachabilityDecision{ .feasible = true };
+            }
+
+            if (is_completed(state.phase)) {
+                const auto feasible = state.current_physical.kind == EndpointKind::Zone
+                    && state.current_physical.id == state.destination.get();
+                return ReachabilityDecision{
+                      .feasible = feasible
+                    , .rejection_reason = feasible
+                        ? ReachabilityRejectionReason::UnreachableDestination
+                        : ReachabilityRejectionReason::Phase
+                };
+            }
+
+            const auto key = residual_reachability_key(state);
+            const auto& destination_reachability = destination_it->second;
+            if (has_reachable_state(destination_reachability, key)) {
+                return ReachabilityDecision{ .feasible = true };
+            }
+
+            if (has_more_budget_state(destination_reachability, key, max_transfers)) {
+                return ReachabilityDecision{
+                      .feasible = false
+                    , .rejection_reason = ReachabilityRejectionReason::TransferBudget
+                };
+            }
+
+            if (has_any_phase_state_at_endpoint(destination_reachability, state.current_physical)) {
+                return ReachabilityDecision{
+                      .feasible = false
+                    , .rejection_reason = ReachabilityRejectionReason::Phase
+                };
+            }
+
+            return ReachabilityDecision{
+                  .feasible = false
+                , .rejection_reason = ReachabilityRejectionReason::UnreachableDestination
+            };
+        }
+
+        [[nodiscard]] bool can_have_feasible_suffix(
+              const ResidualReachability& reachability
+            , const RelaxedSuffixState&   state
+            , TransferCount               max_transfers
+        ) noexcept {
+            return evaluate_residual_reachability(
+                  reachability
+                , state
+                , max_transfers
+            ).feasible;
+        }
+
+        [[nodiscard]] bool can_have_feasible_suffix(
+              const ResidualReachability& reachability
+            , const SearchBranch&         branch
+            , const SearchTask&           task
+            , const TransferLimits&       limits
+        ) noexcept {
+            return can_have_feasible_suffix(
+                  reachability
+                , relaxed_suffix_state(branch, task, limits)
+                , limits.max_transfers
+            );
         }
 
         [[nodiscard]] Time partial_journey_time(
@@ -398,6 +1363,43 @@ namespace timetable::domain::assignment {
                 && branch.trace.current_physical.id   == task_destination.get();
         }
 
+        [[nodiscard]] SearchBranchPhase search_branch_phase(
+              const SearchBranch& branch
+            , ZoneId              task_destination
+        ) noexcept {
+            if (is_complete_connection(branch, task_destination)) {
+                return SearchBranchPhase::Completed;
+            }
+            return branch.metrics.departure.has_value()
+                ? SearchBranchPhase::AfterTimedRide
+                : SearchBranchPhase::BeforeFirstBoarding;
+        }
+
+        [[nodiscard]] TransferCount remaining_transfer_budget(
+              const SearchBranch&   branch
+            , const TransferLimits& limits
+        ) noexcept {
+            const auto used = branch.metrics.departure.has_value()
+                ? branch.metrics.transfers.get()
+                : 0;
+            return TransferCount{
+                std::max(0, limits.max_transfers.get() - used)
+            };
+        }
+
+        [[nodiscard]] RelaxedSuffixState relaxed_suffix_state(
+              const SearchBranch&   branch
+            , const SearchTask&     task
+            , const TransferLimits& limits
+        ) noexcept {
+            return RelaxedSuffixState{
+                  .current_physical    = branch.trace.current_physical
+                , .destination         = task.destination
+                , .phase               = search_branch_phase(branch, task.destination)
+                , .remaining_transfers = remaining_transfer_budget(branch, limits)
+            };
+        }
+
         bool first_timed_departure_allowed(
               const SearchBranch&      branch
             , const ConnectionSegment& successor
@@ -475,78 +1477,195 @@ namespace timetable::domain::assignment {
             return summary;
         }
 
-        [[nodiscard]] bool complete_connection_dominates_partial_prefix(
-              const CompleteConnectionMetrics& complete
-            , const PartialPruningMetrics&     partial
+        struct CompletionMetricLowerBound final {
+            std::optional<Time> departure{};
+            std::optional<Time> arrival{};
+            Time                journey_time{};
+            double              transfers{};
+            double              impedance{};
+        };
+
+        struct SuffixLowerBoundPruningDecision final {
+            bool                            feasible{ true };
+            SuffixLowerBoundRejectionReason rejection_reason{
+                SuffixLowerBoundRejectionReason::ToleranceImpedance
+            };
+        };
+
+        [[nodiscard]] double partial_impedance_value(
+              const SearchBranch&    branch
+            , const SearchImpedance& impedance
+            , double                 fare_scale
         ) noexcept {
+            return connection_impedance_value(
+                  partial_impedance_components(branch.metrics)
+                , impedance
+                , fare_scale
+            );
+        }
+
+        [[nodiscard]] Time partial_journey_time_lower_bound(
+            const SearchBranch& branch
+        ) noexcept {
+            if (branch.metrics.departure.has_value()) {
+                return partial_journey_time(branch.metrics);
+            }
+            return branch.metrics.access_time;
+        }
+
+        [[nodiscard]] CompletionMetricLowerBound completion_metric_lower_bound(
+              const SearchBranch&                branch
+            , const ResidualSuffixLowerBounds& suffix
+            , const SearchParams&                params
+            , double                             fare_scale
+        ) noexcept {
+            return CompletionMetricLowerBound{
+                  .departure   = branch.metrics.departure
+                , .arrival     = branch.metrics.current_time.has_value()
+                    ? std::optional<Time>{
+                        Time{ branch.metrics.current_time->value() + suffix.journey_time.value() }
+                    }
+                    : std::nullopt
+                , .journey_time = Time{
+                      partial_journey_time_lower_bound(branch).value()
+                    + suffix.journey_time.value()
+                  }
+                , .transfers    = static_cast<double>(branch.metrics.transfers.get())
+                    + static_cast<double>(suffix.transfers.get())
+                , .impedance    = partial_impedance_value(
+                      branch
+                    , params.impedance
+                    , fare_scale
+                  ) + suffix.impedance
+            };
+        }
+
+        [[nodiscard]] bool complete_connection_dominates_completion_lower_bound(
+              const CompleteConnectionMetrics& complete
+            , const CompletionMetricLowerBound& lower_bound
+        ) noexcept {
+            if (!lower_bound.departure.has_value() || !lower_bound.arrival.has_value()) {
+                return false;
+            }
+
             const auto no_worse =
-                   complete.departure.value() >= partial.departure.value()
-                && complete.arrival  .value() <= partial.arrival  .value()
-                && complete.impedance          <= partial.impedance
-                && complete.transfers.get()    <= partial.transfers.get();
+                   complete.departure.value() >= lower_bound.departure->value()
+                && complete.arrival.value()   <= lower_bound.arrival->value()
+                && complete.impedance         <= lower_bound.impedance
+                && static_cast<double>(complete.transfers.get()) <= lower_bound.transfers;
 
             const auto strictly_better =
-                   complete.departure.value() > partial.departure.value()
-                || complete.arrival  .value() < partial.arrival  .value()
-                || complete.impedance          < partial.impedance
-                || complete.transfers.get()    < partial.transfers.get();
+                   complete.departure.value() > lower_bound.departure->value()
+                || complete.arrival.value()   < lower_bound.arrival->value()
+                || complete.impedance         < lower_bound.impedance
+                || static_cast<double>(complete.transfers.get()) < lower_bound.transfers;
 
             return no_worse && strictly_better;
         }
 
-        [[nodiscard]] bool partial_prefix_violates_complete_tolerances(
-              const PartialPruningMetrics&           partial
+        [[nodiscard]] bool violates_complete_tolerance_lower_bound(
+              const CompletionMetricLowerBound&     lower_bound
             , const CompleteConnectionMetricSummary& summary
-            , const ChoiceTolerances&                tolerances
+            , const ChoiceTolerances&               tolerances
+            , SuffixLowerBoundRejectionReason&      reason
         ) noexcept {
-            return !within_complete_connection_tolerances(
-                  CompleteConnectionMetrics{
-                      .departure   = partial.departure
-                    , .arrival     = partial.arrival
-                    , .journey_time = partial.journey_time
-                    , .transfers    = partial.transfers
-                    , .impedance    = partial.impedance
-                  }
-                , summary
-                , tolerances
-            );
+            if (summary.empty) {
+                return false;
+            }
+
+            const auto impedance_bound =
+                  mathfp::units::as_dimless(tolerances.imp_mult)
+                * summary.min_impedance
+                + mathfp::units::as_dimless(tolerances.imp_add);
+            if (lower_bound.impedance > impedance_bound) {
+                reason = SuffixLowerBoundRejectionReason::ToleranceImpedance;
+                return true;
+            }
+
+            const auto journey_time_bound =
+                  mathfp::units::as_dimless(tolerances.jt_mult)
+                * summary.min_journey_time
+                + mathfp::units::as_dimless(tolerances.jt_add);
+            if (lower_bound.journey_time.value() > journey_time_bound) {
+                reason = SuffixLowerBoundRejectionReason::ToleranceJourneyTime;
+                return true;
+            }
+
+            const auto transfer_bound =
+                  mathfp::units::as_dimless(tolerances.nt_mult)
+                * summary.min_transfers
+                + mathfp::units::as_dimless(tolerances.nt_add);
+            if (lower_bound.transfers > transfer_bound) {
+                reason = SuffixLowerBoundRejectionReason::ToleranceTransfers;
+                return true;
+            }
+
+            return false;
         }
 
-        [[nodiscard]] bool violates_known_complete_bounds(
+        [[nodiscard]] SuffixLowerBoundPruningDecision evaluate_suffix_lower_bound_pruning(
               const SearchBranch&                branch
+            , const SearchTask&                  task
+            , const ResidualReachability&        reachability
             , const CompleteConnectionRetention& complete_retention
             , const SearchParams&                params
             , const ChoiceConfig&                choice_config
             , double                             fare_scale
         ) noexcept {
-            if (complete_retention.alternatives.empty()
-                || !branch.metrics.departure.has_value()
-                || !branch.metrics.current_time.has_value()) {
-                return false;
+            if (complete_retention.alternatives.empty()) {
+                return SuffixLowerBoundPruningDecision{ .feasible = true };
             }
 
-            const auto partial = make_partial_pruning_metrics(
+            const auto destination_it = reachability.destinations.find(task.destination);
+            if (destination_it == reachability.destinations.end()) {
+                return SuffixLowerBoundPruningDecision{ .feasible = true };
+            }
+
+            const auto state = residual_reachability_key(
+                relaxed_suffix_state(branch, task, params.transfers)
+            );
+            const auto lower_bound_it = destination_it->second.suffix_lower_bounds.find(state);
+            if (lower_bound_it == destination_it->second.suffix_lower_bounds.end()) {
+                return SuffixLowerBoundPruningDecision{ .feasible = true };
+            }
+
+            const auto lower_bound = completion_metric_lower_bound(
                   branch
-                , params.impedance
+                , lower_bound_it->second
+                , params
                 , fare_scale
             );
+
             for (const auto& complete : complete_retention.alternatives) {
-                if (complete_connection_dominates_partial_prefix(
+                if (complete_connection_dominates_completion_lower_bound(
                       complete.metrics
-                    , partial
+                    , lower_bound
                 )) {
-                    return true;
+                    return SuffixLowerBoundPruningDecision{
+                          .feasible = false
+                        , .rejection_reason = SuffixLowerBoundRejectionReason::ExactDominance
+                    };
                 }
             }
 
             if (choice_config.rollout_stage != ChoiceRolloutStage::ExactAndApproximate) {
-                return false;
+                return SuffixLowerBoundPruningDecision{ .feasible = true };
             }
-            return partial_prefix_violates_complete_tolerances(
-                  partial
+
+            auto reason = SuffixLowerBoundRejectionReason::ToleranceImpedance;
+            if (violates_complete_tolerance_lower_bound(
+                  lower_bound
                 , summarize_complete_metrics(complete_retention)
                 , params.choice_tolerances
-            );
+                , reason
+            )) {
+                return SuffixLowerBoundPruningDecision{
+                      .feasible = false
+                    , .rejection_reason = reason
+                };
+            }
+
+            return SuffixLowerBoundPruningDecision{ .feasible = true };
         }
 
         std::optional<std::pair<std::size_t, std::size_t>> timed_bucket_range(
@@ -1296,23 +2415,78 @@ namespace timetable::domain::assignment {
             return total;
         }
 
-        [[nodiscard]] std::vector<std::size_t> reachable_batch_task_positions(
-              std::span<const BatchTaskRef> tasks
-            , const BatchReachability&      reachability
-            , EndpointKey                   from
+        struct ReachabilityTaskFilter final {
+            std::vector<std::size_t> reachable{};
+            std::vector<RejectedReachabilityTask> unreachable{};
+        };
+
+        [[nodiscard]] std::vector<std::size_t> all_batch_task_positions(
+            std::span<const BatchTaskRef> tasks
         ) {
-            std::vector<std::size_t> active;
-            active.reserve(tasks.size());
+            std::vector<std::size_t> positions;
+            positions.reserve(tasks.size());
             for (std::size_t i = 0; i < tasks.size(); ++i) {
-                if (can_reach_destination_topologically(
+                positions.push_back(i);
+            }
+            return positions;
+        }
+
+        [[nodiscard]] ReachabilityTaskFilter filter_task_positions_by_reachability(
+              std::span<const std::size_t>  task_positions
+            , std::span<const BatchTaskRef> tasks
+            , const ResidualReachability&   reachability
+            , const SearchBranch&           branch
+            , const TransferLimits&         limits
+        ) {
+            ReachabilityTaskFilter result;
+            result.reachable  .reserve(task_positions.size());
+            result.unreachable.reserve(task_positions.size());
+            for (const auto task_pos : task_positions) {
+                const auto decision = evaluate_residual_reachability(
                       reachability
-                    , from
-                    , tasks[i].task->destination
-                )) {
-                    active.push_back(i);
+                    , relaxed_suffix_state(branch, *tasks[task_pos].task, limits)
+                    , limits.max_transfers
+                );
+                if (decision.feasible) {
+                    result.reachable.push_back(task_pos);
+                } else {
+                    result.unreachable.push_back(
+                        RejectedReachabilityTask{
+                              .task_position = task_pos
+                            , .reason        = decision.rejection_reason
+                        }
+                    );
                 }
             }
-            return active;
+            return result;
+        }
+
+        void record_reachability_rejections(
+              std::span<const RejectedReachabilityTask> rejected_tasks
+            , std::vector<TaskSearchStats>& task_stats
+            , TaskSearchStats&              stats
+        ) noexcept {
+            for (const auto rejected : rejected_tasks) {
+                add_reachability_rejection(stats, rejected.reason);
+                add_reachability_rejection(
+                      task_stats[rejected.task_position]
+                    , rejected.reason
+                );
+            }
+        }
+
+        void record_suffix_lower_bound_rejections(
+              std::span<const RejectedSuffixLowerBoundTask> rejected_tasks
+            , std::vector<TaskSearchStats>&                 task_stats
+            , TaskSearchStats&                              stats
+        ) noexcept {
+            for (const auto rejected : rejected_tasks) {
+                add_suffix_lower_bound_rejection(stats, rejected.reason);
+                add_suffix_lower_bound_rejection(
+                      task_stats[rejected.task_position]
+                    , rejected.reason
+                );
+            }
         }
 
         [[nodiscard]] std::vector<std::size_t> matching_complete_tasks(
@@ -1367,7 +2541,7 @@ namespace timetable::domain::assignment {
         mathfp::Expected<mathfp::Unit> search_batch_connections(
               const SearchBatch&                 batch
             , const PreprocessedNetwork&        network
-            , const PhysicalReverseGraph&        reverse_graph
+            , const ResidualReverseGraph&        reverse_graph
             , double                            fare_scale
             , const SearchParams&               params
             , const ChoiceConfig&                choice_config
@@ -1393,10 +2567,17 @@ namespace timetable::domain::assignment {
             const SearchTimeDomain*           first_departure_domain = batch.departure_domain;
             const auto                        batch_task_span =
                 std::span<const BatchTaskRef>{ batch.tasks.data(), batch.tasks.size() };
-            const auto                        reachability = build_batch_reachability(
+            const auto                        reachability = build_residual_reachability(
                   reverse_graph
                 , batch_task_span
+                , params.transfers.max_transfers
+                , params.impedance
+                , fare_scale
             );
+            MATHFP_TRY(validate_residual_reachability(
+                  reachability
+                , params.transfers.max_transfers
+            ));
 
             branches.reserve(kInitialTaskBranchReserve);
             branch_active_tasks.reserve(kInitialTaskBranchReserve);
@@ -1428,25 +2609,26 @@ namespace timetable::domain::assignment {
                       }
                 }
             );
-            branch_active_tasks.push_back(
-                reachable_batch_task_positions(
-                      batch_task_span
-                    , reachability
-                    , endpoint_key(batch.key.origin)
-                )
+            const auto root_task_positions = all_batch_task_positions(batch_task_span);
+            auto root_reachability = filter_task_positions_by_reachability(
+                  std::span<const std::size_t>{
+                      root_task_positions.data()
+                    , root_task_positions.size()
+                  }
+                , batch_task_span
+                , reachability
+                , branches.back()
+                , params.transfers
             );
-            if (branch_active_tasks.back().size() != batch.tasks.size()) {
-                stats.rejected_reachability += batch.tasks.size() - branch_active_tasks.back().size();
-                std::vector<bool> is_active(batch.tasks.size(), false);
-                for (const auto task_pos : branch_active_tasks.back()) {
-                    is_active[task_pos] = true;
-                }
-                for (std::size_t task_pos = 0; task_pos < batch.tasks.size(); ++task_pos) {
-                    if (!is_active[task_pos]) {
-                        ++task_stats[task_pos].rejected_reachability;
-                    }
-                }
-            }
+            record_reachability_rejections(
+                  std::span<const RejectedReachabilityTask>{
+                      root_reachability.unreachable.data()
+                    , root_reachability.unreachable.size()
+                  }
+                , task_stats
+                , stats
+            );
+            branch_active_tasks.push_back(std::move(root_reachability.reachable));
             current_frontier.push_back(0);
 
             status(
@@ -1499,6 +2681,7 @@ namespace timetable::domain::assignment {
                         fmt::format(
                               "search heartbeat: batch={:>8} origin={:>4} interval={:>4} tasks={:>5} expanded={:>8} generated={:>8}"
                               " accepted={:>8} found={:>8} rejected(time_domain/feasibility/reboarding/cycles/limit/reachability/dominance)={}/{}/{}/{}/{}/{}/{}"
+                              " lower_bound_pruned={}"
                               " pruning(exact/approx/inserted/skipped)={}/{}/{}/{}"
                               " frontier={}/{}"
                             , static_cast<std::int64_t>(batch_index)
@@ -1516,6 +2699,7 @@ namespace timetable::domain::assignment {
                             , stats.rejected_transfer_limit
                             , stats.rejected_reachability
                             , stats.rejected_dominance_or_tolerance
+                            , stats.rejected_suffix_lower_bound
                             , stats.pruning.rejected_exact
                             , stats.pruning.rejected_approximate
                             , stats.pruning.inserted_metrics
@@ -1629,26 +2813,46 @@ namespace timetable::domain::assignment {
                         return;
                     }
 
-                    std::vector<std::size_t> next_active_tasks;
-                    next_active_tasks.reserve(active_tasks.size());
-                    for (const auto task_pos : active_tasks) {
-                        if (!can_reach_destination_topologically(
-                              reachability
-                            , candidate->trace.current_physical
-                            , batch.tasks[task_pos].task->destination
-                        )) {
-                            ++task_stats[task_pos].rejected_reachability;
-                            ++stats.rejected_reachability;
-                            continue;
-                        }
+                    const auto reachable_tasks = filter_task_positions_by_reachability(
+                          active_tasks
+                        , batch_task_span
+                        , reachability
+                        , *candidate
+                        , params.transfers
+                    );
+                    record_reachability_rejections(
+                          std::span<const RejectedReachabilityTask>{
+                              reachable_tasks.unreachable.data()
+                            , reachable_tasks.unreachable.size()
+                          }
+                        , task_stats
+                        , stats
+                    );
+                    if (reachable_tasks.reachable.empty()) {
+                        return;
+                    }
 
-                        if (violates_known_complete_bounds(
+                    std::vector<std::size_t> next_active_tasks;
+                    next_active_tasks.reserve(reachable_tasks.reachable.size());
+                    std::vector<RejectedSuffixLowerBoundTask> lower_bound_rejected_tasks;
+                    lower_bound_rejected_tasks.reserve(reachable_tasks.reachable.size());
+                    for (const auto task_pos : reachable_tasks.reachable) {
+                        const auto lower_bound_decision = evaluate_suffix_lower_bound_pruning(
                               *candidate
+                            , *batch.tasks[task_pos].task
+                            , reachability
                             , retentions[task_pos].complete_connections
                             , params
                             , choice_config
                             , fare_scale
-                        )) {
+                        );
+                        if (!lower_bound_decision.feasible) {
+                            lower_bound_rejected_tasks.push_back(
+                                RejectedSuffixLowerBoundTask{
+                                      .task_position = task_pos
+                                    , .reason        = lower_bound_decision.rejection_reason
+                                }
+                            );
                             ++task_stats[task_pos].rejected_dominance_or_tolerance;
                             continue;
                         }
@@ -1667,6 +2871,14 @@ namespace timetable::domain::assignment {
                         }
                         next_active_tasks.push_back(task_pos);
                     }
+                    record_suffix_lower_bound_rejections(
+                          std::span<const RejectedSuffixLowerBoundTask>{
+                              lower_bound_rejected_tasks.data()
+                            , lower_bound_rejected_tasks.size()
+                          }
+                        , task_stats
+                        , stats
+                    );
                     if (next_active_tasks.empty()) {
                         ++stats.rejected_dominance_or_tolerance;
                         return;
@@ -1705,11 +2917,15 @@ namespace timetable::domain::assignment {
                 stats.rejected_complete_tolerance += task_stats[task_pos].rejected_complete_tolerance;
                 batch_final_found += task_result.connections.size();
                 batch_retained_before_tolerance += before_tolerance;
+                MATHFP_TRY(validate_reachability_rejection_stats(task_stats[task_pos]));
+                MATHFP_TRY(validate_suffix_lower_bound_rejection_stats(task_stats[task_pos]));
 
                 log(
                     fmt::format(
                           "search batch task done: batch={}/{} task={} origin={} destination={} interval={} found={:>8}"
-                          " retained_complete={:>8} complete_rejected(dominance/tolerance)={}/{} complete_removed_dominated={} reachability_pruned={}"
+                          " retained_complete={:>8} complete_rejected(dominance/tolerance)={}/{} complete_removed_dominated={}"
+                          " reachability_pruned={} reachability_detail(phase/budget/unreachable)={}/{}/{}"
+                          " lower_bound_pruned={} lower_bound_detail(exact/imp/jt/nt)={}/{}/{}/{}"
                         , batch_index + 1
                         , batch_count
                         , task_result.task.index.get()
@@ -1722,17 +2938,29 @@ namespace timetable::domain::assignment {
                         , task_stats[task_pos].rejected_complete_tolerance
                         , task_stats[task_pos].removed_complete_dominated
                         , task_stats[task_pos].rejected_reachability
+                        , task_stats[task_pos].reachability_rejections.phase
+                        , task_stats[task_pos].reachability_rejections.transfer_budget
+                        , task_stats[task_pos].reachability_rejections.unreachable_destination
+                        , task_stats[task_pos].rejected_suffix_lower_bound
+                        , task_stats[task_pos].suffix_lower_bound_rejections.exact_dominance
+                        , task_stats[task_pos].suffix_lower_bound_rejections.tolerance_impedance
+                        , task_stats[task_pos].suffix_lower_bound_rejections.tolerance_journey_time
+                        , task_stats[task_pos].suffix_lower_bound_rejections.tolerance_transfers
                     )
                     , LogLevel::Info
                 );
             }
+            MATHFP_TRY(validate_reachability_rejection_stats(stats));
+            MATHFP_TRY(validate_suffix_lower_bound_rejection_stats(stats));
 
             log(
                 fmt::format(
                       "search batch done: {}/{} origin={} interval={} tasks={} found={:>8} completed={:>8}"
                       " retained_complete={:>8} complete_rejected(dominance/tolerance)={}/{} complete_removed_dominated={}"
                       " expanded={:>8} generated={:>8} accepted={:>8}"
-                      " rejected(time_domain/feasibility/reboarding/cycles/limit/reachability/dominance)={}/{}/{}/{}/{}/{}/{} max_frontier={}/{}"
+                      " rejected(time_domain/feasibility/reboarding/cycles/limit/reachability/dominance)={}/{}/{}/{}/{}/{}/{}"
+                      " reachability_detail(phase/budget/unreachable)={}/{}/{} max_frontier={}/{}"
+                      " lower_bound_pruned={} lower_bound_detail(exact/imp/jt/nt)={}/{}/{}/{}"
                     , batch_index + 1
                     , batch_count
                     , batch.key.origin.get()
@@ -1754,8 +2982,16 @@ namespace timetable::domain::assignment {
                     , stats.rejected_transfer_limit
                     , stats.rejected_reachability
                     , stats.rejected_dominance_or_tolerance
+                    , stats.reachability_rejections.phase
+                    , stats.reachability_rejections.transfer_budget
+                    , stats.reachability_rejections.unreachable_destination
                     , stats.max_current_frontier
                     , stats.max_next_frontier
+                    , stats.rejected_suffix_lower_bound
+                    , stats.suffix_lower_bound_rejections.exact_dominance
+                    , stats.suffix_lower_bound_rejections.tolerance_impedance
+                    , stats.suffix_lower_bound_rejections.tolerance_journey_time
+                    , stats.suffix_lower_bound_rejections.tolerance_transfers
                 )
                 , LogLevel::Info
             );
@@ -2053,7 +3289,10 @@ namespace timetable::domain::assignment {
         }
 
         const auto batches = build_search_batches(tasks);
-        const auto physical_reverse_graph = build_physical_reverse_graph(network.route_segments);
+        const auto residual_reverse_graph = build_residual_reverse_graph(
+              network.route_segments
+            , network.connection_segments
+        );
         log(
             fmt::format(
                 "search batching: batches = {:>8}  tasks = {:>8}"
@@ -2095,7 +3334,7 @@ namespace timetable::domain::assignment {
                 search_batch_connections(
                       batch
                     , network
-                    , physical_reverse_graph
+                    , residual_reverse_graph
                     , fare_scale
                     , params
                     , choice_config

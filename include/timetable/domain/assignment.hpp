@@ -203,6 +203,7 @@ namespace timetable::domain {
             std::size_t demand_share_count{};
             double      total_demand_passengers{};
             double      assigned_passengers{};
+            std::optional<double> runtime_seconds{};
         };
 
         Summary                         summary{};
