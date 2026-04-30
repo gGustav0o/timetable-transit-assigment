@@ -23,4 +23,15 @@ namespace timetable::domain::assignment {
         , const SkimMatrixConfig&       skim_config
     );
 
+    /**
+     * @brief Build a canonical output for the mode where assignment is disabled.
+     *
+     * The output preserves the OD-time demand structure and contains no
+     * calculated connections, shares, loads, or skim entries.
+     */
+    mathfp::Expected<AssignmentOutput> build_assignment_disabled_output(
+          const InputModel&       input
+        , const SkimMatrixConfig& skim_config
+    );
+
 }  // namespace timetable::domain::assignment

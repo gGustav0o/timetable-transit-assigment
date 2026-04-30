@@ -91,6 +91,32 @@ namespace timetable::domain::assignment::projection {
                 : "-";
         }
 
+        std::string_view format_output_mode(
+            AssignmentOutputMode mode
+        ) noexcept {
+            switch (mode) {
+            case AssignmentOutputMode::Calculated:
+                return "calculated";
+            case AssignmentOutputMode::AssignmentDisabled:
+                return "assignment_disabled";
+            }
+            return "unknown";
+        }
+
+        std::string_view format_skim_status(
+            AssignmentSkimMatrixStatus status
+        ) noexcept {
+            switch (status) {
+            case AssignmentSkimMatrixStatus::DisabledByConfig:
+                return "disabled_by_config";
+            case AssignmentSkimMatrixStatus::Calculated:
+                return "calculated";
+            case AssignmentSkimMatrixStatus::SkippedAssignmentDisabled:
+                return "skipped_assignment_disabled";
+            }
+            return "unknown";
+        }
+
         bool should_include_od_summary(
               const AssignmentOdSummary&          od
             , const AssignmentTextSummaryOptions& options
@@ -112,6 +138,7 @@ namespace timetable::domain::assignment::projection {
             fmt::format_to(
                   std::back_inserter(out)
                 , "Assignment Summary\n"
+                  "Mode:                {}\n"
                   "OD pairs:            {}\n"
                   "Non-empty OD pairs:  {}\n"
                   "Time intervals:      {}\n"
@@ -123,10 +150,12 @@ namespace timetable::domain::assignment::projection {
                   "Route loads:         {}\n"
                   "Trip loads:          {}\n"
                   "Segment loads:       {}\n"
+                  "Skim status:         {}\n"
                   "Skim entries:        {}\n"
                   "Total demand:        {}\n"
                   "Assigned passengers: {}\n"
                   "Runtime:             {}\n"
+                , format_output_mode(summary.mode)
                 , format_count (summary.totals.od_count)
                 , format_count (summary.nonempty_od_count)
                 , format_count (summary.time_interval_count)
@@ -138,6 +167,7 @@ namespace timetable::domain::assignment::projection {
                 , format_count (summary.route_load_count)
                 , format_count (summary.trip_load_count)
                 , format_count (summary.segment_load_count)
+                , format_skim_status(summary.skim_status)
                 , format_count (summary.skim_entry_count)
                 , format_scalar(summary.totals.total_demand_passengers)
                 , format_scalar(summary.totals.assigned_passengers)

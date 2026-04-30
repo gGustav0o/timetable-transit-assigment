@@ -39,4 +39,9 @@ namespace timetable::domain::assignment::detail {
         , const SkimMatrixConfig&       skim_config
     );
 
+    mathfp::Expected<AssignmentOutput> build_assignment_disabled_output_impl(
+          const InputModel&       input
+        , const SkimMatrixConfig& skim_config
+    );
+
 }  // namespace timetable::domain::assignment::detail

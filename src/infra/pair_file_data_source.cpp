@@ -2,6 +2,7 @@
 
 #include "timetable/domain/assignment/assignment_period.hpp"
 #include "timetable/domain/assignment/connection_admissibility.hpp"
+#include "timetable/domain/assignment/execution_config.hpp"
 #include "timetable/domain/params_factory.hpp"
 #include "timetable/infra/demand_csv.hpp"
 #include "timetable/infra/params_txt.hpp"
@@ -53,6 +54,7 @@ namespace timetable::infra {
             timetable::domain::assignment::ChoiceConfig             choice{};
             timetable::domain::assignment::SearchPruningConfig      search_pruning{};
             timetable::domain::assignment::SearchTimeDomainConfig   search_time_domain{};
+            timetable::domain::assignment::AssignmentExecutionConfig execution{};
             timetable::domain::assignment::SkimMatrixConfig         skim_matrix{};
             timetable::domain::assignment::AssignmentPeriodConfig   assignment_period{};
             timetable::domain::assignment::ConnectionDeletionConfig connection_deletion{};
@@ -147,6 +149,7 @@ namespace timetable::infra {
             PairChoiceSpec           choice{};
             PairSearchPruningSpec    search_pruning{};
             PairSearchTimeDomainSpec search_time_domain{};
+            bool                     calculate_assignment{};
             bool                     skim_matrix_enabled{};
             double                   pre_assign_period{};
             double                   post_assign_period{};
@@ -229,6 +232,7 @@ namespace timetable::infra {
                   , .architecture   = timetable::domain::assignment::SearchArchitecture::OriginWideBranchAndBound
                   , .rollout_stage  = timetable::domain::assignment::SearchTimeDomainRolloutStage::PerOdConservativeFallback
                 }
+            , .calculate_assignment = true
             , .skim_matrix_enabled = false
             , .pre_assign_period   = 0.0
             , .post_assign_period  = 0.0
@@ -533,6 +537,9 @@ namespace timetable::infra {
                 , .choice              = std::move(choice)
                 , .search_pruning      = std::move(search_pruning)
                 , .search_time_domain  = std::move(search_time_domain)
+                , .execution           = timetable::domain::assignment::AssignmentExecutionConfig{
+                      .calculate_assignment = kPairRuntimeDefaultSpec.calculate_assignment
+                  }
                 , .skim_matrix         = std::move(skim_matrix)
                 , .assignment_period   = std::move(assignment_period)
                 , .connection_deletion = timetable::domain::assignment::ConnectionDeletionConfig{}
@@ -618,6 +625,7 @@ namespace timetable::infra {
             input.choice              = std::move(defaults.choice);
             input.search_pruning      = std::move(defaults.search_pruning);
             input.search_time_domain  = std::move(defaults.search_time_domain);
+            input.execution           = std::move(defaults.execution);
             input.skim_matrix         = std::move(defaults.skim_matrix);
             input.assignment_period   = std::move(defaults.assignment_period);
             input.connection_deletion = std::move(defaults.connection_deletion);
@@ -639,12 +647,13 @@ namespace timetable::infra {
                 , timetable::infra::params_txt::parse_assignment_runtime_params_file(*paths.params_txt)
             );
             input.params              = std::move(parsed_params.search);
+            input.execution           = std::move(parsed_params.execution);
             input.skim_matrix         = std::move(parsed_params.skim_matrix);
             input.assignment_period   = std::move(parsed_params.assignment_period);
             input.connection_deletion = std::move(parsed_params.connection_deletion);
             input.demand_segment_time = std::move(parsed_params.demand_segment_time);
             log(
-                  "parsing: pair-file runtime uses SearchParams, SkimMatrixConfig, AssignmentPeriodConfig, and connection-admissibility configs from params.txt; runtime choice/pruning/search-time rollout configs keep built-in defaults"
+                  "parsing: pair-file runtime uses SearchParams, AssignmentExecutionConfig, SkimMatrixConfig, AssignmentPeriodConfig, and connection-admissibility configs from params.txt; runtime choice/pruning/search-time rollout configs keep built-in defaults"
                 , LogLevel::Info
             );
             return mathfp::kUnit;

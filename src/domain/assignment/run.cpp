@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <utility>
+#include <variant>
 
 #include <fmt/format.h>
 
@@ -12,15 +13,23 @@ namespace timetable::domain::assignment {
     namespace {
 
         mathfp::Expected<AssignmentOutput> build_assignment_output_from_pipeline_result(
-            const detail::AssignmentPipelineResult& result
+            const AssignmentPipelineResult& result
         ) {
+            if (const auto* disabled = std::get_if<AssignmentPipelineDisabledResult>(&result)) {
+                return build_assignment_disabled_output(
+                      disabled->input
+                    , disabled->skim_config
+                );
+            }
+
+            const auto& calculated = std::get<AssignmentPipelineCalculatedResult>(result);
             return build_assignment_output(
-                  result.input
-                , result.network
-                , result.search
-                , result.choice
-                , result.split
-                , result.skim_config
+                  calculated.input
+                , calculated.network
+                , calculated.search
+                , calculated.choice
+                , calculated.split
+                , calculated.skim_config
             );
         }
 

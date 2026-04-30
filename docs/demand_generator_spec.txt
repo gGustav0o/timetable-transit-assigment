@@ -472,7 +472,7 @@ D:\Development\projects\timetable-transit-assigment\out\build\vcpkg\Release\resu
 15. время выполнения назначения спроса: 121.270 s;
 16. на момент анализируемого прогона результаты были записаны в assignment_summary.txt, assignment_output.json, od_summary.csv, connections.csv, shares.csv, segments.csv и loads.csv.
 
-В текущем контракте вывода дополнительно предусмотрен файл skim_matrix.csv и секция skim_matrix в assignment_output.json. Эти результаты строятся как skim-матрица по OD-временным задачам при включенном basePara.calcSkimMatr.
+В текущем контракте вывода дополнительно предусмотрены metadata.csv, skim_matrix.csv и секция skim_matrix в assignment_output.json. metadata.csv содержит mode, skim_status и основные счетчики результата. Skim-матрица строится по OD-временным задачам при basePara.calcAssign = True и basePara.calcSkimMatr = True; при отключенном assignment и включенном skim экспортируется статус skipped_assignment_disabled без строк entries.
 
 Агрегированная статистика поиска по строкам пакетов:
 
@@ -587,6 +587,8 @@ D:\Development\projects\timetable-transit-assigment\out\build\vcpkg\Release\resu
 7. journey_time, in_vehicle_time, access_time, egress_time, walk_time, wait_time, transfer_wait_time, transfer_walk_time, transfers, fare и split_impedance являются агрегированными атрибутами выбранного подмножества соединений.
 
 Параметр lowImpConnShare определяет размер подмножества: соединения сортируются по возрастанию split_impedance, затем берется ceil(lowImpConnShare * n) соединений из начала списка. Если lowImpConnShare > 0 и n > 0, сохраняется не менее одного соединения. Параметр volumeWeighted влияет только на расчет агрегированных значений, а не на выбор соединений для skim-агрегации.
+
+Файл metadata.csv содержит одну строку с mode, skim_status, счетчиками OD/соединений/долей/skim entries, total_demand_passengers, assigned_passengers и runtime_seconds. Он используется для машинно-читаемой фиксации режима результата без изменения колонок существующих аналитических CSV.
 
 13.7. Что хорошо и согласуется с теорией
 

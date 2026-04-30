@@ -169,6 +169,22 @@ namespace timetable::domain::assignment::projection {
     };
 
     /**
+     * @brief One-row execution metadata export.
+     */
+    struct AssignmentMetadataCsvRow final {
+        AssignmentOutputMode       mode{ AssignmentOutputMode::Calculated };
+        AssignmentSkimMatrixStatus skim_status{ AssignmentSkimMatrixStatus::DisabledByConfig };
+        std::size_t                od_count{};
+        std::size_t                search_connection_count{};
+        std::size_t                chosen_connection_count{};
+        std::size_t                demand_share_count{};
+        std::size_t                skim_entry_count{};
+        double                     total_demand_passengers{};
+        double                     assigned_passengers{};
+        std::optional<double>      runtime_seconds{};
+    };
+
+    /**
      * @brief Flat analytical export tables derived from AssignmentOutput.
      *
      * The vectors correspond directly to:
@@ -178,8 +194,10 @@ namespace timetable::domain::assignment::projection {
      * - segments.csv
      * - loads.csv
      * - skim_matrix.csv
+     * - metadata.csv
      */
     struct AssignmentCsvProjection final {
+        std::vector<AssignmentMetadataCsvRow>   metadata_rows{};
         std::vector<AssignmentOdSummaryCsvRow>  od_summary_rows{};
         std::vector<AssignmentConnectionCsvRow> connection_rows{};
         std::vector<AssignmentShareCsvRow>      share_rows{};

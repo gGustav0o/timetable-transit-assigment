@@ -329,6 +329,9 @@ namespace timetable::app {
                 fmt::format("json: {}", paths.canonical_json_path.string())
             );
             timetable::infra::progress::log(
+                fmt::format("metadata.csv: {}", paths.metadata_csv_path.string())
+            );
+            timetable::infra::progress::log(
                 fmt::format("od_summary.csv: {}", paths.od_summary_csv_path.string())
             );
             timetable::infra::progress::log(

@@ -148,7 +148,8 @@ namespace timetable::domain::assignment::projection {
         const AssignmentOutput& output
     ) {
         AssignmentResultSummary summary{
-              .totals              = output.summary
+              .mode                = output.mode
+            , .totals              = output.summary
             , .time_interval_count = 0
             , .task_count          = 0
             , .nonempty_od_count   = 0
@@ -157,6 +158,7 @@ namespace timetable::domain::assignment::projection {
             , .trip_load_count     = output.loads.trip_loads.size()
             , .segment_load_count  = output.loads.segment_loads.size()
             , .skim_entry_count    = output.skim_matrix.entries.size()
+            , .skim_status         = output.skim_matrix.status
             , .od_results          = {}
         };
         summary.od_results.reserve(output.od_results.size());

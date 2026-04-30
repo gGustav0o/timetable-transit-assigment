@@ -117,6 +117,32 @@ namespace timetable::infra {
             return "segment";
         }
 
+        std::string output_mode_name(
+            timetable::domain::AssignmentOutputMode mode
+        ) {
+            switch (mode) {
+                case timetable::domain::AssignmentOutputMode::Calculated:
+                    return "calculated";
+                case timetable::domain::AssignmentOutputMode::AssignmentDisabled:
+                    return "assignment_disabled";
+            }
+            return "unknown";
+        }
+
+        std::string skim_matrix_status_name(
+            timetable::domain::assignment::AssignmentSkimMatrixStatus status
+        ) {
+            switch (status) {
+                case timetable::domain::assignment::AssignmentSkimMatrixStatus::DisabledByConfig:
+                    return "disabled_by_config";
+                case timetable::domain::assignment::AssignmentSkimMatrixStatus::Calculated:
+                    return "calculated";
+                case timetable::domain::assignment::AssignmentSkimMatrixStatus::SkippedAssignmentDisabled:
+                    return "skipped_assignment_disabled";
+            }
+            return "unknown";
+        }
+
         template <class StrongId>
         void write_strong_field(
               CsvWriter& writer
@@ -185,6 +211,39 @@ namespace timetable::infra {
         }
 
     }  // namespace
+
+    std::string serialize_assignment_metadata_csv(
+        const projection::AssignmentCsvProjection& projection
+    ) {
+        CsvWriter writer;
+        writer.text("mode");
+        writer.text("skim_status");
+        writer.text("od_count");
+        writer.text("search_connection_count");
+        writer.text("chosen_connection_count");
+        writer.text("demand_share_count");
+        writer.text("skim_entry_count");
+        writer.text("total_demand_passengers");
+        writer.text("assigned_passengers");
+        writer.text("runtime_seconds");
+        writer.end_row();
+
+        for (const auto& row : projection.metadata_rows) {
+            writer.text(output_mode_name(row.mode));
+            writer.text(skim_matrix_status_name(row.skim_status));
+            writer.integer(static_cast<std::int64_t>(row.od_count));
+            writer.integer(static_cast<std::int64_t>(row.search_connection_count));
+            writer.integer(static_cast<std::int64_t>(row.chosen_connection_count));
+            writer.integer(static_cast<std::int64_t>(row.demand_share_count));
+            writer.integer(static_cast<std::int64_t>(row.skim_entry_count));
+            writer.number(row.total_demand_passengers);
+            writer.number(row.assigned_passengers);
+            write_optional_double_field(writer, row.runtime_seconds);
+            writer.end_row();
+        }
+
+        return std::move(writer).finish();
+    }
 
     std::string serialize_assignment_od_summary_csv(
         const projection::AssignmentCsvProjection& projection

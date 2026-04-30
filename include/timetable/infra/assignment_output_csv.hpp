@@ -6,6 +6,10 @@
 
 namespace timetable::infra {
 
+    std::string serialize_assignment_metadata_csv(
+        const timetable::domain::assignment::projection::AssignmentCsvProjection& projection
+    );
+
     std::string serialize_assignment_od_summary_csv(
         const timetable::domain::assignment::projection::AssignmentCsvProjection& projection
     );

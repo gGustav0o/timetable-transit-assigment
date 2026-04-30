@@ -22,4 +22,11 @@ namespace timetable::domain::assignment {
         );
     }
 
+    mathfp::Expected<AssignmentOutput> build_assignment_disabled_output(
+          const InputModel&       input
+        , const SkimMatrixConfig& skim_config
+    ) {
+        return detail::build_assignment_disabled_output_impl(input, skim_config);
+    }
+
 }  // namespace timetable::domain::assignment

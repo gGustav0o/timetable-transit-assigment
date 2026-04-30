@@ -29,7 +29,7 @@ namespace timetable::infra {
             std::string           contents{};
         };
 
-        using PreparedArtifacts = std::array<PreparedArtifact, 8>;
+        using PreparedArtifacts = std::array<PreparedArtifact, 9>;
 
         std::filesystem::path sibling_results_dir(
             const std::filesystem::path& log_dir
@@ -110,6 +110,17 @@ namespace timetable::infra {
             };
         }
 
+        PreparedArtifact prepare_metadata_csv_artifact(
+              const projection::AssignmentCsvProjection& csv_projection
+            , const std::filesystem::path&               path
+        ) {
+            return PreparedArtifact{
+                  .kind     = "metadata_csv"
+                , .path     = path
+                , .contents = serialize_assignment_metadata_csv(csv_projection)
+            };
+        }
+
         PreparedArtifact prepare_od_summary_csv_artifact(
               const projection::AssignmentCsvProjection& csv_projection
             , const std::filesystem::path&               path
@@ -187,6 +198,7 @@ namespace timetable::infra {
             return std::array{
                   std::move(summary_text)
                 , std::move(canonical_json)
+                , prepare_metadata_csv_artifact(csv_projection, paths.metadata_csv_path)
                 , prepare_od_summary_csv_artifact(csv_projection, paths.od_summary_csv_path)
                 , prepare_connections_csv_artifact(csv_projection, paths.connections_csv_path)
                 , prepare_shares_csv_artifact(csv_projection, paths.shares_csv_path)
@@ -218,6 +230,7 @@ namespace timetable::infra {
               .results_dir          = results_dir
             , .summary_text_path    = results_dir / "assignment_summary.txt"
             , .canonical_json_path  = results_dir / "assignment_output.json"
+            , .metadata_csv_path    = results_dir / "metadata.csv"
             , .od_summary_csv_path  = results_dir / "od_summary.csv"
             , .connections_csv_path = results_dir / "connections.csv"
             , .shares_csv_path      = results_dir / "shares.csv"

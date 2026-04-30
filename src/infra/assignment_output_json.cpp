@@ -579,11 +579,27 @@ namespace timetable::infra {
             writer.end_object();
         }
 
+        std::string_view skim_matrix_status_token(
+            timetable::domain::assignment::AssignmentSkimMatrixStatus status
+        ) noexcept {
+            switch (status) {
+            case timetable::domain::assignment::AssignmentSkimMatrixStatus::DisabledByConfig:
+                return "disabled_by_config";
+            case timetable::domain::assignment::AssignmentSkimMatrixStatus::Calculated:
+                return "calculated";
+            case timetable::domain::assignment::AssignmentSkimMatrixStatus::SkippedAssignmentDisabled:
+                return "skipped_assignment_disabled";
+            }
+            return "unknown";
+        }
+
         void write_skim_matrix(
               JsonWriter&                                                  writer
             , const timetable::domain::assignment::AssignmentSkimMatrix& skim_matrix
         ) {
             writer.begin_object();
+            writer.key("status");
+            writer.string(skim_matrix_status_token(skim_matrix.status));
             writer.key("entries");
             writer.begin_array();
             for (const auto& entry : skim_matrix.entries) {
@@ -649,6 +665,18 @@ namespace timetable::infra {
             writer.end_object();
         }
 
+        std::string_view output_mode_token(
+            timetable::domain::AssignmentOutputMode mode
+        ) noexcept {
+            switch (mode) {
+            case timetable::domain::AssignmentOutputMode::Calculated:
+                return "calculated";
+            case timetable::domain::AssignmentOutputMode::AssignmentDisabled:
+                return "assignment_disabled";
+            }
+            return "unknown";
+        }
+
     }  // namespace
 
     std::string serialize_assignment_output_json(
@@ -657,7 +685,9 @@ namespace timetable::infra {
         JsonWriter writer;
         writer.begin_object();
         writer.key("schema");
-        writer.string("timetable.assignment_output.v5");
+        writer.string("timetable.assignment_output.v7");
+        writer.key("mode");
+        writer.string(output_mode_token(output.mode));
         writer.key("units");
         writer.begin_object();
         writer.key("time");

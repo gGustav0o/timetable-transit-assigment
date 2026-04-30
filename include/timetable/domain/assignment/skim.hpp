@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <span>
 #include <vector>
 
@@ -57,6 +58,12 @@ namespace timetable::domain::assignment {
         double split_impedance{};
     };
 
+    enum class AssignmentSkimMatrixStatus : std::uint8_t {
+          DisabledByConfig
+        , Calculated
+        , SkippedAssignmentDisabled
+    };
+
     /**
      * @brief Domain-level skim matrix result.
      *
@@ -64,6 +71,7 @@ namespace timetable::domain::assignment {
      * keys are rejected by the builder instead of being silently merged.
      */
     struct AssignmentSkimMatrix final {
+        AssignmentSkimMatrixStatus      status{ AssignmentSkimMatrixStatus::DisabledByConfig };
         std::vector<AssignmentSkimEntry> entries{};
     };
 

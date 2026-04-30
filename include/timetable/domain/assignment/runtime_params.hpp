@@ -2,6 +2,7 @@
 
 #include "timetable/domain/assignment/assignment_period.hpp"
 #include "timetable/domain/assignment/connection_admissibility.hpp"
+#include "timetable/domain/assignment/execution_config.hpp"
 #include "timetable/domain/assignment/skim_config.hpp"
 #include "timetable/domain/params.hpp"
 
@@ -18,9 +19,12 @@ namespace timetable::domain {
      * Connection deletion and demand-segment time configs are kept outside
      * SearchParams because they decide admissibility of alternatives for
      * choice/split rather than search impedance or split weights.
+     * AssignmentExecutionConfig controls top-level execution stages and is not
+     * part of the mathematical search/choice/split model.
      */
     struct AssignmentRuntimeParams final {
         SearchParams                         search{};
+        assignment::AssignmentExecutionConfig execution{};
         assignment::SkimMatrixConfig         skim_matrix{};
         assignment::AssignmentPeriodConfig   assignment_period{};
         assignment::ConnectionDeletionConfig connection_deletion{};

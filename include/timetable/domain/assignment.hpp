@@ -14,6 +14,7 @@
 #include "timetable/domain/assignment/choice/choice.hpp"
 #include "timetable/domain/assignment/choice/choice_config.hpp"
 #include "timetable/domain/assignment/connection_admissibility.hpp"
+#include "timetable/domain/assignment/execution_config.hpp"
 #include "timetable/domain/assignment/search/search.hpp"
 #include "timetable/domain/assignment/search_pruning_config.hpp"
 #include "timetable/domain/assignment/search_time_domain_config.hpp"
@@ -37,6 +38,7 @@ namespace timetable::domain {
         assignment::AssignmentPeriodConfig   assignment_period{};
         assignment::ConnectionDeletionConfig connection_deletion{};
         assignment::DemandSegmentTimeConfig  demand_segment_time{};
+        assignment::AssignmentExecutionConfig execution{};
         std::optional<PresegmentedInput>     presegmented{};
     };
 
@@ -197,6 +199,11 @@ namespace timetable::domain {
         std::vector<AssignmentSegmentLoad> segment_loads{};
     };
 
+    enum class AssignmentOutputMode {
+        Calculated,
+        AssignmentDisabled
+    };
+
     /**
      * @brief Public canonical result of the full timetable assignment pipeline.
      *
@@ -214,9 +221,10 @@ namespace timetable::domain {
             std::optional<double> runtime_seconds{};
         };
 
-        Summary                         summary{};
-        std::vector<AssignmentOdResult> od_results{};
-        AssignmentLoads                 loads{};
+        AssignmentOutputMode             mode{ AssignmentOutputMode::Calculated };
+        Summary                          summary{};
+        std::vector<AssignmentOdResult>  od_results{};
+        AssignmentLoads                  loads{};
         assignment::AssignmentSkimMatrix skim_matrix{};
     };
 

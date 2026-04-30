@@ -589,6 +589,25 @@ namespace timetable::domain::assignment {
     mathfp::Expected<mathfp::Unit> validate_assignment_skim_matrix(
         const AssignmentSkimMatrix& skim_matrix
     ) {
+        switch (skim_matrix.status) {
+            case AssignmentSkimMatrixStatus::DisabledByConfig:
+            case AssignmentSkimMatrixStatus::Calculated:
+            case AssignmentSkimMatrixStatus::SkippedAssignmentDisabled:
+                break;
+            default:
+                return mathfp::unexpected(
+                    mathfp::internal_error("assignment skim matrix status is unsupported")
+                );
+        }
+
+        if (skim_matrix.status != AssignmentSkimMatrixStatus::Calculated
+            && !skim_matrix.entries.empty()) {
+            return mathfp::unexpected(
+                mathfp::internal_error("non-calculated assignment skim matrix must not contain entries")
+                    .ctx("entry_count", static_cast<std::int64_t>(skim_matrix.entries.size()))
+            );
+        }
+
         std::map<SkimEntryKey, bool> keys;
         for (std::size_t i = 0; i < skim_matrix.entries.size(); ++i) {
             const auto& entry = skim_matrix.entries[i];
@@ -704,7 +723,9 @@ namespace timetable::domain::assignment {
     ) {
         MATHFP_TRY(validate_skim_matrix_config(config));
         if (!config.enabled) {
-            return AssignmentSkimMatrix{};
+            return AssignmentSkimMatrix{
+                .status = AssignmentSkimMatrixStatus::DisabledByConfig
+            };
         }
 
         MATHFP_TRY(validate_split_shares_are_task_local(choice_result, split_result));
@@ -714,7 +735,9 @@ namespace timetable::domain::assignment {
 
         const auto shares_by_key = detail::grouping::group_shares_by_demand_key(split_result.shares);
 
-        AssignmentSkimMatrix matrix;
+        AssignmentSkimMatrix matrix{
+            .status = AssignmentSkimMatrixStatus::Calculated
+        };
         matrix.entries.reserve(input.demand.size());
         for (const auto& demand : input.demand) {
             MATHFP_TRY_LET(

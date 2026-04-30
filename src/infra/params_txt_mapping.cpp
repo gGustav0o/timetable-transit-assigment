@@ -718,6 +718,23 @@ namespace timetable::infra::params_txt::detail {
             );
         }
 
+        mathfp::Expected<timetable::domain::assignment::AssignmentExecutionConfig> parse_assignment_execution_config(
+            const Object& root
+        ) {
+            using namespace timetable::domain::assignment;
+
+            MATHFP_TRY_LET(const Object*, base_para, object_at(root, "basePara", "root"));
+            MATHFP_TRY_LET(bool, calculate_assignment, bool_like_at(
+                *base_para, "calcAssign", "root.basePara"
+            ));
+
+            AssignmentExecutionConfig config{
+                .calculate_assignment = calculate_assignment
+            };
+            MATHFP_TRY(validate_assignment_execution_config(config));
+            return config;
+        }
+
         mathfp::Expected<timetable::domain::assignment::SkimAggregationFunc> parse_skim_func(
             const std::string& token
         ) {
@@ -991,6 +1008,11 @@ namespace timetable::infra::params_txt::detail {
     ) {
         MATHFP_TRY_LET(timetable::domain::SearchParams, search_params, map_params(root));
         MATHFP_TRY_LET(
+              timetable::domain::assignment::AssignmentExecutionConfig
+            , execution
+            , parse_assignment_execution_config(root)
+        );
+        MATHFP_TRY_LET(
               timetable::domain::assignment::SkimMatrixConfig
             , skim_matrix
             , parse_skim_matrix_config(root)
@@ -1013,6 +1035,7 @@ namespace timetable::infra::params_txt::detail {
 
         return timetable::domain::AssignmentRuntimeParams{
               .search              = std::move(search_params)
+            , .execution           = std::move(execution)
             , .skim_matrix         = std::move(skim_matrix)
             , .assignment_period   = std::move(assignment_period)
             , .connection_deletion = std::move(connection_deletion)

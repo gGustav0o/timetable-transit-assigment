@@ -1,5 +1,6 @@
 Подключены в текущей реализации
 
+  - basePara.calcAssign — подключен как верхнеуровневый флаг выполнения assignment pipeline: при True выполняется preprocessing/search/choice/split, при False расчет assignment отключается до preprocessing/search/choice/split.
   - basePara.calcSkimMatr — управляет построением skim-матрицы как доменной проекции над результатами choice/split.
   - skimMatrixPara.func — задает правило агрегации skim-атрибутов: Mean или Quantile.
   - skimMatrixPara.volumeWeighted — задает веса агрегации: пассажиропоток по доле спроса или равный вес альтернатив.
@@ -29,8 +30,25 @@
 Выход skim:
 
   - доменный результат хранится в AssignmentOutput.skim_matrix;
-  - JSON содержит секцию skim_matrix;
+  - skim зависит от assignment-result: матрица строится только при calcAssign = True, потому что использует результаты choice/split;
+  - если calcSkimMatr = False, AssignmentOutput.skim_matrix.status = disabled_by_config;
+  - если calcSkimMatr = True и calcAssign = False, AssignmentOutput.skim_matrix.status = skipped_assignment_disabled, entries остается пустым;
+  - если calcSkimMatr = True и calcAssign = True, AssignmentOutput.skim_matrix.status = calculated, entries содержит рассчитанные OD-интервальные строки;
+  - JSON содержит секцию skim_matrix со status и entries;
   - файловый экспорт содержит отдельный файл skim_matrix.csv.
+
+Семантика basePara.calcAssign:
+
+  - параметр читается из basePara и хранится в AssignmentExecutionConfig отдельно от SearchParams;
+  - pair-file режим без params.txt использует дефолт calcAssign = True;
+  - при calcAssign = True публичный AssignmentOutput имеет mode = calculated;
+  - при calcAssign = False публичный AssignmentOutput имеет mode = assignment_disabled;
+  - disabled output сохраняет OD-интервальную структуру входного спроса и total_demand_passengers, но search_connection_count, chosen_connection_count, demand_share_count, assigned_passengers, loads и skim entries остаются нулевыми/пустыми;
+  - assignment_output.json содержит верхнеуровневое поле mode;
+  - assignment_summary.txt содержит mode и skim status;
+  - metadata.csv содержит mode, skim_status и основные счетчики результата;
+  - существующие аналитические CSV остаются совместимыми по набору колонок.
+  - validation запрещает противоречивые результаты: disabled output не может содержать рассчитанные соединения, split shares, passenger loads или calculated skim; calculated output не может иметь skim_status = skipped_assignment_disabled.
 
 Семантика basePara.preAssignPeriod/basePara.postAssignPeriod:
 
@@ -70,7 +88,6 @@
 
 Требуют переработки кода
 
-  - basePara.calcAssign — сейчас assignment всегда выполняется; нужен управляющий режим pipeline.
   - SearchImp.volCapRatioFactor — требуется учет загрузки/провозной способности в search impedance.
   - PerceivedJourneyTime.volCapRatioFactor — требуется учет загрузки/провозной способности в perceived journey time.
   - searchPara.deactivateDominanceOfDirectConnections — меняет правила dominance для прямых соединений.

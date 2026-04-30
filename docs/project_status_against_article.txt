@@ -107,7 +107,7 @@
 
 Параметр skimMatrixPara.lowImpConnShare задает долю альтернатив с наименьшим split_impedance, включаемых в агрегацию. Для n альтернатив берется ceil(lowImpConnShare * n) соединений; при положительной доле и непустом множестве сохраняется минимум одно соединение. Параметр skimMatrixPara.volumeWeighted влияет только на веса агрегации, но не на сам отбор по split_impedance.
 
-Выход skim-матрицы представлен в AssignmentOutput.skim_matrix, секции skim_matrix в assignment_output.json и файле skim_matrix.csv.
+Выход skim-матрицы представлен в AssignmentOutput.skim_matrix, секции skim_matrix в assignment_output.json и файле skim_matrix.csv. Секция skim_matrix содержит status: disabled_by_config, calculated или skipped_assignment_disabled. Последний статус используется, когда basePara.calcSkimMatr включен, но basePara.calcAssign отключает assignment pipeline, поэтому choice/split-результат, необходимый для skim, отсутствует.
 
 
 4. Некоторые уточнения, которые статья не формализует явно:
@@ -219,7 +219,7 @@
 10) расчет занял 121.270 секунды;
 11) на момент этого прогона были сформированы выходные таблицы: od_summary.csv, connections.csv, shares.csv, segments.csv, loads.csv и assignment_output.json.
 
-В текущей версии к этому набору добавлены skim_matrix.csv и секция skim_matrix в assignment_output.json, если расчет skim-матрицы включен параметром basePara.calcSkimMatr.
+В текущей версии к этому набору добавлены metadata.csv, skim_matrix.csv и секция skim_matrix в assignment_output.json. Файл metadata.csv содержит mode, skim_status и основные счетчики результата. Skim-матрица рассчитывается только при basePara.calcAssign = True, поскольку является проекцией над результатами choice/split; при отключенном assignment и включенном basePara.calcSkimMatr экспортируется статус skipped_assignment_disabled.
 
 Единственное предупреждение в этом прогоне связано с тарифом: вес стоимости проезда положителен, но во входных сегментах нет положительных значений FARE, поэтому тарифный компонент в этом сценарии фактически равен нулю.
 

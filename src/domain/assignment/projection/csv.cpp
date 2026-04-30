@@ -166,6 +166,23 @@ namespace timetable::domain::assignment::projection {
                  + output.loads.segment_loads.size();
         }
 
+        AssignmentMetadataCsvRow build_metadata_row(
+            const AssignmentOutput& output
+        ) {
+            return AssignmentMetadataCsvRow{
+                  .mode                    = output.mode
+                , .skim_status             = output.skim_matrix.status
+                , .od_count                = output.summary.od_count
+                , .search_connection_count = output.summary.search_connection_count
+                , .chosen_connection_count = output.summary.chosen_connection_count
+                , .demand_share_count      = output.summary.demand_share_count
+                , .skim_entry_count        = output.skim_matrix.entries.size()
+                , .total_demand_passengers = output.summary.total_demand_passengers
+                , .assigned_passengers     = output.summary.assigned_passengers
+                , .runtime_seconds         = output.summary.runtime_seconds
+            };
+        }
+
         AssignmentSegmentCsvRow build_segment_row(
               const AssignmentOdResult&    od_result
             , AssignmentConnectionRef      connection_index
@@ -453,6 +470,7 @@ namespace timetable::domain::assignment::projection {
         const auto load_row_count    = count_total_load_rows(output);
 
         AssignmentCsvProjection projection{};
+        projection.metadata_rows.push_back(build_metadata_row(output));
         projection.od_summary_rows.reserve(summary.od_results.size());
         projection.connection_rows.reserve(output.summary.chosen_connection_count);
         projection.share_rows     .reserve(output.summary.demand_share_count);

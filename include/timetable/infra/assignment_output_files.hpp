@@ -18,6 +18,7 @@ namespace timetable::infra {
         std::filesystem::path results_dir{};
         std::filesystem::path summary_text_path{};
         std::filesystem::path canonical_json_path{};
+        std::filesystem::path metadata_csv_path{};
         std::filesystem::path od_summary_csv_path{};
         std::filesystem::path connections_csv_path{};
         std::filesystem::path shares_csv_path{};
@@ -39,6 +40,7 @@ namespace timetable::infra {
      * The current output policy always writes:
      * - assignment_summary.txt
      * - assignment_output.json
+     * - metadata.csv
      * - od_summary.csv
      * - connections.csv
      * - shares.csv

@@ -9,6 +9,7 @@
 
 #include "timetable/domain/assignment.hpp"
 #include "timetable/domain/assignment/choice.hpp"
+#include "timetable/domain/assignment/pipeline.hpp"
 #include "timetable/domain/assignment/preprocessed_network.hpp"
 #include "timetable/domain/assignment/search.hpp"
 #include "timetable/domain/assignment/search_pruning_diagnostics.hpp"
@@ -18,15 +19,6 @@
 #include "timetable/infra/progress_bus.hpp"
 
 namespace timetable::domain::assignment::detail {
-
-    struct AssignmentPipelineResult final {
-        InputModel             input{};
-        PreprocessedNetwork    network{};
-        ConnectionSearchResult search{};
-        ConnectionChoiceResult choice{};
-        DemandSplitResult      split{};
-        SkimMatrixConfig       skim_config{};
-    };
 
     struct SearchStepResult final {
         ConnectionSearchResult result{};
@@ -199,6 +191,18 @@ namespace timetable::domain::assignment::detail {
               "assignment pipeline started"
             , timetable::infra::LogLevel::Info
         );
+        MATHFP_TRY(validate_assignment_execution_config(input.execution));
+
+        if (!input.execution.calculate_assignment) {
+            timetable::infra::progress::both(
+                  "assignment pipeline disabled by basePara.calcAssign=false"
+                , timetable::infra::LogLevel::Info
+            );
+            return AssignmentPipelineDisabledResult{
+                  .input       = std::move(input.input)
+                , .skim_config = input.skim_matrix
+            };
+        }
 
         MATHFP_TRY_LET(
               PreprocessedNetwork
@@ -236,7 +240,7 @@ namespace timetable::domain::assignment::detail {
             )
         );
 
-        return AssignmentPipelineResult{
+        return AssignmentPipelineCalculatedResult{
               .input   = std::move(input.input)
             , .network = std::move(network)
             , .search  = std::move(search_step.result)

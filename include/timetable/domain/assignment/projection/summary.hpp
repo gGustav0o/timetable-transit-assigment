@@ -63,6 +63,7 @@ namespace timetable::domain::assignment::projection {
      * task_count counts OD-interval demand tasks present in the output.
      */
     struct AssignmentResultSummary final {
+        AssignmentOutputMode             mode{ AssignmentOutputMode::Calculated };
         AssignmentOutput::Summary        totals{};
         std::size_t                      time_interval_count{};
         std::size_t                      task_count{};
@@ -72,6 +73,7 @@ namespace timetable::domain::assignment::projection {
         std::size_t                      trip_load_count{};
         std::size_t                      segment_load_count{};
         std::size_t                      skim_entry_count{};
+        AssignmentSkimMatrixStatus       skim_status{ AssignmentSkimMatrixStatus::DisabledByConfig };
         std::vector<AssignmentOdSummary> od_results{};
     };
 

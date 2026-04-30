@@ -208,6 +208,18 @@ namespace timetable::domain::assignment::detail {
             };
         }
 
+        AssignmentOutput::Summary build_disabled_output_summary(
+            const InputModel& input
+        ) {
+            return AssignmentOutput::Summary{
+                  .search_connection_count = 0
+                , .chosen_connection_count = 0
+                , .demand_share_count      = 0
+                , .total_demand_passengers = total_input_demand(input)
+                , .assigned_passengers     = 0.0
+            };
+        }
+
         void assign_search_connection_count(
               AssignmentOdResult&                           od_result
             , const std::map<grouping::OdKey, std::size_t>& search_counts
@@ -375,7 +387,7 @@ namespace timetable::domain::assignment::detail {
 
     }  // namespace
 
-        mathfp::Expected<AssignmentOutput> build_assignment_output_impl(
+    mathfp::Expected<AssignmentOutput> build_assignment_output_impl(
           const InputModel&             input
         , const PreprocessedNetwork&    network
         , const ConnectionSearchResult& search_result
@@ -411,9 +423,10 @@ namespace timetable::domain::assignment::detail {
         );
 
         AssignmentOutput output{
-              .summary    = build_output_summary(input, search_result, choice_result, split_result)
-            , .od_results = {}
-            , .loads      = std::move(loads)
+              .mode        = AssignmentOutputMode::Calculated
+            , .summary     = build_output_summary(input, search_result, choice_result, split_result)
+            , .od_results  = {}
+            , .loads       = std::move(loads)
             , .skim_matrix = std::move(skim_matrix)
         };
         output.od_results.reserve(all_ods.size());
@@ -432,6 +445,46 @@ namespace timetable::domain::assignment::detail {
                     , shares_by_key
                 )
             );
+            output.od_results.push_back(std::move(od_result));
+        }
+
+        output.summary.od_count = output.od_results.size();
+        MATHFP_TRY(validate_output_summary_semantics(output));
+        return output;
+    }
+
+    mathfp::Expected<AssignmentOutput> build_assignment_disabled_output_impl(
+          const InputModel&       input
+        , const SkimMatrixConfig& skim_config
+    ) {
+        MATHFP_TRY(validate_skim_matrix_config(skim_config));
+        const auto demand_by_od = grouping::group_demand_entries_by_od(input.demand);
+        const grouping::ShareGroups shares_by_key{};
+        const ChosenConnectionIndexMap chosen_connection_indices{};
+
+        AssignmentOutput output{
+              .mode        = AssignmentOutputMode::AssignmentDisabled
+            , .summary     = build_disabled_output_summary(input)
+            , .od_results  = {}
+            , .loads       = AssignmentLoads{}
+            , .skim_matrix = AssignmentSkimMatrix{
+                  .status = skim_config.enabled
+                      ? AssignmentSkimMatrixStatus::SkippedAssignmentDisabled
+                      : AssignmentSkimMatrixStatus::DisabledByConfig
+              }
+        };
+        output.od_results.reserve(demand_by_od.size());
+
+        for (const auto& [od, _] : demand_by_od) {
+            auto od_result = make_empty_od_result(od);
+            MATHFP_TRY(append_demand_intervals(
+                  od_result
+                , input
+                , demand_by_od
+                , shares_by_key
+                , chosen_connection_indices
+                , od
+            ));
             output.od_results.push_back(std::move(od_result));
         }
 

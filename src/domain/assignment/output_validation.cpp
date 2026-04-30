@@ -402,6 +402,82 @@ namespace timetable::domain::assignment::detail {
     mathfp::Expected<mathfp::Unit> validate_output_summary_semantics(
         const AssignmentOutput& output
     ) {
+        switch (output.mode) {
+        case AssignmentOutputMode::Calculated:
+        case AssignmentOutputMode::AssignmentDisabled:
+            break;
+        default:
+            return mathfp::unexpected(
+                mathfp::internal_error("assignment output mode is unsupported")
+            );
+        }
+
+        if (output.mode == AssignmentOutputMode::AssignmentDisabled
+            && output.skim_matrix.status == AssignmentSkimMatrixStatus::Calculated) {
+            return mathfp::unexpected(
+                mathfp::internal_error("disabled assignment output cannot contain calculated skim matrix")
+            );
+        }
+        if (output.mode == AssignmentOutputMode::Calculated
+            && output.skim_matrix.status == AssignmentSkimMatrixStatus::SkippedAssignmentDisabled) {
+            return mathfp::unexpected(
+                mathfp::internal_error("calculated assignment output cannot mark skim as skipped by disabled assignment")
+            );
+        }
+        if (output.mode == AssignmentOutputMode::AssignmentDisabled) {
+            if (output.summary.search_connection_count != 0
+                || output.summary.chosen_connection_count != 0
+                || output.summary.demand_share_count != 0
+                || !almost_equal_scalar(output.summary.assigned_passengers, 0.0)) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("disabled assignment output summary must not contain calculated assignment quantities")
+                        .ctx("search_connection_count", static_cast<std::int64_t>(output.summary.search_connection_count))
+                        .ctx("chosen_connection_count", static_cast<std::int64_t>(output.summary.chosen_connection_count))
+                        .ctx("demand_share_count"     , static_cast<std::int64_t>(output.summary.demand_share_count))
+                        .ctx("assigned_passengers"    , output.summary.assigned_passengers)
+                );
+            }
+
+            if (!output.loads.line_loads.empty()
+                || !output.loads.route_loads.empty()
+                || !output.loads.trip_loads.empty()
+                || !output.loads.segment_loads.empty()) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("disabled assignment output must not contain load rows")
+                );
+            }
+
+            for (const auto& od_result : output.od_results) {
+                if (od_result.search_connection_count != 0
+                    || od_result.chosen_connection_count != 0
+                    || !almost_equal_scalar(od_result.assigned_passengers, 0.0)
+                    || !od_result.connections.empty()) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("disabled assignment OD result must not contain calculated connections")
+                            .ctx("origin"                 , od_result.origin.get())
+                            .ctx("destination"            , od_result.destination.get())
+                            .ctx("search_connection_count", static_cast<std::int64_t>(od_result.search_connection_count))
+                            .ctx("chosen_connection_count", static_cast<std::int64_t>(od_result.chosen_connection_count))
+                            .ctx("assigned_passengers"    , od_result.assigned_passengers)
+                            .ctx("connection_count"       , static_cast<std::int64_t>(od_result.connections.size()))
+                    );
+                }
+                for (const auto& interval : od_result.intervals) {
+                    if (!almost_equal_scalar(interval.assigned_passengers, 0.0)
+                        || !interval.shares.empty()) {
+                        return mathfp::unexpected(
+                            mathfp::internal_error("disabled assignment interval must not contain split shares")
+                                .ctx("origin"             , od_result.origin.get())
+                                .ctx("destination"        , od_result.destination.get())
+                                .ctx("interval_id"        , interval.interval.id.get())
+                                .ctx("assigned_passengers", interval.assigned_passengers)
+                                .ctx("share_count"        , static_cast<std::int64_t>(interval.shares.size()))
+                        );
+                    }
+                }
+            }
+        }
+
         std::size_t search_count = 0;
         std::size_t chosen_count = 0;
         std::size_t share_count  = 0;
