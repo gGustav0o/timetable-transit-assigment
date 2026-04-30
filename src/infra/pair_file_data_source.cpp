@@ -128,7 +128,8 @@ namespace timetable::infra {
             double pjt_transfer_count{};
             double departure_early{};
             double departure_late{};
-            double beta{};
+            timetable::domain::SplitChoiceModel choice_model{};
+            double exponent{};
             double boxcox_t{};
             double gamma{};
             double temporal_similarity_scale{};
@@ -208,7 +209,8 @@ namespace timetable::infra {
                   , .pjt_transfer_count        = 2.0
                   , .departure_early           = 1.0
                   , .departure_late            = 1.0
-                  , .beta                      = 4.0
+                  , .choice_model              = timetable::domain::SplitChoiceModel::BoxCox
+                  , .exponent                  = 4.0
                   , .boxcox_t                  = 1.0
                   , .gamma                     = 1.0
                   , .temporal_similarity_scale = 60.0
@@ -472,8 +474,11 @@ namespace timetable::infra {
                           .early_departure = Dimless{ kPairRuntimeDefaultSpec.split.departure_early }
                         , .late_departure  = Dimless{ kPairRuntimeDefaultSpec.split.departure_late }
                     }
-                    , Dimless{ kPairRuntimeDefaultSpec.split.beta }
-                    , Dimless{ kPairRuntimeDefaultSpec.split.boxcox_t }
+                    , SplitChoiceModelConfig{
+                          .model    = kPairRuntimeDefaultSpec.split.choice_model
+                        , .exponent = Dimless{ kPairRuntimeDefaultSpec.split.exponent }
+                        , .boxcox_t = Dimless{ kPairRuntimeDefaultSpec.split.boxcox_t }
+                    }
                     , Dimless{ kPairRuntimeDefaultSpec.split.gamma }
                     , Dimless{ kPairRuntimeDefaultSpec.split.temporal_similarity_scale }
                     , Dimless{ kPairRuntimeDefaultSpec.split.higher_quality_scale }

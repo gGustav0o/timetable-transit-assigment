@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <map>
 #include <span>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -15,6 +16,7 @@
 #include <mathfp/core/summation.hpp>
 #include <mathfp/core/try.hpp>
 #include <mathfp/core/unit.hpp>
+#include <mathfp/types/units.hpp>
 
 #include "../detail/validation_common.hpp"
 
@@ -174,12 +176,58 @@ namespace timetable::domain::assignment {
             return lookup;
         }
 
+        mathfp::Expected<mathfp::Unit> validate_split_choice_model_config_for_runtime(
+            const SplitChoiceModelConfig& config
+        ) {
+            switch (config.model) {
+                case SplitChoiceModel::Kirchhoff:
+                case SplitChoiceModel::Logit:
+                case SplitChoiceModel::BoxCox:
+                    break;
+
+                case SplitChoiceModel::Lohse:
+                    return mathfp::unexpected(
+                        mathfp::invalid_arg("Lohse split choice model is not implemented")
+                            .ctx("choice_model", std::string(to_string(config.model)))
+                    );
+
+                default:
+                    return mathfp::unexpected(
+                        mathfp::invalid_arg("unsupported split choice model")
+                            .ctx("choice_model", static_cast<std::int64_t>(config.model))
+                    );
+            }
+
+            const auto exponent = mathfp::units::as_dimless(config.exponent);
+            if (!std::isfinite(exponent) || exponent <= 0.0) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("split choice model exponent must be finite and positive")
+                        .ctx("choice_model", std::string(to_string(config.model)))
+                        .ctx("exponent", exponent)
+                );
+            }
+
+            const auto boxcox_t = mathfp::units::as_dimless(config.boxcox_t);
+            if (!std::isfinite(boxcox_t)) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("split Box-Cox parameter must be finite")
+                        .ctx("choice_model", std::string(to_string(config.model)))
+                        .ctx("boxcox_t", boxcox_t)
+                );
+            }
+
+            return mathfp::kUnit;
+        }
+
     }  // namespace
 
     mathfp::Expected<mathfp::Unit> validate_split_step_input(
           const ConnectionChoiceResult& choice_result
         , const InputModel&             input
+        , const SplitParams&            params
     ) {
+        MATHFP_TRY(validate_split_choice_model_config_for_runtime(params.choice_model));
+
         if (input.intervals.empty()) {
             return mathfp::unexpected(
                 mathfp::invalid_arg("split step requires non-empty time intervals")

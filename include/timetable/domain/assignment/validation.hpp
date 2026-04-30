@@ -41,6 +41,7 @@ namespace timetable::domain::assignment {
     mathfp::Expected<mathfp::Unit> validate_split_step_input(
           const ConnectionChoiceResult& choice_result
         , const InputModel&           input
+        , const SplitParams&          params
     );
 
     mathfp::Expected<mathfp::Unit> validate_split_step_output(

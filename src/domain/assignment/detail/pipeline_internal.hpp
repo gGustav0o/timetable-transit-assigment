@@ -176,7 +176,7 @@ namespace timetable::domain::assignment::detail {
             );
         }
 
-        MATHFP_TRY(validate_split_step_input(choice_result, input));
+        MATHFP_TRY(validate_split_step_input(choice_result, input, params.split));
         MATHFP_TRY_LET(
               DemandSplitResult
             , split_result

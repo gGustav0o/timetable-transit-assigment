@@ -1,16 +1,19 @@
 #include "timetable/domain/assignment/split/split.hpp"
 
 #include <algorithm>
+#include <cstdint>
 #include <cmath>
 #include <limits>
 #include <map>
 #include <span>
+#include <string>
 #include <vector>
 
 #include <mathfp/core/error.hpp>
 #include <mathfp/core/numeric_tolerance.hpp>
 #include <mathfp/core/summation.hpp>
 #include <mathfp/core/try.hpp>
+#include <mathfp/core/unit.hpp>
 #include <mathfp/types/units.hpp>
 
 #include <fmt/format.h>
@@ -200,6 +203,92 @@ namespace timetable::domain::assignment {
             return (std::pow(positive, t) - 1.0) / t;
         }
 
+        double positive_log_argument(
+            double value
+        ) noexcept {
+            return std::max(value, numeric::positive_stability_floor());
+        }
+
+        double log_independence_weight(
+            double independence
+        ) noexcept {
+            return std::log(positive_log_argument(independence));
+        }
+
+        double kirchhoff_log_weight(
+              double exponent
+            , double impedance
+            , double independence
+        ) noexcept {
+            return log_independence_weight(independence)
+                - exponent * std::log(positive_log_argument(impedance));
+        }
+
+        double logit_log_weight(
+              double exponent
+            , double impedance
+            , double independence
+        ) noexcept {
+            return log_independence_weight(independence)
+                - exponent * impedance;
+        }
+
+        double boxcox_log_weight(
+              double exponent
+            , double boxcox_t
+            , double impedance
+            , double independence
+        ) noexcept {
+            return log_independence_weight(independence)
+                - exponent * box_cox_transform(impedance, boxcox_t);
+        }
+
+        mathfp::Expected<mathfp::Unit> validate_supported_split_choice_model(
+            SplitChoiceModel model
+        ) {
+            if (model == SplitChoiceModel::Lohse) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("Lohse split choice model is not implemented")
+                        .ctx("choice_model", std::string(to_string(model)))
+                );
+            }
+            return mathfp::kUnit;
+        }
+
+        mathfp::Expected<double> split_choice_log_weight(
+              const SplitChoiceModelConfig& model
+            , double                        impedance
+            , double                        independence
+        ) {
+            const auto exponent = mathfp::units::as_dimless(model.exponent);
+            switch (model.model) {
+                case SplitChoiceModel::Kirchhoff:
+                    return kirchhoff_log_weight(exponent, impedance, independence);
+
+                case SplitChoiceModel::Logit:
+                    return logit_log_weight(exponent, impedance, independence);
+
+                case SplitChoiceModel::BoxCox:
+                    return boxcox_log_weight(
+                          exponent
+                        , mathfp::units::as_dimless(model.boxcox_t)
+                        , impedance
+                        , independence
+                    );
+
+                case SplitChoiceModel::Lohse:
+                    return mathfp::unexpected(
+                        mathfp::invalid_arg("Lohse split choice model is not implemented")
+                            .ctx("choice_model", std::string(to_string(model.model)))
+                    );
+            }
+
+            return mathfp::unexpected(
+                mathfp::invalid_arg("unsupported split choice model")
+                    .ctx("choice_model", static_cast<std::int64_t>(model.model))
+            );
+        }
+
         double temporal_similarity(
               const SplitAlternative& lhs
             , const SplitAlternative& rhs
@@ -384,13 +473,16 @@ namespace timetable::domain::assignment {
         using timetable::infra::progress::both;
         using timetable::infra::progress::log;
 
+        MATHFP_TRY(validate_supported_split_choice_model(params.split.choice_model.model));
+
         both("split: demand assignment");
         log(
             fmt::format(
-                  "split input: chosen_connections = {:>8}  choice_tasks = {:>8}  demand_entries = {:>8}"
+                  "split input: chosen_connections = {:>8}  choice_tasks = {:>8}  demand_entries = {:>8}  choice_model = {}"
                 , choice_result.connections.size()
                 , choice_result.task_results.size()
                 , input.demand.size()
+                , to_string(params.split.choice_model.model)
             )
             , LogLevel::Info
         );
@@ -402,8 +494,6 @@ namespace timetable::domain::assignment {
             , build_choice_task_lookup(choice_result)
         );
         const auto interval_lookup    = build_interval_lookup(input);
-        const auto beta               = mathfp::units::as_dimless(params.split.beta);
-        const auto boxcox_t           = mathfp::units::as_dimless(params.split.boxcox_t);
         std::size_t suppressed_numerical_shares = 0;
 
         for (const auto& demand : input.demand) {
@@ -470,12 +560,11 @@ namespace timetable::domain::assignment {
                     , *interval
                     , params.split
                 );
-                const auto transformed = box_cox_transform(imp, boxcox_t);
-                const auto log_weight = std::log(std::max(
-                      independence
-                    , numeric::positive_stability_floor()
-                ))
-                    - beta * transformed;
+                MATHFP_TRY_LET(double, log_weight, split_choice_log_weight(
+                      params.split.choice_model
+                    , imp
+                    , independence
+                ));
 
                 independences   .push_back(independence);
                 split_impedances.push_back(imp);

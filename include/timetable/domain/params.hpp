@@ -1,10 +1,13 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <optional>
+#include <string_view>
 
 #include <mathfp/types/strong_type.hpp>
 
+#include "timetable/enum_string.hpp"
 #include "timetable/domain/scalars.hpp"
 
 namespace timetable::domain {
@@ -139,10 +142,51 @@ namespace timetable::domain {
         Dimless late_departure{};
     };
 
+    enum class SplitChoiceModel : std::uint8_t {
+          Kirchhoff
+        , Logit
+        , Lohse
+        , BoxCox
+    };
+
+    inline constexpr std::array kSplitChoiceModelTokens{
+          timetable::EnumStringEntry<SplitChoiceModel>{
+              SplitChoiceModel::Kirchhoff, "Kirchhoff"
+          }
+        , timetable::EnumStringEntry<SplitChoiceModel>{
+              SplitChoiceModel::Logit, "Logit"
+          }
+        , timetable::EnumStringEntry<SplitChoiceModel>{
+              SplitChoiceModel::Lohse, "Lohse"
+          }
+        , timetable::EnumStringEntry<SplitChoiceModel>{
+              SplitChoiceModel::BoxCox, "BoxCox"
+          }
+    };
+
+    [[nodiscard]] inline constexpr std::string_view to_string(
+        SplitChoiceModel value
+    ) noexcept {
+        return timetable::enum_to_string(value, kSplitChoiceModelTokens);
+    }
+
+    [[nodiscard]] inline constexpr std::optional<SplitChoiceModel> split_choice_model_from_string(
+        std::string_view token
+    ) noexcept {
+        return timetable::enum_from_string(token, kSplitChoiceModelTokens);
+    }
+
+    struct SplitChoiceModelConfig final {
+        SplitChoiceModel model{ SplitChoiceModel::BoxCox };
+        Dimless          exponent{};
+        Dimless          boxcox_t{};
+    };
+
     /**
      * @brief Parameters for demand split across connections.
      *
-     * beta controls MNL sensitivity; boxcox_t is the Box-Cox parameter.
+     * choice_model controls the demand-allocation model and its exponent. For
+     * Box-Cox it also carries the transformation parameter t.
      * gamma and the asymmetric independence scales control the evaluation
      * function f_c(c') from the paper:
      * - temporal_similarity_scale corresponds to s_x
@@ -157,8 +201,7 @@ namespace timetable::domain {
         Dimless                     q_fare{};
         PerceivedJourneyTimeWeights perceived_journey_time{};
         TemporalUtilityWeights      temporal_utility{};
-        Dimless                     beta{};
-        Dimless                     boxcox_t{};
+        SplitChoiceModelConfig      choice_model{};
         Dimless                     gamma{};
         Dimless                     temporal_similarity_scale{};
         Dimless                     higher_quality_scale{};

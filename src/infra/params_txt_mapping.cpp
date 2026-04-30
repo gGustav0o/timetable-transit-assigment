@@ -107,10 +107,6 @@ namespace timetable::infra::params_txt::detail {
             double lower_quality_scale{};
         };
 
-        struct SplitScalarFields final {
-            double boxcox_t{};
-        };
-
         struct SkimMatrixFields final {
             bool        enabled{};
             std::string func{};
@@ -256,19 +252,23 @@ namespace timetable::infra::params_txt::detail {
                 };
 
                 std::array<NumberFieldSpec, 1> split_scalars{
-                    NumberFieldSpec{ "BoxCoxPara", "root.splitPara", "split.boxcox_t" }
+                    NumberFieldSpec{ "BoxCoxPara", "root.splitPara", "split.choice_model.boxcox_t" }
                 };
 
                 std::array<NumberFieldSpec, 1> split_choice_model_exponent{
-                    NumberFieldSpec{ "KirchhoffExp", "root.splitPara", "split.beta" }
+                    NumberFieldSpec{ "KirchhoffExp", "root.splitPara", "split.choice_model.exponent" }
                 };
 
                 std::array<NumberFieldSpec, 1> split_logit_exponent{
-                    NumberFieldSpec{ "logitExp", "root.splitPara", "split.beta" }
+                    NumberFieldSpec{ "logitExp", "root.splitPara", "split.choice_model.exponent" }
                 };
 
                 std::array<NumberFieldSpec, 1> split_lohse_exponent{
-                    NumberFieldSpec{ "LohseExp", "root.splitPara", "split.beta" }
+                    NumberFieldSpec{ "LohseExp", "root.splitPara", "split.choice_model.exponent" }
+                };
+
+                std::array<NumberFieldSpec, 1> split_boxcox_exponent{
+                    NumberFieldSpec{ "BoxCoxExp", "root.splitPara", "split.choice_model.exponent" }
                 };
             };
 
@@ -444,14 +444,6 @@ namespace timetable::infra::params_txt::detail {
             };
         }
 
-        mathfp::Expected<SplitScalarFields> read_split_scalar_fields(
-              const Object&                                         obj
-            , const std::array<NumberFieldSpec, 1>& field_specs
-        ) {
-            MATHFP_TRY_LET(DoubleArray<1>, values, read_number_array(obj, field_specs));
-            return SplitScalarFields{ .boxcox_t = values[0] };
-        }
-
         mathfp::Expected<timetable::domain::SearchTolerances> parse_search_tolerances(
             const Object& search_tol
         ) {
@@ -560,33 +552,42 @@ namespace timetable::infra::params_txt::detail {
             );
         }
 
-        mathfp::Expected<double> parse_choice_model_beta(
+        mathfp::Expected<timetable::domain::SplitChoiceModelConfig> parse_split_choice_model_config(
             const Object& split_para
         ) {
+            using namespace timetable::domain;
+
             MATHFP_TRY_LET(
                   StringArray<1>
                 , values
                 , read_string_array(split_para, schema::kParamsTxtSchema.split_choice_model)
             );
             const auto& choice_model = values[0];
+            const auto parsed_model = split_choice_model_from_string(choice_model);
+            if (!parsed_model.has_value()) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("unsupported choiceModel")
+                    .ctx("choiceModel", choice_model)
+                );
+            }
 
             struct ChoiceModelSpec final {
-                std::string_view model{};
+                SplitChoiceModel model{};
                 const std::array<NumberFieldSpec, 1>* exponent_spec{};
             };
 
             constexpr auto specs = std::array{
-                  ChoiceModelSpec{ "Kirchhoff", &schema::kParamsTxtSchema.split_choice_model_exponent }
-                , ChoiceModelSpec{ "Logit"    , &schema::kParamsTxtSchema.split_logit_exponent }
-                , ChoiceModelSpec{ "Lohse"    , &schema::kParamsTxtSchema.split_lohse_exponent }
-                , ChoiceModelSpec{ "BoxCox"   , &schema::kParamsTxtSchema.split_choice_model_exponent }
+                  ChoiceModelSpec{ SplitChoiceModel::Kirchhoff, &schema::kParamsTxtSchema.split_choice_model_exponent }
+                , ChoiceModelSpec{ SplitChoiceModel::Logit    , &schema::kParamsTxtSchema.split_logit_exponent }
+                , ChoiceModelSpec{ SplitChoiceModel::Lohse    , &schema::kParamsTxtSchema.split_lohse_exponent }
+                , ChoiceModelSpec{ SplitChoiceModel::BoxCox   , &schema::kParamsTxtSchema.split_boxcox_exponent }
             };
 
             const auto it = std::find_if(
                   specs.begin()
                 , specs.end()
                 , [&](const ChoiceModelSpec& spec) {
-                    return spec.model == choice_model;
+                    return spec.model == *parsed_model;
                 }
             );
             if (it == specs.end()) {
@@ -597,7 +598,19 @@ namespace timetable::infra::params_txt::detail {
             }
 
             MATHFP_TRY_LET(DoubleArray<1>, exponent_values, read_number_array(split_para, *it->exponent_spec));
-            return exponent_values[0];
+            auto boxcox_t = 0.0;
+            if (*parsed_model == SplitChoiceModel::BoxCox) {
+                MATHFP_TRY_LET(DoubleArray<1>, boxcox_values, read_number_array(
+                    split_para, schema::kParamsTxtSchema.split_scalars
+                ));
+                boxcox_t = boxcox_values[0];
+            }
+
+            return SplitChoiceModelConfig{
+                  .model    = *parsed_model
+                , .exponent = Dimless{ exponent_values[0] }
+                , .boxcox_t = Dimless{ boxcox_t }
+            };
         }
 
         mathfp::Expected<timetable::domain::SplitParams> parse_split_params(
@@ -630,13 +643,10 @@ namespace timetable::infra::params_txt::detail {
                 )
             );
             MATHFP_TRY_LET(
-                  SplitScalarFields
-                , split_scalars
-                , read_split_scalar_fields(
-                    split_para, schema::kParamsTxtSchema.split_scalars
-                )
+                  SplitChoiceModelConfig
+                , choice_model
+                , parse_split_choice_model_config(split_para)
             );
-            MATHFP_TRY_LET(double, beta, parse_choice_model_beta(split_para));
 
             return make_split_params(
                   Dimless{ split_imp_fields.time }
@@ -654,8 +664,7 @@ namespace timetable::infra::params_txt::detail {
                       .early_departure = Dimless{ split_imp_fields.departure_early }
                     , .late_departure  = Dimless{ split_imp_fields.departure_late }
                 }
-                , Dimless{ beta }
-                , Dimless{ split_scalars.boxcox_t }
+                , choice_model
                 , Dimless{ indep_fields.gamma }
                 , Dimless{ indep_fields.temporal_similarity_scale }
                 , Dimless{ indep_fields.higher_quality_scale }

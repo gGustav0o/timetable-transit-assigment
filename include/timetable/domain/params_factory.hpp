@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <utility>
 
 #include <mathfp/core/expected.hpp>
@@ -47,14 +48,48 @@ namespace timetable::domain {
               Dimless   q_time
             , Dimless q_departure
             , Dimless q_fare
-            , Dimless boxcox_t
             , Dimless gamma
         ) {
             MATHFP_TRY(validation::ensure_nonneg(q_time     , "q_time"));
             MATHFP_TRY(validation::ensure_nonneg(q_departure, "q_departure"));
             MATHFP_TRY(validation::ensure_nonneg(q_fare     , "q_fare"));
-            MATHFP_TRY(validation::ensure_nonneg(boxcox_t   , "boxcox_t"));
             MATHFP_TRY(validation::ensure_nonneg(gamma      , "gamma"));
+            return mathfp::kUnit;
+        }
+
+        inline mathfp::Expected<mathfp::Unit> ensure_split_choice_model_config(
+            SplitChoiceModelConfig config
+        ) {
+            switch (config.model) {
+                case SplitChoiceModel::Kirchhoff:
+                case SplitChoiceModel::Logit:
+                case SplitChoiceModel::Lohse:
+                case SplitChoiceModel::BoxCox:
+                    break;
+                default: {
+                    const char* message = "unsupported split choice model";
+                    return validation::fail(
+                          message
+                        , mathfp::invalid_arg(message)
+                            .ctx("choice_model", static_cast<std::int64_t>(config.model))
+                    );
+                }
+            }
+
+            MATHFP_TRY(validation::ensure_positive(
+                config.exponent, "split.choice_model.exponent"
+            ));
+
+            const auto boxcox_t = mathfp::units::as_dimless(config.boxcox_t);
+            if (!validation::is_finite(boxcox_t)) {
+                const char* message = "Box-Cox parameter is not finite";
+                return validation::fail(
+                      message
+                    , mathfp::invalid_arg(message)
+                        .ctx("choice_model", std::string(to_string(config.model)))
+                );
+            }
+
             return mathfp::kUnit;
         }
 
@@ -95,12 +130,10 @@ namespace timetable::domain {
         }
 
         inline mathfp::Expected<mathfp::Unit> ensure_positive_split_scales(
-              Dimless   beta
-            , Dimless temporal_similarity_scale
+              Dimless temporal_similarity_scale
             , Dimless higher_quality_scale
             , Dimless lower_quality_scale
         ) {
-            MATHFP_TRY(validation::ensure_positive(beta, "beta"));
             MATHFP_TRY(validation::ensure_positive(
                 temporal_similarity_scale, "temporal_similarity_scale"
             ));
@@ -280,16 +313,16 @@ namespace timetable::domain {
         , Dimless                     q_fare
         , PerceivedJourneyTimeWeights perceived_journey_time
         , TemporalUtilityWeights      temporal_utility
-        , Dimless                     beta
-        , Dimless                     boxcox_t
+        , SplitChoiceModelConfig      choice_model
         , Dimless                     gamma
         , Dimless                     temporal_similarity_scale
         , Dimless                     higher_quality_scale
         , Dimless                     lower_quality_scale
     ) {
         MATHFP_TRY(detail::ensure_nonnegative_split_weights(
-            q_time, q_departure, q_fare, boxcox_t, gamma
+            q_time, q_departure, q_fare, gamma
         ));
+        MATHFP_TRY(detail::ensure_split_choice_model_config(choice_model));
         MATHFP_TRY(detail::ensure_nonnegative_perceived_journey_time_weights(
             perceived_journey_time
         ));
@@ -297,8 +330,7 @@ namespace timetable::domain {
             temporal_utility
         ));
         MATHFP_TRY(detail::ensure_positive_split_scales(
-              beta
-            , temporal_similarity_scale
+              temporal_similarity_scale
             , higher_quality_scale
             , lower_quality_scale
         ));
@@ -309,8 +341,7 @@ namespace timetable::domain {
             , .q_fare                    = q_fare
             , .perceived_journey_time    = perceived_journey_time
             , .temporal_utility          = temporal_utility
-            , .beta                      = beta
-            , .boxcox_t                  = boxcox_t
+            , .choice_model              = choice_model
             , .gamma                     = gamma
             , .temporal_similarity_scale = temporal_similarity_scale
             , .higher_quality_scale      = higher_quality_scale
