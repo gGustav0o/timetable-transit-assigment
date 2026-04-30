@@ -1,6 +1,5 @@
 #pragma once
 
-#include <string>
 #include <utility>
 #include <vector>
 
@@ -169,18 +168,21 @@ namespace timetable::domain::assignment::detail {
         , const SearchParams&           params
         , const DemandSegmentTimeConfig& demand_segment_time
     ) {
-        if (demand_segment_time.basis == DemandSegmentBasis::Arrival) {
-            return mathfp::unexpected(
-                mathfp::invalid_arg("arrival-based demand segment split semantics is not implemented")
-                    .ctx("basis", std::string(to_string(demand_segment_time.basis)))
-            );
-        }
-
-        MATHFP_TRY(validate_split_step_input(choice_result, input, params.split));
+        MATHFP_TRY(validate_split_step_input(
+              choice_result
+            , input
+            , params.split
+            , demand_segment_time
+        ));
         MATHFP_TRY_LET(
               DemandSplitResult
             , split_result
-            , split_demand_over_connections(choice_result, input, params)
+            , split_demand_over_connections(
+                  choice_result
+                , input
+                , params
+                , demand_segment_time
+            )
         );
         MATHFP_TRY(validate_split_step_output(
               split_result

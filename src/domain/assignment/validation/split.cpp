@@ -225,8 +225,10 @@ namespace timetable::domain::assignment {
           const ConnectionChoiceResult& choice_result
         , const InputModel&             input
         , const SplitParams&            params
+        , const DemandSegmentTimeConfig& demand_segment_time
     ) {
         MATHFP_TRY(validate_split_choice_model_config_for_runtime(params.choice_model));
+        MATHFP_TRY(validate_demand_segment_time_config(demand_segment_time));
 
         if (input.intervals.empty()) {
             return mathfp::unexpected(

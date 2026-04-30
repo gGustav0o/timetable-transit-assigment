@@ -10,7 +10,7 @@
   - choicePara.deleteConnsOutsideAssignmentPeriod — подключен как флаг удаления complete connection до dominance retention.
   - choicePara.deleteConnsWithDepBeforeAssPeriodForDepBasedDSeg — подключен как флаг удаления departure-based complete connection до dominance retention.
   - choicePara.deleteConnsWithArrAfterAssPeriodForArrBasedDSeg — подключен как флаг удаления arrival-based complete connection до dominance retention.
-  - splitPara.depBasedDSeg — подключен как выбор временной основы demand segment для admissibility-фильтра: departure/arrival; полная split-семантика пока поддерживает только departure-based режим.
+  - splitPara.depBasedDSeg — подключен как выбор временной основы demand segment для admissibility-фильтра и split temporal utility: departure/arrival.
   - splitPara.considerConnsWithPosDeltaT — подключен как флаг admissibility-фильтра complete connections.
   - splitPara.choiceModel — подключен как выбор модели распределения спроса между выбранными соединениями.
   - splitPara.KirchhoffExp — подключен как exponent для choiceModel = Kirchhoff.
@@ -42,8 +42,22 @@
   - дополнительно complete connections проверяются до помещения в dominance retention, чтобы недопустимые соединения не вытесняли допустимые альтернативы;
   - перед choice выполняется защитная повторная фильтрация тем же admissibility-предикатом;
   - validation search/choice проверяет, что в результирующих task_results не осталось соединений, запрещенных admissibility-предикатом;
-  - если задан флаг удаления, не соответствующий текущей основе demand segment, preprocessing выдает предупреждение; при splitPara.depBasedDSeg = 0 pipeline дополнительно останавливается перед split;
+  - если задан флаг удаления, не соответствующий текущей основе demand segment, preprocessing выдает предупреждение;
   - SearchTimePaddingPolicy не используется для построения search tasks и остается отдельной моделью для search-time-domain planning/optimization.
+
+Семантика splitPara.depBasedDSeg и delta_t:
+
+  - splitPara.depBasedDSeg = 1 задает departure-based demand segment: интервал спроса относится ко времени отправления соединения;
+  - splitPara.depBasedDSeg = 0 задает arrival-based demand segment: интервал спроса относится ко времени прибытия соединения;
+  - в split temporal utility departure-based режим использует reference_time = departure_time;
+  - в split temporal utility arrival-based режим использует reference_time = arrival_time;
+  - раннее отклонение temporal utility считается как max(0, interval.start - reference_time);
+  - позднее отклонение temporal utility считается как max(0, reference_time - interval.end);
+  - admissibility delta_t имеет направленный смысл для фильтра considerConnsWithPosDeltaT:
+      Departure: delta_t = departure_time - interval.end, положительное значение означает отправление после конца интервала;
+      Arrival: delta_t = interval.start - arrival_time, положительное значение означает прибытие до начала интервала;
+  - если splitPara.considerConnsWithPosDeltaT = 0, соединения с положительным delta_t удаляются;
+  - SearchTimePaddingPolicy, admissibility-фильтр и split temporal utility используют совместимую основу demand segment, но остаются отдельными доменными механизмами.
 
 Семантика splitPara.choiceModel:
 
@@ -64,7 +78,6 @@
   - searchPara.useLastStopForEquivalentConnections — также относится к equivalence logic.
   - splitPara.BoxCoxTransformImp — не подключен как отдельный флаг; сейчас преобразование Box-Cox определяется выбором choiceModel = BoxCox.
   - Independence.useIndependence — сейчас independence factor применяется всегда; нужен флаг в SplitParams.
-  - полная arrival-based split-семантика для splitPara.depBasedDSeg = 0 — admissibility-фильтр учитывает arrival basis, но pipeline явно останавливается перед split, чтобы не применять departure-time temporal utility к arrival-based demand segment.
   - splitPara.LohseExp — параметр читается, но формула Lohse пока не утверждена и runtime явно отклоняет choiceModel = Lohse.
 
   Неоднозначны или требуют уточнения смысла

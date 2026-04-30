@@ -7,6 +7,7 @@
 #include "timetable/domain/model.hpp"
 #include "timetable/domain/params.hpp"
 #include "timetable/domain/assignment/choice/choice.hpp"
+#include "timetable/domain/assignment/connection_admissibility.hpp"
 
 namespace timetable::domain::assignment {
 
@@ -32,6 +33,7 @@ namespace timetable::domain::assignment {
           const ConnectionChoiceResult& choice_result
         , const InputModel&           input
         , const SearchParams&         params
+        , const DemandSegmentTimeConfig& demand_segment_time
     );
 
 }  // namespace timetable::domain::assignment

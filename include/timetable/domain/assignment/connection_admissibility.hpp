@@ -45,9 +45,15 @@ namespace timetable::domain::assignment {
     /**
      * @brief Demand-segment time semantics controlled by splitPara.
      *
-     * Departure is the currently implemented behavioral split basis. Arrival is
-     * modeled explicitly so parser/runtime plumbing can reject or route it
-     * deliberately until arrival-based split utility is implemented.
+     * The basis defines which realized connection time is compared with the
+     * demand interval in admissibility and split temporal utility:
+     * - Departure uses departure_time;
+     * - Arrival uses arrival_time.
+     *
+     * demand_segment_delta_t follows the side of the interval that is outside
+     * the preferred demand segment:
+     * - Departure: departure_time - interval.end;
+     * - Arrival: interval.start - arrival_time.
      */
     struct DemandSegmentTimeConfig final {
         DemandSegmentBasis basis{ DemandSegmentBasis::Departure };

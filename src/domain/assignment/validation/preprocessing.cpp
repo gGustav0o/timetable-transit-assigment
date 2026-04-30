@@ -93,7 +93,7 @@ namespace timetable::domain::assignment {
 
             if (demand_time.basis == DemandSegmentBasis::Arrival) {
                 detail::validation::warn(
-                    "preprocessing input: arrival-based demand segment filtering is enabled; split stage will reject it until arrival-based split utility is implemented"
+                    "preprocessing input: arrival-based demand segment filtering is enabled; split temporal utility will use arrival time as reference"
                 );
             }
 

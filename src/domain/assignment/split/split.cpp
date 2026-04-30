@@ -19,6 +19,7 @@
 #include <fmt/format.h>
 
 #include "../detail/grouping.hpp"
+#include "timetable/domain/assignment/connection_admissibility.hpp"
 #include "timetable/domain/numeric.hpp"
 #include "timetable/infra/progress_bus.hpp"
 
@@ -146,48 +147,72 @@ namespace timetable::domain::assignment {
                 + weighted_transfer_count(metrics.transfer_count, weights.transfer_count);
         }
 
-        double early_departure_deviation(
-              const SplitAlternative& alternative
-            , const TimeInterval&     interval
+        Time split_reference_time(
+              const ConnectionMetrics& metrics
+            , DemandSegmentBasis       basis
+        ) noexcept {
+            switch (basis) {
+                case DemandSegmentBasis::Departure:
+                    return metrics.departure_time;
+                case DemandSegmentBasis::Arrival:
+                    return metrics.arrival_time;
+            }
+            return metrics.departure_time;
+        }
+
+        double split_early_deviation(
+              Time                reference_time
+            , const TimeInterval& interval
         ) noexcept {
             return std::max(
                   0.0
-                , interval.start.value() - alternative.metrics.departure_time.value()
+                , interval.start.value() - reference_time.value()
             );
         }
 
-        double late_departure_deviation(
-              const SplitAlternative& alternative
-            , const TimeInterval&     interval
+        double split_late_deviation(
+              Time                reference_time
+            , const TimeInterval& interval
         ) noexcept {
             return std::max(
                   0.0
-                , alternative.metrics.departure_time.value() - interval.end.value()
+                , reference_time.value() - interval.end.value()
             );
         }
 
         double temporal_utility(
               const SplitAlternative&       alternative
             , const TimeInterval&           interval
+            , DemandSegmentBasis            basis
             , const TemporalUtilityWeights& weights
         ) noexcept {
+            const auto reference_time = split_reference_time(
+                  alternative.metrics
+                , basis
+            );
             return
                   mathfp::units::as_dimless(weights.early_departure)
-                    * early_departure_deviation(alternative, interval)
+                    * split_early_deviation(reference_time, interval)
                 + mathfp::units::as_dimless(weights.late_departure)
-                    * late_departure_deviation(alternative, interval);
+                    * split_late_deviation(reference_time, interval);
         }
 
         double split_impedance(
               const SplitAlternative& alternative
             , const TimeInterval&     interval
             , const SplitParams&      params
+            , DemandSegmentBasis      basis
         ) noexcept {
             return
                   mathfp::units::as_dimless(params.q_time)
                     * alternative.perceived_journey_time
                 + mathfp::units::as_dimless(params.q_departure)
-                    * temporal_utility(alternative, interval, params.temporal_utility)
+                    * temporal_utility(
+                          alternative
+                        , interval
+                        , basis
+                        , params.temporal_utility
+                    )
                 + mathfp::units::as_dimless(params.q_fare)
                     * alternative.metrics.fare;
         }
@@ -468,21 +493,24 @@ namespace timetable::domain::assignment {
           const ConnectionChoiceResult& choice_result
         , const InputModel&             input
         , const SearchParams&           params
+        , const DemandSegmentTimeConfig& demand_segment_time
     ) {
         using timetable::infra::LogLevel;
         using timetable::infra::progress::both;
         using timetable::infra::progress::log;
 
         MATHFP_TRY(validate_supported_split_choice_model(params.split.choice_model.model));
+        MATHFP_TRY(validate_demand_segment_time_config(demand_segment_time));
 
         both("split: demand assignment");
         log(
             fmt::format(
-                  "split input: chosen_connections = {:>8}  choice_tasks = {:>8}  demand_entries = {:>8}  choice_model = {}"
+                  "split input: chosen_connections = {:>8}  choice_tasks = {:>8}  demand_entries = {:>8}  choice_model = {}  demand_basis = {}"
                 , choice_result.connections.size()
                 , choice_result.task_results.size()
                 , input.demand.size()
                 , to_string(params.split.choice_model.model)
+                , to_string(demand_segment_time.basis)
             )
             , LogLevel::Info
         );
@@ -559,6 +587,7 @@ namespace timetable::domain::assignment {
                       alternatives[i]
                     , *interval
                     , params.split
+                    , demand_segment_time.basis
                 );
                 MATHFP_TRY_LET(double, log_weight, split_choice_log_weight(
                       params.split.choice_model
