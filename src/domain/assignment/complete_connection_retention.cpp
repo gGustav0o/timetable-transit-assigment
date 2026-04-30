@@ -134,10 +134,29 @@ namespace timetable::domain::assignment {
         };
     }
 
-    bool complete_connection_dominates(
-          const CompleteConnectionMetrics& lhs
-        , const CompleteConnectionMetrics& rhs
+    bool is_direct_connection(
+        const CompleteConnectionMetrics& metrics
     ) noexcept {
+        return metrics.transfers.get() == 0;
+    }
+
+    bool complete_connection_can_dominate(
+          const CompleteConnectionDominanceConfig& config
+        , const CompleteConnectionMetrics&         metrics
+    ) noexcept {
+        return !config.deactivate_dominance_of_direct_connections
+            || !is_direct_connection(metrics);
+    }
+
+    bool complete_connection_dominates(
+          const CompleteConnectionDominanceConfig& config
+        , const CompleteConnectionMetrics&         lhs
+        , const CompleteConnectionMetrics&         rhs
+    ) noexcept {
+        if (!complete_connection_can_dominate(config, lhs)) {
+            return false;
+        }
+
         const auto no_worse =
                lhs.departure.value() >= rhs.departure.value()
             && lhs.arrival  .value() <= rhs.arrival  .value()
@@ -151,6 +170,17 @@ namespace timetable::domain::assignment {
             || lhs.transfers.get()    < rhs.transfers.get();
 
         return no_worse && strictly_better;
+    }
+
+    bool complete_connection_dominates(
+          const CompleteConnectionMetrics& lhs
+        , const CompleteConnectionMetrics& rhs
+    ) noexcept {
+        return complete_connection_dominates(
+              CompleteConnectionDominanceConfig{}
+            , lhs
+            , rhs
+        );
     }
 
     bool within_complete_connection_tolerances(
@@ -183,6 +213,7 @@ namespace timetable::domain::assignment {
         , SearchConnection             connection
         , const SearchParams&          params
         , double                       fare_scale
+        , const CompleteConnectionDominanceConfig& dominance_config
     ) {
         auto candidate = make_complete_connection_alternative(
               std::move(connection)
@@ -197,7 +228,11 @@ namespace timetable::domain::assignment {
                     , .removed_dominated = 0
                 };
             }
-            if (complete_connection_dominates(known.metrics, candidate.metrics)) {
+            if (complete_connection_dominates(
+                  dominance_config
+                , known.metrics
+                , candidate.metrics
+            )) {
                 return CompleteConnectionRetentionDecision{
                       .accepted          = false
                     , .removed_dominated = 0
@@ -211,7 +246,11 @@ namespace timetable::domain::assignment {
                     retention.alternatives.begin()
                   , retention.alternatives.end()
                   , [&](const CompleteConnectionAlternative& known) {
-                        return complete_connection_dominates(candidate.metrics, known.metrics);
+                        return complete_connection_dominates(
+                              dominance_config
+                            , candidate.metrics
+                            , known.metrics
+                        );
                     }
                 )
             , retention.alternatives.end()
@@ -222,6 +261,21 @@ namespace timetable::domain::assignment {
               .accepted          = true
             , .removed_dominated = removed
         };
+    }
+
+    CompleteConnectionRetentionDecision retain_exact_complete_connection(
+          CompleteConnectionRetention& retention
+        , SearchConnection             connection
+        , const SearchParams&          params
+        , double                       fare_scale
+    ) {
+        return retain_exact_complete_connection(
+              retention
+            , std::move(connection)
+            , params
+            , fare_scale
+            , CompleteConnectionDominanceConfig{}
+        );
     }
 
     std::vector<SearchConnection> finalize_complete_connection_retention(

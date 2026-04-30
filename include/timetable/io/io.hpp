@@ -17,8 +17,8 @@ namespace timetable::io {
 
     // Primary maintained input path.
     // This is the only supported runtime contract in the current project stage.
-    // If params.txt is present, the active runtime path uses the SearchParams
-    // subset already represented in the domain model.
+    // If params.txt is present, the active runtime path uses modeled runtime
+    // parameters represented in the domain model.
     // Pair layout directory:
     // - connection_segments_input.csv
     // - params.txt

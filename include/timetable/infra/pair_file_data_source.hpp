@@ -16,7 +16,7 @@ namespace timetable::infra {
      *
      * Current scope note:
      * - this is the only supported runtime path for the minimal working project;
-     * - params.txt is used for the SearchParams subset that is already modeled;
+     * - params.txt is used for modeled runtime parameters;
      * - runtime rollout configs still use built-in defaults.
      */
     mathfp::Expected<std::unique_ptr<io::DataSource>> make_pair_file_data_source(

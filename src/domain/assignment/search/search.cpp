@@ -26,6 +26,7 @@
 #include "timetable/domain/assignment/complete_connection_retention.hpp"
 #include "timetable/domain/assignment/search_pruning.hpp"
 #include "timetable/domain/assignment/search_pruning_diagnostics.hpp"
+#include "timetable/domain/assignment/validation.hpp"
 #include "timetable/domain/impedance.hpp"
 #include "timetable/domain/assignment/search/branch_state.hpp"
 #include "timetable/domain/assignment/search/residual_reachability.hpp"
@@ -1564,9 +1565,13 @@ namespace timetable::domain::assignment {
         }
 
         [[nodiscard]] bool complete_connection_dominates_completion_lower_bound(
-              const CompleteConnectionMetrics& complete
-            , const CompletionMetricLowerBound& lower_bound
+              const CompleteConnectionDominanceConfig& dominance_config
+            , const CompleteConnectionMetrics&         complete
+            , const CompletionMetricLowerBound&        lower_bound
         ) noexcept {
+            if (!complete_connection_can_dominate(dominance_config, complete)) {
+                return false;
+            }
             if (!lower_bound.departure.has_value() || !lower_bound.arrival.has_value()) {
                 return false;
             }
@@ -1633,6 +1638,7 @@ namespace timetable::domain::assignment {
             , const CompleteConnectionRetention& complete_retention
             , const SearchParams&                params
             , const ChoiceConfig&                choice_config
+            , const CompleteConnectionDominanceConfig& dominance_config
             , double                             fare_scale
         ) noexcept {
             if (complete_retention.alternatives.empty()) {
@@ -1661,7 +1667,8 @@ namespace timetable::domain::assignment {
 
             for (const auto& complete : complete_retention.alternatives) {
                 if (complete_connection_dominates_completion_lower_bound(
-                      complete.metrics
+                      dominance_config
+                    , complete.metrics
                     , lower_bound
                 )) {
                     return SuffixLowerBoundPruningDecision{
@@ -2539,6 +2546,7 @@ namespace timetable::domain::assignment {
             , const SearchTask&          task
             , const AssignmentPeriodConfig& assignment_period
             , const ConnectionAdmissibilityConfig& admissibility_config
+            , const CompleteConnectionDominanceConfig& dominance_config
             , SearchTaskRetention&       retention
             , TaskSearchStats&           stats
         ) {
@@ -2563,6 +2571,7 @@ namespace timetable::domain::assignment {
                     , std::move(*complete)
                     , params
                     , fare_scale
+                    , dominance_config
                 );
                 stats.removed_complete_dominated += retention_decision.removed_dominated;
                 if (!retention_decision.accepted) {
@@ -2582,6 +2591,7 @@ namespace timetable::domain::assignment {
             , const AssignmentPeriodConfig&      assignment_period
             , const ConnectionAdmissibilityConfig& admissibility_config
             , const SearchPruningExecutionPlan& pruning_execution
+            , const CompleteConnectionDominanceConfig& complete_connection_dominance
             , std::size_t                       batch_index
             , std::size_t                       batch_count
             , std::vector<SearchTaskResult>&    result_slots
@@ -2831,6 +2841,7 @@ namespace timetable::domain::assignment {
                                 , *batch.tasks[task_pos].task
                                 , assignment_period
                                 , admissibility_config
+                                , complete_connection_dominance
                                 , retentions[task_pos]
                                 , task_stats[task_pos]
                             );
@@ -2882,6 +2893,7 @@ namespace timetable::domain::assignment {
                             , retentions[task_pos].complete_connections
                             , params
                             , choice_config
+                            , complete_connection_dominance
                             , fare_scale
                         );
                         if (!lower_bound_decision.feasible) {
@@ -3266,6 +3278,7 @@ namespace timetable::domain::assignment {
         , const AssignmentPeriodConfig& assignment_period
         , const ConnectionAdmissibilityConfig& admissibility_config
         , const SearchPruningExecutionPlan* pruning_execution
+        , const CompleteConnectionDominanceConfig& complete_connection_dominance
     ) {
         using timetable::infra::LogLevel;
         using timetable::infra::progress::both;
@@ -3274,6 +3287,9 @@ namespace timetable::domain::assignment {
 
         MATHFP_TRY(validate_assignment_period_config(assignment_period));
         MATHFP_TRY(validate_connection_admissibility_config(admissibility_config));
+        MATHFP_TRY(validate_complete_connection_dominance_config(
+            complete_connection_dominance
+        ));
 
         both("search: branch-and-bound");
         log(
@@ -3386,6 +3402,7 @@ namespace timetable::domain::assignment {
                     , assignment_period
                     , admissibility_config
                     , effective_pruning_execution
+                    , complete_connection_dominance
                     , i
                     , batches.size()
                     , result.task_results
@@ -3403,6 +3420,29 @@ namespace timetable::domain::assignment {
         );
         both("search: branch-and-bound done");
         return result;
+    }
+
+    mathfp::Expected<ConnectionSearchResult> search_connections_branch_and_bound(
+          const PreprocessedNetwork& network
+        , std::span<const SearchTask> tasks
+        , double                     fare_scale
+        , const SearchParams&        params
+        , const ChoiceConfig&         choice_config
+        , const AssignmentPeriodConfig& assignment_period
+        , const ConnectionAdmissibilityConfig& admissibility_config
+        , const SearchPruningExecutionPlan* pruning_execution
+    ) {
+        return search_connections_branch_and_bound(
+              network
+            , tasks
+            , fare_scale
+            , params
+            , choice_config
+            , assignment_period
+            , admissibility_config
+            , pruning_execution
+            , CompleteConnectionDominanceConfig{}
+        );
     }
 
 }  // namespace timetable::domain::assignment

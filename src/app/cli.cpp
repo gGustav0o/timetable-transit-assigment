@@ -34,7 +34,7 @@ namespace timetable::app {
                 "Default:\n"
                 "  without arguments the app searches upward for data/test/connection_segments_input.csv\n"
                 "Current scope:\n"
-                "  pair-file input only; params.txt supplies the supported SearchParams subset when present\n"
+                "  pair-file input only; params.txt supplies supported runtime params when present\n"
                 "Aliases:\n"
                 "  -p  --pair-data-dir [supported]\n"
                 "  -d  --data-dir      [deprecated]\n"

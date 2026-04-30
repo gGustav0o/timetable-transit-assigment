@@ -9,6 +9,22 @@
 
 namespace timetable::domain::assignment {
 
+    /**
+     * @brief Domain policy for dominance between complete OD connections.
+     *
+     * searchPara.deactivateDominanceOfDirectConnections belongs to this layer:
+     * it controls dominance between complete alternatives retained for one
+     * OD-time task. It is intentionally separate from partial search pruning
+     * and from the final choice model.
+     *
+     * Direct connection is defined mathematically as a complete connection with
+     * zero transfers. When the flag is enabled, a direct complete connection is
+     * not allowed to dominate another complete connection.
+     */
+    struct CompleteConnectionDominanceConfig final {
+        bool deactivate_dominance_of_direct_connections{ false };
+    };
+
     struct CompleteConnectionMetrics final {
         Time          departure{};
         Time          arrival{};
@@ -52,9 +68,24 @@ namespace timetable::domain::assignment {
         , double                  fare_scale
     );
 
+    [[nodiscard]] bool is_direct_connection(
+        const CompleteConnectionMetrics& metrics
+    ) noexcept;
+
+    [[nodiscard]] bool complete_connection_can_dominate(
+          const CompleteConnectionDominanceConfig& config
+        , const CompleteConnectionMetrics&         metrics
+    ) noexcept;
+
     [[nodiscard]] bool complete_connection_dominates(
           const CompleteConnectionMetrics& lhs
         , const CompleteConnectionMetrics& rhs
+    ) noexcept;
+
+    [[nodiscard]] bool complete_connection_dominates(
+          const CompleteConnectionDominanceConfig& config
+        , const CompleteConnectionMetrics&         lhs
+        , const CompleteConnectionMetrics&         rhs
     ) noexcept;
 
     [[nodiscard]] bool within_complete_connection_tolerances(
@@ -68,6 +99,14 @@ namespace timetable::domain::assignment {
         , SearchConnection             connection
         , const SearchParams&          params
         , double                       fare_scale
+    );
+
+    [[nodiscard]] CompleteConnectionRetentionDecision retain_exact_complete_connection(
+          CompleteConnectionRetention&            retention
+        , SearchConnection                        connection
+        , const SearchParams&                     params
+        , double                                  fare_scale
+        , const CompleteConnectionDominanceConfig& dominance_config
     );
 
     [[nodiscard]] std::vector<SearchConnection> finalize_complete_connection_retention(

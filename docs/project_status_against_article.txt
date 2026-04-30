@@ -22,7 +22,7 @@
 2. time_intervals.csv;
 3. od_demand.csv.
 
-Если рядом с входными файлами присутствует params.txt, pair-file режим использует из него SearchParams, AssignmentExecutionConfig, SearchPruningConfig, SkimMatrixConfig, AssignmentPeriodConfig и конфигурации admissibility demand segment. Встроенными значениями пока остаются runtime-конфигурации, относящиеся к choice rollout и search-time rollout.
+Если рядом с входными файлами присутствует params.txt, pair-file режим использует из него SearchParams, AssignmentExecutionConfig, CompleteConnectionDominanceConfig, SearchPruningConfig, SkimMatrixConfig, AssignmentPeriodConfig и конфигурации admissibility demand segment. Встроенными значениями пока остаются runtime-конфигурации, относящиеся к choice rollout и search-time rollout.
 
 Принято, что:
 1. connection_segments_input.csv содержит уже подготовленные сегменты транспортного предложения;
@@ -125,10 +125,11 @@
 
 4) Отсечение по остаточным нижним оценкам.
    Для частичной ветви строятся допустимые нижние оценки продолжения. Ветвь отсекается только если доказано, что любое ее продолжение уже не сможет попасть в допустимое множество.
+   Политика searchPara.deactivateDominanceOfDirectConnections применяется и здесь: если dominance прямых полных соединений отключен, прямое уже найденное соединение не используется как доминирующий upper-bound против остаточной нижней оценки частичной ветви.
 
 
 5. Параметры расчетной модели
-   В проекте существует модель параметров расчета. В поддерживаемом pair-file режиме params.txt подключается для SearchParams, AssignmentExecutionConfig, SearchPruningConfig, SkimMatrixConfig, AssignmentPeriodConfig и конфигураций admissibility demand segment, если файл присутствует во входном каталоге.
+   В проекте существует модель параметров расчета. В поддерживаемом pair-file режиме params.txt подключается для SearchParams, AssignmentExecutionConfig, CompleteConnectionDominanceConfig, SearchPruningConfig, SkimMatrixConfig, AssignmentPeriodConfig и конфигураций admissibility demand segment, если файл присутствует во входном каталоге.
 
 Основные группы параметров:
 
@@ -156,6 +157,11 @@
 3.1) Управление search-pruning:
    - searchPara.allowDominanceForEquivalentConnections включает или отключает partial-search retention между эквивалентными состояниями поиска;
    - searchPara.useLastStopForEquivalentConnections зарезервирован, но пока не включен в runtime из-за необходимости отдельного extension-safety contract.
+
+3.2) Управление dominance полных соединений:
+   - searchPara.deactivateDominanceOfDirectConnections отключает право прямого полного соединения доминировать другие полные соединения;
+   - та же политика применяется в suffix lower-bound pruning, чтобы прямой complete connection не отсекал частичную ветвь как доминирующий upper-bound при активном флаге;
+   - параметр не относится к partial-search pruning и не влияет на модель распределения спроса.
 
 4) Допуски на этапе отбора альтернатив:
    - аналогичные допуски по обобщенному сопротивлению, времени поездки и числу пересадок, но применяемые уже к полным соединениям.
@@ -236,7 +242,7 @@
 Модель стоимости проезда реализована, но текущий тестовый вход имеет FARE = 0 для всех сегментов. Поэтому тарифный компонент присутствует, но практически не проверен на данных с положительной стоимостью.
 
 8.2. Параметры
-params.txt подключен для SearchParams, AssignmentExecutionConfig, SearchPruningConfig, SkimMatrixConfig, AssignmentPeriodConfig и конфигураций admissibility demand segment. Часть параметров, требующих изменения математической модели, остается отдельной областью доработки.
+params.txt подключен для SearchParams, AssignmentExecutionConfig, CompleteConnectionDominanceConfig, SearchPruningConfig, SkimMatrixConfig, AssignmentPeriodConfig и конфигураций admissibility demand segment. Для CompleteConnectionDominanceConfig выполняется runtime validation и выводится диагностическая строка конфигурации. Часть параметров, требующих изменения математической модели, остается отдельной областью доработки.
 
 8.3. Пользовательский вход для исходного расписания
 Статья начинает с исходных маршрутов, рейсов и пешеходных связей.

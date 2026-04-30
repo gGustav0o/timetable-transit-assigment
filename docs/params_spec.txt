@@ -19,6 +19,7 @@
   - splitPara.BoxCoxExp — подключен как exponent для choiceModel = BoxCox.
   - splitPara.BoxCoxPara — подключен как параметр t преобразования Box-Cox для choiceModel = BoxCox.
   - searchPara.allowDominanceForEquivalentConnections — подключен как флаг partial-search retention между эквивалентными состояниями поиска.
+  - searchPara.deactivateDominanceOfDirectConnections — подключен как флаг complete-connection dominance: прямое полное соединение не может доминировать другие complete connections и suffix lower-bound candidates.
 
 Семантика skimMatrixPara.lowImpConnShare:
 
@@ -100,11 +101,23 @@
   - диагностика search-pruning выводит equivalent_dominance, equivalent_stop_reference, retention_requested и retention_suppressed_by_equivalent_dominance;
   - searchPara.useLastStopForEquivalentConnections зарезервирован как LastTimedStopOccurrence, но runtime validation пока не разрешает этот режим до явной реализации extension-safety contract.
 
+Формализованы как отдельная доменная политика complete-connection dominance
+
+  - searchPara.deactivateDominanceOfDirectConnections — относится к dominance полных соединений в CompleteConnectionRetention, а не к partial-search pruning и не к choice model;
+  - прямое соединение определяется как complete connection с transfer_count = 0;
+  - параметр хранится в CompleteConnectionDominanceConfig как deactivate_dominance_of_direct_connections;
+  - при deactivateDominanceOfDirectConnections = 1 прямое полное соединение не должно доминировать другое полное соединение;
+  - параметр читается из root.searchPara.deactivateDominanceOfDirectConnections и протягивается через AssignmentRuntimeParams/AssignmentInput в search pipeline;
+  - парсер валидирует CompleteConnectionDominanceConfig через validate_complete_connection_dominance_config;
+  - complete_connection_dominates(config, lhs, rhs) и retain_exact_complete_connection(..., config) поддерживают эту политику в обе стороны retention-проверки;
+  - suffix lower-bound pruning использует тот же complete_connection_can_dominate(config, complete), поэтому прямое найденное соединение не отсекает частичную ветвь по lower-bound dominance при активном флаге;
+  - диагностика выводит complete-connection dominance config и parser/runtime значение deactivate_direct_dominance;
+  - duplicate trace rejection остается отдельной канонизацией одинакового соединения и не является behavioral dominance.
+
 Требуют переработки кода
 
   - SearchImp.volCapRatioFactor — требуется учет загрузки/провозной способности в search impedance.
   - PerceivedJourneyTime.volCapRatioFactor — требуется учет загрузки/провозной способности в perceived journey time.
-  - searchPara.deactivateDominanceOfDirectConnections — меняет правила dominance для прямых соединений.
   - searchPara.useLastStopForEquivalentConnections — требуется реализовать безопасный LastTimedStopOccurrence key для equivalent-connection dominance.
   - splitPara.BoxCoxTransformImp — не подключен как отдельный флаг; сейчас преобразование Box-Cox определяется выбором choiceModel = BoxCox.
   - Independence.useIndependence — сейчас independence factor применяется всегда; нужен флаг в SplitParams.

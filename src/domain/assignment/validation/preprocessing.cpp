@@ -138,6 +138,9 @@ namespace timetable::domain::assignment {
 
         MATHFP_TRY(validate_skim_matrix_config(input.skim_matrix));
         MATHFP_TRY(validate_assignment_execution_config(input.execution));
+        MATHFP_TRY(validate_complete_connection_dominance_config(
+            input.complete_connection_dominance
+        ));
         MATHFP_TRY(validate_assignment_period_config(input.assignment_period));
         MATHFP_TRY(validate_connection_admissibility_input(
               input.connection_deletion

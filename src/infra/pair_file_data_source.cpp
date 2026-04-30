@@ -52,6 +52,7 @@ namespace timetable::infra {
         struct PairRuntimeDefaults final {
             timetable::domain::SearchParams                         params{};
             timetable::domain::assignment::ChoiceConfig             choice{};
+            timetable::domain::assignment::CompleteConnectionDominanceConfig complete_connection_dominance{};
             timetable::domain::assignment::SearchPruningConfig      search_pruning{};
             timetable::domain::assignment::SearchTimeDomainConfig   search_time_domain{};
             timetable::domain::assignment::AssignmentExecutionConfig execution{};
@@ -535,6 +536,8 @@ namespace timetable::infra {
             return PairRuntimeDefaults{
                   .params              = std::move(params)
                 , .choice              = std::move(choice)
+                , .complete_connection_dominance =
+                      timetable::domain::assignment::CompleteConnectionDominanceConfig{}
                 , .search_pruning      = std::move(search_pruning)
                 , .search_time_domain  = std::move(search_time_domain)
                 , .execution           = timetable::domain::assignment::AssignmentExecutionConfig{
@@ -623,6 +626,8 @@ namespace timetable::infra {
             );
             input.params              = std::move(defaults.params);
             input.choice              = std::move(defaults.choice);
+            input.complete_connection_dominance =
+                std::move(defaults.complete_connection_dominance);
             input.search_pruning      = std::move(defaults.search_pruning);
             input.search_time_domain  = std::move(defaults.search_time_domain);
             input.execution           = std::move(defaults.execution);
@@ -648,13 +653,15 @@ namespace timetable::infra {
             );
             input.params              = std::move(parsed_params.search);
             input.execution           = std::move(parsed_params.execution);
+            input.complete_connection_dominance =
+                parsed_params.complete_connection_dominance;
             input.search_pruning      = std::move(parsed_params.search_pruning);
             input.skim_matrix         = std::move(parsed_params.skim_matrix);
             input.assignment_period   = std::move(parsed_params.assignment_period);
             input.connection_deletion = std::move(parsed_params.connection_deletion);
             input.demand_segment_time = std::move(parsed_params.demand_segment_time);
             log(
-                  "parsing: pair-file runtime uses SearchParams, AssignmentExecutionConfig, SearchPruningConfig, SkimMatrixConfig, AssignmentPeriodConfig, and connection-admissibility configs from params.txt; runtime choice/search-time rollout configs keep built-in defaults"
+                  "parsing: pair-file runtime uses SearchParams, AssignmentExecutionConfig, CompleteConnectionDominanceConfig, SearchPruningConfig, SkimMatrixConfig, AssignmentPeriodConfig, and connection-admissibility configs from params.txt; runtime choice/search-time rollout configs keep built-in defaults"
                 , LogLevel::Info
             );
             return mathfp::kUnit;

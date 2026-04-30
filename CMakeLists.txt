@@ -22,6 +22,7 @@ add_executable(timetable-transit-assigment
   src/app/cli.cpp
   src/domain/assignment/assignment_period.cpp
   src/domain/assignment/choice/choice.cpp
+  src/domain/assignment/complete_connection_diagnostics.cpp
   src/domain/assignment/complete_connection_retention.cpp
   src/domain/assignment/connection_admissibility.cpp
   src/domain/assignment/connection.cpp
@@ -52,6 +53,7 @@ add_executable(timetable-transit-assigment
   src/domain/assignment/run.cpp
   src/domain/assignment/split/split.cpp
   src/domain/assignment/validation/choice.cpp
+  src/domain/assignment/validation/complete_connection_dominance.cpp
   src/domain/assignment/validation/preprocessing.cpp
   src/domain/assignment/validation/search_task_builder.cpp
   src/domain/assignment/validation/search_pruning.cpp

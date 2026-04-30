@@ -103,6 +103,7 @@ namespace timetable::infra::params_txt {
                   "parsing: assignment runtime params mapped; max_transfers = {}  skim_enabled = {}  skim_func = {}"
                   "  pre_assign_period_sec = {}  post_assign_period_sec = {}"
                   "  delete_outside_assignment_period = {}  demand_segment_basis = {}"
+                  "  deactivate_direct_dominance = {}"
                 , params.search.transfers.max_transfers.get()
                 , params.skim_matrix.enabled ? "true" : "false"
                 , timetable::domain::assignment::to_string(params.skim_matrix.func)
@@ -110,6 +111,9 @@ namespace timetable::infra::params_txt {
                 , params.assignment_period.post_assign_period.value()
                 , params.connection_deletion.delete_outside_assignment_period ? "true" : "false"
                 , timetable::domain::assignment::to_string(params.demand_segment_time.basis)
+                , params.complete_connection_dominance.deactivate_dominance_of_direct_connections
+                    ? "true"
+                    : "false"
             )
             , LogLevel::Info
         );

@@ -8,6 +8,7 @@
 #include <mathfp/core/try.hpp>
 
 #include "timetable/domain/assignment.hpp"
+#include "timetable/domain/assignment/complete_connection_diagnostics.hpp"
 #include "timetable/domain/assignment/choice.hpp"
 #include "timetable/domain/assignment/pipeline.hpp"
 #include "timetable/domain/assignment/preprocessed_network.hpp"
@@ -53,9 +54,18 @@ namespace timetable::domain::assignment::detail {
 
         const auto& params = input.params;
         MATHFP_TRY(validate_preprocessing_step_output(net, params));
+        MATHFP_TRY(validate_complete_connection_dominance_config(
+            input.complete_connection_dominance
+        ));
         const auto fare_scale = compute_fare_scale(
               net.connection_segments
             , params.impedance.fare_normalization
+        );
+        log(
+            format_complete_connection_dominance_config_summary(
+                summarize(input.complete_connection_dominance)
+            )
+            , LogLevel::Info
         );
         MATHFP_TRY(validate_search_pruning_config(input.search_pruning));
         log(
@@ -106,6 +116,7 @@ namespace timetable::domain::assignment::detail {
                     , .demand_time = input.demand_segment_time
                   }
                 , &search_pruning_execution
+                , input.complete_connection_dominance
             )
         );
         MATHFP_TRY(validate_search_step_output(

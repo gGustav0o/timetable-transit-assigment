@@ -65,6 +65,19 @@ namespace timetable::domain::assignment {
     );
 
     /**
+     * @brief Validate complete-connection dominance policy.
+     *
+     * Contract:
+     * - the config belongs to complete alternatives and suffix lower-bound
+     *   pruning only;
+     * - current model supports both enabled and disabled direct-connection
+     *   dominance.
+     */
+    mathfp::Expected<mathfp::Unit> validate_complete_connection_dominance_config(
+        const CompleteConnectionDominanceConfig& config
+    );
+
+    /**
      * @brief Validate the executable pruning plan derived from config + tolerances.
      *
      * Contract:

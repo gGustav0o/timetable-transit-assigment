@@ -21,6 +21,8 @@
 
 namespace timetable::domain::assignment {
 
+    struct CompleteConnectionDominanceConfig;
+
     struct SearchTaskRefTag {};
 
     using SearchTaskRef = mathfp::StrongType<
@@ -167,6 +169,18 @@ namespace timetable::domain::assignment {
         , const AssignmentPeriodConfig&      assignment_period
         , const ConnectionAdmissibilityConfig& admissibility_config
         , const SearchPruningExecutionPlan* pruning_execution = nullptr
+    );
+
+    mathfp::Expected<ConnectionSearchResult> search_connections_branch_and_bound(
+          const PreprocessedNetwork&        network
+        , std::span<const SearchTask>        tasks
+        , double                            fare_scale
+        , const SearchParams&               params
+        , const ChoiceConfig&                choice_config
+        , const AssignmentPeriodConfig&      assignment_period
+        , const ConnectionAdmissibilityConfig& admissibility_config
+        , const SearchPruningExecutionPlan* pruning_execution
+        , const CompleteConnectionDominanceConfig& complete_connection_dominance
     );
 
 }  // namespace timetable::domain::assignment

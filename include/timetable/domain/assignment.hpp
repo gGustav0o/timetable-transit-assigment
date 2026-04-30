@@ -13,6 +13,7 @@
 #include "timetable/domain/assignment/assignment_period.hpp"
 #include "timetable/domain/assignment/choice/choice.hpp"
 #include "timetable/domain/assignment/choice/choice_config.hpp"
+#include "timetable/domain/assignment/complete_connection_retention.hpp"
 #include "timetable/domain/assignment/connection_admissibility.hpp"
 #include "timetable/domain/assignment/execution_config.hpp"
 #include "timetable/domain/assignment/search/search.hpp"
@@ -32,6 +33,7 @@ namespace timetable::domain {
         InputModel                         input{};
         SearchParams                       params{};
         assignment::ChoiceConfig             choice{};
+        assignment::CompleteConnectionDominanceConfig complete_connection_dominance{};
         assignment::SearchPruningConfig      search_pruning{};
         assignment::SearchTimeDomainConfig   search_time_domain{};
         assignment::SkimMatrixConfig         skim_matrix{};
