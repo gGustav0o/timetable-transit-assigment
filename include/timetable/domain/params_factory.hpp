@@ -78,13 +78,23 @@ namespace timetable::domain {
                 config.exponent, "split.choice_model.exponent"
             ));
 
+            return mathfp::kUnit;
+        }
+
+        inline mathfp::Expected<mathfp::Unit> ensure_split_impedance_transform_config(
+            SplitImpedanceTransformConfig config
+        ) {
             const auto boxcox_t = mathfp::units::as_dimless(config.boxcox_t);
             if (!validation::is_finite(boxcox_t)) {
-                const char* message = "Box-Cox parameter is not finite";
+                const char* message = "Box-Cox transform parameter is not finite";
                 return validation::fail(
                       message
                     , mathfp::invalid_arg(message)
-                        .ctx("choice_model", std::string(to_string(config.model)))
+                        .ctx(
+                              "boxcox_transform_enabled"
+                            , config.boxcox_transform_enabled ? "true" : "false"
+                          )
+                        .ctx("boxcox_t", boxcox_t)
                 );
             }
 
@@ -326,12 +336,16 @@ namespace timetable::domain {
         , PerceivedJourneyTimeWeights perceived_journey_time
         , TemporalUtilityWeights      temporal_utility
         , SplitChoiceModelConfig      choice_model
+        , SplitImpedanceTransformConfig impedance_transform
         , SplitIndependenceConfig     independence
     ) {
         MATHFP_TRY(detail::ensure_nonnegative_split_weights(
             q_time, q_departure, q_fare
         ));
         MATHFP_TRY(detail::ensure_split_choice_model_config(choice_model));
+        MATHFP_TRY(detail::ensure_split_impedance_transform_config(
+            impedance_transform
+        ));
         MATHFP_TRY(detail::ensure_nonnegative_perceived_journey_time_weights(
             perceived_journey_time
         ));
@@ -347,6 +361,7 @@ namespace timetable::domain {
             , .perceived_journey_time    = perceived_journey_time
             , .temporal_utility          = temporal_utility
             , .choice_model              = choice_model
+            , .impedance_transform       = impedance_transform
             , .independence              = independence
         };
     }

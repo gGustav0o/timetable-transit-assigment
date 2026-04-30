@@ -133,6 +133,7 @@ namespace timetable::infra {
             double departure_late{};
             timetable::domain::SplitChoiceModel choice_model{};
             double exponent{};
+            bool   boxcox_transform_enabled{};
             double boxcox_t{};
             double gamma{};
             double temporal_similarity_scale{};
@@ -215,6 +216,7 @@ namespace timetable::infra {
                   , .departure_late            = 1.0
                   , .choice_model              = timetable::domain::SplitChoiceModel::BoxCox
                   , .exponent                  = 4.0
+                  , .boxcox_transform_enabled  = true
                   , .boxcox_t                  = 1.0
                   , .gamma                     = 1.0
                   , .temporal_similarity_scale = 60.0
@@ -482,6 +484,10 @@ namespace timetable::infra {
                     , SplitChoiceModelConfig{
                           .model    = kPairRuntimeDefaultSpec.split.choice_model
                         , .exponent = Dimless{ kPairRuntimeDefaultSpec.split.exponent }
+                    }
+                    , SplitImpedanceTransformConfig{
+                          .boxcox_transform_enabled =
+                              kPairRuntimeDefaultSpec.split.boxcox_transform_enabled
                         , .boxcox_t = Dimless{ kPairRuntimeDefaultSpec.split.boxcox_t }
                     }
                     , SplitIndependenceConfig{

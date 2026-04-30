@@ -228,6 +228,23 @@ namespace timetable::domain::assignment {
             return (std::pow(positive, t) - 1.0) / t;
         }
 
+        double transform_split_impedance(
+              const SplitImpedanceTransformConfig& config
+            , double                                impedance
+        ) noexcept {
+            const auto positive = std::max(
+                  impedance
+                , numeric::positive_stability_floor()
+            );
+            if (!config.boxcox_transform_enabled) {
+                return positive;
+            }
+            return box_cox_transform(
+                  positive
+                , mathfp::units::as_dimless(config.boxcox_t)
+            );
+        }
+
         double positive_log_argument(
             double value
         ) noexcept {
@@ -258,14 +275,13 @@ namespace timetable::domain::assignment {
                 - exponent * impedance;
         }
 
-        double boxcox_log_weight(
+        double transformed_impedance_log_weight(
               double exponent
-            , double boxcox_t
             , double impedance
             , double independence
         ) noexcept {
             return log_independence_weight(independence)
-                - exponent * box_cox_transform(impedance, boxcox_t);
+                - exponent * impedance;
         }
 
         mathfp::Expected<mathfp::Unit> validate_supported_split_choice_model(
@@ -282,22 +298,37 @@ namespace timetable::domain::assignment {
 
         mathfp::Expected<double> split_choice_log_weight(
               const SplitChoiceModelConfig& model
-            , double                        impedance
+            , double                        transformed_impedance
             , double                        independence
         ) {
+            if (!std::isfinite(transformed_impedance)) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("split choice impedance must be finite")
+                        .ctx("choice_model", std::string(to_string(model.model)))
+                        .ctx("impedance", transformed_impedance)
+                );
+            }
+
             const auto exponent = mathfp::units::as_dimless(model.exponent);
             switch (model.model) {
                 case SplitChoiceModel::Kirchhoff:
-                    return kirchhoff_log_weight(exponent, impedance, independence);
+                    return kirchhoff_log_weight(
+                          exponent
+                        , transformed_impedance
+                        , independence
+                    );
 
                 case SplitChoiceModel::Logit:
-                    return logit_log_weight(exponent, impedance, independence);
+                    return logit_log_weight(
+                          exponent
+                        , transformed_impedance
+                        , independence
+                    );
 
                 case SplitChoiceModel::BoxCox:
-                    return boxcox_log_weight(
+                    return transformed_impedance_log_weight(
                           exponent
-                        , mathfp::units::as_dimless(model.boxcox_t)
-                        , impedance
+                        , transformed_impedance
                         , independence
                     );
 
@@ -599,9 +630,13 @@ namespace timetable::domain::assignment {
                     , params.split
                     , demand_segment_time.basis
                 );
+                const auto choice_impedance = transform_split_impedance(
+                      params.split.impedance_transform
+                    , imp
+                );
                 MATHFP_TRY_LET(double, log_weight, split_choice_log_weight(
                       params.split.choice_model
-                    , imp
+                    , choice_impedance
                     , independence
                 ));
 

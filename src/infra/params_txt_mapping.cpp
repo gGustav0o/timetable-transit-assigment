@@ -254,7 +254,7 @@ namespace timetable::infra::params_txt::detail {
                 };
 
                 std::array<NumberFieldSpec, 1> split_scalars{
-                    NumberFieldSpec{ "BoxCoxPara", "root.splitPara", "split.choice_model.boxcox_t" }
+                    NumberFieldSpec{ "BoxCoxPara", "root.splitPara", "split.impedance_transform.boxcox_t" }
                 };
 
                 std::array<NumberFieldSpec, 1> split_choice_model_exponent{
@@ -615,18 +615,28 @@ namespace timetable::infra::params_txt::detail {
             }
 
             MATHFP_TRY_LET(DoubleArray<1>, exponent_values, read_number_array(split_para, *it->exponent_spec));
-            auto boxcox_t = 0.0;
-            if (*parsed_model == SplitChoiceModel::BoxCox) {
-                MATHFP_TRY_LET(DoubleArray<1>, boxcox_values, read_number_array(
-                    split_para, schema::kParamsTxtSchema.split_scalars
-                ));
-                boxcox_t = boxcox_values[0];
-            }
-
             return SplitChoiceModelConfig{
                   .model    = *parsed_model
                 , .exponent = Dimless{ exponent_values[0] }
-                , .boxcox_t = Dimless{ boxcox_t }
+            };
+        }
+
+        mathfp::Expected<timetable::domain::SplitImpedanceTransformConfig>
+        parse_split_impedance_transform_config(
+            const Object& split_para
+        ) {
+            using namespace timetable::domain;
+
+            MATHFP_TRY_LET(bool, enabled, bool_like_at(
+                split_para, "BoxCoxTransformImp", "root.splitPara"
+            ));
+            MATHFP_TRY_LET(DoubleArray<1>, boxcox_values, read_number_array(
+                split_para, schema::kParamsTxtSchema.split_scalars
+            ));
+
+            return SplitImpedanceTransformConfig{
+                  .boxcox_transform_enabled = enabled
+                , .boxcox_t                 = Dimless{ boxcox_values[0] }
             };
         }
 
@@ -664,6 +674,11 @@ namespace timetable::infra::params_txt::detail {
                 , choice_model
                 , parse_split_choice_model_config(split_para)
             );
+            MATHFP_TRY_LET(
+                  SplitImpedanceTransformConfig
+                , impedance_transform
+                , parse_split_impedance_transform_config(split_para)
+            );
 
             return make_split_params(
                   Dimless{ split_imp_fields.time }
@@ -682,6 +697,7 @@ namespace timetable::infra::params_txt::detail {
                     , .late_departure  = Dimless{ split_imp_fields.departure_late }
                 }
                 , choice_model
+                , impedance_transform
                 , SplitIndependenceConfig{
                       .enabled                   = indep_fields.enabled
                     , .gamma                     = Dimless{ indep_fields.gamma }

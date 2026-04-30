@@ -17,7 +17,8 @@
   - splitPara.KirchhoffExp — подключен как exponent для choiceModel = Kirchhoff.
   - splitPara.logitExp — подключен как exponent для choiceModel = Logit.
   - splitPara.BoxCoxExp — подключен как exponent для choiceModel = BoxCox.
-  - splitPara.BoxCoxPara — подключен как параметр t преобразования Box-Cox для choiceModel = BoxCox.
+  - splitPara.BoxCoxTransformImp — подключен как флаг преобразования split impedance перед вычислением веса выбора.
+  - splitPara.BoxCoxPara — подключен как параметр t преобразования Box-Cox для splitPara.BoxCoxTransformImp.
   - Independence.useIndependence — подключен как флаг включения коэффициента независимости похожих альтернатив в split-модели.
   - searchPara.allowDominanceForEquivalentConnections — подключен как флаг partial-search retention между эквивалентными состояниями поиска.
   - searchPara.deactivateDominanceOfDirectConnections — подключен как флаг complete-connection dominance: прямое полное соединение не может доминировать другие complete connections и suffix lower-bound candidates.
@@ -82,12 +83,23 @@
 
 Семантика splitPara.choiceModel:
 
-  - модель хранится в доменной конфигурации SplitChoiceModelConfig: model, exponent, boxcox_t;
-  - Kirchhoff использует лог-вес log(IND) - exponent * log(IMP);
-  - Logit использует лог-вес log(IND) - exponent * IMP;
-  - BoxCox использует лог-вес log(IND) - exponent * box_cox_transform(IMP, t), где t берется из BoxCoxPara;
+  - модель хранится в доменной конфигурации SplitChoiceModelConfig: model, exponent;
+  - аргумент IMP* предварительно получается из raw IMP через SplitImpedanceTransformConfig;
+  - Kirchhoff использует лог-вес log(IND) - exponent * log(IMP*);
+  - Logit использует лог-вес log(IND) - exponent * IMP*;
+  - BoxCox использует лог-вес log(IND) - exponent * IMP*, где Box-Cox-преобразование самого аргумента включается отдельным флагом BoxCoxTransformImp;
   - LohseExp читается только вместе с choiceModel = Lohse, но runtime validation явно отклоняет Lohse до реализации и утверждения формулы;
   - validation split проверяет, что exponent конечный и положительный, BoxCoxPara конечен, а модель поддержана текущим runtime.
+
+Семантика splitPara.BoxCoxTransformImp:
+
+  - доменная семантика зафиксирована отдельно от choiceModel: choiceModel выбирает семейство весов распределения спроса, а BoxCoxTransformImp управляет преобразованием аргумента IMP перед вычислением веса;
+  - BoxCoxTransformImp = 0 означает использование стабилизированного raw IMP без Box-Cox-преобразования;
+  - BoxCoxTransformImp = 1 означает применение box_cox_transform(IMP, t), где t берется из BoxCoxPara;
+  - для этой политики введена доменная модель SplitImpedanceTransformConfig: boxcox_transform_enabled, boxcox_t;
+  - parser читает BoxCoxTransformImp и BoxCoxPara в SplitImpedanceTransformConfig, factory и validation проверяют конечность boxcox_t;
+  - split pipeline считает raw split impedance, затем применяет transform_split_impedance, после чего передает полученный аргумент в split_choice_log_weight;
+  - output-поле split_impedance остается raw-значением, потому что transform относится к вычислению веса выбора, а не к исходной метрике сопротивления.
 
 Семантика Independence.useIndependence:
 
@@ -130,7 +142,6 @@
 
   - SearchImp.volCapRatioFactor — требуется учет загрузки/провозной способности в search impedance.
   - PerceivedJourneyTime.volCapRatioFactor — требуется учет загрузки/провозной способности в perceived journey time.
-  - splitPara.BoxCoxTransformImp — не подключен как отдельный флаг; сейчас преобразование Box-Cox определяется выбором choiceModel = BoxCox.
   - splitPara.LohseExp — параметр читается, но формула Lohse пока не утверждена и runtime явно отклоняет choiceModel = Lohse.
 
   Неоднозначны или требуют уточнения смысла

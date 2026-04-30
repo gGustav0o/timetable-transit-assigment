@@ -207,11 +207,20 @@ namespace timetable::domain::assignment {
                 );
             }
 
+            return mathfp::kUnit;
+        }
+
+        mathfp::Expected<mathfp::Unit> validate_split_impedance_transform_config_for_runtime(
+            const SplitImpedanceTransformConfig& config
+        ) {
             const auto boxcox_t = mathfp::units::as_dimless(config.boxcox_t);
             if (!std::isfinite(boxcox_t)) {
                 return mathfp::unexpected(
-                    mathfp::invalid_arg("split Box-Cox parameter must be finite")
-                        .ctx("choice_model", std::string(to_string(config.model)))
+                    mathfp::invalid_arg("split impedance transform Box-Cox parameter must be finite")
+                        .ctx(
+                              "boxcox_transform_enabled"
+                            , config.boxcox_transform_enabled ? "true" : "false"
+                          )
                         .ctx("boxcox_t", boxcox_t)
                 );
             }
@@ -274,6 +283,9 @@ namespace timetable::domain::assignment {
         , const DemandSegmentTimeConfig& demand_segment_time
     ) {
         MATHFP_TRY(validate_split_choice_model_config_for_runtime(params.choice_model));
+        MATHFP_TRY(validate_split_impedance_transform_config_for_runtime(
+            params.impedance_transform
+        ));
         MATHFP_TRY(validate_split_independence_config_for_runtime(params.independence));
         MATHFP_TRY(validate_demand_segment_time_config(demand_segment_time));
 

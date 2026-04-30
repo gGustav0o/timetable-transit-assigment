@@ -179,7 +179,24 @@ namespace timetable::domain {
     struct SplitChoiceModelConfig final {
         SplitChoiceModel model{ SplitChoiceModel::BoxCox };
         Dimless          exponent{};
-        Dimless          boxcox_t{};
+    };
+
+    /**
+     * @brief Optional transformation of raw split impedance before choice weights.
+     *
+     * splitPara.BoxCoxTransformImp controls whether the raw split impedance IMP
+     * is transformed before it is passed to the selected choice model:
+     * - false: use stabilized raw IMP;
+     * - true: use box_cox_transform(IMP, t), where t is stored in boxcox_t.
+     *
+     * This is intentionally separate from SplitChoiceModelConfig. choiceModel
+     * selects the demand-allocation weight family, while this config selects the
+     * argument transformation applied to IMP. splitPara.BoxCoxLambda is not
+     * modeled here until its relation to BoxCoxPara is clarified.
+     */
+    struct SplitImpedanceTransformConfig final {
+        bool    boxcox_transform_enabled{};
+        Dimless boxcox_t{};
     };
 
     struct SplitIndependenceConfig final {
@@ -193,8 +210,9 @@ namespace timetable::domain {
     /**
      * @brief Parameters for demand split across connections.
      *
-     * choice_model controls the demand-allocation model and its exponent. For
-     * Box-Cox it also carries the transformation parameter t.
+     * choice_model controls the demand-allocation model and its exponent.
+     * impedance_transform controls optional transformation of raw split
+     * impedance before the model-specific weight is evaluated.
      * independence controls whether the alternative-overlap correction is
      * active and stores the parameters of the evaluation function f_c(c') from
      * the paper:
@@ -211,6 +229,7 @@ namespace timetable::domain {
         PerceivedJourneyTimeWeights perceived_journey_time{};
         TemporalUtilityWeights      temporal_utility{};
         SplitChoiceModelConfig      choice_model{};
+        SplitImpedanceTransformConfig impedance_transform{};
         SplitIndependenceConfig     independence{};
     };
 
