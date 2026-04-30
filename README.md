@@ -25,8 +25,8 @@ The following constraints are intentional project scope decisions for the curren
 
 - only the `pair-file` data source is supported
 - deprecated compatibility paths (`--data-dir`, `--data-file`) are not part of the maintained scope
-- `params.txt` is intentionally ignored at runtime for now
-- built-in default assignment parameters are used
+- `params.txt` is used for the supported `SearchParams` subset when present
+- built-in runtime rollout configuration is still used
 - the current target is a minimal working project, not the full final product surface
 
 ## Run
@@ -48,7 +48,7 @@ The supported input directory must contain:
 - `time_intervals.csv` or `generated_demand/time_intervals.csv`
 - `od_demand.csv` or `generated_demand/od_demand.csv`
 
-Optional but currently ignored at runtime:
+Optional:
 
 - `params.txt`
 
@@ -77,6 +77,6 @@ Use `q`, `Esc`, or `Ctrl+C` to exit.
 ## Notes
 
 - The maintained runtime path is `pair-file` input only.
-- `params.txt` parsing infrastructure exists, but it is not connected to the active runtime path yet.
+- `params.txt` parsing is connected for parameters already represented by `SearchParams`.
 - The deprecated file data source remains outside the current maintained scope.
 - Error handling uses `mathfp::Expected` end-to-end.

@@ -1,10 +1,13 @@
 #include "detail/params_txt.hpp"
 
+#include <cerrno>
+#include <cctype>
 #include <cstdint>
 #include <cstdlib>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -35,6 +38,8 @@ namespace timetable::infra::params_txt::detail {
         struct ParserState final {
             std::vector<ContainerState> stack{};
             std::optional<Value>        root{};
+            Object                      assignments{};
+            std::optional<std::string>  pending_assignment{};
         };
 
         mathfp::Expected<ParserState> with_object_key(
@@ -85,6 +90,59 @@ namespace timetable::infra::params_txt::detail {
             top.object     .emplace(std::move(*top.pending_key), std::move(value));
             top.pending_key.reset();
             return std::move(state);
+        }
+
+        mathfp::Expected<ParserState> with_assignment_name(
+              ParserState&& state
+            , std::string   name
+        ) {
+            if (!state.stack.empty()) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("assignment name inside container")
+                );
+            }
+            if (state.pending_assignment.has_value()) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("dangling assignment name before value")
+                );
+            }
+            state.pending_assignment = std::move(name);
+            return std::move(state);
+        }
+
+        mathfp::Expected<ParserState> with_committed_assignment(ParserState&& state) {
+            if (!state.pending_assignment.has_value()) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("assignment value without assignment name")
+                );
+            }
+            if (!state.root.has_value()) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("assignment without value")
+                );
+            }
+
+            state.assignments.insert_or_assign(
+                  std::move(*state.pending_assignment)
+                , std::move(*state.root)
+            );
+            state.pending_assignment.reset();
+            state.root.reset();
+            return std::move(state);
+        }
+
+        mathfp::Expected<ParserState> with_resolved_reference(
+              ParserState&& state
+            , std::string   name
+        ) {
+            const auto it = state.assignments.find(name);
+            if (it == state.assignments.end()) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("unknown params.txt reference")
+                        .ctx("reference", std::move(name))
+                );
+            }
+            return with_pushed_value(std::move(state), it->second);
         }
 
         ParserState begun_object(ParserState&& state) {
@@ -167,6 +225,43 @@ namespace timetable::infra::params_txt::detail {
             return out;
         }
 
+        double parse_numeric_product_token(std::string_view token) {
+            double result = 1.0;
+            std::size_t begin = 0;
+            while (begin < token.size()) {
+                const auto end = token.find('*', begin);
+                auto part = token.substr(
+                      begin
+                    , end == std::string_view::npos ? std::string_view::npos : end - begin
+                );
+
+                while (!part.empty() && std::isspace(static_cast<unsigned char>(part.front()))) {
+                    part.remove_prefix(1);
+                }
+                while (!part.empty() && std::isspace(static_cast<unsigned char>(part.back()))) {
+                    part.remove_suffix(1);
+                }
+                if (part.empty()) {
+                    throw std::invalid_argument("empty numeric product factor");
+                }
+
+                const std::string text(part);
+                char* parsed_end = nullptr;
+                errno = 0;
+                const auto value = std::strtod(text.c_str(), &parsed_end);
+                if (parsed_end != text.c_str() + text.size() || errno == ERANGE) {
+                    throw std::invalid_argument("invalid numeric product factor");
+                }
+                result *= value;
+
+                if (end == std::string_view::npos) {
+                    break;
+                }
+                begin = end + 1;
+            }
+            return result;
+        }
+
         namespace grammar {
 
             struct ws : pegtl::star<pegtl::space> {};
@@ -178,17 +273,27 @@ namespace timetable::infra::params_txt::detail {
             struct comma        : pegtl::one<','> {};
             struct colon        : pegtl::one<':'> {};
 
-            struct escaped_char  : pegtl::seq<pegtl::one<'\\'>, pegtl::any> {};
-            struct plain_char    : pegtl::not_one<'\\', '\''> {};
-            struct string_body   : pegtl::star<pegtl::sor<escaped_char, plain_char>> {};
-            struct quoted_string : pegtl::if_must<pegtl::one<'\''>, string_body, pegtl::one<'\''>> {};
+            struct escaped_char       : pegtl::seq<pegtl::one<'\\'>, pegtl::any> {};
+            struct single_plain_char  : pegtl::not_one<'\\', '\''> {};
+            struct double_plain_char  : pegtl::not_one<'\\', '"'> {};
+            struct single_string_body : pegtl::star<pegtl::sor<escaped_char, single_plain_char>> {};
+            struct double_string_body : pegtl::star<pegtl::sor<escaped_char, double_plain_char>> {};
+            struct single_quoted_string : pegtl::if_must<pegtl::one<'\''>, single_string_body, pegtl::one<'\''>> {};
+            struct double_quoted_string : pegtl::if_must<pegtl::one<'"'>, double_string_body, pegtl::one<'"'>> {};
+            struct quoted_string : pegtl::sor<single_quoted_string, double_quoted_string> {};
 
             struct key_string   : quoted_string {};
             struct value_string : quoted_string {};
 
-            struct int_part       : pegtl::plus<pegtl::digit> {};
-            struct frac_part      : pegtl::seq<pegtl::one<'.'>, pegtl::star<pegtl::digit>> {};
-            struct dot_frac_only  : pegtl::seq<pegtl::one<'.'>, pegtl::plus<pegtl::digit>> {};
+            struct identifier_first : pegtl::sor<pegtl::alpha, pegtl::one<'_'>> {};
+            struct identifier_rest  : pegtl::sor<pegtl::alnum, pegtl::one<'_'>> {};
+            struct identifier       : pegtl::seq<identifier_first, pegtl::star<identifier_rest>> {};
+            struct assignment_name  : identifier {};
+            struct reference        : identifier {};
+
+            struct int_part      : pegtl::plus<pegtl::digit> {};
+            struct frac_part     : pegtl::seq<pegtl::one<'.'>, pegtl::star<pegtl::digit>> {};
+            struct dot_frac_only : pegtl::seq<pegtl::one<'.'>, pegtl::plus<pegtl::digit>> {};
 
             struct number_mantissa : pegtl::sor<
                 pegtl::seq<int_part, pegtl::opt<frac_part>>
@@ -199,11 +304,16 @@ namespace timetable::infra::params_txt::detail {
                 , pegtl::opt<pegtl::one<'+', '-'>>
                 , pegtl::plus<pegtl::digit>
             > {};
-            struct number : pegtl::seq<
+            struct raw_number : pegtl::seq<
                 pegtl::opt<pegtl::one<'-'>>
                 , number_mantissa
                 , pegtl::opt<number_exponent>
             > {};
+            struct number_product : pegtl::seq<
+                  raw_number
+                , pegtl::plus<pegtl::seq<ws, pegtl::one<'*'>, ws, raw_number>>
+            > {};
+            struct number : raw_number {};
 
             struct kw_true  : TAO_PEGTL_STRING("True") {};
             struct kw_false : TAO_PEGTL_STRING("False") {};
@@ -218,13 +328,64 @@ namespace timetable::infra::params_txt::detail {
             struct elements    : pegtl::list_must<value, member_tail> {};
             struct array       : pegtl::seq<array_begin, ws, pegtl::opt<elements>, ws, array_end> {};
 
-            struct value       : pegtl::sor<object, array, value_string, number, kw_true, kw_false, kw_none> {};
-            struct start       : pegtl::must<ws, value, ws, pegtl::eof> {};
+            struct value       : pegtl::sor<
+                  object
+                , array
+                , value_string
+                , number_product
+                , number
+                , kw_true
+                , kw_false
+                , kw_none
+                , reference
+            > {};
+            struct value_start : pegtl::must<ws, value, ws, pegtl::eof> {};
+
+            struct equals            : pegtl::one<'='> {};
+            struct assignment_commit : pegtl::success {};
+            struct assignment        : pegtl::seq<ws, assignment_name, ws, equals, ws, value, assignment_commit> {};
+            struct assignment_start  : pegtl::must<ws, pegtl::plus<assignment>, ws, pegtl::eof> {};
 
         }  // namespace grammar
 
         template <typename Rule>
         struct action final : pegtl::nothing<Rule> {};
+
+        template <>
+        struct action<grammar::assignment_name> final {
+            template <typename Input>
+            static void apply(const Input& in, ParserState& state) {
+                apply_parser_transition(
+                      state
+                    , in
+                    , [&](ParserState current) {
+                        return with_assignment_name(std::move(current), in.string());
+                    }
+                );
+            }
+        };
+
+        template <>
+        struct action<grammar::assignment_commit> final {
+            template <typename Input>
+            static void apply(const Input& in, ParserState& state) {
+                apply_parser_transition(state, in, with_committed_assignment);
+            }
+        };
+
+        template <>
+        struct action<grammar::reference> final {
+            template <typename Input>
+            static void apply(const Input& in, ParserState& state) {
+                apply_parser_transition(
+                      state
+                    , in
+                    , [&](ParserState current) {
+                        return with_resolved_reference(std::move(current), in.string());
+                    }
+                );
+            }
+        };
 
         template <>
         struct action<grammar::object_begin> final {
@@ -337,6 +498,27 @@ namespace timetable::infra::params_txt::detail {
         };
 
         template <>
+        struct action<grammar::number_product> final {
+            template <typename Input>
+            static void apply(const Input& in, ParserState& state) {
+                try {
+                    apply_parser_transition(
+                          state
+                        , in
+                        , [&](ParserState current) {
+                            return with_pushed_value(
+                                  std::move(current)
+                                , Value{ parse_numeric_product_token(in.string_view()) }
+                            );
+                        }
+                    );
+                } catch (const std::invalid_argument& e) {
+                    throw pegtl::parse_error(e.what(), in);
+                }
+            }
+        };
+
+        template <>
         struct action<grammar::number> final {
             template <typename Input>
             static void apply(const Input& in, ParserState& state) {
@@ -371,10 +553,10 @@ namespace timetable::infra::params_txt::detail {
           const std::string& text
         , std::string_view   source_name
     ) {
-        pegtl::memory_input in(text, source_name);
-        ParserState state;
         try {
-            pegtl::parse<grammar::start, action>(in, state);
+            pegtl::memory_input in(text, source_name);
+            ParserState state;
+            pegtl::parse<grammar::value_start, action>(in, state);
             if (!state.stack.empty() || !state.root.has_value()) {
                 return mathfp::unexpected(
                     mathfp::invalid_arg("incomplete parse state")
@@ -383,6 +565,34 @@ namespace timetable::infra::params_txt::detail {
             }
             return std::move(*state.root);
         } catch (const pegtl::parse_error& e) {
+            try {
+                pegtl::memory_input in(text, source_name);
+                ParserState state;
+                pegtl::parse<grammar::assignment_start, action>(in, state);
+                if (!state.stack.empty() || state.pending_assignment.has_value()) {
+                    return mathfp::unexpected(
+                        mathfp::invalid_arg("incomplete params.txt assignment parse state")
+                        .ctx("source", std::string(source_name))
+                    );
+                }
+
+                const auto py_para = state.assignments.find("pyPara");
+                if (py_para != state.assignments.end()) {
+                    return py_para->second;
+                }
+                if (state.assignments.size() == 1) {
+                    return state.assignments.begin()->second;
+                }
+
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("params.txt assignment file does not define pyPara")
+                        .ctx("source", std::string(source_name))
+                );
+            } catch (const pegtl::parse_error&) {
+                // Report the original value-parse error; it points at the first
+                // construct that made the file non-object-like.
+            }
+
             auto err = mathfp::invalid_arg(e.what());
             err.ctx("source", std::string(source_name));
             if (!e.positions().empty()) {

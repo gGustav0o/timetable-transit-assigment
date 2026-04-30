@@ -231,7 +231,7 @@ namespace timetable::infra::params_txt::detail {
                 };
 
                 std::array<NumberFieldSpec, 1> split_scalars{
-                    NumberFieldSpec{ "BoxCoxExp", "root.splitPara", "split.boxcox_t" }
+                    NumberFieldSpec{ "BoxCoxPara", "root.splitPara", "split.boxcox_t" }
                 };
 
                 std::array<NumberFieldSpec, 1> split_choice_model_exponent{
@@ -554,6 +554,7 @@ namespace timetable::infra::params_txt::detail {
                   ChoiceModelSpec{ "Kirchhoff", &schema::kParamsTxtSchema.split_choice_model_exponent }
                 , ChoiceModelSpec{ "Logit"    , &schema::kParamsTxtSchema.split_logit_exponent }
                 , ChoiceModelSpec{ "Lohse"    , &schema::kParamsTxtSchema.split_lohse_exponent }
+                , ChoiceModelSpec{ "BoxCox"   , &schema::kParamsTxtSchema.split_choice_model_exponent }
             };
 
             const auto it = std::find_if(

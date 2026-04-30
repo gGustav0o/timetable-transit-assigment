@@ -2,6 +2,7 @@
 
 #include "timetable/domain/params_factory.hpp"
 #include "timetable/infra/demand_csv.hpp"
+#include "timetable/infra/params_txt.hpp"
 #include "timetable/infra/progress_bus.hpp"
 #include "timetable/infra/presegmented_input.hpp"
 #include "timetable/infra/segments_csv.hpp"
@@ -224,7 +225,7 @@ namespace timetable::infra {
             , std::string_view             name
         ) {
             const auto direct_path    = root / std::string(name);
-            const auto generated_path = root / "generated_demand_smoke_50" / std::string(name);
+            const auto generated_path = root / "generated_demand_informative_300" / std::string(name);
 
             if (std::filesystem::exists(direct_path)) {
                 if (!std::filesystem::is_regular_file(direct_path)) {
@@ -507,7 +508,7 @@ namespace timetable::infra {
             if (paths.params_txt.has_value()) {
                 log(
                     fmt::format(
-                          "pair input file present but intentionally ignored in current scope: {}"
+                          "pair input file: {}"
                         , paths.params_txt->string()
                     )
                     , LogLevel::Info
@@ -548,18 +549,13 @@ namespace timetable::infra {
             return mathfp::kUnit;
         }
 
-        mathfp::Expected<mathfp::Unit> apply_pair_runtime_defaults(
+        mathfp::Expected<mathfp::Unit> apply_pair_runtime_configuration(
               timetable::domain::AssignmentInput& input
+            , const PairResolvedPaths&            paths
         ) {
             using timetable::infra::LogLevel;
             using timetable::infra::progress::log;
             using timetable::infra::progress::status;
-
-            status("parsing: applying built-in pair defaults");
-            log(
-                  "parsing: pair-file runtime uses built-in defaults in the current scope"
-                , LogLevel::Info
-            );
 
             MATHFP_TRY_LET(
                   PairRuntimeDefaults
@@ -570,6 +566,27 @@ namespace timetable::infra {
             input.choice             = std::move(defaults.choice);
             input.search_pruning     = std::move(defaults.search_pruning);
             input.search_time_domain = std::move(defaults.search_time_domain);
+
+            if (!paths.params_txt.has_value()) {
+                status("parsing: applying built-in pair defaults");
+                log(
+                      "parsing: pair-file runtime uses built-in parameter defaults; params.txt not found"
+                    , LogLevel::Info
+                );
+                return mathfp::kUnit;
+            }
+
+            status("parsing: applying params.txt");
+            MATHFP_TRY_LET(
+                  timetable::domain::SearchParams
+                , parsed_params
+                , timetable::infra::params_txt::parse_search_params_file(*paths.params_txt)
+            );
+            input.params = std::move(parsed_params);
+            log(
+                  "parsing: pair-file runtime uses SearchParams from params.txt; runtime choice/pruning/search-time configs keep built-in rollout defaults"
+                , LogLevel::Info
+            );
             return mathfp::kUnit;
         }
 
@@ -585,7 +602,7 @@ namespace timetable::infra {
                 , load_pair_segments_input(paths)
             );
             MATHFP_TRY(load_pair_demand_input(input, paths));
-            MATHFP_TRY(apply_pair_runtime_defaults(input));
+            MATHFP_TRY(apply_pair_runtime_configuration(input, paths));
             status("parsing: pair input ready");
             return input;
         }

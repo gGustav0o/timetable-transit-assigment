@@ -90,7 +90,7 @@ namespace timetable::domain::assignment {
             , double demand_passengers
         ) noexcept {
             return probability > split_support_probability_tolerance()
-                && passengers   > split_support_passenger_tolerance(demand_passengers);
+                && passengers  > split_support_passenger_tolerance(demand_passengers);
         }
 
         std::size_t compact_numerical_support(
@@ -131,12 +131,13 @@ namespace timetable::domain::assignment {
         }
 
         double perceived_journey_time(
-              const ConnectionMetrics&          metrics
+              const ConnectionMetrics&           metrics
             , const PerceivedJourneyTimeWeights& weights
         ) noexcept {
-            return weighted_duration(metrics.in_vehicle_time, weights.in_vehicle_time)
-                + weighted_duration(metrics.access_time, weights.access_time)
-                + weighted_duration(metrics.egress_time, weights.egress_time)
+            return
+                  weighted_duration(metrics.in_vehicle_time   , weights.in_vehicle_time)
+                + weighted_duration(metrics.access_time       , weights.access_time)
+                + weighted_duration(metrics.egress_time       , weights.egress_time)
                 + weighted_duration(metrics.transfer_walk_time, weights.transfer_walk_time)
                 + weighted_duration(metrics.transfer_wait_time, weights.transfer_wait_time)
                 + weighted_transfer_count(metrics.transfer_count, weights.transfer_count);
@@ -144,7 +145,7 @@ namespace timetable::domain::assignment {
 
         double early_departure_deviation(
               const SplitAlternative& alternative
-            , const TimeInterval&         interval
+            , const TimeInterval&     interval
         ) noexcept {
             return std::max(
                   0.0
@@ -154,7 +155,7 @@ namespace timetable::domain::assignment {
 
         double late_departure_deviation(
               const SplitAlternative& alternative
-            , const TimeInterval&         interval
+            , const TimeInterval&     interval
         ) noexcept {
             return std::max(
                   0.0
@@ -167,7 +168,8 @@ namespace timetable::domain::assignment {
             , const TimeInterval&           interval
             , const TemporalUtilityWeights& weights
         ) noexcept {
-            return mathfp::units::as_dimless(weights.early_departure)
+            return
+                  mathfp::units::as_dimless(weights.early_departure)
                     * early_departure_deviation(alternative, interval)
                 + mathfp::units::as_dimless(weights.late_departure)
                     * late_departure_deviation(alternative, interval);
@@ -175,14 +177,16 @@ namespace timetable::domain::assignment {
 
         double split_impedance(
               const SplitAlternative& alternative
-            , const TimeInterval&         interval
-            , const SplitParams&          params
+            , const TimeInterval&     interval
+            , const SplitParams&      params
         ) noexcept {
-            return mathfp::units::as_dimless(params.q_time)
+            return
+                  mathfp::units::as_dimless(params.q_time)
                     * alternative.perceived_journey_time
                 + mathfp::units::as_dimless(params.q_departure)
                     * temporal_utility(alternative, interval, params.temporal_utility)
-                + mathfp::units::as_dimless(params.q_fare) * alternative.metrics.fare;
+                + mathfp::units::as_dimless(params.q_fare)
+                    * alternative.metrics.fare;
         }
 
         double box_cox_transform(
@@ -200,7 +204,9 @@ namespace timetable::domain::assignment {
               const SplitAlternative& lhs
             , const SplitAlternative& rhs
         ) noexcept {
-            return 0.5 * (
+            return
+                0.5
+                * (
                 std::abs(rhs.metrics.departure_time.value() - lhs.metrics.departure_time.value())
                 + std::abs(rhs.metrics.arrival_time.value() - lhs.metrics.arrival_time.value())
             );
@@ -246,6 +252,7 @@ namespace timetable::domain::assignment {
             return std::abs(base_quality_advantage) / scale;
         }
 
+
         double capped_proximity(
               double similarity
             , double scale
@@ -259,7 +266,7 @@ namespace timetable::domain::assignment {
         double connection_influence(
               const SplitAlternative& base
             , const SplitAlternative& other
-            , const SplitParams&          params
+            , const SplitParams&      params
         ) noexcept {
             const auto x = temporal_similarity(base, other);
             const auto y = base_journey_quality_advantage(base, other);
