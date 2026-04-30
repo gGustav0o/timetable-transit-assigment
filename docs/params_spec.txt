@@ -102,14 +102,16 @@
 
   - параметр читается из searchPara и хранится в EquivalentConnectionDominanceConfig внутри SearchPruningModelConfig;
   - параметр управляет только partial-search retention между эквивалентными состояниями поиска; он не относится к complete-connection dominance и не влияет на choice-retention;
+  - searchPara.useLastStopForEquivalentConnections читается из searchPara и выбирает stop-reference компонент того же equivalent-state ключа;
+  - при useLastStopForEquivalentConnections = 0 ключ использует CurrentStopOccurrence, то есть текущую stop occurrence ветви;
+  - при useLastStopForEquivalentConnections = 1 ключ использует LastTimedStopOccurrence, то есть arrival occurrence последнего рейсового сегмента, с консервативным fallback на CurrentStopOccurrence до первой timed-посадки;
   - SearchPruningExecutionPlan переносит EquivalentConnectionDominanceConfig в исполнимый pruning plan;
-  - ключ search-pruning строится чистой функцией make_search_pruning_state_key из SearchPruningStateProjection без доступа к внутренним branch-структурам search engine;
+  - ключ search-pruning строится чистыми функциями equivalent_connection_stop_occurrence и make_search_pruning_state_key из SearchPruningStateProjection без доступа к внутренним branch-структурам search engine;
   - при allowDominanceForEquivalentConnections = 1 включается текущий state-local search pruning: exact dominance и approximate retention внутри extension-safe equivalent state;
   - при allowDominanceForEquivalentConnections = 0 state-local pruning retention отключается, потому что текущая approximate retention использует тот же equivalent-state набор, что и exact dominance;
-  - текущая поддержанная stop-reference семантика — CurrentStopOccurrence: сравнение разрешается только в extension-safe search state;
-  - validation запрещает unsupported stop-reference и проверяет, что при allowDominanceForEquivalentConnections = 0 execution plan не включает exact/approximate retention layers;
-  - диагностика search-pruning выводит equivalent_dominance, equivalent_stop_reference, retention_requested и retention_suppressed_by_equivalent_dominance;
-  - searchPara.useLastStopForEquivalentConnections зарезервирован как LastTimedStopOccurrence, но runtime validation пока не разрешает этот режим до явной реализации extension-safety contract.
+  - поддержанные stop-reference семантики — CurrentStopOccurrence и LastTimedStopOccurrence: сравнение разрешается только внутри выбранного extension-safe equivalent state;
+  - validation запрещает неизвестный stop-reference и проверяет, что при allowDominanceForEquivalentConnections = 0 execution plan не включает exact/approximate retention layers;
+  - диагностика search-pruning выводит equivalent_dominance, equivalent_stop_reference, use_last_stop_for_equivalent_connections, retention_requested и retention_suppressed_by_equivalent_dominance.
 
 Формализованы как отдельная доменная политика complete-connection dominance
 
@@ -128,7 +130,6 @@
 
   - SearchImp.volCapRatioFactor — требуется учет загрузки/провозной способности в search impedance.
   - PerceivedJourneyTime.volCapRatioFactor — требуется учет загрузки/провозной способности в perceived journey time.
-  - searchPara.useLastStopForEquivalentConnections — требуется реализовать безопасный LastTimedStopOccurrence key для equivalent-connection dominance.
   - splitPara.BoxCoxTransformImp — не подключен как отдельный флаг; сейчас преобразование Box-Cox определяется выбором choiceModel = BoxCox.
   - splitPara.LohseExp — параметр читается, но формула Lohse пока не утверждена и runtime явно отклоняет choiceModel = Lohse.
 

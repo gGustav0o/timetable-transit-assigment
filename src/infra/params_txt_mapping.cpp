@@ -767,6 +767,14 @@ namespace timetable::infra::params_txt::detail {
             MATHFP_TRY_LET(bool, allow_equivalent_dominance, bool_like_at(
                 *search_para, "allowDominanceForEquivalentConnections", "root.searchPara"
             ));
+            MATHFP_TRY_LET(bool, use_last_stop_for_equivalent_connections, bool_like_at(
+                *search_para, "useLastStopForEquivalentConnections", "root.searchPara"
+            ));
+
+            const auto equivalent_stop_reference =
+                use_last_stop_for_equivalent_connections
+                    ? EquivalentConnectionStopReference::LastTimedStopOccurrence
+                    : EquivalentConnectionStopReference::CurrentStopOccurrence;
 
             return SearchPruningConfig{
                   .model = SearchPruningModelConfig{
@@ -776,8 +784,7 @@ namespace timetable::infra::params_txt::detail {
                           EquivalentConnectionDominanceConfig{
                               .allow_dominance_for_equivalent_connections =
                                   allow_equivalent_dominance
-                            , .stop_reference =
-                                  EquivalentConnectionStopReference::CurrentStopOccurrence
+                            , .stop_reference = equivalent_stop_reference
                           }
                   }
                 , .runtime = SearchPruningRuntimeConfig{}

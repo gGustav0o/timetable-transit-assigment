@@ -156,7 +156,7 @@
 
 3.1) Управление search-pruning:
    - searchPara.allowDominanceForEquivalentConnections включает или отключает partial-search retention между эквивалентными состояниями поиска;
-   - searchPara.useLastStopForEquivalentConnections зарезервирован, но пока не включен в runtime из-за необходимости отдельного extension-safety contract.
+   - searchPara.useLastStopForEquivalentConnections выбирает stop-reference компонент equivalent-state ключа: CurrentStopOccurrence при выключенном флаге и LastTimedStopOccurrence при включенном флаге.
 
 3.2) Управление dominance полных соединений:
    - searchPara.deactivateDominanceOfDirectConnections отключает право прямого полного соединения доминировать другие полные соединения;

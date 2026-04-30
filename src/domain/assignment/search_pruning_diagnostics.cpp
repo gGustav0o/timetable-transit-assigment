@@ -5,6 +5,16 @@
 #include "detail/diagnostic_format.hpp"
 
 namespace timetable::domain::assignment {
+    namespace {
+
+        [[nodiscard]] bool use_last_stop_for_equivalent_connections(
+            const EquivalentConnectionDominanceConfig& config
+        ) noexcept {
+            return config.stop_reference
+                == EquivalentConnectionStopReference::LastTimedStopOccurrence;
+        }
+
+    }  // namespace
 
     SearchPruningConfigSummary summarize(
         const SearchPruningConfig& config
@@ -59,13 +69,18 @@ namespace timetable::domain::assignment {
         const SearchPruningConfigSummary& summary
     ) {
         return fmt::format(
-              "search-pruning config: requested_state_space={} rollout_stage={} equivalent_dominance={} equivalent_stop_reference={} current_state_space={} retention_requested={}"
+              "search-pruning config: requested_state_space={} rollout_stage={} equivalent_dominance={} equivalent_stop_reference={} use_last_stop_for_equivalent_connections={} current_state_space={} retention_requested={}"
             , to_string(summary.requested_state_space)
             , to_string(summary.rollout_stage)
             , detail::diagnostic::enabled_text(
                   summary.equivalent_connection_dominance.allow_dominance_for_equivalent_connections
             )
             , to_string(summary.equivalent_connection_dominance.stop_reference)
+            , detail::diagnostic::bool_text(
+                  use_last_stop_for_equivalent_connections(
+                      summary.equivalent_connection_dominance
+                  )
+              )
             , detail::diagnostic::bool_text(summary.current_state_space)
             , detail::diagnostic::bool_text(summary.retention_requested)
         );
@@ -75,13 +90,18 @@ namespace timetable::domain::assignment {
         const SearchPruningExecutionSummary& summary
     ) {
         return fmt::format(
-              "search-pruning execution: state_space={} rollout_stage={} equivalent_dominance={} equivalent_stop_reference={} exact={} approximate={} approximate_policy={} retention_suppressed_by_equivalent_dominance={} exact_contract={}"
+              "search-pruning execution: state_space={} rollout_stage={} equivalent_dominance={} equivalent_stop_reference={} use_last_stop_for_equivalent_connections={} exact={} approximate={} approximate_policy={} retention_suppressed_by_equivalent_dominance={} exact_contract={}"
             , to_string(summary.state_space)
             , to_string(summary.rollout_stage)
             , detail::diagnostic::enabled_text(
                   summary.equivalent_connection_dominance.allow_dominance_for_equivalent_connections
               )
             , to_string(summary.equivalent_connection_dominance.stop_reference)
+            , detail::diagnostic::bool_text(
+                  use_last_stop_for_equivalent_connections(
+                      summary.equivalent_connection_dominance
+                  )
+              )
             , detail::diagnostic::enabled_text(summary.exact_enabled)
             , detail::diagnostic::enabled_text(summary.approximate_enabled)
             , detail::diagnostic::bool_text(summary.has_approximate_policy)

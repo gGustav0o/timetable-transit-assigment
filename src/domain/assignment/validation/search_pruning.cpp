@@ -11,14 +11,18 @@ namespace timetable::domain::assignment {
               const EquivalentConnectionDominanceConfig& config
             , const char*                                 owner
         ) {
-            if (config.stop_reference != EquivalentConnectionStopReference::CurrentStopOccurrence) {
-                return mathfp::unexpected(
-                    mathfp::invalid_arg("unsupported equivalent-connection stop reference")
-                        .ctx("owner", owner)
-                        .ctx("stop_reference", static_cast<std::int64_t>(config.stop_reference))
-                );
+            switch (config.stop_reference) {
+                case EquivalentConnectionStopReference::CurrentStopOccurrence:
+                    [[fallthrough]];
+                case EquivalentConnectionStopReference::LastTimedStopOccurrence:
+                    return mathfp::kUnit;
             }
-            return mathfp::kUnit;
+
+            return mathfp::unexpected(
+                mathfp::invalid_arg("unsupported equivalent-connection stop reference")
+                    .ctx("owner", owner)
+                    .ctx("stop_reference", static_cast<std::int64_t>(config.stop_reference))
+            );
         }
 
         mathfp::Expected<mathfp::Unit> validate_no_search_pruning_retention_layers(

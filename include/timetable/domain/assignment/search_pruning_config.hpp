@@ -95,9 +95,12 @@ namespace timetable::domain::assignment {
      * prefixes whose future feasible continuations are represented by the same
      * extension-safe search state.
      *
-     * CurrentStopOccurrence is the only currently supported runtime semantics.
-     * LastTimedStopOccurrence is reserved for searchPara.useLastStopForEquivalentConnections
-     * once its extension-safety contract is implemented explicitly.
+     * searchPara.useLastStopForEquivalentConnections selects the stop occurrence
+     * component of this key:
+     * - false: CurrentStopOccurrence, the current branch occurrence;
+     * - true: LastTimedStopOccurrence, the arrival occurrence of the last timed
+     *   ride, with a conservative fallback to the current occurrence before the
+     *   first timed ride.
      */
     enum class EquivalentConnectionStopReference : std::uint8_t {
           CurrentStopOccurrence
@@ -156,18 +159,34 @@ namespace timetable::domain::assignment {
         SearchPruningTransferContext     transfer{};
     };
 
+    [[nodiscard]] inline std::optional<StopOccurrenceKey>
+    equivalent_connection_stop_occurrence(
+          const SearchPruningStateProjection& projection
+        , EquivalentConnectionStopReference stop_reference
+    ) noexcept {
+        switch (stop_reference) {
+            case EquivalentConnectionStopReference::CurrentStopOccurrence:
+                return projection.current_occurrence;
+
+            case EquivalentConnectionStopReference::LastTimedStopOccurrence:
+                return projection.last_timed_occurrence.has_value()
+                    ? projection.last_timed_occurrence
+                    : projection.current_occurrence;
+        }
+
+        return projection.current_occurrence;
+    }
+
     [[nodiscard]] inline SearchPruningStateKey make_search_pruning_state_key(
           SearchPruningStateProjection projection
         , EquivalentConnectionStopReference stop_reference
     ) noexcept {
-        const auto occurrence =
-            stop_reference == EquivalentConnectionStopReference::LastTimedStopOccurrence
-                ? projection.last_timed_occurrence
-                : projection.current_occurrence;
-
         return SearchPruningStateKey{
               .physical   = projection.physical
-            , .occurrence = occurrence
+            , .occurrence = equivalent_connection_stop_occurrence(
+                  projection
+                , stop_reference
+              )
             , .transfer   = projection.transfer
         };
     }
