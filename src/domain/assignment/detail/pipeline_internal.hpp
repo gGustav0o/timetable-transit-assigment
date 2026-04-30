@@ -24,6 +24,7 @@ namespace timetable::domain::assignment::detail {
         ConnectionSearchResult search{};
         ConnectionChoiceResult choice{};
         DemandSplitResult      split{};
+        SkimMatrixConfig       skim_config{};
     };
 
     struct SearchStepResult final {
@@ -85,19 +86,16 @@ namespace timetable::domain::assignment::detail {
             format_search_pruning_execution_summary(summarize(search_pruning_execution))
             , LogLevel::Info
         );
-        MATHFP_TRY(validate_search_time_domain_builder_input(
+        MATHFP_TRY(validate_search_task_builder_input(
               input.input
-            , SearchWindowMode::PerOd
-            , input.search_time_domain.model.padding_policy
-            , params.split
+            , input.assignment_period
         ));
         MATHFP_TRY_LET(
               std::vector<SearchTask>
             , search_tasks
             , build_search_tasks(
                   input.input
-                , input.search_time_domain.model.padding_policy
-                , params.split
+                , input.assignment_period
             )
         );
         MATHFP_TRY_LET(
@@ -198,6 +196,7 @@ namespace timetable::domain::assignment::detail {
             , .search  = std::move(search_step.result)
             , .choice  = std::move(choice_result)
             , .split   = std::move(split_result)
+            , .skim_config = input.skim_matrix
         };
     }
 

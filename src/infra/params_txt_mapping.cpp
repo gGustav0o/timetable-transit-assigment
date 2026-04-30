@@ -110,6 +110,19 @@ namespace timetable::infra::params_txt::detail {
             double boxcox_t{};
         };
 
+        struct SkimMatrixFields final {
+            bool        enabled{};
+            std::string func{};
+            double      volume_weighted{};
+            double      quantile{};
+            double      low_impedance_connection_share{};
+        };
+
+        struct AssignmentPeriodFields final {
+            double pre_assign_period{};
+            double post_assign_period{};
+        };
+
         namespace schema {
 
             struct ParamsTxtSchema final {
@@ -638,6 +651,118 @@ namespace timetable::infra::params_txt::detail {
             );
         }
 
+        mathfp::Expected<bool> parse_numeric_bool(
+              double           value
+            , std::string_view field_name
+        ) {
+            if (value == 0.0) {
+                return false;
+            }
+            if (value == 1.0) {
+                return true;
+            }
+            return mathfp::unexpected(
+                mathfp::invalid_arg("expected numeric bool encoded as 0 or 1")
+                    .ctx("field", std::string(field_name))
+                    .ctx("value", value)
+            );
+        }
+
+        mathfp::Expected<timetable::domain::assignment::SkimAggregationFunc> parse_skim_func(
+            const std::string& token
+        ) {
+            const auto parsed = timetable::domain::assignment::skim_aggregation_func_from_string(token);
+            if (!parsed.has_value()) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("unsupported skim matrix aggregation function")
+                        .ctx("func", token)
+                );
+            }
+            return *parsed;
+        }
+
+        mathfp::Expected<SkimMatrixFields> read_skim_matrix_fields(
+              const Object& base_para
+            , const Object& skim_para
+        ) {
+            MATHFP_TRY_LET(bool, enabled, bool_at(base_para, "calcSkimMatr", "root.basePara"));
+            MATHFP_TRY_LET(std::string, func, string_at(skim_para, "func", "root.skimMatrixPara"));
+            MATHFP_TRY_LET(double, volume_weighted, number_at(
+                skim_para, "volumeWeighted", "root.skimMatrixPara"
+            ));
+            MATHFP_TRY_LET(double, quantile, number_at(
+                skim_para, "quantile", "root.skimMatrixPara"
+            ));
+            MATHFP_TRY_LET(double, low_impedance_connection_share, number_at(
+                skim_para, "lowImpConnShare", "root.skimMatrixPara"
+            ));
+
+            return SkimMatrixFields{
+                  .enabled                         = enabled
+                , .func                            = std::move(func)
+                , .volume_weighted                 = volume_weighted
+                , .quantile                        = quantile
+                , .low_impedance_connection_share  = low_impedance_connection_share
+            };
+        }
+
+        mathfp::Expected<timetable::domain::assignment::SkimMatrixConfig> parse_skim_matrix_config(
+            const Object& root
+        ) {
+            using namespace timetable::domain::assignment;
+
+            MATHFP_TRY_LET(const Object*, base_para, object_at(root, "basePara", "root"));
+            MATHFP_TRY_LET(const Object*, skim_para, object_at(root, "skimMatrixPara", "root"));
+            MATHFP_TRY_LET(SkimMatrixFields, fields, read_skim_matrix_fields(*base_para, *skim_para));
+            MATHFP_TRY_LET(SkimAggregationFunc, func, parse_skim_func(fields.func));
+            MATHFP_TRY_LET(bool, volume_weighted, parse_numeric_bool(
+                  fields.volume_weighted
+                , "skimMatrixPara.volumeWeighted"
+            ));
+
+            return make_skim_matrix_config(
+                  fields.enabled
+                , func
+                , volume_weighted
+                , fields.quantile
+                , fields.low_impedance_connection_share
+            );
+        }
+
+        mathfp::Expected<AssignmentPeriodFields> read_assignment_period_fields(
+            const Object& base_para
+        ) {
+            MATHFP_TRY_LET(double, pre_assign_period, number_at(
+                base_para, "preAssignPeriod", "root.basePara"
+            ));
+            MATHFP_TRY_LET(double, post_assign_period, number_at(
+                base_para, "postAssignPeriod", "root.basePara"
+            ));
+
+            return AssignmentPeriodFields{
+                  .pre_assign_period  = pre_assign_period
+                , .post_assign_period = post_assign_period
+            };
+        }
+
+        mathfp::Expected<timetable::domain::assignment::AssignmentPeriodConfig> parse_assignment_period_config(
+            const Object& root
+        ) {
+            using namespace timetable::domain::assignment;
+
+            MATHFP_TRY_LET(const Object*, base_para, object_at(root, "basePara", "root"));
+            MATHFP_TRY_LET(
+                  AssignmentPeriodFields
+                , fields
+                , read_assignment_period_fields(*base_para)
+            );
+
+            return make_assignment_period_config(
+                  fields.pre_assign_period
+                , fields.post_assign_period
+            );
+        }
+
     }  // namespace
 
     mathfp::Expected<timetable::domain::SearchParams> map_params(
@@ -721,6 +846,28 @@ namespace timetable::infra::params_txt::detail {
             , std::move(tolerances.choice)
             , std::move(split)
         );
+    }
+
+    mathfp::Expected<timetable::domain::AssignmentRuntimeParams> map_assignment_runtime_params(
+        const Object& root
+    ) {
+        MATHFP_TRY_LET(timetable::domain::SearchParams, search_params, map_params(root));
+        MATHFP_TRY_LET(
+              timetable::domain::assignment::SkimMatrixConfig
+            , skim_matrix
+            , parse_skim_matrix_config(root)
+        );
+        MATHFP_TRY_LET(
+              timetable::domain::assignment::AssignmentPeriodConfig
+            , assignment_period
+            , parse_assignment_period_config(root)
+        );
+
+        return timetable::domain::AssignmentRuntimeParams{
+              .search            = std::move(search_params)
+            , .skim_matrix       = std::move(skim_matrix)
+            , .assignment_period = std::move(assignment_period)
+        };
     }
 
 }  // namespace timetable::infra::params_txt::detail

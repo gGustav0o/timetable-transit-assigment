@@ -145,13 +145,39 @@ namespace timetable::domain::assignment::projection {
     };
 
     /**
+     * @brief One flat row for skim_matrix.csv.
+     */
+    struct AssignmentSkimMatrixCsvRow final {
+        ZoneId     origin{};
+        ZoneId     destination{};
+        IntervalId interval_id{};
+        double     demand_passengers{};
+        double     assigned_passengers{};
+        std::size_t connection_count{};
+        std::size_t included_connection_count{};
+        Time       journey_time{};
+        Time       in_vehicle_time{};
+        Time       access_time{};
+        Time       egress_time{};
+        Time       walk_time{};
+        Time       wait_time{};
+        Time       transfer_wait_time{};
+        Time       transfer_walk_time{};
+        double     transfers{};
+        double     fare{};
+        double     split_impedance{};
+    };
+
+    /**
      * @brief Flat analytical export tables derived from AssignmentOutput.
      *
-     * The four vectors correspond directly to:
+     * The vectors correspond directly to:
      * - od_summary.csv
      * - connections.csv
      * - shares.csv
      * - segments.csv
+     * - loads.csv
+     * - skim_matrix.csv
      */
     struct AssignmentCsvProjection final {
         std::vector<AssignmentOdSummaryCsvRow>  od_summary_rows{};
@@ -159,6 +185,7 @@ namespace timetable::domain::assignment::projection {
         std::vector<AssignmentShareCsvRow>      share_rows{};
         std::vector<AssignmentSegmentCsvRow>    segment_rows{};
         std::vector<AssignmentLoadCsvRow>       load_rows{};
+        std::vector<AssignmentSkimMatrixCsvRow> skim_matrix_rows{};
     };
 
     mathfp::Expected<AssignmentCsvProjection> build_assignment_csv_projection(

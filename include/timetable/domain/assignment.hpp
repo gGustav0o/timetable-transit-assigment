@@ -10,11 +10,14 @@
 #include "timetable/domain/model.hpp"
 #include "timetable/domain/params.hpp"
 #include "timetable/domain/segments.hpp"
+#include "timetable/domain/assignment/assignment_period.hpp"
 #include "timetable/domain/assignment/choice/choice.hpp"
 #include "timetable/domain/assignment/choice/choice_config.hpp"
 #include "timetable/domain/assignment/search/search.hpp"
 #include "timetable/domain/assignment/search_pruning_config.hpp"
 #include "timetable/domain/assignment/search_time_domain_config.hpp"
+#include "timetable/domain/assignment/skim.hpp"
+#include "timetable/domain/assignment/skim_config.hpp"
 
 namespace timetable::domain {
 
@@ -29,6 +32,8 @@ namespace timetable::domain {
         assignment::ChoiceConfig           choice{};
         assignment::SearchPruningConfig    search_pruning{};
         assignment::SearchTimeDomainConfig search_time_domain{};
+        assignment::SkimMatrixConfig       skim_matrix{};
+        assignment::AssignmentPeriodConfig assignment_period{};
         std::optional<PresegmentedInput>   presegmented{};
     };
 
@@ -209,6 +214,7 @@ namespace timetable::domain {
         Summary                         summary{};
         std::vector<AssignmentOdResult> od_results{};
         AssignmentLoads                 loads{};
+        assignment::AssignmentSkimMatrix skim_matrix{};
     };
 
 }  // namespace timetable::domain

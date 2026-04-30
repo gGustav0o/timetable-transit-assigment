@@ -156,6 +156,7 @@ namespace timetable::domain::assignment::projection {
             , .route_load_count    = output.loads.route_loads.size()
             , .trip_load_count     = output.loads.trip_loads.size()
             , .segment_load_count  = output.loads.segment_loads.size()
+            , .skim_entry_count    = output.skim_matrix.entries.size()
             , .od_results          = {}
         };
         summary.od_results.reserve(output.od_results.size());

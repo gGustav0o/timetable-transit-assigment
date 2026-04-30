@@ -3011,15 +3011,11 @@ namespace timetable::domain::assignment {
         : connection_(std::move(connection)) {}
 
     mathfp::Expected<std::vector<SearchTask>> build_search_tasks(
-          const InputModel&              input
-        , const SearchTimePaddingPolicy& padding_policy
-        , const SplitParams&             split
+          const InputModel&             input
+        , const AssignmentPeriodConfig& assignment_period
     ) {
-        MATHFP_TRY_LET(
-              SearchTimePadding
-            , padding
-            , resolve_search_time_padding(padding_policy, split)
-        );
+        MATHFP_TRY(validate_assignment_period_config(assignment_period));
+        const auto padding = assignment_time_padding(assignment_period);
 
         auto intervals_result = interval_lookup(input);
         if (!intervals_result) {

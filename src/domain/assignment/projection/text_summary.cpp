@@ -123,6 +123,7 @@ namespace timetable::domain::assignment::projection {
                   "Route loads:         {}\n"
                   "Trip loads:          {}\n"
                   "Segment loads:       {}\n"
+                  "Skim entries:        {}\n"
                   "Total demand:        {}\n"
                   "Assigned passengers: {}\n"
                   "Runtime:             {}\n"
@@ -137,6 +138,7 @@ namespace timetable::domain::assignment::projection {
                 , format_count (summary.route_load_count)
                 , format_count (summary.trip_load_count)
                 , format_count (summary.segment_load_count)
+                , format_count (summary.skim_entry_count)
                 , format_scalar(summary.totals.total_demand_passengers)
                 , format_scalar(summary.totals.assigned_passengers)
                 , format_optional_duration_seconds(summary.totals.runtime_seconds)

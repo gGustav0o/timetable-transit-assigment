@@ -2,6 +2,7 @@
 
 #include "timetable/app/app.hpp"
 #include "timetable/domain/assignment.hpp"
+#include "timetable/domain/assignment/assignment_period.hpp"
 #include "timetable/domain/assignment/choice.hpp"
 #include "timetable/domain/assignment/choice/choice_config.hpp"
 #include "timetable/domain/assignment/connection.hpp"
@@ -20,6 +21,9 @@
 #include "timetable/domain/assignment/search_time_domain_builder.hpp"
 #include "timetable/domain/assignment/search_time_domain_execution.hpp"
 #include "timetable/domain/assignment/search_time_domain_plan.hpp"
+#include "timetable/domain/assignment/runtime_params.hpp"
+#include "timetable/domain/assignment/skim.hpp"
+#include "timetable/domain/assignment/skim_config.hpp"
 #include "timetable/domain/assignment/split.hpp"
 #include "timetable/domain/assignment/validation.hpp"
 #include "timetable/domain/model.hpp"

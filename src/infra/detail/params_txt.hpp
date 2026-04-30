@@ -8,6 +8,7 @@
 
 #include <mathfp/core/expected.hpp>
 
+#include "timetable/domain/assignment/runtime_params.hpp"
 #include "timetable/domain/params.hpp"
 
 namespace timetable::infra::params_txt::detail {
@@ -42,6 +43,12 @@ namespace timetable::infra::params_txt::detail {
         , std::string_view path
     );
 
+    mathfp::Expected<bool> bool_at(
+          const Object&    obj
+        , std::string_view key
+        , std::string_view path
+    );
+
     mathfp::Expected<std::string> string_at(
           const Object&    obj
         , std::string_view key
@@ -49,6 +56,10 @@ namespace timetable::infra::params_txt::detail {
     );
 
     mathfp::Expected<timetable::domain::SearchParams> map_params(
+        const Object& root
+    );
+
+    mathfp::Expected<timetable::domain::AssignmentRuntimeParams> map_assignment_runtime_params(
         const Object& root
     );
 

@@ -11,6 +11,8 @@
 #include <mathfp/core/summation.hpp>
 #include <mathfp/core/try.hpp>
 
+#include "timetable/domain/assignment/skim.hpp"
+
 namespace timetable::domain::assignment::detail {
 
     namespace {
@@ -379,6 +381,7 @@ namespace timetable::domain::assignment::detail {
         , const ConnectionSearchResult& search_result
         , const ConnectionChoiceResult& choice_result
         , const DemandSplitResult&      split_result
+        , const SkimMatrixConfig&       skim_config
     ) {
         MATHFP_TRY(validate_choice_flat_projection(choice_result));
         MATHFP_TRY(validate_split_shares_are_task_local(choice_result, split_result));
@@ -396,11 +399,22 @@ namespace timetable::domain::assignment::detail {
             , build_assignment_loads(split_result)
         );
         MATHFP_TRY(validate_loads_are_split_projection(split_result, loads));
+        MATHFP_TRY_LET(
+              AssignmentSkimMatrix
+            , skim_matrix
+            , build_assignment_skim_matrix(
+                  choice_result
+                , input
+                , split_result
+                , skim_config
+            )
+        );
 
         AssignmentOutput output{
               .summary    = build_output_summary(input, search_result, choice_result, split_result)
             , .od_results = {}
             , .loads      = std::move(loads)
+            , .skim_matrix = std::move(skim_matrix)
         };
         output.od_results.reserve(all_ods.size());
 

@@ -23,6 +23,7 @@ namespace timetable::infra {
         std::filesystem::path shares_csv_path{};
         std::filesystem::path segments_csv_path{};
         std::filesystem::path loads_csv_path{};
+        std::filesystem::path skim_matrix_csv_path{};
     };
 
     /**
@@ -43,6 +44,7 @@ namespace timetable::infra {
      * - shares.csv
      * - segments.csv
      * - loads.csv
+     * - skim_matrix.csv
      *
      * All files are written into the results directory located next to the
      * configured log directory.

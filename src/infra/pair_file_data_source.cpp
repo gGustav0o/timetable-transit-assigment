@@ -1,5 +1,6 @@
 #include "timetable/infra/pair_file_data_source.hpp"
 
+#include "timetable/domain/assignment/assignment_period.hpp"
 #include "timetable/domain/params_factory.hpp"
 #include "timetable/infra/demand_csv.hpp"
 #include "timetable/infra/params_txt.hpp"
@@ -51,6 +52,8 @@ namespace timetable::infra {
             timetable::domain::assignment::ChoiceConfig           choice{};
             timetable::domain::assignment::SearchPruningConfig    search_pruning{};
             timetable::domain::assignment::SearchTimeDomainConfig search_time_domain{};
+            timetable::domain::assignment::SkimMatrixConfig       skim_matrix{};
+            timetable::domain::assignment::AssignmentPeriodConfig assignment_period{};
         };
 
         struct PairSearchTimeDomainSpec final {
@@ -140,6 +143,9 @@ namespace timetable::infra {
             PairChoiceSpec           choice{};
             PairSearchPruningSpec    search_pruning{};
             PairSearchTimeDomainSpec search_time_domain{};
+            bool                     skim_matrix_enabled{};
+            double                   pre_assign_period{};
+            double                   post_assign_period{};
         };
 
         inline constexpr PairToleranceSpec kPairDefaultToleranceSpec{
@@ -218,6 +224,9 @@ namespace timetable::infra {
                   , .architecture   = timetable::domain::assignment::SearchArchitecture::OriginWideBranchAndBound
                   , .rollout_stage  = timetable::domain::assignment::SearchTimeDomainRolloutStage::PerOdConservativeFallback
                 }
+            , .skim_matrix_enabled = false
+            , .pre_assign_period   = 0.0
+            , .post_assign_period  = 0.0
         };
 
         mathfp::Expected<std::filesystem::path> resolve_pair_support_file(
@@ -342,6 +351,27 @@ namespace timetable::infra {
             return ChoiceConfig{
                 .rollout_stage = kPairRuntimeDefaultSpec.choice.rollout_stage
             };
+        }
+
+        mathfp::Expected<timetable::domain::assignment::SkimMatrixConfig> make_pair_default_skim_matrix_config() {
+            using namespace timetable::domain::assignment;
+
+            return make_skim_matrix_config(
+                  kPairRuntimeDefaultSpec.skim_matrix_enabled
+                , SkimAggregationFunc::Mean
+                , true
+                , 0.5
+                , 1.0
+            );
+        }
+
+        mathfp::Expected<timetable::domain::assignment::AssignmentPeriodConfig> make_pair_default_assignment_period_config() {
+            using namespace timetable::domain::assignment;
+
+            return make_assignment_period_config(
+                  kPairRuntimeDefaultSpec.pre_assign_period
+                , kPairRuntimeDefaultSpec.post_assign_period
+            );
         }
 
         mathfp::Expected<timetable::domain::SearchParams> make_pair_default_search_params() {
@@ -479,12 +509,24 @@ namespace timetable::infra {
                 , search_time_domain
                 , make_pair_default_search_time_domain_config()
             );
+            MATHFP_TRY_LET(
+                  timetable::domain::assignment::SkimMatrixConfig
+                , skim_matrix
+                , make_pair_default_skim_matrix_config()
+            );
+            MATHFP_TRY_LET(
+                  timetable::domain::assignment::AssignmentPeriodConfig
+                , assignment_period
+                , make_pair_default_assignment_period_config()
+            );
 
             return PairRuntimeDefaults{
                   .params             = std::move(params)
                 , .choice             = std::move(choice)
                 , .search_pruning     = std::move(search_pruning)
                 , .search_time_domain = std::move(search_time_domain)
+                , .skim_matrix        = std::move(skim_matrix)
+                , .assignment_period  = std::move(assignment_period)
             };
         }
 
@@ -566,6 +608,8 @@ namespace timetable::infra {
             input.choice             = std::move(defaults.choice);
             input.search_pruning     = std::move(defaults.search_pruning);
             input.search_time_domain = std::move(defaults.search_time_domain);
+            input.skim_matrix        = std::move(defaults.skim_matrix);
+            input.assignment_period  = std::move(defaults.assignment_period);
 
             if (!paths.params_txt.has_value()) {
                 status("parsing: applying built-in pair defaults");
@@ -578,13 +622,15 @@ namespace timetable::infra {
 
             status("parsing: applying params.txt");
             MATHFP_TRY_LET(
-                  timetable::domain::SearchParams
+                  timetable::domain::AssignmentRuntimeParams
                 , parsed_params
-                , timetable::infra::params_txt::parse_search_params_file(*paths.params_txt)
+                , timetable::infra::params_txt::parse_assignment_runtime_params_file(*paths.params_txt)
             );
-            input.params = std::move(parsed_params);
+            input.params            = std::move(parsed_params.search);
+            input.skim_matrix       = std::move(parsed_params.skim_matrix);
+            input.assignment_period = std::move(parsed_params.assignment_period);
             log(
-                  "parsing: pair-file runtime uses SearchParams from params.txt; runtime choice/pruning/search-time configs keep built-in rollout defaults"
+                  "parsing: pair-file runtime uses SearchParams, SkimMatrixConfig, and AssignmentPeriodConfig from params.txt; runtime choice/pruning/search-time configs keep built-in rollout defaults"
                 , LogLevel::Info
             );
             return mathfp::kUnit;

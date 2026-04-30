@@ -535,6 +535,64 @@ namespace timetable::infra {
             writer.end_object();
         }
 
+        void write_skim_entry(
+              JsonWriter&                                             writer
+            , const timetable::domain::assignment::AssignmentSkimEntry& entry
+        ) {
+            writer.begin_object();
+            writer.key("origin");
+            write_strong_id(writer, entry.origin);
+            writer.key("destination");
+            write_strong_id(writer, entry.destination);
+            writer.key("interval_id");
+            write_strong_id(writer, entry.interval);
+            writer.key("demand_passengers");
+            writer.number(entry.demand_passengers);
+            writer.key("assigned_passengers");
+            writer.number(entry.assigned_passengers);
+            writer.key("connection_count");
+            writer.integer(static_cast<std::int64_t>(entry.connection_count));
+            writer.key("included_connection_count");
+            writer.integer(static_cast<std::int64_t>(entry.included_connection_count));
+            writer.key("journey_time");
+            write_time(writer, entry.journey_time);
+            writer.key("in_vehicle_time");
+            write_time(writer, entry.in_vehicle_time);
+            writer.key("access_time");
+            write_time(writer, entry.access_time);
+            writer.key("egress_time");
+            write_time(writer, entry.egress_time);
+            writer.key("walk_time");
+            write_time(writer, entry.walk_time);
+            writer.key("wait_time");
+            write_time(writer, entry.wait_time);
+            writer.key("transfer_wait_time");
+            write_time(writer, entry.transfer_wait_time);
+            writer.key("transfer_walk_time");
+            write_time(writer, entry.transfer_walk_time);
+            writer.key("transfers");
+            writer.number(entry.transfers);
+            writer.key("fare");
+            writer.number(entry.fare);
+            writer.key("split_impedance");
+            writer.number(entry.split_impedance);
+            writer.end_object();
+        }
+
+        void write_skim_matrix(
+              JsonWriter&                                                  writer
+            , const timetable::domain::assignment::AssignmentSkimMatrix& skim_matrix
+        ) {
+            writer.begin_object();
+            writer.key("entries");
+            writer.begin_array();
+            for (const auto& entry : skim_matrix.entries) {
+                write_skim_entry(writer, entry);
+            }
+            writer.end_array();
+            writer.end_object();
+        }
+
         void write_od_result(
               JsonWriter&                                  writer
             , const timetable::domain::AssignmentOdResult& od_result
@@ -599,7 +657,7 @@ namespace timetable::infra {
         JsonWriter writer;
         writer.begin_object();
         writer.key("schema");
-        writer.string("timetable.assignment_output.v4");
+        writer.string("timetable.assignment_output.v5");
         writer.key("units");
         writer.begin_object();
         writer.key("time");
@@ -621,6 +679,8 @@ namespace timetable::infra {
         writer.end_array();
         writer.key("loads");
         write_loads(writer, output.loads);
+        writer.key("skim_matrix");
+        write_skim_matrix(writer, output.skim_matrix);
         writer.end_object();
         return std::move(writer).finish();
     }

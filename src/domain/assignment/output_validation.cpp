@@ -232,6 +232,100 @@ namespace timetable::domain::assignment::detail {
             return mathfp::kUnit;
         }
 
+        using SkimEntryKey = std::tuple<std::int64_t, std::int64_t, std::int64_t>;
+        using OutputIntervalLookup = std::map<SkimEntryKey, const AssignmentDemandInterval*>;
+
+        [[nodiscard]] SkimEntryKey skim_entry_key(
+            const AssignmentSkimEntry& entry
+        ) noexcept {
+            return SkimEntryKey{
+                  entry.origin.get()
+                , entry.destination.get()
+                , entry.interval.get()
+            };
+        }
+
+        [[nodiscard]] SkimEntryKey skim_entry_key(
+              const AssignmentOdResult&        od_result
+            , const AssignmentDemandInterval&  interval
+        ) noexcept {
+            return SkimEntryKey{
+                  od_result.origin.get()
+                , od_result.destination.get()
+                , interval.interval.id.get()
+            };
+        }
+
+        mathfp::Expected<OutputIntervalLookup> build_output_interval_lookup(
+            const AssignmentOutput& output
+        ) {
+            OutputIntervalLookup lookup;
+            for (const auto& od_result : output.od_results) {
+                for (const auto& interval : od_result.intervals) {
+                    const auto key = skim_entry_key(od_result, interval);
+                    if (!lookup.emplace(key, &interval).second) {
+                        return mathfp::unexpected(
+                            mathfp::internal_error("assignment output contains duplicate OD-interval result")
+                                .ctx("origin"     , od_result.origin.get())
+                                .ctx("destination", od_result.destination.get())
+                                .ctx("interval_id", interval.interval.id.get())
+                        );
+                    }
+                }
+            }
+            return lookup;
+        }
+
+        mathfp::Expected<mathfp::Unit> validate_skim_matrix_matches_output(
+            const AssignmentOutput& output
+        ) {
+            MATHFP_TRY(validate_assignment_skim_matrix(output.skim_matrix));
+            if (output.skim_matrix.entries.empty()) {
+                return mathfp::kUnit;
+            }
+
+            MATHFP_TRY_LET(OutputIntervalLookup, intervals, build_output_interval_lookup(output));
+            if (output.skim_matrix.entries.size() != intervals.size()) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("assignment output skim matrix row count disagrees with OD-interval results")
+                        .ctx("skim_entries"       , static_cast<std::int64_t>(output.skim_matrix.entries.size()))
+                        .ctx("output_od_intervals", static_cast<std::int64_t>(intervals.size()))
+                );
+            }
+
+            for (std::size_t i = 0; i < output.skim_matrix.entries.size(); ++i) {
+                const auto& entry = output.skim_matrix.entries[i];
+                const auto interval_it = intervals.find(skim_entry_key(entry));
+                if (interval_it == intervals.end()) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("assignment output skim entry has no matching OD-interval result")
+                            .ctx("skim_index" , static_cast<std::int64_t>(i))
+                            .ctx("origin"     , entry.origin.get())
+                            .ctx("destination", entry.destination.get())
+                            .ctx("interval_id", entry.interval.get())
+                    );
+                }
+
+                const auto& interval = *interval_it->second;
+                if (!almost_equal_scalar(entry.demand_passengers, interval.demand_passengers)
+                    || !almost_equal_scalar(entry.assigned_passengers, interval.assigned_passengers)) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("assignment output skim entry disagrees with OD-interval demand totals")
+                            .ctx("skim_index"              , static_cast<std::int64_t>(i))
+                            .ctx("origin"                  , entry.origin.get())
+                            .ctx("destination"             , entry.destination.get())
+                            .ctx("interval_id"             , entry.interval.get())
+                            .ctx("skim_demand_passengers"  , entry.demand_passengers)
+                            .ctx("output_demand_passengers", interval.demand_passengers)
+                            .ctx("skim_assigned_passengers", entry.assigned_passengers)
+                            .ctx("output_assigned_passengers", interval.assigned_passengers)
+                    );
+                }
+            }
+
+            return mathfp::kUnit;
+        }
+
     }  // namespace
 
     mathfp::Expected<mathfp::Unit> validate_od_result_semantics(
@@ -327,6 +421,7 @@ namespace timetable::domain::assignment::detail {
         }
 
         MATHFP_TRY(validate_loads_semantics(output.loads));
+        MATHFP_TRY(validate_skim_matrix_matches_output(output));
 
         if (output.summary.od_count != output.od_results.size()) {
             return mathfp::unexpected(

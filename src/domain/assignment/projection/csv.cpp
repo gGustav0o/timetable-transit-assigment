@@ -387,6 +387,37 @@ namespace timetable::domain::assignment::projection {
             }
         }
 
+        void append_skim_matrix_projection_rows(
+              AssignmentCsvProjection&      projection
+            , const AssignmentSkimMatrix&   skim_matrix
+        ) {
+            projection.skim_matrix_rows.reserve(skim_matrix.entries.size());
+            for (const auto& entry : skim_matrix.entries) {
+                projection.skim_matrix_rows.push_back(
+                    AssignmentSkimMatrixCsvRow{
+                          .origin                    = entry.origin
+                        , .destination               = entry.destination
+                        , .interval_id               = entry.interval
+                        , .demand_passengers         = entry.demand_passengers
+                        , .assigned_passengers       = entry.assigned_passengers
+                        , .connection_count          = entry.connection_count
+                        , .included_connection_count = entry.included_connection_count
+                        , .journey_time              = entry.journey_time
+                        , .in_vehicle_time           = entry.in_vehicle_time
+                        , .access_time               = entry.access_time
+                        , .egress_time               = entry.egress_time
+                        , .walk_time                 = entry.walk_time
+                        , .wait_time                 = entry.wait_time
+                        , .transfer_wait_time        = entry.transfer_wait_time
+                        , .transfer_walk_time        = entry.transfer_walk_time
+                        , .transfers                 = entry.transfers
+                        , .fare                      = entry.fare
+                        , .split_impedance           = entry.split_impedance
+                    }
+                );
+            }
+        }
+
         mathfp::Expected<mathfp::Unit> append_od_projection_rows(
               AssignmentCsvProjection&   projection
             , const AssignmentOdResult&  od_result
@@ -427,6 +458,7 @@ namespace timetable::domain::assignment::projection {
         projection.share_rows     .reserve(output.summary.demand_share_count);
         projection.segment_rows   .reserve(segment_row_count);
         projection.load_rows      .reserve(load_row_count);
+        projection.skim_matrix_rows.reserve(output.skim_matrix.entries.size());
 
         for (std::size_t od_index = 0; od_index < output.od_results.size(); ++od_index) {
             const auto& od_result  = output .od_results[od_index];
@@ -434,6 +466,7 @@ namespace timetable::domain::assignment::projection {
             MATHFP_TRY(append_od_projection_rows(projection, od_result, od_summary));
         }
         append_load_projection_rows(projection, output.loads);
+        append_skim_matrix_projection_rows(projection, output.skim_matrix);
 
         return projection;
     }

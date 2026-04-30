@@ -6,6 +6,7 @@
 #include "timetable/domain/assignment/choice.hpp"
 #include "timetable/domain/assignment/preprocessed_network.hpp"
 #include "timetable/domain/assignment/search.hpp"
+#include "timetable/domain/assignment/skim_config.hpp"
 #include "timetable/domain/assignment/split.hpp"
 
 namespace timetable::domain::assignment {
@@ -19,6 +20,7 @@ namespace timetable::domain::assignment {
         , const ConnectionSearchResult& search_result
         , const ConnectionChoiceResult& choice_result
         , const DemandSplitResult&      split_result
+        , const SkimMatrixConfig&       skim_config
     );
 
 }  // namespace timetable::domain::assignment

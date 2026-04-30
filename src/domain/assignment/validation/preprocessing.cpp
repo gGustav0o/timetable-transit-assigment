@@ -102,6 +102,8 @@ namespace timetable::domain::assignment {
             );
         }
 
+        MATHFP_TRY(validate_skim_matrix_config(input.skim_matrix));
+        MATHFP_TRY(validate_assignment_period_config(input.assignment_period));
         return mathfp::kUnit;
     }
 

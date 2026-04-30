@@ -20,6 +20,7 @@ namespace timetable::domain::assignment {
                 , result.search
                 , result.choice
                 , result.split
+                , result.skim_config
             );
         }
 

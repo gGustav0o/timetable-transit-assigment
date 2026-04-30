@@ -1,0 +1,58 @@
+Подключены в текущей реализации
+
+  - basePara.calcSkimMatr — управляет построением skim-матрицы как доменной проекции над результатами choice/split.
+  - skimMatrixPara.func — задает правило агрегации skim-атрибутов: Mean или Quantile.
+  - skimMatrixPara.volumeWeighted — задает веса агрегации: пассажиропоток по доле спроса или равный вес альтернатив.
+  - skimMatrixPara.quantile — квантиль для режима Quantile.
+  - skimMatrixPara.lowImpConnShare — доля выбранных соединений с минимальным split_impedance, включаемых в skim-агрегацию.
+  - basePara.preAssignPeriod — подключен как доменная конфигурация периода назначения и используется при построении search tasks; входная единица неоднозначна, в коде временно зафиксирована как минуты.
+  - basePara.postAssignPeriod — подключен как доменная конфигурация периода назначения и используется при построении search tasks; входная единица неоднозначна, в коде временно зафиксирована как минуты.
+
+Семантика skimMatrixPara.lowImpConnShare:
+
+  - для OD-интервала берется множество альтернатив после выбора и распределения спроса;
+  - альтернативы сортируются по возрастанию split_impedance;
+  - сохраняется ceil(lowImpConnShare * n) альтернатив, где n — число альтернатив с положительным весом;
+  - если lowImpConnShare > 0 и n > 0, сохраняется не менее одной альтернативы;
+  - volumeWeighted не влияет на отбор альтернатив, а используется только внутри агрегации значений.
+
+Выход skim:
+
+  - доменный результат хранится в AssignmentOutput.skim_matrix;
+  - JSON содержит секцию skim_matrix;
+  - файловый экспорт содержит отдельный файл skim_matrix.csv.
+
+Семантика basePara.preAssignPeriod/basePara.postAssignPeriod:
+
+  - параметры читаются из basePara и хранятся в AssignmentPeriodConfig отдельно от SearchParams;
+  - входные значения временно трактуются как минуты: kAssignmentPeriodInputUnit = AssignmentPeriodUnit::Minutes;
+  - при переключении кода на AssignmentPeriodUnit::Seconds значения будут трактоваться как секунды без изменения params.txt;
+  - доменная модель валидирует конечность и неотрицательность обоих периодов;
+  - для demand-интервала [start, end] search task получает допустимое окно первого timed departure [start - preAssignPeriod, end + postAssignPeriod];
+  - SearchTimePaddingPolicy не используется для построения search tasks и остается отдельной моделью для search-time-domain planning/optimization.
+
+Требуют переработки кода
+
+  - basePara.calcAssign — сейчас assignment всегда выполняется; нужен управляющий режим pipeline.
+  - дополнительная фильтрация choicePara.deleteConnsOutsideAssignmentPeriod относительно basePara.preAssignPeriod/basePara.postAssignPeriod — search tasks уже строятся по assignment period, но отдельные флаги удаления соединений еще не реализованы.
+  - SearchImp.volCapRatioFactor — требуется учет загрузки/провозной способности в search impedance.
+  - PerceivedJourneyTime.volCapRatioFactor — требуется учет загрузки/провозной способности в perceived journey time.
+  - searchPara.deactivateDominanceOfDirectConnections — меняет правила dominance для прямых соединений.
+  - searchPara.allowDominanceForEquivalentConnections — нужна формализация equivalent connections.
+  - searchPara.useLastStopForEquivalentConnections — также относится к equivalence logic.
+  - choicePara.deleteConnsOutsideAssignmentPeriod
+  - choicePara.deleteConnsWithDepBeforeAssPeriodForDepBasedDSeg
+  - choicePara.deleteConnsWithArrAfterAssPeriodForArrBasedDSeg — нужна модель assignment period и dep/arr-based demand segment filtering.
+  - splitPara.BoxCoxTransformImp — сейчас Box-Cox-преобразование применяется всегда; нужен флаг в модели split.
+  - Independence.useIndependence — сейчас independence factor применяется всегда; нужен флаг в SplitParams.
+  - splitPara.depBasedDSeg — требуется поддержка departure-based/arrival-based demand segment semantics.
+  - splitPara.considerConnsWithPosDeltaT — нужна явная логика отбора соединений по знаку временного отклонения.
+  - splitPara.KirchhoffExp
+  - splitPara.logitExp
+  - splitPara.LohseExp — требуют реализации соответствующих choice-model формул, если choiceModel не BoxCox.
+
+  Неоднозначны или требуют уточнения смысла
+
+  - splitPara.BoxCoxLambda — вероятно, это параметр lambda Box-Cox-преобразования.
+  - splitPara.BoxCoxPara — сейчас подключен как текущий параметр Box-Cox, но по смыслу конкурирует с BoxCoxLambda; нужно выбрать один корректный источник.
+  - SearchImp.supplementsFactor — сейчас подключен как fare, но термин supplements может означать не общий тариф, а доплаты/надбавки. Это не неподключенный параметр, но семантически требует подтверждения.

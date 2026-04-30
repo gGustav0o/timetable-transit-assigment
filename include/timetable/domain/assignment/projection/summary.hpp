@@ -71,6 +71,7 @@ namespace timetable::domain::assignment::projection {
         std::size_t                      route_load_count{};
         std::size_t                      trip_load_count{};
         std::size_t                      segment_load_count{};
+        std::size_t                      skim_entry_count{};
         std::vector<AssignmentOdSummary> od_results{};
     };
 

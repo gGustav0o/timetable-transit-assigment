@@ -10,6 +10,7 @@ namespace timetable::domain::assignment {
         , const ConnectionSearchResult& search_result
         , const ConnectionChoiceResult& choice_result
         , const DemandSplitResult&      split_result
+        , const SkimMatrixConfig&       skim_config
     ) {
         return detail::build_assignment_output_impl(
               input
@@ -17,6 +18,7 @@ namespace timetable::domain::assignment {
             , search_result
             , choice_result
             , split_result
+            , skim_config
         );
     }
 

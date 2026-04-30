@@ -82,4 +82,20 @@ namespace timetable::infra::params_txt::detail {
         return std::get<std::string>(child->data);
     }
 
+    mathfp::Expected<bool> bool_at(
+          const Object&    obj
+        , std::string_view key
+        , std::string_view path
+    ) {
+        MATHFP_TRY_LET(const Value*, child, object_get(obj, key, path));
+        if (!std::holds_alternative<bool>(child->data)) {
+            return mathfp::unexpected(
+                mathfp::invalid_arg("expected bool")
+                .ctx("path", std::string(path))
+                .ctx("key" , std::string(key))
+            );
+        }
+        return std::get<bool>(child->data);
+    }
+
 }  // namespace timetable::infra::params_txt::detail

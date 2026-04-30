@@ -36,6 +36,7 @@ namespace timetable::domain::assignment::detail {
         , const ConnectionSearchResult& search_result
         , const ConnectionChoiceResult& choice_result
         , const DemandSplitResult&      split_result
+        , const SkimMatrixConfig&       skim_config
     );
 
 }  // namespace timetable::domain::assignment::detail

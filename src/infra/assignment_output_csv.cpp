@@ -415,4 +415,53 @@ namespace timetable::infra {
         return std::move(writer).finish();
     }
 
+    std::string serialize_assignment_skim_matrix_csv(
+        const projection::AssignmentCsvProjection& projection
+    ) {
+        CsvWriter writer;
+        writer.text("origin");
+        writer.text("destination");
+        writer.text("interval_id");
+        writer.text("demand_passengers");
+        writer.text("assigned_passengers");
+        writer.text("connection_count");
+        writer.text("included_connection_count");
+        writer.text("journey_time");
+        writer.text("in_vehicle_time");
+        writer.text("access_time");
+        writer.text("egress_time");
+        writer.text("walk_time");
+        writer.text("wait_time");
+        writer.text("transfer_wait_time");
+        writer.text("transfer_walk_time");
+        writer.text("transfers");
+        writer.text("fare");
+        writer.text("split_impedance");
+        writer.end_row();
+
+        for (const auto& row : projection.skim_matrix_rows) {
+            write_strong_field(writer, row.origin);
+            write_strong_field(writer, row.destination);
+            write_strong_field(writer, row.interval_id);
+            writer.number(row.demand_passengers);
+            writer.number(row.assigned_passengers);
+            writer.integer(static_cast<std::int64_t>(row.connection_count));
+            writer.integer(static_cast<std::int64_t>(row.included_connection_count));
+            write_time_field(writer, row.journey_time);
+            write_time_field(writer, row.in_vehicle_time);
+            write_time_field(writer, row.access_time);
+            write_time_field(writer, row.egress_time);
+            write_time_field(writer, row.walk_time);
+            write_time_field(writer, row.wait_time);
+            write_time_field(writer, row.transfer_wait_time);
+            write_time_field(writer, row.transfer_walk_time);
+            writer.number(row.transfers);
+            writer.number(row.fare);
+            writer.number(row.split_impedance);
+            writer.end_row();
+        }
+
+        return std::move(writer).finish();
+    }
+
 }  // namespace timetable::infra

@@ -13,6 +13,47 @@
 #include "timetable/infra/progress_bus.hpp"
 
 namespace timetable::infra::params_txt {
+    namespace {
+
+        mathfp::Expected<detail::Object> parse_params_root_file(
+            const std::filesystem::path& path
+        ) {
+            using timetable::infra::LogLevel;
+            using timetable::infra::progress::log;
+            using timetable::infra::progress::status;
+
+            status("parsing: opening params.txt");
+            std::ifstream input(path);
+            if (!input.is_open()) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("failed to open params file")
+                    .ctx("path", path.string())
+                );
+            }
+
+            const std::string text{
+                  std::istreambuf_iterator<char>(input)
+                , std::istreambuf_iterator<char>()
+            };
+            log(
+                fmt::format(
+                      "parsing: params.txt loaded; bytes = {}"
+                    , text.size()
+                )
+                , LogLevel::Info
+            );
+
+            status("parsing: parsing params.txt syntax");
+            MATHFP_TRY_LET(detail::Value, root, detail::parse_value_text(text, path.string()));
+            log("parsing: params.txt syntax parsed", LogLevel::Info);
+
+            status("parsing: validating params.txt root");
+            MATHFP_TRY_LET(const detail::Object*, root_obj, detail::as_object(root, "root"));
+            log("parsing: params.txt root object validated", LogLevel::Info);
+            return *root_obj;
+        }
+
+    }  // namespace
 
     mathfp::Expected<timetable::domain::SearchParams> parse_search_params_file(
         const std::filesystem::path& path
@@ -21,40 +62,13 @@ namespace timetable::infra::params_txt {
         using timetable::infra::progress::log;
         using timetable::infra::progress::status;
 
-        status("parsing: opening params.txt");
-        std::ifstream input(path);
-        if (!input.is_open()) {
-            return mathfp::unexpected(
-                mathfp::invalid_arg("failed to open params file")
-                .ctx("path", path.string())
-            );
-        }
-
-        const std::string text{
-              std::istreambuf_iterator<char>(input)
-            , std::istreambuf_iterator<char>()
-        };
-        log(
-            fmt::format(
-                  "parsing: params.txt loaded; bytes = {}"
-                , text.size()
-            )
-            , LogLevel::Info
-        );
-
-        status("parsing: parsing params.txt syntax");
-        MATHFP_TRY_LET(detail::Value, root, detail::parse_value_text(text, path.string()));
-        log("parsing: params.txt syntax parsed", LogLevel::Info);
-
-        status("parsing: validating params.txt root");
-        MATHFP_TRY_LET(const detail::Object*, root_obj, detail::as_object(root, "root"));
-        log("parsing: params.txt root object validated", LogLevel::Info);
+        MATHFP_TRY_LET(detail::Object, root_obj, parse_params_root_file(path));
 
         status("parsing: mapping params");
         MATHFP_TRY_LET(
               timetable::domain::SearchParams
             , params
-            , detail::map_params(*root_obj)
+            , detail::map_params(root_obj)
         );
         log(
             fmt::format(
@@ -66,6 +80,36 @@ namespace timetable::infra::params_txt {
             , LogLevel::Info
         );
         status("parsing: params.txt parsed");
+        return params;
+    }
+
+    mathfp::Expected<timetable::domain::AssignmentRuntimeParams> parse_assignment_runtime_params_file(
+        const std::filesystem::path& path
+    ) {
+        using timetable::infra::LogLevel;
+        using timetable::infra::progress::log;
+        using timetable::infra::progress::status;
+
+        MATHFP_TRY_LET(detail::Object, root_obj, parse_params_root_file(path));
+
+        status("parsing: mapping assignment runtime params");
+        MATHFP_TRY_LET(
+              timetable::domain::AssignmentRuntimeParams
+            , params
+            , detail::map_assignment_runtime_params(root_obj)
+        );
+        log(
+            fmt::format(
+                  "parsing: assignment runtime params mapped; max_transfers = {}  skim_enabled = {}  skim_func = {}  pre_assign_period_sec = {}  post_assign_period_sec = {}"
+                , params.search.transfers.max_transfers.get()
+                , params.skim_matrix.enabled ? "true" : "false"
+                , timetable::domain::assignment::to_string(params.skim_matrix.func)
+                , params.assignment_period.pre_assign_period.value()
+                , params.assignment_period.post_assign_period.value()
+            )
+            , LogLevel::Info
+        );
+        status("parsing: assignment runtime params parsed");
         return params;
     }
 

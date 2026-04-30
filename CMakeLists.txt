@@ -20,6 +20,7 @@ add_executable(timetable-transit-assigment
   src/main.cpp
   src/app/app.cpp
   src/app/cli.cpp
+  src/domain/assignment/assignment_period.cpp
   src/domain/assignment/choice/choice.cpp
   src/domain/assignment/complete_connection_retention.cpp
   src/domain/assignment/connection.cpp
@@ -38,6 +39,8 @@ add_executable(timetable-transit-assigment
   src/domain/assignment/search_time_domain_builder.cpp
   src/domain/assignment/search_time_domain_execution.cpp
   src/domain/assignment/search_time_domain_plan.cpp
+  src/domain/assignment/skim.cpp
+  src/domain/assignment/skim_config.cpp
   src/domain/assignment/projection/csv.cpp
   src/domain/assignment/projection/summary.cpp
   src/domain/assignment/projection/text_summary.cpp
@@ -48,6 +51,7 @@ add_executable(timetable-transit-assigment
   src/domain/assignment/split/split.cpp
   src/domain/assignment/validation/choice.cpp
   src/domain/assignment/validation/preprocessing.cpp
+  src/domain/assignment/validation/search_task_builder.cpp
   src/domain/assignment/validation/search_pruning.cpp
   src/domain/assignment/validation/search_time_domain.cpp
   src/domain/assignment/validation/search.cpp

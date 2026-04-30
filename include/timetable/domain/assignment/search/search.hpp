@@ -9,10 +9,11 @@
 
 #include "timetable/domain/model.hpp"
 #include "timetable/domain/params.hpp"
+#include "timetable/domain/assignment/assignment_period.hpp"
 #include "timetable/domain/assignment/choice/choice_config.hpp"
 #include "timetable/domain/assignment/connection.hpp"
-#include "timetable/domain/assignment/search_time_domain_builder.hpp"
 #include "timetable/domain/assignment/search_pruning_plan.hpp"
+#include "timetable/domain/assignment/search_time_domain.hpp"
 #include "timetable/domain/assignment/search/preprocessed_network.hpp"
 #include "timetable/domain/assignment/search/residual_reachability.hpp"
 #include <timetable/domain/segments.hpp>
@@ -88,8 +89,7 @@ namespace timetable::domain::assignment {
 
     mathfp::Expected<std::vector<SearchTask>> build_search_tasks(
           const InputModel&              input
-        , const SearchTimePaddingPolicy& padding_policy
-        , const SplitParams&             split
+        , const AssignmentPeriodConfig&  assignment_period
     );
 
     [[nodiscard]] std::vector<const SearchConnection*> search_connection_ptrs(
