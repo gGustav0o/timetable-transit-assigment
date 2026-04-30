@@ -100,12 +100,16 @@ namespace timetable::infra::params_txt {
         );
         log(
             fmt::format(
-                  "parsing: assignment runtime params mapped; max_transfers = {}  skim_enabled = {}  skim_func = {}  pre_assign_period_sec = {}  post_assign_period_sec = {}"
+                  "parsing: assignment runtime params mapped; max_transfers = {}  skim_enabled = {}  skim_func = {}"
+                  "  pre_assign_period_sec = {}  post_assign_period_sec = {}"
+                  "  delete_outside_assignment_period = {}  demand_segment_basis = {}"
                 , params.search.transfers.max_transfers.get()
                 , params.skim_matrix.enabled ? "true" : "false"
                 , timetable::domain::assignment::to_string(params.skim_matrix.func)
                 , params.assignment_period.pre_assign_period.value()
                 , params.assignment_period.post_assign_period.value()
+                , params.connection_deletion.delete_outside_assignment_period ? "true" : "false"
+                , timetable::domain::assignment::to_string(params.demand_segment_time.basis)
             )
             , LogLevel::Info
         );

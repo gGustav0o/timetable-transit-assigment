@@ -1,8 +1,10 @@
 #pragma once
 
+#include <string>
 #include <utility>
 #include <vector>
 
+#include <mathfp/core/error.hpp>
 #include <mathfp/core/expected.hpp>
 #include <mathfp/core/try.hpp>
 
@@ -107,6 +109,11 @@ namespace timetable::domain::assignment::detail {
                 , fare_scale
                 , params
                 , input.choice
+                , input.assignment_period
+                , ConnectionAdmissibilityConfig{
+                      .deletion    = input.connection_deletion
+                    , .demand_time = input.demand_segment_time
+                  }
                 , &search_pruning_execution
             )
         );
@@ -115,6 +122,11 @@ namespace timetable::domain::assignment::detail {
             , net
             , fare_scale
             , params
+            , input.assignment_period
+            , ConnectionAdmissibilityConfig{
+                  .deletion    = input.connection_deletion
+                , .demand_time = input.demand_segment_time
+              }
         ));
         return SearchStepResult{
               .result     = std::move(search_result)
@@ -127,13 +139,27 @@ namespace timetable::domain::assignment::detail {
         , const SearchParams&           params
         , double                        fare_scale
         , const ChoiceConfig&           config
+        , const AssignmentPeriodConfig& assignment_period
+        , const ConnectionAdmissibilityConfig& admissibility_config
     ) {
         MATHFP_TRY_LET(
               ConnectionChoiceResult
             , choice_result
-            , choose_connections(search_result, params, fare_scale, config)
+            , choose_connections(
+                  search_result
+                , params
+                , fare_scale
+                , config
+                , assignment_period
+                , admissibility_config
+            )
         );
-        MATHFP_TRY(validate_choice_step_output(choice_result, search_result));
+        MATHFP_TRY(validate_choice_step_output(
+              choice_result
+            , search_result
+            , assignment_period
+            , admissibility_config
+        ));
         return choice_result;
     }
 
@@ -141,7 +167,15 @@ namespace timetable::domain::assignment::detail {
           const ConnectionChoiceResult& choice_result
         , const InputModel&             input
         , const SearchParams&           params
+        , const DemandSegmentTimeConfig& demand_segment_time
     ) {
+        if (demand_segment_time.basis == DemandSegmentBasis::Arrival) {
+            return mathfp::unexpected(
+                mathfp::invalid_arg("arrival-based demand segment split semantics is not implemented")
+                    .ctx("basis", std::string(to_string(demand_segment_time.basis)))
+            );
+        }
+
         MATHFP_TRY(validate_split_step_input(choice_result, input));
         MATHFP_TRY_LET(
               DemandSplitResult
@@ -182,12 +216,22 @@ namespace timetable::domain::assignment::detail {
                 , input.params
                 , search_step.fare_scale
                 , input.choice
+                , input.assignment_period
+                , ConnectionAdmissibilityConfig{
+                      .deletion    = input.connection_deletion
+                    , .demand_time = input.demand_segment_time
+                  }
             )
         );
         MATHFP_TRY_LET(
               DemandSplitResult
             , split_result
-            , run_validated_split_step(choice_result, input.input, input.params)
+            , run_validated_split_step(
+                  choice_result
+                , input.input
+                , input.params
+                , input.demand_segment_time
+            )
         );
 
         return AssignmentPipelineResult{

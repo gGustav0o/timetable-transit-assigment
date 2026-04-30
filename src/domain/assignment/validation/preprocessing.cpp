@@ -66,6 +66,40 @@ namespace timetable::domain::assignment {
                 && *segment.fare > 0.0;
         }
 
+        mathfp::Expected<mathfp::Unit> validate_connection_admissibility_input(
+              const ConnectionDeletionConfig& deletion
+            , const DemandSegmentTimeConfig&  demand_time
+        ) {
+            MATHFP_TRY(validate_connection_admissibility_config(
+                ConnectionAdmissibilityConfig{
+                      .deletion    = deletion
+                    , .demand_time = demand_time
+                }
+            ));
+
+            if (demand_time.basis == DemandSegmentBasis::Departure
+                && deletion.delete_arrivals_after_assignment_period_for_arrival_based) {
+                detail::validation::warn(
+                    "preprocessing input: arrival-based connection deletion flag is set but demand segment basis is departure"
+                );
+            }
+
+            if (demand_time.basis == DemandSegmentBasis::Arrival
+                && deletion.delete_departures_before_assignment_period_for_departure_based) {
+                detail::validation::warn(
+                    "preprocessing input: departure-based connection deletion flag is set but demand segment basis is arrival"
+                );
+            }
+
+            if (demand_time.basis == DemandSegmentBasis::Arrival) {
+                detail::validation::warn(
+                    "preprocessing input: arrival-based demand segment filtering is enabled; split stage will reject it until arrival-based split utility is implemented"
+                );
+            }
+
+            return mathfp::kUnit;
+        }
+
     }  // namespace
 
     mathfp::Expected<mathfp::Unit> validate_preprocessing_step_input(
@@ -104,6 +138,10 @@ namespace timetable::domain::assignment {
 
         MATHFP_TRY(validate_skim_matrix_config(input.skim_matrix));
         MATHFP_TRY(validate_assignment_period_config(input.assignment_period));
+        MATHFP_TRY(validate_connection_admissibility_input(
+              input.connection_deletion
+            , input.demand_segment_time
+        ));
         return mathfp::kUnit;
     }
 

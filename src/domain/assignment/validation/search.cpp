@@ -356,6 +356,8 @@ namespace timetable::domain::assignment {
         , const PreprocessedNetwork&    network
         , double                        fare_scale
         , const SearchParams&
+        , const AssignmentPeriodConfig& assignment_period
+        , const ConnectionAdmissibilityConfig& admissibility_config
     ) {
         if (!(fare_scale > 0.0) || !std::isfinite(fare_scale)) {
             return mathfp::unexpected(
@@ -363,6 +365,9 @@ namespace timetable::domain::assignment {
                     .ctx("fare_scale", fare_scale)
             );
         }
+
+        MATHFP_TRY(validate_assignment_period_config(assignment_period));
+        MATHFP_TRY(validate_connection_admissibility_config(admissibility_config));
 
         if (search_connection_count(result) == 0) {
             detail::validation::warn("search output: no feasible connections were found");
@@ -388,6 +393,22 @@ namespace timetable::domain::assignment {
                                 .ctx("task_destination"      , task_result.task.destination.get())
                                 .ctx("connection_origin"     , origin_of(connection).get())
                                 .ctx("connection_destination", destination_of(connection).get())
+                        );
+                    }
+
+                    if (!connection_admissible_for_assignment_period(
+                          metrics_of(connection)
+                        , task_result.task.interval
+                        , assignment_period
+                        , admissibility_config
+                    )) {
+                        return mathfp::unexpected(
+                            mathfp::internal_error("search task contains inadmissible connection")
+                                .ctx("task_index"      , task_result.task.index.get())
+                                .ctx("origin"          , task_result.task.origin.get())
+                                .ctx("destination"     , task_result.task.destination.get())
+                                .ctx("interval_id"     , task_result.task.interval.id.get())
+                                .ctx("connection_index", static_cast<std::int64_t>(i))
                         );
                     }
 

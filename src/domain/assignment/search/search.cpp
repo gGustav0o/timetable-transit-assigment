@@ -147,6 +147,7 @@ namespace timetable::domain::assignment {
             SuffixLowerBoundRejectionStats suffix_lower_bound_rejections{};
             std::size_t rejected_dominance_or_tolerance{};
             std::size_t completed_connections{};
+            std::size_t rejected_complete_admissibility{};
             std::size_t rejected_complete_dominance{};
             std::size_t removed_complete_dominated{};
             std::size_t rejected_complete_tolerance{};
@@ -2513,17 +2514,28 @@ namespace timetable::domain::assignment {
             , const PreprocessedNetwork& network
             , const SearchParams&        params
             , double                     fare_scale
+            , const SearchTask&          task
+            , const AssignmentPeriodConfig& assignment_period
+            , const ConnectionAdmissibilityConfig& admissibility_config
             , SearchTaskRetention&       retention
             , TaskSearchStats&           stats
-            , ZoneId                     destination
         ) {
             MATHFP_TRY_LET(
                   std::optional<SearchConnection>
                 , complete
-                , complete_connection(branch, network, params.transfers, destination)
+                , complete_connection(branch, network, params.transfers, task.destination)
             );
             if (complete.has_value()) {
                 ++stats.completed_connections;
+                if (!connection_admissible_for_assignment_period(
+                      metrics_of(*complete)
+                    , task.interval
+                    , assignment_period
+                    , admissibility_config
+                )) {
+                    ++stats.rejected_complete_admissibility;
+                    return mathfp::kUnit;
+                }
                 const auto retention_decision = retain_exact_complete_connection(
                       retention.complete_connections
                     , std::move(*complete)
@@ -2545,6 +2557,8 @@ namespace timetable::domain::assignment {
             , double                            fare_scale
             , const SearchParams&               params
             , const ChoiceConfig&                choice_config
+            , const AssignmentPeriodConfig&      assignment_period
+            , const ConnectionAdmissibilityConfig& admissibility_config
             , const SearchPruningExecutionPlan& pruning_execution
             , std::size_t                       batch_index
             , std::size_t                       batch_count
@@ -2792,9 +2806,11 @@ namespace timetable::domain::assignment {
                                 , network
                                 , params
                                 , fare_scale
+                                , *batch.tasks[task_pos].task
+                                , assignment_period
+                                , admissibility_config
                                 , retentions[task_pos]
                                 , task_stats[task_pos]
-                                , batch.tasks[task_pos].task->destination
                             );
                             if (!complete_result) {
                                 successor_error = mathfp::unexpected(
@@ -2912,6 +2928,7 @@ namespace timetable::domain::assignment {
                 );
                 task_stats[task_pos].rejected_complete_tolerance =
                     before_tolerance - task_result.connections.size();
+                stats.rejected_complete_admissibility += task_stats[task_pos].rejected_complete_admissibility;
                 stats.rejected_complete_dominance += task_stats[task_pos].rejected_complete_dominance;
                 stats.removed_complete_dominated  += task_stats[task_pos].removed_complete_dominated;
                 stats.rejected_complete_tolerance += task_stats[task_pos].rejected_complete_tolerance;
@@ -2923,7 +2940,7 @@ namespace timetable::domain::assignment {
                 log(
                     fmt::format(
                           "search batch task done: batch={}/{} task={} origin={} destination={} interval={} found={:>8}"
-                          " retained_complete={:>8} complete_rejected(dominance/tolerance)={}/{} complete_removed_dominated={}"
+                          " retained_complete={:>8} complete_rejected(admissibility/dominance/tolerance)={}/{}/{} complete_removed_dominated={}"
                           " reachability_pruned={} reachability_detail(phase/budget/unreachable)={}/{}/{}"
                           " lower_bound_pruned={} lower_bound_detail(exact/imp/jt/nt)={}/{}/{}/{}"
                         , batch_index + 1
@@ -2934,6 +2951,7 @@ namespace timetable::domain::assignment {
                         , task_result.task.interval.id.get()
                         , task_result.connections.size()
                         , before_tolerance
+                        , task_stats[task_pos].rejected_complete_admissibility
                         , task_stats[task_pos].rejected_complete_dominance
                         , task_stats[task_pos].rejected_complete_tolerance
                         , task_stats[task_pos].removed_complete_dominated
@@ -2956,7 +2974,7 @@ namespace timetable::domain::assignment {
             log(
                 fmt::format(
                       "search batch done: {}/{} origin={} interval={} tasks={} found={:>8} completed={:>8}"
-                      " retained_complete={:>8} complete_rejected(dominance/tolerance)={}/{} complete_removed_dominated={}"
+                      " retained_complete={:>8} complete_rejected(admissibility/dominance/tolerance)={}/{}/{} complete_removed_dominated={}"
                       " expanded={:>8} generated={:>8} accepted={:>8}"
                       " rejected(time_domain/feasibility/reboarding/cycles/limit/reachability/dominance)={}/{}/{}/{}/{}/{}/{}"
                       " reachability_detail(phase/budget/unreachable)={}/{}/{} max_frontier={}/{}"
@@ -2969,6 +2987,7 @@ namespace timetable::domain::assignment {
                     , batch_final_found
                     , stats.completed_connections
                     , batch_retained_before_tolerance
+                    , stats.rejected_complete_admissibility
                     , stats.rejected_complete_dominance
                     , stats.rejected_complete_tolerance
                     , stats.removed_complete_dominated
@@ -3222,12 +3241,17 @@ namespace timetable::domain::assignment {
         , double                     fare_scale
         , const SearchParams&        params
         , const ChoiceConfig&         choice_config
+        , const AssignmentPeriodConfig& assignment_period
+        , const ConnectionAdmissibilityConfig& admissibility_config
         , const SearchPruningExecutionPlan* pruning_execution
     ) {
         using timetable::infra::LogLevel;
         using timetable::infra::progress::both;
         using timetable::infra::progress::log;
         using timetable::infra::progress::status;
+
+        MATHFP_TRY(validate_assignment_period_config(assignment_period));
+        MATHFP_TRY(validate_connection_admissibility_config(admissibility_config));
 
         both("search: branch-and-bound");
         log(
@@ -3334,6 +3358,8 @@ namespace timetable::domain::assignment {
                     , fare_scale
                     , params
                     , choice_config
+                    , assignment_period
+                    , admissibility_config
                     , effective_pruning_execution
                     , i
                     , batches.size()

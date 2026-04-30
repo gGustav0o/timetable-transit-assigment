@@ -13,6 +13,7 @@
 #include "timetable/domain/assignment/assignment_period.hpp"
 #include "timetable/domain/assignment/choice/choice.hpp"
 #include "timetable/domain/assignment/choice/choice_config.hpp"
+#include "timetable/domain/assignment/connection_admissibility.hpp"
 #include "timetable/domain/assignment/search/search.hpp"
 #include "timetable/domain/assignment/search_pruning_config.hpp"
 #include "timetable/domain/assignment/search_time_domain_config.hpp"
@@ -29,12 +30,14 @@ namespace timetable::domain {
 
         InputModel                         input{};
         SearchParams                       params{};
-        assignment::ChoiceConfig           choice{};
-        assignment::SearchPruningConfig    search_pruning{};
-        assignment::SearchTimeDomainConfig search_time_domain{};
-        assignment::SkimMatrixConfig       skim_matrix{};
-        assignment::AssignmentPeriodConfig assignment_period{};
-        std::optional<PresegmentedInput>   presegmented{};
+        assignment::ChoiceConfig             choice{};
+        assignment::SearchPruningConfig      search_pruning{};
+        assignment::SearchTimeDomainConfig   search_time_domain{};
+        assignment::SkimMatrixConfig         skim_matrix{};
+        assignment::AssignmentPeriodConfig   assignment_period{};
+        assignment::ConnectionDeletionConfig connection_deletion{};
+        assignment::DemandSegmentTimeConfig  demand_segment_time{};
+        std::optional<PresegmentedInput>     presegmented{};
     };
 
     struct AssignmentConnectionRefTag {};

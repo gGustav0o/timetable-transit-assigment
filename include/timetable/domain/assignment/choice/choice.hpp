@@ -32,6 +32,8 @@ namespace timetable::domain::assignment {
         , const SearchParams&           params
         , double                        fare_scale
         , const ChoiceConfig&           config
+        , const AssignmentPeriodConfig& assignment_period
+        , const ConnectionAdmissibilityConfig& admissibility_config
     );
 
 }  // namespace timetable::domain::assignment

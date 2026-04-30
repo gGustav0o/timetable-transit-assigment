@@ -7,6 +7,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include <mathfp/core/applicative.hpp>
@@ -121,6 +122,17 @@ namespace timetable::infra::params_txt::detail {
         struct AssignmentPeriodFields final {
             double pre_assign_period{};
             double post_assign_period{};
+        };
+
+        struct ConnectionDeletionFields final {
+            bool delete_outside_assignment_period{};
+            bool delete_departures_before_assignment_period_for_departure_based{};
+            bool delete_arrivals_after_assignment_period_for_arrival_based{};
+        };
+
+        struct DemandSegmentTimeFields final {
+            bool dep_based_demand_segment{};
+            bool consider_connections_with_positive_delta_t{};
         };
 
         namespace schema {
@@ -668,6 +680,35 @@ namespace timetable::infra::params_txt::detail {
             );
         }
 
+        mathfp::Expected<bool> bool_like_at(
+              const Object&    obj
+            , std::string_view key
+            , std::string_view path
+        ) {
+            const auto it = obj.find(std::string(key));
+            if (it == obj.end()) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("missing required key")
+                        .ctx("path", std::string(path))
+                        .ctx("key" , std::string(key))
+                );
+            }
+            if (const auto* value = std::get_if<bool>(&it->second.data)) {
+                return *value;
+            }
+            if (const auto* value = std::get_if<double>(&it->second.data)) {
+                return parse_numeric_bool(
+                      *value
+                    , std::string(path) + "." + std::string(key)
+                );
+            }
+            return mathfp::unexpected(
+                mathfp::invalid_arg("expected bool or numeric bool encoded as 0 or 1")
+                    .ctx("path", std::string(path))
+                    .ctx("key" , std::string(key))
+            );
+        }
+
         mathfp::Expected<timetable::domain::assignment::SkimAggregationFunc> parse_skim_func(
             const std::string& token
         ) {
@@ -761,6 +802,94 @@ namespace timetable::infra::params_txt::detail {
                   fields.pre_assign_period
                 , fields.post_assign_period
             );
+        }
+
+        mathfp::Expected<ConnectionDeletionFields> read_connection_deletion_fields(
+            const Object& choice_para
+        ) {
+            MATHFP_TRY_LET(bool, delete_outside_assignment_period, bool_like_at(
+                choice_para, "deleteConnsOutsideAssignmentPeriod", "root.choicePara"
+            ));
+            MATHFP_TRY_LET(bool, delete_departures_before_assignment_period_for_departure_based, bool_like_at(
+                choice_para, "deleteConnsWithDepBeforeAssPeriodForDepBasedDSeg", "root.choicePara"
+            ));
+            MATHFP_TRY_LET(bool, delete_arrivals_after_assignment_period_for_arrival_based, bool_like_at(
+                choice_para, "deleteConnsWithArrAfterAssPeriodForArrBasedDSeg", "root.choicePara"
+            ));
+
+            return ConnectionDeletionFields{
+                  .delete_outside_assignment_period =
+                      delete_outside_assignment_period
+                , .delete_departures_before_assignment_period_for_departure_based =
+                      delete_departures_before_assignment_period_for_departure_based
+                , .delete_arrivals_after_assignment_period_for_arrival_based =
+                      delete_arrivals_after_assignment_period_for_arrival_based
+            };
+        }
+
+        mathfp::Expected<timetable::domain::assignment::ConnectionDeletionConfig> parse_connection_deletion_config(
+            const Object& root
+        ) {
+            using namespace timetable::domain::assignment;
+
+            MATHFP_TRY_LET(const Object*, choice_para, object_at(root, "choicePara", "root"));
+            MATHFP_TRY_LET(
+                  ConnectionDeletionFields
+                , fields
+                , read_connection_deletion_fields(*choice_para)
+            );
+
+            ConnectionDeletionConfig config{
+                  .delete_outside_assignment_period =
+                      fields.delete_outside_assignment_period
+                , .delete_departures_before_assignment_period_for_departure_based =
+                      fields.delete_departures_before_assignment_period_for_departure_based
+                , .delete_arrivals_after_assignment_period_for_arrival_based =
+                      fields.delete_arrivals_after_assignment_period_for_arrival_based
+            };
+            MATHFP_TRY(validate_connection_deletion_config(config));
+            return config;
+        }
+
+        mathfp::Expected<DemandSegmentTimeFields> read_demand_segment_time_fields(
+            const Object& split_para
+        ) {
+            MATHFP_TRY_LET(bool, dep_based_demand_segment, bool_like_at(
+                split_para, "depBasedDSeg", "root.splitPara"
+            ));
+            MATHFP_TRY_LET(bool, consider_connections_with_positive_delta_t, bool_like_at(
+                split_para, "considerConnsWithPosDeltaT", "root.splitPara"
+            ));
+
+            return DemandSegmentTimeFields{
+                  .dep_based_demand_segment =
+                      dep_based_demand_segment
+                , .consider_connections_with_positive_delta_t =
+                      consider_connections_with_positive_delta_t
+            };
+        }
+
+        mathfp::Expected<timetable::domain::assignment::DemandSegmentTimeConfig> parse_demand_segment_time_config(
+            const Object& root
+        ) {
+            using namespace timetable::domain::assignment;
+
+            MATHFP_TRY_LET(const Object*, split_para, object_at(root, "splitPara", "root"));
+            MATHFP_TRY_LET(
+                  DemandSegmentTimeFields
+                , fields
+                , read_demand_segment_time_fields(*split_para)
+            );
+
+            DemandSegmentTimeConfig config{
+                  .basis = fields.dep_based_demand_segment
+                      ? DemandSegmentBasis::Departure
+                      : DemandSegmentBasis::Arrival
+                , .consider_connections_with_positive_delta_t =
+                      fields.consider_connections_with_positive_delta_t
+            };
+            MATHFP_TRY(validate_demand_segment_time_config(config));
+            return config;
         }
 
     }  // namespace
@@ -862,11 +991,23 @@ namespace timetable::infra::params_txt::detail {
             , assignment_period
             , parse_assignment_period_config(root)
         );
+        MATHFP_TRY_LET(
+              timetable::domain::assignment::ConnectionDeletionConfig
+            , connection_deletion
+            , parse_connection_deletion_config(root)
+        );
+        MATHFP_TRY_LET(
+              timetable::domain::assignment::DemandSegmentTimeConfig
+            , demand_segment_time
+            , parse_demand_segment_time_config(root)
+        );
 
         return timetable::domain::AssignmentRuntimeParams{
-              .search            = std::move(search_params)
-            , .skim_matrix       = std::move(skim_matrix)
-            , .assignment_period = std::move(assignment_period)
+              .search              = std::move(search_params)
+            , .skim_matrix         = std::move(skim_matrix)
+            , .assignment_period   = std::move(assignment_period)
+            , .connection_deletion = std::move(connection_deletion)
+            , .demand_segment_time = std::move(demand_segment_time)
         };
     }
 

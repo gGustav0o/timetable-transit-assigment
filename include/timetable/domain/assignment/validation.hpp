@@ -27,11 +27,15 @@ namespace timetable::domain::assignment {
         , const PreprocessedNetwork&  network
         , double                      fare_scale
         , const SearchParams&         params
+        , const AssignmentPeriodConfig& assignment_period
+        , const ConnectionAdmissibilityConfig& admissibility_config
     );
 
     mathfp::Expected<mathfp::Unit> validate_choice_step_output(
           const ConnectionChoiceResult&   choice_result
         , const ConnectionSearchResult& search_result
+        , const AssignmentPeriodConfig& assignment_period
+        , const ConnectionAdmissibilityConfig& admissibility_config
     );
 
     mathfp::Expected<mathfp::Unit> validate_split_step_input(

@@ -7,6 +7,11 @@
   - skimMatrixPara.lowImpConnShare — доля выбранных соединений с минимальным split_impedance, включаемых в skim-агрегацию.
   - basePara.preAssignPeriod — подключен как доменная конфигурация периода назначения и используется при построении search tasks; входная единица неоднозначна, в коде временно зафиксирована как минуты.
   - basePara.postAssignPeriod — подключен как доменная конфигурация периода назначения и используется при построении search tasks; входная единица неоднозначна, в коде временно зафиксирована как минуты.
+  - choicePara.deleteConnsOutsideAssignmentPeriod — подключен как флаг удаления complete connection до dominance retention.
+  - choicePara.deleteConnsWithDepBeforeAssPeriodForDepBasedDSeg — подключен как флаг удаления departure-based complete connection до dominance retention.
+  - choicePara.deleteConnsWithArrAfterAssPeriodForArrBasedDSeg — подключен как флаг удаления arrival-based complete connection до dominance retention.
+  - splitPara.depBasedDSeg — подключен как выбор временной основы demand segment для admissibility-фильтра: departure/arrival; полная split-семантика пока поддерживает только departure-based режим.
+  - splitPara.considerConnsWithPosDeltaT — подключен как флаг admissibility-фильтра complete connections.
 
 Семантика skimMatrixPara.lowImpConnShare:
 
@@ -29,24 +34,23 @@
   - при переключении кода на AssignmentPeriodUnit::Seconds значения будут трактоваться как секунды без изменения params.txt;
   - доменная модель валидирует конечность и неотрицательность обоих периодов;
   - для demand-интервала [start, end] search task получает допустимое окно первого timed departure [start - preAssignPeriod, end + postAssignPeriod];
+  - дополнительно complete connections проверяются до помещения в dominance retention, чтобы недопустимые соединения не вытесняли допустимые альтернативы;
+  - перед choice выполняется защитная повторная фильтрация тем же admissibility-предикатом;
+  - validation search/choice проверяет, что в результирующих task_results не осталось соединений, запрещенных admissibility-предикатом;
+  - если задан флаг удаления, не соответствующий текущей основе demand segment, preprocessing выдает предупреждение; при splitPara.depBasedDSeg = 0 pipeline дополнительно останавливается перед split;
   - SearchTimePaddingPolicy не используется для построения search tasks и остается отдельной моделью для search-time-domain planning/optimization.
 
 Требуют переработки кода
 
   - basePara.calcAssign — сейчас assignment всегда выполняется; нужен управляющий режим pipeline.
-  - дополнительная фильтрация choicePara.deleteConnsOutsideAssignmentPeriod относительно basePara.preAssignPeriod/basePara.postAssignPeriod — search tasks уже строятся по assignment period, но отдельные флаги удаления соединений еще не реализованы.
   - SearchImp.volCapRatioFactor — требуется учет загрузки/провозной способности в search impedance.
   - PerceivedJourneyTime.volCapRatioFactor — требуется учет загрузки/провозной способности в perceived journey time.
   - searchPara.deactivateDominanceOfDirectConnections — меняет правила dominance для прямых соединений.
   - searchPara.allowDominanceForEquivalentConnections — нужна формализация equivalent connections.
   - searchPara.useLastStopForEquivalentConnections — также относится к equivalence logic.
-  - choicePara.deleteConnsOutsideAssignmentPeriod
-  - choicePara.deleteConnsWithDepBeforeAssPeriodForDepBasedDSeg
-  - choicePara.deleteConnsWithArrAfterAssPeriodForArrBasedDSeg — нужна модель assignment period и dep/arr-based demand segment filtering.
   - splitPara.BoxCoxTransformImp — сейчас Box-Cox-преобразование применяется всегда; нужен флаг в модели split.
   - Independence.useIndependence — сейчас independence factor применяется всегда; нужен флаг в SplitParams.
-  - splitPara.depBasedDSeg — требуется поддержка departure-based/arrival-based demand segment semantics.
-  - splitPara.considerConnsWithPosDeltaT — нужна явная логика отбора соединений по знаку временного отклонения.
+  - полная arrival-based split-семантика для splitPara.depBasedDSeg = 0 — admissibility-фильтр учитывает arrival basis, но pipeline явно останавливается перед split, чтобы не применять departure-time temporal utility к arrival-based demand segment.
   - splitPara.KirchhoffExp
   - splitPara.logitExp
   - splitPara.LohseExp — требуют реализации соответствующих choice-model формул, если choiceModel не BoxCox.

@@ -12,6 +12,7 @@
 #include "timetable/domain/assignment/assignment_period.hpp"
 #include "timetable/domain/assignment/choice/choice_config.hpp"
 #include "timetable/domain/assignment/connection.hpp"
+#include "timetable/domain/assignment/connection_admissibility.hpp"
 #include "timetable/domain/assignment/search_pruning_plan.hpp"
 #include "timetable/domain/assignment/search_time_domain.hpp"
 #include "timetable/domain/assignment/search/preprocessed_network.hpp"
@@ -163,6 +164,8 @@ namespace timetable::domain::assignment {
         , double                            fare_scale
         , const SearchParams&               params
         , const ChoiceConfig&                choice_config
+        , const AssignmentPeriodConfig&      assignment_period
+        , const ConnectionAdmissibilityConfig& admissibility_config
         , const SearchPruningExecutionPlan* pruning_execution = nullptr
     );
 

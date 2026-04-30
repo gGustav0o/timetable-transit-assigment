@@ -5,6 +5,8 @@
 #include <map>
 #include <vector>
 
+#include <fmt/format.h>
+
 #include <mathfp/core/error.hpp>
 #include <mathfp/core/try.hpp>
 #include <mathfp/core/unit.hpp>
@@ -16,7 +18,12 @@ namespace timetable::domain::assignment {
     mathfp::Expected<mathfp::Unit> validate_choice_step_output(
           const ConnectionChoiceResult& choice_result
         , const ConnectionSearchResult& search_result
+        , const AssignmentPeriodConfig& assignment_period
+        , const ConnectionAdmissibilityConfig& admissibility_config
     ) {
+        MATHFP_TRY(validate_assignment_period_config(assignment_period));
+        MATHFP_TRY(validate_connection_admissibility_config(admissibility_config));
+
         if (search_connection_count(search_result) == 0 && choice_result.connections.empty()) {
             detail::validation::warn("choice output: no search connections were available to prune");
         }
@@ -116,6 +123,21 @@ namespace timetable::domain::assignment {
                                 .ctx("destination" , destination_of(connection).get());
                         }
                     ));
+                    if (!connection_admissible_for_assignment_period(
+                          metrics_of(connection)
+                        , task_result.task.interval
+                        , assignment_period
+                        , admissibility_config
+                    )) {
+                        return mathfp::unexpected(
+                            mathfp::internal_error("choice task contains inadmissible connection")
+                                .ctx("task"        , task_result.task.index.get())
+                                .ctx("choice_index", static_cast<std::int64_t>(i))
+                                .ctx("origin"      , origin_of(connection).get())
+                                .ctx("destination" , destination_of(connection).get())
+                                .ctx("interval_id" , task_result.task.interval.id.get())
+                        );
+                    }
                     return detail::validation::ensure_contains(
                           search_task_trace_map
                         , detail::validation::connection_trace_key(connection)
@@ -154,13 +176,14 @@ namespace timetable::domain::assignment {
                 );
             }
             if (!task_result.connections.empty() && choice_task_it->second->connections.empty()) {
-                return mathfp::unexpected(
-                    mathfp::internal_error("choice step removed every connection from a non-empty search task")
-                        .ctx("task"        , task_result.task.index.get())
-                        .ctx("origin"      , task_result.task.origin.get())
-                        .ctx("destination" , task_result.task.destination.get())
-                        .ctx("interval_id" , task_result.task.interval.id.get())
-                        .ctx("search_count", static_cast<std::int64_t>(task_result.connections.size()))
+                detail::validation::warn(
+                    fmt::format(
+                          "choice output: task {} origin={} destination={} interval={} has no retained connections after choice/admissibility filtering"
+                        , task_result.task.index.get()
+                        , task_result.task.origin.get()
+                        , task_result.task.destination.get()
+                        , task_result.task.interval.id.get()
+                    )
                 );
             }
         }

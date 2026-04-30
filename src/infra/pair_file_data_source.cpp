@@ -1,6 +1,7 @@
 #include "timetable/infra/pair_file_data_source.hpp"
 
 #include "timetable/domain/assignment/assignment_period.hpp"
+#include "timetable/domain/assignment/connection_admissibility.hpp"
 #include "timetable/domain/params_factory.hpp"
 #include "timetable/infra/demand_csv.hpp"
 #include "timetable/infra/params_txt.hpp"
@@ -48,12 +49,14 @@ namespace timetable::infra {
         };
 
         struct PairRuntimeDefaults final {
-            timetable::domain::SearchParams                       params{};
-            timetable::domain::assignment::ChoiceConfig           choice{};
-            timetable::domain::assignment::SearchPruningConfig    search_pruning{};
-            timetable::domain::assignment::SearchTimeDomainConfig search_time_domain{};
-            timetable::domain::assignment::SkimMatrixConfig       skim_matrix{};
-            timetable::domain::assignment::AssignmentPeriodConfig assignment_period{};
+            timetable::domain::SearchParams                         params{};
+            timetable::domain::assignment::ChoiceConfig             choice{};
+            timetable::domain::assignment::SearchPruningConfig      search_pruning{};
+            timetable::domain::assignment::SearchTimeDomainConfig   search_time_domain{};
+            timetable::domain::assignment::SkimMatrixConfig         skim_matrix{};
+            timetable::domain::assignment::AssignmentPeriodConfig   assignment_period{};
+            timetable::domain::assignment::ConnectionDeletionConfig connection_deletion{};
+            timetable::domain::assignment::DemandSegmentTimeConfig  demand_segment_time{};
         };
 
         struct PairSearchTimeDomainSpec final {
@@ -521,12 +524,14 @@ namespace timetable::infra {
             );
 
             return PairRuntimeDefaults{
-                  .params             = std::move(params)
-                , .choice             = std::move(choice)
-                , .search_pruning     = std::move(search_pruning)
-                , .search_time_domain = std::move(search_time_domain)
-                , .skim_matrix        = std::move(skim_matrix)
-                , .assignment_period  = std::move(assignment_period)
+                  .params              = std::move(params)
+                , .choice              = std::move(choice)
+                , .search_pruning      = std::move(search_pruning)
+                , .search_time_domain  = std::move(search_time_domain)
+                , .skim_matrix         = std::move(skim_matrix)
+                , .assignment_period   = std::move(assignment_period)
+                , .connection_deletion = timetable::domain::assignment::ConnectionDeletionConfig{}
+                , .demand_segment_time = timetable::domain::assignment::DemandSegmentTimeConfig{}
             };
         }
 
@@ -604,12 +609,14 @@ namespace timetable::infra {
                 , defaults
                 , make_pair_runtime_defaults()
             );
-            input.params             = std::move(defaults.params);
-            input.choice             = std::move(defaults.choice);
-            input.search_pruning     = std::move(defaults.search_pruning);
-            input.search_time_domain = std::move(defaults.search_time_domain);
-            input.skim_matrix        = std::move(defaults.skim_matrix);
-            input.assignment_period  = std::move(defaults.assignment_period);
+            input.params              = std::move(defaults.params);
+            input.choice              = std::move(defaults.choice);
+            input.search_pruning      = std::move(defaults.search_pruning);
+            input.search_time_domain  = std::move(defaults.search_time_domain);
+            input.skim_matrix         = std::move(defaults.skim_matrix);
+            input.assignment_period   = std::move(defaults.assignment_period);
+            input.connection_deletion = std::move(defaults.connection_deletion);
+            input.demand_segment_time = std::move(defaults.demand_segment_time);
 
             if (!paths.params_txt.has_value()) {
                 status("parsing: applying built-in pair defaults");
@@ -626,11 +633,13 @@ namespace timetable::infra {
                 , parsed_params
                 , timetable::infra::params_txt::parse_assignment_runtime_params_file(*paths.params_txt)
             );
-            input.params            = std::move(parsed_params.search);
-            input.skim_matrix       = std::move(parsed_params.skim_matrix);
-            input.assignment_period = std::move(parsed_params.assignment_period);
+            input.params              = std::move(parsed_params.search);
+            input.skim_matrix         = std::move(parsed_params.skim_matrix);
+            input.assignment_period   = std::move(parsed_params.assignment_period);
+            input.connection_deletion = std::move(parsed_params.connection_deletion);
+            input.demand_segment_time = std::move(parsed_params.demand_segment_time);
             log(
-                  "parsing: pair-file runtime uses SearchParams, SkimMatrixConfig, and AssignmentPeriodConfig from params.txt; runtime choice/pruning/search-time configs keep built-in rollout defaults"
+                  "parsing: pair-file runtime uses SearchParams, SkimMatrixConfig, AssignmentPeriodConfig, and connection-admissibility configs from params.txt; runtime choice/pruning/search-time rollout configs keep built-in defaults"
                 , LogLevel::Info
             );
             return mathfp::kUnit;
