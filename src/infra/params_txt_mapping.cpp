@@ -102,6 +102,7 @@ namespace timetable::infra::params_txt::detail {
         };
 
         struct SplitIndependenceFields final {
+            bool   enabled{};
             double gamma{};
             double temporal_similarity_scale{};
             double higher_quality_scale{};
@@ -329,6 +330,17 @@ namespace timetable::infra::params_txt::detail {
             return to_array<std::string, N>(std::move(values));
         }
 
+        mathfp::Expected<bool> parse_numeric_bool(
+              double           value
+            , std::string_view field_name
+        );
+
+        mathfp::Expected<bool> bool_like_at(
+              const Object&    obj
+            , std::string_view key
+            , std::string_view path
+        );
+
         mathfp::Expected<ToleranceFields> read_tolerance_fields(
               const Object&                                         obj
             , const std::array<NumberFieldSpec, 6>& field_specs
@@ -435,10 +447,14 @@ namespace timetable::infra::params_txt::detail {
               const Object&                                         obj
             , const std::array<NumberFieldSpec, 4>& field_specs
         ) {
+            MATHFP_TRY_LET(bool, enabled, bool_like_at(
+                obj, "useIndependence", "root.splitPara.Independence"
+            ));
             MATHFP_TRY_LET(DoubleArray<4>, values, read_number_array(obj, field_specs));
             const auto [gamma, temporal_similarity_scale, higher_quality_scale, lower_quality_scale] = values;
             return SplitIndependenceFields{
-                  .gamma                     = gamma
+                  .enabled                   = enabled
+                , .gamma                     = gamma
                 , .temporal_similarity_scale = temporal_similarity_scale
                 , .higher_quality_scale      = higher_quality_scale
                 , .lower_quality_scale       = lower_quality_scale
@@ -666,10 +682,16 @@ namespace timetable::infra::params_txt::detail {
                     , .late_departure  = Dimless{ split_imp_fields.departure_late }
                 }
                 , choice_model
-                , Dimless{ indep_fields.gamma }
-                , Dimless{ indep_fields.temporal_similarity_scale }
-                , Dimless{ indep_fields.higher_quality_scale }
-                , Dimless{ indep_fields.lower_quality_scale }
+                , SplitIndependenceConfig{
+                      .enabled                   = indep_fields.enabled
+                    , .gamma                     = Dimless{ indep_fields.gamma }
+                    , .temporal_similarity_scale =
+                          Dimless{ indep_fields.temporal_similarity_scale }
+                    , .higher_quality_scale      =
+                          Dimless{ indep_fields.higher_quality_scale }
+                    , .lower_quality_scale       =
+                          Dimless{ indep_fields.lower_quality_scale }
+                }
             );
         }
 

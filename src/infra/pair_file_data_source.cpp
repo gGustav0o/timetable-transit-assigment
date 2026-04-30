@@ -484,10 +484,16 @@ namespace timetable::infra {
                         , .exponent = Dimless{ kPairRuntimeDefaultSpec.split.exponent }
                         , .boxcox_t = Dimless{ kPairRuntimeDefaultSpec.split.boxcox_t }
                     }
-                    , Dimless{ kPairRuntimeDefaultSpec.split.gamma }
-                    , Dimless{ kPairRuntimeDefaultSpec.split.temporal_similarity_scale }
-                    , Dimless{ kPairRuntimeDefaultSpec.split.higher_quality_scale }
-                    , Dimless{ kPairRuntimeDefaultSpec.split.lower_quality_scale }
+                    , SplitIndependenceConfig{
+                          .enabled                   = true
+                        , .gamma                     = Dimless{ kPairRuntimeDefaultSpec.split.gamma }
+                        , .temporal_similarity_scale =
+                              Dimless{ kPairRuntimeDefaultSpec.split.temporal_similarity_scale }
+                        , .higher_quality_scale      =
+                              Dimless{ kPairRuntimeDefaultSpec.split.higher_quality_scale }
+                        , .lower_quality_scale       =
+                              Dimless{ kPairRuntimeDefaultSpec.split.lower_quality_scale }
+                    }
                 )
             );
 

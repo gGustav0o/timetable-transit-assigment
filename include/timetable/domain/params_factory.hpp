@@ -48,12 +48,10 @@ namespace timetable::domain {
               Dimless   q_time
             , Dimless q_departure
             , Dimless q_fare
-            , Dimless gamma
         ) {
             MATHFP_TRY(validation::ensure_nonneg(q_time     , "q_time"));
             MATHFP_TRY(validation::ensure_nonneg(q_departure, "q_departure"));
             MATHFP_TRY(validation::ensure_nonneg(q_fare     , "q_fare"));
-            MATHFP_TRY(validation::ensure_nonneg(gamma      , "gamma"));
             return mathfp::kUnit;
         }
 
@@ -135,13 +133,27 @@ namespace timetable::domain {
             , Dimless lower_quality_scale
         ) {
             MATHFP_TRY(validation::ensure_positive(
-                temporal_similarity_scale, "temporal_similarity_scale"
+                temporal_similarity_scale, "split.independence.temporal_similarity_scale"
             ));
             MATHFP_TRY(validation::ensure_positive(
-                higher_quality_scale, "higher_quality_scale"
+                higher_quality_scale, "split.independence.higher_quality_scale"
             ));
             MATHFP_TRY(validation::ensure_positive(
-                lower_quality_scale, "lower_quality_scale"
+                lower_quality_scale, "split.independence.lower_quality_scale"
+            ));
+            return mathfp::kUnit;
+        }
+
+        inline mathfp::Expected<mathfp::Unit> ensure_split_independence_config(
+            SplitIndependenceConfig config
+        ) {
+            MATHFP_TRY(validation::ensure_nonneg(
+                config.gamma, "split.independence.gamma"
+            ));
+            MATHFP_TRY(ensure_positive_split_scales(
+                  config.temporal_similarity_scale
+                , config.higher_quality_scale
+                , config.lower_quality_scale
             ));
             return mathfp::kUnit;
         }
@@ -314,13 +326,10 @@ namespace timetable::domain {
         , PerceivedJourneyTimeWeights perceived_journey_time
         , TemporalUtilityWeights      temporal_utility
         , SplitChoiceModelConfig      choice_model
-        , Dimless                     gamma
-        , Dimless                     temporal_similarity_scale
-        , Dimless                     higher_quality_scale
-        , Dimless                     lower_quality_scale
+        , SplitIndependenceConfig     independence
     ) {
         MATHFP_TRY(detail::ensure_nonnegative_split_weights(
-            q_time, q_departure, q_fare, gamma
+            q_time, q_departure, q_fare
         ));
         MATHFP_TRY(detail::ensure_split_choice_model_config(choice_model));
         MATHFP_TRY(detail::ensure_nonnegative_perceived_journey_time_weights(
@@ -329,11 +338,7 @@ namespace timetable::domain {
         MATHFP_TRY(detail::ensure_nonnegative_temporal_utility_weights(
             temporal_utility
         ));
-        MATHFP_TRY(detail::ensure_positive_split_scales(
-              temporal_similarity_scale
-            , higher_quality_scale
-            , lower_quality_scale
-        ));
+        MATHFP_TRY(detail::ensure_split_independence_config(independence));
 
         return SplitParams{
               .q_time                    = q_time
@@ -342,10 +347,7 @@ namespace timetable::domain {
             , .perceived_journey_time    = perceived_journey_time
             , .temporal_utility          = temporal_utility
             , .choice_model              = choice_model
-            , .gamma                     = gamma
-            , .temporal_similarity_scale = temporal_similarity_scale
-            , .higher_quality_scale      = higher_quality_scale
-            , .lower_quality_scale       = lower_quality_scale
+            , .independence              = independence
         };
     }
 

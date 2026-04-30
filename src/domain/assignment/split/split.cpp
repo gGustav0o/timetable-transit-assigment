@@ -348,18 +348,18 @@ namespace timetable::domain::assignment {
 
         double asymmetric_quality_scale(
               double             base_quality_advantage
-            , const SplitParams& params
+            , const SplitIndependenceConfig& config
         ) noexcept {
             return base_connection_is_superior(base_quality_advantage)
-                ? mathfp::units::as_dimless(params.higher_quality_scale)
-                : mathfp::units::as_dimless(params.lower_quality_scale);
+                ? mathfp::units::as_dimless(config.higher_quality_scale)
+                : mathfp::units::as_dimless(config.lower_quality_scale);
         }
 
         double normalized_quality_distance(
               double             base_quality_advantage
-            , const SplitParams& params
+            , const SplitIndependenceConfig& config
         ) noexcept {
-            const auto scale = asymmetric_quality_scale(base_quality_advantage, params);
+            const auto scale = asymmetric_quality_scale(base_quality_advantage, config);
             if (scale <= 0.0) {
                 return 0.0;
             }
@@ -380,32 +380,42 @@ namespace timetable::domain::assignment {
         double connection_influence(
               const SplitAlternative& base
             , const SplitAlternative& other
-            , const SplitParams&      params
+            , const SplitIndependenceConfig& config
         ) noexcept {
             const auto x = temporal_similarity(base, other);
             const auto y = base_journey_quality_advantage(base, other);
             const auto z = base_fare_quality_advantage(base, other);
             const auto proximity = capped_proximity(
                   x
-                , mathfp::units::as_dimless(params.temporal_similarity_scale)
+                , mathfp::units::as_dimless(config.temporal_similarity_scale)
             );
-            const auto y_term = normalized_quality_distance(y, params);
-            const auto z_term = normalized_quality_distance(z, params);
+            const auto y_term = normalized_quality_distance(y, config);
+            const auto z_term = normalized_quality_distance(z, config);
 
-            return proximity * std::exp(-mathfp::units::as_dimless(params.gamma) * (y_term + z_term));
+            return proximity * std::exp(
+                -mathfp::units::as_dimless(config.gamma) * (y_term + z_term)
+            );
         }
 
-        double connection_independence(
-              std::span<const SplitAlternative> alternatives
-            , std::size_t                           index
-            , const SplitParams&                    params
+        double split_independence(
+              const SplitIndependenceConfig&    config
+            , std::span<const SplitAlternative> alternatives
+            , std::size_t                       index
         ) noexcept {
+            if (!config.enabled) {
+                return 1.0;
+            }
+
             mathfp::CompensatedSum<double> influence_sum;
             for (std::size_t i = 0; i < alternatives.size(); ++i) {
                 if (i == index) {
                     continue;
                 }
-                influence_sum.add(connection_influence(alternatives[index], alternatives[i], params));
+                influence_sum.add(connection_influence(
+                      alternatives[index]
+                    , alternatives[i]
+                    , config
+                ));
             }
             return 1.0 / (1.0 + influence_sum.value());
         }
@@ -433,10 +443,10 @@ namespace timetable::domain::assignment {
             }
 
             for (std::size_t i = 0; i < alternatives.size(); ++i) {
-                alternatives[i].independence = connection_independence(
-                      alternatives
+                alternatives[i].independence = split_independence(
+                      params.independence
+                    , alternatives
                     , i
-                    , params
                 );
             }
 

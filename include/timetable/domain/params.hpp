@@ -182,13 +182,22 @@ namespace timetable::domain {
         Dimless          boxcox_t{};
     };
 
+    struct SplitIndependenceConfig final {
+        bool    enabled{ true };
+        Dimless gamma{};
+        Dimless temporal_similarity_scale{};
+        Dimless higher_quality_scale{};
+        Dimless lower_quality_scale{};
+    };
+
     /**
      * @brief Parameters for demand split across connections.
      *
      * choice_model controls the demand-allocation model and its exponent. For
      * Box-Cox it also carries the transformation parameter t.
-     * gamma and the asymmetric independence scales control the evaluation
-     * function f_c(c') from the paper:
+     * independence controls whether the alternative-overlap correction is
+     * active and stores the parameters of the evaluation function f_c(c') from
+     * the paper:
      * - temporal_similarity_scale corresponds to s_x
      * - higher_quality_scale is used for s_y / s_z when the base connection c
      *   is superior, so it should typically be >= lower_quality_scale
@@ -202,10 +211,7 @@ namespace timetable::domain {
         PerceivedJourneyTimeWeights perceived_journey_time{};
         TemporalUtilityWeights      temporal_utility{};
         SplitChoiceModelConfig      choice_model{};
-        Dimless                     gamma{};
-        Dimless                     temporal_similarity_scale{};
-        Dimless                     higher_quality_scale{};
-        Dimless                     lower_quality_scale{};
+        SplitIndependenceConfig     independence{};
     };
 
     enum class WalkCostKind : std::uint8_t {

@@ -174,7 +174,10 @@
    - штрафы за раннее и позднее отправление относительно интервала спроса;
    - параметр чувствительности модели выбора;
    - параметр Box-Cox преобразования;
+   - включение коэффициента независимости похожих альтернатив;
    - параметры коэффициента независимости похожих альтернатив.
+
+   При отключенном Independence.useIndependence коэффициент IND(c) принимается равным 1.0 для всех альтернатив. Это исключает член log(IND) из весов split-модели, но не меняет структуру выходных таблиц и JSON: поле independence остается в результатах.
 
 6) Параметры предварительной обработки:
    - способ оценки пешеходной стоимости;
@@ -242,7 +245,7 @@
 Модель стоимости проезда реализована, но текущий тестовый вход имеет FARE = 0 для всех сегментов. Поэтому тарифный компонент присутствует, но практически не проверен на данных с положительной стоимостью.
 
 8.2. Параметры
-params.txt подключен для SearchParams, AssignmentExecutionConfig, CompleteConnectionDominanceConfig, SearchPruningConfig, SkimMatrixConfig, AssignmentPeriodConfig и конфигураций admissibility demand segment. Для CompleteConnectionDominanceConfig выполняется runtime validation и выводится диагностическая строка конфигурации. Часть параметров, требующих изменения математической модели, остается отдельной областью доработки.
+params.txt подключен для SearchParams, AssignmentExecutionConfig, CompleteConnectionDominanceConfig, SearchPruningConfig, SkimMatrixConfig, AssignmentPeriodConfig и конфигураций admissibility demand segment. Для CompleteConnectionDominanceConfig выполняется runtime validation и выводится диагностическая строка конфигурации. Флаг Independence.useIndependence подключен в SplitIndependenceConfig и управляет включением коэффициента независимости в split-модели. Часть параметров, требующих изменения математической модели, остается отдельной областью доработки.
 
 8.3. Пользовательский вход для исходного расписания
 Статья начинает с исходных маршрутов, рейсов и пешеходных связей.

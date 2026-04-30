@@ -219,6 +219,52 @@ namespace timetable::domain::assignment {
             return mathfp::kUnit;
         }
 
+        mathfp::Expected<mathfp::Unit> validate_split_independence_config_for_runtime(
+            const SplitIndependenceConfig& config
+        ) {
+            const auto gamma = mathfp::units::as_dimless(config.gamma);
+            if (!std::isfinite(gamma) || gamma < 0.0) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("split independence gamma must be finite and non-negative")
+                        .ctx("enabled", config.enabled ? "true" : "false")
+                        .ctx("gamma", gamma)
+                );
+            }
+
+            const auto temporal_similarity_scale =
+                mathfp::units::as_dimless(config.temporal_similarity_scale);
+            if (!std::isfinite(temporal_similarity_scale)
+                || temporal_similarity_scale <= 0.0) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("split independence temporal scale must be finite and positive")
+                        .ctx("enabled", config.enabled ? "true" : "false")
+                        .ctx("temporal_similarity_scale", temporal_similarity_scale)
+                );
+            }
+
+            const auto higher_quality_scale =
+                mathfp::units::as_dimless(config.higher_quality_scale);
+            if (!std::isfinite(higher_quality_scale) || higher_quality_scale <= 0.0) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("split independence higher-quality scale must be finite and positive")
+                        .ctx("enabled", config.enabled ? "true" : "false")
+                        .ctx("higher_quality_scale", higher_quality_scale)
+                );
+            }
+
+            const auto lower_quality_scale =
+                mathfp::units::as_dimless(config.lower_quality_scale);
+            if (!std::isfinite(lower_quality_scale) || lower_quality_scale <= 0.0) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("split independence lower-quality scale must be finite and positive")
+                        .ctx("enabled", config.enabled ? "true" : "false")
+                        .ctx("lower_quality_scale", lower_quality_scale)
+                );
+            }
+
+            return mathfp::kUnit;
+        }
+
     }  // namespace
 
     mathfp::Expected<mathfp::Unit> validate_split_step_input(
@@ -228,6 +274,7 @@ namespace timetable::domain::assignment {
         , const DemandSegmentTimeConfig& demand_segment_time
     ) {
         MATHFP_TRY(validate_split_choice_model_config_for_runtime(params.choice_model));
+        MATHFP_TRY(validate_split_independence_config_for_runtime(params.independence));
         MATHFP_TRY(validate_demand_segment_time_config(demand_segment_time));
 
         if (input.intervals.empty()) {

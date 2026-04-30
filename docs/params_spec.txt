@@ -18,6 +18,7 @@
   - splitPara.logitExp — подключен как exponent для choiceModel = Logit.
   - splitPara.BoxCoxExp — подключен как exponent для choiceModel = BoxCox.
   - splitPara.BoxCoxPara — подключен как параметр t преобразования Box-Cox для choiceModel = BoxCox.
+  - Independence.useIndependence — подключен как флаг включения коэффициента независимости похожих альтернатив в split-модели.
   - searchPara.allowDominanceForEquivalentConnections — подключен как флаг partial-search retention между эквивалентными состояниями поиска.
   - searchPara.deactivateDominanceOfDirectConnections — подключен как флаг complete-connection dominance: прямое полное соединение не может доминировать другие complete connections и suffix lower-bound candidates.
 
@@ -88,6 +89,15 @@
   - LohseExp читается только вместе с choiceModel = Lohse, но runtime validation явно отклоняет Lohse до реализации и утверждения формулы;
   - validation split проверяет, что exponent конечный и положительный, BoxCoxPara конечен, а модель поддержана текущим runtime.
 
+Семантика Independence.useIndependence:
+
+  - параметр читается из root.splitPara.Independence.useIndependence и хранится в SplitIndependenceConfig.enabled внутри SplitParams;
+  - если useIndependence = 1, коэффициент IND(c) рассчитывается текущей формулой похожести альтернатив с параметрами gamma, indepMaxDelta, indepHigherQualityCoeff и indepLowerQualityCoeff;
+  - если useIndependence = 0, чистая функция split_independence(config, alternatives, index) возвращает IND(c) = 1.0 для каждой альтернативы;
+  - при IND(c) = 1.0 член log(IND) равен нулю, поэтому independence не влияет на Kirchhoff, Logit и BoxCox веса выбора;
+  - output остается стабильным: shares.csv и assignment_output.json по-прежнему содержат поле independence, которое при отключенном флаге равно 1.0;
+  - validation split проверяет числовые параметры independence на конечность и допустимые диапазоны даже при useIndependence = 0, чтобы params.txt оставался валидным целиком.
+
 Семантика searchPara.allowDominanceForEquivalentConnections:
 
   - параметр читается из searchPara и хранится в EquivalentConnectionDominanceConfig внутри SearchPruningModelConfig;
@@ -120,7 +130,6 @@
   - PerceivedJourneyTime.volCapRatioFactor — требуется учет загрузки/провозной способности в perceived journey time.
   - searchPara.useLastStopForEquivalentConnections — требуется реализовать безопасный LastTimedStopOccurrence key для equivalent-connection dominance.
   - splitPara.BoxCoxTransformImp — не подключен как отдельный флаг; сейчас преобразование Box-Cox определяется выбором choiceModel = BoxCox.
-  - Independence.useIndependence — сейчас independence factor применяется всегда; нужен флаг в SplitParams.
   - splitPara.LohseExp — параметр читается, но формула Lohse пока не утверждена и runtime явно отклоняет choiceModel = Lohse.
 
   Неоднозначны или требуют уточнения смысла
