@@ -87,6 +87,102 @@ namespace timetable::domain::assignment {
     }
 
     /**
+     * @brief Stop reference used when forming an equivalent-connection key.
+     *
+     * The policy is intentionally part of the mathematical pruning model, not
+     * of complete-connection retention or choice. Equivalent-connection
+     * dominance is a partial-search dominance rule: it may compare only branch
+     * prefixes whose future feasible continuations are represented by the same
+     * extension-safe search state.
+     *
+     * CurrentStopOccurrence is the only currently supported runtime semantics.
+     * LastTimedStopOccurrence is reserved for searchPara.useLastStopForEquivalentConnections
+     * once its extension-safety contract is implemented explicitly.
+     */
+    enum class EquivalentConnectionStopReference : std::uint8_t {
+          CurrentStopOccurrence
+        , LastTimedStopOccurrence
+    };
+
+    inline constexpr std::array kEquivalentConnectionStopReferenceTokens{
+          timetable::EnumStringEntry<EquivalentConnectionStopReference>{
+              EquivalentConnectionStopReference::CurrentStopOccurrence,
+              "current_stop_occurrence"
+          }
+        , timetable::EnumStringEntry<EquivalentConnectionStopReference>{
+              EquivalentConnectionStopReference::LastTimedStopOccurrence,
+              "last_timed_stop_occurrence"
+          }
+    };
+
+    [[nodiscard]] inline constexpr std::string_view to_string(
+        EquivalentConnectionStopReference value
+    ) noexcept {
+        return timetable::enum_to_string(value, kEquivalentConnectionStopReferenceTokens);
+    }
+
+    [[nodiscard]] inline constexpr std::optional<EquivalentConnectionStopReference>
+    equivalent_connection_stop_reference_from_string(
+        std::string_view token
+    ) noexcept {
+        return timetable::enum_from_string(token, kEquivalentConnectionStopReferenceTokens);
+    }
+
+    /**
+     * @brief Domain configuration for partial-search equivalent dominance.
+     *
+     * searchPara.allowDominanceForEquivalentConnections controls only the
+     * partial branch-retention dominance relation. It must not be interpreted
+     * as complete-connection dominance and must not affect choice retention.
+     */
+    struct EquivalentConnectionDominanceConfig final {
+        bool allow_dominance_for_equivalent_connections{ true };
+        EquivalentConnectionStopReference stop_reference{
+            EquivalentConnectionStopReference::CurrentStopOccurrence
+        };
+    };
+
+    /**
+     * @brief Typed projection of a partial search branch used for pruning keys.
+     *
+     * The search engine owns branch storage and trace construction. The domain
+     * pruning layer needs only continuation-relevant state components, exposed
+     * here as values rather than engine-specific branch objects.
+     */
+    struct SearchPruningStateProjection final {
+        EndpointKey                      physical{};
+        std::optional<StopOccurrenceKey> current_occurrence{};
+        std::optional<StopOccurrenceKey> last_timed_occurrence{};
+        SearchPruningTransferContext     transfer{};
+    };
+
+    [[nodiscard]] inline SearchPruningStateKey make_search_pruning_state_key(
+          SearchPruningStateProjection projection
+        , EquivalentConnectionStopReference stop_reference
+    ) noexcept {
+        const auto occurrence =
+            stop_reference == EquivalentConnectionStopReference::LastTimedStopOccurrence
+                ? projection.last_timed_occurrence
+                : projection.current_occurrence;
+
+        return SearchPruningStateKey{
+              .physical   = projection.physical
+            , .occurrence = occurrence
+            , .transfer   = projection.transfer
+        };
+    }
+
+    [[nodiscard]] inline SearchPruningStateKey make_search_pruning_state_key(
+          SearchPruningStateProjection projection
+        , const EquivalentConnectionDominanceConfig& equivalent
+    ) noexcept {
+        return make_search_pruning_state_key(
+              projection
+            , equivalent.stop_reference
+        );
+    }
+
+    /**
      * @brief Mathematical request for search pruning.
      *
      * This belongs to the domain model and says what pruning state factorization
@@ -96,6 +192,7 @@ namespace timetable::domain::assignment {
         SearchPruningStateSpace requested_state_space{
             SearchPruningStateSpace::CurrentPhysicalOccurrenceAndTransferContext
         };
+        EquivalentConnectionDominanceConfig equivalent_connection_dominance{};
     };
 
     /**

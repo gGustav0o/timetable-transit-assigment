@@ -648,12 +648,13 @@ namespace timetable::infra {
             );
             input.params              = std::move(parsed_params.search);
             input.execution           = std::move(parsed_params.execution);
+            input.search_pruning      = std::move(parsed_params.search_pruning);
             input.skim_matrix         = std::move(parsed_params.skim_matrix);
             input.assignment_period   = std::move(parsed_params.assignment_period);
             input.connection_deletion = std::move(parsed_params.connection_deletion);
             input.demand_segment_time = std::move(parsed_params.demand_segment_time);
             log(
-                  "parsing: pair-file runtime uses SearchParams, AssignmentExecutionConfig, SkimMatrixConfig, AssignmentPeriodConfig, and connection-admissibility configs from params.txt; runtime choice/pruning/search-time rollout configs keep built-in defaults"
+                  "parsing: pair-file runtime uses SearchParams, AssignmentExecutionConfig, SearchPruningConfig, SkimMatrixConfig, AssignmentPeriodConfig, and connection-admissibility configs from params.txt; runtime choice/search-time rollout configs keep built-in defaults"
                 , LogLevel::Info
             );
             return mathfp::kUnit;

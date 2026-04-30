@@ -1,9 +1,39 @@
 #include "timetable/domain/assignment/validation.hpp"
 
 #include <mathfp/core/error.hpp>
+#include <mathfp/core/try.hpp>
 #include <mathfp/core/unit.hpp>
 
 namespace timetable::domain::assignment {
+    namespace {
+
+        mathfp::Expected<mathfp::Unit> validate_equivalent_connection_dominance_config(
+              const EquivalentConnectionDominanceConfig& config
+            , const char*                                 owner
+        ) {
+            if (config.stop_reference != EquivalentConnectionStopReference::CurrentStopOccurrence) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("unsupported equivalent-connection stop reference")
+                        .ctx("owner", owner)
+                        .ctx("stop_reference", static_cast<std::int64_t>(config.stop_reference))
+                );
+            }
+            return mathfp::kUnit;
+        }
+
+        mathfp::Expected<mathfp::Unit> validate_no_search_pruning_retention_layers(
+              const SearchPruningExecutionPlan& plan
+            , const char*                       message
+        ) {
+            if (plan.exact_enabled || plan.approximate_enabled || plan.approximate_policy.has_value()) {
+                return mathfp::unexpected(
+                    mathfp::internal_error(message)
+                );
+            }
+            return mathfp::kUnit;
+        }
+
+    }  // namespace
 
     mathfp::Expected<mathfp::Unit> validate_search_pruning_config(
         const SearchPruningConfig& config
@@ -14,6 +44,11 @@ namespace timetable::domain::assignment {
                     .ctx("requested_state_space", static_cast<std::int64_t>(config.model.requested_state_space))
             );
         }
+
+        MATHFP_TRY(validate_equivalent_connection_dominance_config(
+              config.model.equivalent_connection_dominance
+            , "search_pruning_config"
+        ));
 
         switch (config.runtime.rollout_stage) {
             case SearchPruningRolloutStage::Disabled:
@@ -48,16 +83,27 @@ namespace timetable::domain::assignment {
             );
         }
 
+        const auto& equivalent =
+            plan.equivalent_connection_dominance;
+        MATHFP_TRY(validate_equivalent_connection_dominance_config(
+              equivalent
+            , "search_pruning_execution_plan"
+        ));
+
         switch (plan.rollout_stage) {
             case SearchPruningRolloutStage::Disabled:
-                if (plan.exact_enabled || plan.approximate_enabled || plan.approximate_policy.has_value()) {
-                    return mathfp::unexpected(
-                        mathfp::internal_error("disabled search pruning execution plan must not enable retention layers")
-                    );
-                }
-                return mathfp::kUnit;
+                return validate_no_search_pruning_retention_layers(
+                      plan
+                    , "disabled search pruning execution plan must not enable retention layers"
+                );
 
             case SearchPruningRolloutStage::ExactCurrentState:
+                if (!equivalent.allow_dominance_for_equivalent_connections) {
+                    return validate_no_search_pruning_retention_layers(
+                          plan
+                        , "equivalent-connection dominance disabled plan must not enable retention layers"
+                    );
+                }
                 if (!plan.exact_enabled || plan.approximate_enabled || plan.approximate_policy.has_value()) {
                     return mathfp::unexpected(
                         mathfp::internal_error("exact-current-state pruning plan must enable only the exact layer")
@@ -66,6 +112,12 @@ namespace timetable::domain::assignment {
                 return mathfp::kUnit;
 
             case SearchPruningRolloutStage::ExactAndApproximateCurrentState:
+                if (!equivalent.allow_dominance_for_equivalent_connections) {
+                    return validate_no_search_pruning_retention_layers(
+                          plan
+                        , "equivalent-connection dominance disabled plan must not enable retention layers"
+                    );
+                }
                 if (!plan.exact_enabled || !plan.approximate_enabled || !plan.approximate_policy.has_value()) {
                     return mathfp::unexpected(
                         mathfp::internal_error("exact-and-approximate pruning plan must enable both retention layers")

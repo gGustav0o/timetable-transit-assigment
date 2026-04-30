@@ -15,7 +15,9 @@ namespace timetable::domain::assignment {
         SearchPruningRolloutStage rollout_stage{
             SearchPruningRolloutStage::ExactAndApproximateCurrentState
         };
+        EquivalentConnectionDominanceConfig equivalent_connection_dominance{};
         bool current_state_space{};
+        bool retention_requested{};
     };
 
     struct SearchPruningExecutionSummary final {
@@ -25,9 +27,11 @@ namespace timetable::domain::assignment {
         SearchPruningRolloutStage rollout_stage{
             SearchPruningRolloutStage::ExactAndApproximateCurrentState
         };
+        EquivalentConnectionDominanceConfig equivalent_connection_dominance{};
         bool exact_enabled{};
         bool approximate_enabled{};
         bool has_approximate_policy{};
+        bool retention_suppressed_by_equivalent_dominance{};
         ExactDominanceContract exact_contract{
             ExactDominanceContract::ExtensionSafeCurrentState
         };

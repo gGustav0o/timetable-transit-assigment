@@ -21,6 +21,7 @@ namespace timetable::domain::assignment {
         SearchPruningRolloutStage rollout_stage{
             SearchPruningRolloutStage::ExactAndApproximateCurrentState
         };
+        EquivalentConnectionDominanceConfig     equivalent_connection_dominance{};
         bool                                    exact_enabled       { true };
         bool                                    approximate_enabled { true };
         ExactPruningPolicy                      exact_policy        {};
@@ -28,7 +29,7 @@ namespace timetable::domain::assignment {
     };
 
     mathfp::Expected<SearchPruningExecutionPlan> plan_search_pruning_execution(
-          SearchPruningStateSpace   requested_state_space
+          SearchPruningModelConfig  model
         , SearchPruningRolloutStage rollout_stage
         , const SearchTolerances&   tolerances
     );

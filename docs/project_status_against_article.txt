@@ -22,7 +22,7 @@
 2. time_intervals.csv;
 3. od_demand.csv.
 
-Если рядом с входными файлами присутствует params.txt, pair-file режим использует из него SearchParams и SkimMatrixConfig. Остальные runtime-конфигурации, относящиеся к выбору внутреннего режима rollout/search-time/pruning, пока остаются встроенными значениями.
+Если рядом с входными файлами присутствует params.txt, pair-file режим использует из него SearchParams, AssignmentExecutionConfig, SearchPruningConfig, SkimMatrixConfig, AssignmentPeriodConfig и конфигурации admissibility demand segment. Встроенными значениями пока остаются runtime-конфигурации, относящиеся к choice rollout и search-time rollout.
 
 Принято, что:
 1. connection_segments_input.csv содержит уже подготовленные сегменты транспортного предложения;
@@ -58,8 +58,10 @@
 3. минимальное и максимальное ожидание пересадки;
 4. максимальное число пересадок;
 5. запрет циклов и некорректных повторных посадок;
-6. доминирование частичных ветвей;
+6. доминирование частичных ветвей в рамках extension-safe equivalent state;
 7. допуски по времени, пересадкам и обобщенному сопротивлению.
+
+Параметр searchPara.allowDominanceForEquivalentConnections управляет только search-stage retention частичных ветвей. При включенном флаге применяется текущий state-local search pruning: exact dominance и approximate retention внутри extension-safe equivalent state. При выключенном флаге state-local pruning retention отключается. Этот параметр не относится к dominance полных соединений и не меняет choice-retention.
 
 Результат поиска - допустимое множество альтернатив для соответствующей OD-временной задачи.
 
@@ -126,7 +128,7 @@
 
 
 5. Параметры расчетной модели
-   В проекте существует модель параметров расчета. В поддерживаемом pair-file режиме params.txt подключается для SearchParams и SkimMatrixConfig, если файл присутствует во входном каталоге.
+   В проекте существует модель параметров расчета. В поддерживаемом pair-file режиме params.txt подключается для SearchParams, AssignmentExecutionConfig, SearchPruningConfig, SkimMatrixConfig, AssignmentPeriodConfig и конфигураций admissibility demand segment, если файл присутствует во входном каталоге.
 
 Основные группы параметров:
 
@@ -150,6 +152,10 @@
    - множитель и добавка по обобщенному сопротивлению;
    - множитель и добавка по времени поездки;
    - множитель и добавка по числу пересадок.
+
+3.1) Управление search-pruning:
+   - searchPara.allowDominanceForEquivalentConnections включает или отключает partial-search retention между эквивалентными состояниями поиска;
+   - searchPara.useLastStopForEquivalentConnections зарезервирован, но пока не включен в runtime из-за необходимости отдельного extension-safety contract.
 
 4) Допуски на этапе отбора альтернатив:
    - аналогичные допуски по обобщенному сопротивлению, времени поездки и числу пересадок, но применяемые уже к полным соединениям.
@@ -230,7 +236,7 @@
 Модель стоимости проезда реализована, но текущий тестовый вход имеет FARE = 0 для всех сегментов. Поэтому тарифный компонент присутствует, но практически не проверен на данных с положительной стоимостью.
 
 8.2. Параметры
-params.txt подключен для SearchParams и SkimMatrixConfig. Управляющие параметры режима выполнения pipeline и параметры, требующие изменения математической модели, остаются отдельной областью доработки.
+params.txt подключен для SearchParams, AssignmentExecutionConfig, SearchPruningConfig, SkimMatrixConfig, AssignmentPeriodConfig и конфигураций admissibility demand segment. Часть параметров, требующих изменения математической модели, остается отдельной областью доработки.
 
 8.3. Пользовательский вход для исходного расписания
 Статья начинает с исходных маршрутов, рейсов и пешеходных связей.

@@ -735,6 +735,32 @@ namespace timetable::infra::params_txt::detail {
             return config;
         }
 
+        mathfp::Expected<timetable::domain::assignment::SearchPruningConfig> parse_search_pruning_config(
+            const Object& root
+        ) {
+            using namespace timetable::domain::assignment;
+
+            MATHFP_TRY_LET(const Object*, search_para, object_at(root, "searchPara", "root"));
+            MATHFP_TRY_LET(bool, allow_equivalent_dominance, bool_like_at(
+                *search_para, "allowDominanceForEquivalentConnections", "root.searchPara"
+            ));
+
+            return SearchPruningConfig{
+                  .model = SearchPruningModelConfig{
+                      .requested_state_space =
+                          SearchPruningStateSpace::CurrentPhysicalOccurrenceAndTransferContext
+                    , .equivalent_connection_dominance =
+                          EquivalentConnectionDominanceConfig{
+                              .allow_dominance_for_equivalent_connections =
+                                  allow_equivalent_dominance
+                            , .stop_reference =
+                                  EquivalentConnectionStopReference::CurrentStopOccurrence
+                          }
+                  }
+                , .runtime = SearchPruningRuntimeConfig{}
+            };
+        }
+
         mathfp::Expected<timetable::domain::assignment::SkimAggregationFunc> parse_skim_func(
             const std::string& token
         ) {
@@ -1013,6 +1039,11 @@ namespace timetable::infra::params_txt::detail {
             , parse_assignment_execution_config(root)
         );
         MATHFP_TRY_LET(
+              timetable::domain::assignment::SearchPruningConfig
+            , search_pruning
+            , parse_search_pruning_config(root)
+        );
+        MATHFP_TRY_LET(
               timetable::domain::assignment::SkimMatrixConfig
             , skim_matrix
             , parse_skim_matrix_config(root)
@@ -1036,6 +1067,7 @@ namespace timetable::infra::params_txt::detail {
         return timetable::domain::AssignmentRuntimeParams{
               .search              = std::move(search_params)
             , .execution           = std::move(execution)
+            , .search_pruning      = std::move(search_pruning)
             , .skim_matrix         = std::move(skim_matrix)
             , .assignment_period   = std::move(assignment_period)
             , .connection_deletion = std::move(connection_deletion)

@@ -3,18 +3,23 @@
 namespace timetable::domain::assignment {
 
     mathfp::Expected<SearchPruningExecutionPlan> plan_search_pruning_execution(
-          SearchPruningStateSpace   requested_state_space
+          SearchPruningModelConfig  model
         , SearchPruningRolloutStage rollout_stage
         , const SearchTolerances&   tolerances
     ) {
         SearchPruningExecutionPlan plan{
-              .state_space         = requested_state_space
-            , .rollout_stage       = rollout_stage
-            , .exact_enabled       = false
-            , .approximate_enabled = false
-            , .exact_policy        = ExactPruningPolicy{}
-            , .approximate_policy  = std::nullopt
+              .state_space                        = model.requested_state_space
+            , .rollout_stage                      = rollout_stage
+            , .equivalent_connection_dominance    = model.equivalent_connection_dominance
+            , .exact_enabled                      = false
+            , .approximate_enabled                = false
+            , .exact_policy                       = ExactPruningPolicy{}
+            , .approximate_policy                 = std::nullopt
         };
+
+        if (!model.equivalent_connection_dominance.allow_dominance_for_equivalent_connections) {
+            return plan;
+        }
 
         switch (rollout_stage) {
             case SearchPruningRolloutStage::Disabled:

@@ -66,7 +66,7 @@ namespace timetable::domain::assignment::detail {
               SearchPruningExecutionPlan
             , search_pruning_execution
             , plan_search_pruning_execution(
-                  input.search_pruning.model.requested_state_space
+                  input.search_pruning.model
                 , input.search_pruning.runtime.rollout_stage
                 , params.search_tolerances
             )

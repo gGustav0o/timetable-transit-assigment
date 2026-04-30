@@ -3,6 +3,7 @@
 #include "timetable/domain/assignment/assignment_period.hpp"
 #include "timetable/domain/assignment/connection_admissibility.hpp"
 #include "timetable/domain/assignment/execution_config.hpp"
+#include "timetable/domain/assignment/search_pruning_config.hpp"
 #include "timetable/domain/assignment/skim_config.hpp"
 #include "timetable/domain/params.hpp"
 
@@ -25,6 +26,7 @@ namespace timetable::domain {
     struct AssignmentRuntimeParams final {
         SearchParams                         search{};
         assignment::AssignmentExecutionConfig execution{};
+        assignment::SearchPruningConfig      search_pruning{};
         assignment::SkimMatrixConfig         skim_matrix{};
         assignment::AssignmentPeriodConfig   assignment_period{};
         assignment::ConnectionDeletionConfig connection_deletion{};

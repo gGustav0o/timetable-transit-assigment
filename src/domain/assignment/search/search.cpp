@@ -1303,14 +1303,36 @@ namespace timetable::domain::assignment {
             };
         }
 
-        SearchNodeKey search_node_key(
+        std::optional<StopOccurrenceKey> search_last_timed_occurrence(
             const SearchBranch& branch
         ) noexcept {
-            return SearchNodeKey{
-                  .physical   = branch.trace.current_physical
-                , .occurrence = branch.trace.current_occurrence
-                , .transfer   = search_transfer_context(branch)
+            if (branch.trace.last_timed_route_segment == nullptr) {
+                return std::nullopt;
+            }
+            return occurrence_key(
+                line_topology_of(*branch.trace.last_timed_route_segment)->to
+            );
+        }
+
+        SearchPruningStateProjection search_pruning_state_projection(
+            const SearchBranch& branch
+        ) noexcept {
+            return SearchPruningStateProjection{
+                  .physical              = branch.trace.current_physical
+                , .current_occurrence    = branch.trace.current_occurrence
+                , .last_timed_occurrence = search_last_timed_occurrence(branch)
+                , .transfer              = search_transfer_context(branch)
             };
+        }
+
+        SearchNodeKey search_node_key(
+              const SearchBranch&               branch
+            , const SearchPruningExecutionPlan& pruning_execution
+        ) noexcept {
+            return make_search_pruning_state_key(
+                  search_pruning_state_projection(branch)
+                , pruning_execution.equivalent_connection_dominance
+            );
         }
 
         bool branch_revisits_physical(
@@ -2351,7 +2373,7 @@ namespace timetable::domain::assignment {
 
             ++pruning_stats.evaluated_candidates;
             auto metrics = make_partial_pruning_metrics(branch, params.impedance, fare_scale);
-            const auto node  = search_node_key(branch);
+            const auto node  = search_node_key(branch, pruning_execution);
             auto it          = retention.known_metrics.find(node);
             if (it == retention.known_metrics.end()) {
                 if (stores_search_pruning_metrics(pruning_execution)) {
@@ -3281,7 +3303,10 @@ namespace timetable::domain::assignment {
               SearchPruningExecutionPlan
             , default_pruning_execution
             , plan_search_pruning_execution(
-                  SearchPruningStateSpace::CurrentPhysicalOccurrenceAndTransferContext
+                  SearchPruningModelConfig{
+                      .requested_state_space =
+                          SearchPruningStateSpace::CurrentPhysicalOccurrenceAndTransferContext
+                  }
                 , SearchPruningRolloutStage::Disabled
                 , params.search_tolerances
             )
