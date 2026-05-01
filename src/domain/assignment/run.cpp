@@ -18,6 +18,7 @@ namespace timetable::domain::assignment {
             if (const auto* disabled = std::get_if<AssignmentPipelineDisabledResult>(&result)) {
                 return build_assignment_disabled_output(
                       disabled->input
+                    , disabled->vehicle_journey_item_capacity
                     , disabled->skim_config
                 );
             }
@@ -29,6 +30,7 @@ namespace timetable::domain::assignment {
                 , calculated.search
                 , calculated.choice
                 , calculated.split
+                , calculated.vehicle_journey_item_capacity
                 , calculated.skim_config
             );
         }

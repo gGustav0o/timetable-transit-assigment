@@ -609,6 +609,48 @@ namespace timetable::infra {
             writer.end_object();
         }
 
+        void write_vehicle_journey_item_load(
+              JsonWriter&                                                         writer
+            , const timetable::domain::assignment::VehicleJourneyItemOverload& item
+        ) {
+            writer.begin_object();
+            writer.key("interval_id");
+            write_strong_id(writer, item.key.interval);
+            writer.key("trip_id");
+            write_strong_id(writer, item.key.item.trip);
+            writer.key("from_index");
+            write_strong_id(writer, item.key.item.from_index);
+            writer.key("passengers");
+            writer.number(item.passengers);
+            writer.key("total_capacity");
+            write_optional_double(writer, item.total_capacity);
+            writer.key("seat_capacity");
+            write_optional_double(writer, item.seat_capacity);
+            writer.key("load_factor");
+            write_optional_double(writer, item.load_factor);
+            writer.key("overload_passengers");
+            write_optional_double(writer, item.overload_passengers);
+            writer.key("status");
+            writer.string(timetable::domain::assignment::to_string(item.status));
+            writer.end_object();
+        }
+
+        void write_vehicle_journey_item_loads(
+              JsonWriter& writer
+            , const timetable::domain::assignment::VehicleJourneyItemOverloadAssessment& loads
+        ) {
+            writer.begin_object();
+            writer.key("status");
+            writer.string(timetable::domain::assignment::to_string(loads.status));
+            writer.key("entries");
+            writer.begin_array();
+            for (const auto& item : loads.items) {
+                write_vehicle_journey_item_load(writer, item);
+            }
+            writer.end_array();
+            writer.end_object();
+        }
+
         void write_od_result(
               JsonWriter&                                  writer
             , const timetable::domain::AssignmentOdResult& od_result
@@ -685,7 +727,7 @@ namespace timetable::infra {
         JsonWriter writer;
         writer.begin_object();
         writer.key("schema");
-        writer.string("timetable.assignment_output.v7");
+        writer.string("timetable.assignment_output.v8");
         writer.key("mode");
         writer.string(output_mode_token(output.mode));
         writer.key("units");
@@ -709,6 +751,8 @@ namespace timetable::infra {
         writer.end_array();
         writer.key("loads");
         write_loads(writer, output.loads);
+        writer.key("vehicle_journey_item_loads");
+        write_vehicle_journey_item_loads(writer, output.vehicle_journey_item_loads);
         writer.key("skim_matrix");
         write_skim_matrix(writer, output.skim_matrix);
         writer.end_object();

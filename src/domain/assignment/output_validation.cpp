@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <map>
+#include <string>
 #include <tuple>
 #include <vector>
 
@@ -424,6 +425,13 @@ namespace timetable::domain::assignment::detail {
                 mathfp::internal_error("calculated assignment output cannot mark skim as skipped by disabled assignment")
             );
         }
+        if (output.mode == AssignmentOutputMode::Calculated
+            && output.vehicle_journey_item_loads.status
+                == VehicleJourneyItemOverloadAssessmentStatus::SkippedAssignmentDisabled) {
+            return mathfp::unexpected(
+                mathfp::internal_error("calculated assignment output cannot mark vehicle journey item loads as skipped by disabled assignment")
+            );
+        }
         if (output.mode == AssignmentOutputMode::AssignmentDisabled) {
             if (output.summary.search_connection_count != 0
                 || output.summary.chosen_connection_count != 0
@@ -444,6 +452,21 @@ namespace timetable::domain::assignment::detail {
                 || !output.loads.segment_loads.empty()) {
                 return mathfp::unexpected(
                     mathfp::internal_error("disabled assignment output must not contain load rows")
+                );
+            }
+            if (output.vehicle_journey_item_loads.status
+                    != VehicleJourneyItemOverloadAssessmentStatus::SkippedAssignmentDisabled
+                || !output.vehicle_journey_item_loads.items.empty()) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("disabled assignment output must not contain vehicle journey item load rows")
+                        .ctx(
+                              "vehicle_journey_item_load_status"
+                            , std::string(to_string(output.vehicle_journey_item_loads.status))
+                        )
+                        .ctx(
+                              "vehicle_journey_item_load_count"
+                            , static_cast<std::int64_t>(output.vehicle_journey_item_loads.items.size())
+                        )
                 );
             }
 
@@ -497,6 +520,9 @@ namespace timetable::domain::assignment::detail {
         }
 
         MATHFP_TRY(validate_loads_semantics(output.loads));
+        MATHFP_TRY(validate_vehicle_journey_item_overload_assessment(
+            output.vehicle_journey_item_loads
+        ));
         MATHFP_TRY(validate_skim_matrix_matches_output(output));
 
         if (output.summary.od_count != output.od_results.size()) {

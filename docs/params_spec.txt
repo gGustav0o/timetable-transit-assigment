@@ -22,6 +22,7 @@
   - Independence.useIndependence — подключен как флаг включения коэффициента независимости похожих альтернатив в split-модели.
   - searchPara.allowDominanceForEquivalentConnections — подключен как флаг partial-search retention между эквивалентными состояниями поиска.
   - searchPara.deactivateDominanceOfDirectConnections — подключен как флаг complete-connection dominance: прямое полное соединение не может доминировать другие complete connections и suffix lower-bound candidates.
+  - veh_journey_item_cap.csv — подключен как необязательный вход провозной способности vehicle journey items для post-assignment overload assessment.
 
 Семантика skimMatrixPara.lowImpConnShare:
 
@@ -52,7 +53,7 @@
   - assignment_summary.txt содержит mode и skim status;
   - metadata.csv содержит mode, skim_status и основные счетчики результата;
   - существующие аналитические CSV остаются совместимыми по набору колонок.
-  - validation запрещает противоречивые результаты: disabled output не может содержать рассчитанные соединения, split shares, passenger loads или calculated skim; calculated output не может иметь skim_status = skipped_assignment_disabled.
+  - validation запрещает противоречивые результаты: disabled output не может содержать рассчитанные соединения, split shares, passenger loads, vehicle journey item loads или calculated skim; calculated output не может иметь skim_status = skipped_assignment_disabled или vehicle journey item overload status = skipped_assignment_disabled.
 
 Семантика basePara.preAssignPeriod/basePara.postAssignPeriod:
 
@@ -138,10 +139,39 @@
   - диагностика выводит complete-connection dominance config и parser/runtime значение deactivate_direct_dominance;
   - duplicate trace rejection остается отдельной канонизацией одинакового соединения и не является behavioral dominance.
 
+Семантика veh_journey_item_cap.csv и post-assignment overload assessment:
+
+  - файл veh_journey_item_cap.csv является необязательным входом pair-file режима;
+  - ожидаемые колонки: _VEHJOURNEYID, INDEX, TOTALCAP, SEATCAP;
+  - _VEHJOURNEYID маппится в TripId, INDEX маппится в RoutePosition/from_index;
+  - ключ провозной способности vehicle journey item: (trip_id, from_index);
+  - TOTALCAP используется как общая провозная способность для оценки перегрузки;
+  - SEATCAP сохраняется как аналитический атрибут и не используется как критерий перегрузки без отдельной политики;
+  - пассажирская поездка ride-leg с trip_id = t, from_index = i, to_index = j занимает строго полуинтервальный набор vehicle journey items [i, j), то есть (t, i), (t, i + 1), ..., (t, j - 1);
+  - конечный to_index не включается, поэтому terminal item с нулевой capacity не должен получать нагрузку только из-за высадки на последней позиции;
+  - после split результат DemandSplitResult проецируется в VehicleJourneyItemLoads: для каждой положительной доли спроса и каждого ride-leg пассажиры добавляются ко всем occupied items;
+  - validation проверяет сохранение пассажиро-элементной суммы: sum(item_loads) = sum(share.passengers * occupied_item_count);
+  - overload assessment сопоставляет item-loads с capacity по ключу (trip_id, from_index);
+  - для найденной capacity рассчитываются load_factor = passengers / TOTALCAP и overload_passengers = max(0, passengers - TOTALCAP);
+  - статусы строк overload: ok, overloaded, missing_capacity, zero_capacity;
+  - если файл capacity отсутствует, AssignmentOutput.vehicle_journey_item_loads получает status = missing_capacity_input и строки не формируются;
+  - если basePara.calcAssign = False, AssignmentOutput.vehicle_journey_item_loads получает status = skipped_assignment_disabled и строки не формируются;
+  - assignment_output.json содержит секцию vehicle_journey_item_loads со status и entries;
+  - файловый экспорт содержит отдельный файл vehicle_journey_item_loads.csv с колонками interval_id, trip_id, from_index, passengers, total_capacity, seat_capacity, load_factor, overload_passengers, status;
+  - текущий loads.csv не изменяется и остается агрегатом прежней модели AssignmentLoads.
+
+Связь с volCapRatioFactor:
+
+  - SearchImp.volCapRatioFactor и PerceivedJourneyTime.volCapRatioFactor пока не подключены к behavioral impedance;
+  - текущая capacity-реализация выполняет только post-assignment overload assessment, то есть оценивает перегрузку после расчета choice/split и не влияет на поиск, выбор или распределение спроса;
+  - корректное подключение SearchImp.volCapRatioFactor и PerceivedJourneyTime.volCapRatioFactor требует capacity-aware итерационного слоя, потому что загрузка зависит от выбора пассажиров, а выбор пассажиров зависит от загрузки;
+  - безопасная будущая схема: сначала считать нагрузки предыдущей итерации как внешнюю функцию capacity cost, затем использовать ее в search/split impedance и обновлять нагрузки через итерационный fixed-point/MSA-процесс;
+  - до появления такого слоя параметры volCapRatioFactor остаются в разделе требующих переработки кода.
+
 Требуют переработки кода
 
-  - SearchImp.volCapRatioFactor — требуется учет загрузки/провозной способности в search impedance.
-  - PerceivedJourneyTime.volCapRatioFactor — требуется учет загрузки/провозной способности в perceived journey time.
+  - SearchImp.volCapRatioFactor — требуется capacity-aware итерационный слой для корректного учета загрузки/провозной способности в search impedance; текущая реализация считает только post-assignment overload assessment.
+  - PerceivedJourneyTime.volCapRatioFactor — требуется capacity-aware итерационный слой для корректного учета загрузки/провозной способности в perceived journey time; текущая реализация считает только post-assignment overload assessment.
   - splitPara.LohseExp — параметр читается, но формула Lohse пока не утверждена и runtime явно отклоняет choiceModel = Lohse.
 
   Неоднозначны или требуют уточнения смысла

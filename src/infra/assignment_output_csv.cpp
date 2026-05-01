@@ -143,6 +143,12 @@ namespace timetable::infra {
             return "unknown";
         }
 
+        std::string vehicle_journey_item_overload_status_name(
+            timetable::domain::assignment::VehicleJourneyItemOverloadStatus status
+        ) {
+            return std::string(timetable::domain::assignment::to_string(status));
+        }
+
         template <class StrongId>
         void write_strong_field(
               CsvWriter& writer
@@ -517,6 +523,37 @@ namespace timetable::infra {
             writer.number(row.transfers);
             writer.number(row.fare);
             writer.number(row.split_impedance);
+            writer.end_row();
+        }
+
+        return std::move(writer).finish();
+    }
+
+    std::string serialize_assignment_vehicle_journey_item_loads_csv(
+        const projection::AssignmentCsvProjection& projection
+    ) {
+        CsvWriter writer;
+        writer.text("interval_id");
+        writer.text("trip_id");
+        writer.text("from_index");
+        writer.text("passengers");
+        writer.text("total_capacity");
+        writer.text("seat_capacity");
+        writer.text("load_factor");
+        writer.text("overload_passengers");
+        writer.text("status");
+        writer.end_row();
+
+        for (const auto& row : projection.vehicle_journey_item_load_rows) {
+            write_strong_field(writer, row.interval_id);
+            write_strong_field(writer, row.trip_id);
+            write_strong_field(writer, row.from_index);
+            writer.number(row.passengers);
+            write_optional_double_field(writer, row.total_capacity);
+            write_optional_double_field(writer, row.seat_capacity);
+            write_optional_double_field(writer, row.load_factor);
+            write_optional_double_field(writer, row.overload_passengers);
+            writer.text(vehicle_journey_item_overload_status_name(row.status));
             writer.end_row();
         }
 

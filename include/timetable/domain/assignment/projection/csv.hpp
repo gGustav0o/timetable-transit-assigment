@@ -169,6 +169,21 @@ namespace timetable::domain::assignment::projection {
     };
 
     /**
+     * @brief One flat row for vehicle_journey_item_loads.csv.
+     */
+    struct AssignmentVehicleJourneyItemLoadCsvRow final {
+        IntervalId                              interval_id{};
+        TripId                                  trip_id{};
+        RoutePosition                           from_index{};
+        double                                  passengers{};
+        std::optional<double>                   total_capacity{};
+        std::optional<double>                   seat_capacity{};
+        std::optional<double>                   load_factor{};
+        std::optional<double>                   overload_passengers{};
+        VehicleJourneyItemOverloadStatus        status{ VehicleJourneyItemOverloadStatus::MissingCapacity };
+    };
+
+    /**
      * @brief One-row execution metadata export.
      */
     struct AssignmentMetadataCsvRow final {
@@ -194,6 +209,7 @@ namespace timetable::domain::assignment::projection {
      * - segments.csv
      * - loads.csv
      * - skim_matrix.csv
+     * - vehicle_journey_item_loads.csv
      * - metadata.csv
      */
     struct AssignmentCsvProjection final {
@@ -204,6 +220,7 @@ namespace timetable::domain::assignment::projection {
         std::vector<AssignmentSegmentCsvRow>    segment_rows{};
         std::vector<AssignmentLoadCsvRow>       load_rows{};
         std::vector<AssignmentSkimMatrixCsvRow> skim_matrix_rows{};
+        std::vector<AssignmentVehicleJourneyItemLoadCsvRow> vehicle_journey_item_load_rows{};
     };
 
     mathfp::Expected<AssignmentCsvProjection> build_assignment_csv_projection(

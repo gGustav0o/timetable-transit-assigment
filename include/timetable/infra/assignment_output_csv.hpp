@@ -34,4 +34,8 @@ namespace timetable::infra {
         const timetable::domain::assignment::projection::AssignmentCsvProjection& projection
     );
 
+    std::string serialize_assignment_vehicle_journey_item_loads_csv(
+        const timetable::domain::assignment::projection::AssignmentCsvProjection& projection
+    );
+
 }  // namespace timetable::infra

@@ -210,8 +210,9 @@ namespace timetable::domain::assignment::detail {
                 , timetable::infra::LogLevel::Info
             );
             return AssignmentPipelineDisabledResult{
-                  .input       = std::move(input.input)
-                , .skim_config = input.skim_matrix
+                  .input                         = std::move(input.input)
+                , .vehicle_journey_item_capacity = std::move(input.vehicle_journey_item_capacity)
+                , .skim_config                   = input.skim_matrix
             };
         }
 
@@ -252,12 +253,13 @@ namespace timetable::domain::assignment::detail {
         );
 
         return AssignmentPipelineCalculatedResult{
-              .input   = std::move(input.input)
-            , .network = std::move(network)
-            , .search  = std::move(search_step.result)
-            , .choice  = std::move(choice_result)
-            , .split   = std::move(split_result)
-            , .skim_config = input.skim_matrix
+              .input                         = std::move(input.input)
+            , .vehicle_journey_item_capacity = std::move(input.vehicle_journey_item_capacity)
+            , .network                       = std::move(network)
+            , .search                        = std::move(search_step.result)
+            , .choice                        = std::move(choice_result)
+            , .split                         = std::move(split_result)
+            , .skim_config                   = input.skim_matrix
         };
     }
 

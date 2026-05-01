@@ -13,17 +13,19 @@
 
 namespace timetable::domain::assignment {
     struct AssignmentPipelineDisabledResult final {
-        InputModel       input{};
-        SkimMatrixConfig skim_config{};
+        InputModel                          input{};
+        VehicleJourneyItemCapacityInput     vehicle_journey_item_capacity{};
+        SkimMatrixConfig                    skim_config{};
     };
 
     struct AssignmentPipelineCalculatedResult final {
-        InputModel             input{};
-        PreprocessedNetwork    network{};
-        ConnectionSearchResult search{};
-        ConnectionChoiceResult choice{};
-        DemandSplitResult      split{};
-        SkimMatrixConfig       skim_config{};
+        InputModel                          input{};
+        VehicleJourneyItemCapacityInput     vehicle_journey_item_capacity{};
+        PreprocessedNetwork                 network{};
+        ConnectionSearchResult              search{};
+        ConnectionChoiceResult              choice{};
+        DemandSplitResult                   split{};
+        SkimMatrixConfig                    skim_config{};
     };
 
     using AssignmentPipelineResult = std::variant<

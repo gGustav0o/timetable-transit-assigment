@@ -31,17 +31,19 @@ namespace timetable::domain::assignment::detail {
     );
 
     mathfp::Expected<AssignmentOutput> build_assignment_output_impl(
-          const InputModel&             input
-        , const PreprocessedNetwork&    network
-        , const ConnectionSearchResult& search_result
-        , const ConnectionChoiceResult& choice_result
-        , const DemandSplitResult&      split_result
-        , const SkimMatrixConfig&       skim_config
+          const InputModel&                      input
+        , const PreprocessedNetwork&             network
+        , const ConnectionSearchResult&          search_result
+        , const ConnectionChoiceResult&          choice_result
+        , const DemandSplitResult&               split_result
+        , const VehicleJourneyItemCapacityInput& vehicle_journey_item_capacity
+        , const SkimMatrixConfig&                skim_config
     );
 
     mathfp::Expected<AssignmentOutput> build_assignment_disabled_output_impl(
-          const InputModel&       input
-        , const SkimMatrixConfig& skim_config
+          const InputModel&                      input
+        , const VehicleJourneyItemCapacityInput& vehicle_journey_item_capacity
+        , const SkimMatrixConfig&                skim_config
     );
 
 }  // namespace timetable::domain::assignment::detail

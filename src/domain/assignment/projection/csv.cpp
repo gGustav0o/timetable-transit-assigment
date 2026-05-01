@@ -166,6 +166,12 @@ namespace timetable::domain::assignment::projection {
                  + output.loads.segment_loads.size();
         }
 
+        std::size_t count_total_vehicle_journey_item_load_rows(
+            const AssignmentOutput& output
+        ) noexcept {
+            return output.vehicle_journey_item_loads.items.size();
+        }
+
         AssignmentMetadataCsvRow build_metadata_row(
             const AssignmentOutput& output
         ) {
@@ -435,6 +441,30 @@ namespace timetable::domain::assignment::projection {
             }
         }
 
+        void append_vehicle_journey_item_load_projection_rows(
+              AssignmentCsvProjection&                    projection
+            , const VehicleJourneyItemOverloadAssessment& vehicle_journey_item_loads
+        ) {
+            projection.vehicle_journey_item_load_rows.reserve(
+                vehicle_journey_item_loads.items.size()
+            );
+            for (const auto& item : vehicle_journey_item_loads.items) {
+                projection.vehicle_journey_item_load_rows.push_back(
+                    AssignmentVehicleJourneyItemLoadCsvRow{
+                          .interval_id          = item.key.interval
+                        , .trip_id              = item.key.item.trip
+                        , .from_index           = item.key.item.from_index
+                        , .passengers           = item.passengers
+                        , .total_capacity       = item.total_capacity
+                        , .seat_capacity        = item.seat_capacity
+                        , .load_factor          = item.load_factor
+                        , .overload_passengers  = item.overload_passengers
+                        , .status               = item.status
+                    }
+                );
+            }
+        }
+
         mathfp::Expected<mathfp::Unit> append_od_projection_rows(
               AssignmentCsvProjection&   projection
             , const AssignmentOdResult&  od_result
@@ -468,6 +498,8 @@ namespace timetable::domain::assignment::projection {
 
         const auto segment_row_count = count_total_segment_rows(output);
         const auto load_row_count    = count_total_load_rows(output);
+        const auto vehicle_journey_item_load_row_count =
+            count_total_vehicle_journey_item_load_rows(output);
 
         AssignmentCsvProjection projection{};
         projection.metadata_rows.push_back(build_metadata_row(output));
@@ -477,6 +509,7 @@ namespace timetable::domain::assignment::projection {
         projection.segment_rows   .reserve(segment_row_count);
         projection.load_rows      .reserve(load_row_count);
         projection.skim_matrix_rows.reserve(output.skim_matrix.entries.size());
+        projection.vehicle_journey_item_load_rows.reserve(vehicle_journey_item_load_row_count);
 
         for (std::size_t od_index = 0; od_index < output.od_results.size(); ++od_index) {
             const auto& od_result  = output .od_results[od_index];
@@ -485,6 +518,10 @@ namespace timetable::domain::assignment::projection {
         }
         append_load_projection_rows(projection, output.loads);
         append_skim_matrix_projection_rows(projection, output.skim_matrix);
+        append_vehicle_journey_item_load_projection_rows(
+              projection
+            , output.vehicle_journey_item_loads
+        );
 
         return projection;
     }

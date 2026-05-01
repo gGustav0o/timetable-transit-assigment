@@ -15,12 +15,13 @@ namespace timetable::domain::assignment {
      * @brief Convert accumulated assignment stage results to the public output.
      */
     mathfp::Expected<AssignmentOutput> build_assignment_output(
-          const InputModel&               input
-        , const PreprocessedNetwork&    network
-        , const ConnectionSearchResult& search_result
-        , const ConnectionChoiceResult& choice_result
-        , const DemandSplitResult&      split_result
-        , const SkimMatrixConfig&       skim_config
+          const InputModel&                      input
+        , const PreprocessedNetwork&             network
+        , const ConnectionSearchResult&          search_result
+        , const ConnectionChoiceResult&          choice_result
+        , const DemandSplitResult&               split_result
+        , const VehicleJourneyItemCapacityInput& vehicle_journey_item_capacity
+        , const SkimMatrixConfig&                skim_config
     );
 
     /**
@@ -30,8 +31,9 @@ namespace timetable::domain::assignment {
      * calculated connections, shares, loads, or skim entries.
      */
     mathfp::Expected<AssignmentOutput> build_assignment_disabled_output(
-          const InputModel&       input
-        , const SkimMatrixConfig& skim_config
+          const InputModel&                      input
+        , const VehicleJourneyItemCapacityInput& vehicle_journey_item_capacity
+        , const SkimMatrixConfig&                skim_config
     );
 
 }  // namespace timetable::domain::assignment

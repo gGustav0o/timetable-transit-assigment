@@ -4,6 +4,7 @@
 #include "timetable/domain/assignment/connection_admissibility.hpp"
 #include "timetable/domain/assignment/execution_config.hpp"
 #include "timetable/domain/params_factory.hpp"
+#include "timetable/infra/capacity_csv.hpp"
 #include "timetable/infra/demand_csv.hpp"
 #include "timetable/infra/params_txt.hpp"
 #include "timetable/infra/progress_bus.hpp"
@@ -47,6 +48,7 @@ namespace timetable::infra {
             std::filesystem::path                intervals{};
             std::filesystem::path                demand{};
             std::optional<std::filesystem::path> params_txt{};
+            std::optional<std::filesystem::path> vehicle_journey_item_capacity{};
         };
 
         struct PairRuntimeDefaults final {
@@ -296,6 +298,16 @@ namespace timetable::infra {
             return std::nullopt;
         }
 
+        std::optional<std::filesystem::path> resolve_optional_vehicle_journey_item_capacity_path(
+            const std::filesystem::path& root
+        ) {
+            const auto path = root / "veh_journey_item_cap.csv";
+            if (std::filesystem::exists(path) && std::filesystem::is_regular_file(path)) {
+                return path;
+            }
+            return std::nullopt;
+        }
+
         mathfp::Expected<PairResolvedPaths> resolve_pair_file_paths(
             const std::filesystem::path& root
         ) {
@@ -319,6 +331,8 @@ namespace timetable::infra {
                 , .intervals  = std::move(demand_paths.intervals)
                 , .demand     = std::move(demand_paths.demand)
                 , .params_txt = resolve_optional_pair_params_path(root)
+                , .vehicle_journey_item_capacity =
+                      resolve_optional_vehicle_journey_item_capacity_path(root)
             };
         }
 
@@ -571,10 +585,14 @@ namespace timetable::infra {
                       "pair input files:\n"
                       "  segments  = {}\n"
                       "  intervals = {}\n"
-                      "  demand    = {}"
+                      "  demand    = {}\n"
+                      "  capacity  = {}"
                     , paths.segments .string()
                     , paths.intervals.string()
                     , paths.demand   .string()
+                    , paths.vehicle_journey_item_capacity.has_value()
+                        ? paths.vehicle_journey_item_capacity->string()
+                        : std::string("<missing optional veh_journey_item_cap.csv>")
                 )
                 , LogLevel::Info
             );
@@ -588,6 +606,41 @@ namespace timetable::infra {
                     , LogLevel::Info
                 );
             }
+        }
+
+        mathfp::Expected<mathfp::Unit> load_pair_capacity_input(
+              timetable::domain::AssignmentInput& input
+            , const PairResolvedPaths&            paths
+        ) {
+            using timetable::infra::LogLevel;
+            using timetable::infra::progress::log;
+            using timetable::infra::progress::status;
+
+            if (!paths.vehicle_journey_item_capacity.has_value()) {
+                input.vehicle_journey_item_capacity =
+                    timetable::domain::assignment::make_missing_vehicle_journey_item_capacity_input();
+                log(
+                      "parsing: optional veh_journey_item_cap.csv not found; vehicle-journey-item capacity input is missing"
+                    , LogLevel::Info
+                );
+                return mathfp::kUnit;
+            }
+
+            status("parsing: loading vehicle journey item capacity input");
+            MATHFP_TRY_LET(
+                  timetable::domain::assignment::VehicleJourneyItemCapacitySet
+                , capacities
+                , csv::parse_vehicle_journey_item_capacity_csv(*paths.vehicle_journey_item_capacity)
+            );
+            MATHFP_TRY_LET(
+                  timetable::domain::assignment::VehicleJourneyItemCapacityInput
+                , capacity_input
+                , timetable::domain::assignment::make_loaded_vehicle_journey_item_capacity_input(
+                      std::move(capacities)
+                  )
+            );
+            input.vehicle_journey_item_capacity = std::move(capacity_input);
+            return mathfp::kUnit;
         }
 
         mathfp::Expected<timetable::domain::AssignmentInput> load_pair_segments_input(
@@ -690,6 +743,7 @@ namespace timetable::infra {
                 , input
                 , load_pair_segments_input(paths)
             );
+            MATHFP_TRY(load_pair_capacity_input(input, paths));
             MATHFP_TRY(load_pair_demand_input(input, paths));
             MATHFP_TRY(apply_pair_runtime_configuration(input, paths));
             status("parsing: pair input ready");

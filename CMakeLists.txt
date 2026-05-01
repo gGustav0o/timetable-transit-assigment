@@ -21,6 +21,7 @@ add_executable(timetable-transit-assigment
   src/app/app.cpp
   src/app/cli.cpp
   src/domain/assignment/assignment_period.cpp
+  src/domain/assignment/capacity.cpp
   src/domain/assignment/choice/choice.cpp
   src/domain/assignment/complete_connection_diagnostics.cpp
   src/domain/assignment/complete_connection_retention.cpp
@@ -69,6 +70,7 @@ add_executable(timetable-transit-assigment
   src/infra/assignment_output_files.cpp
   src/infra/assignment_output_json.cpp
   src/infra/assignment_output_text.cpp
+  src/infra/capacity_csv.cpp
   src/infra/data_sources.cpp
   src/infra/file_data_source.cpp
   src/infra/log_buffer.cpp

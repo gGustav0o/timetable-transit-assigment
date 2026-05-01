@@ -220,6 +220,40 @@ namespace timetable::domain::assignment::detail {
             };
         }
 
+        mathfp::Expected<VehicleJourneyItemOverloadAssessment> build_vehicle_journey_item_loads_output(
+              const DemandSplitResult&               split_result
+            , const VehicleJourneyItemCapacityInput& vehicle_journey_item_capacity
+        ) {
+            MATHFP_TRY(validate_vehicle_journey_item_capacity_input(
+                vehicle_journey_item_capacity
+            ));
+
+            switch (vehicle_journey_item_capacity.status) {
+                case VehicleJourneyItemCapacityInputStatus::MissingInput:
+                    return make_missing_capacity_input_vehicle_journey_item_overload_assessment();
+
+                case VehicleJourneyItemCapacityInputStatus::Loaded: {
+                    MATHFP_TRY_LET(
+                          VehicleJourneyItemLoads
+                        , item_loads
+                        , build_vehicle_journey_item_loads(split_result)
+                    );
+                    return assess_vehicle_journey_item_overload(
+                          item_loads
+                        , vehicle_journey_item_capacity.capacities
+                    );
+                }
+            }
+
+            return mathfp::unexpected(
+                mathfp::internal_error("unknown vehicle journey item capacity input status")
+                    .ctx(
+                          "status"
+                        , static_cast<std::int64_t>(vehicle_journey_item_capacity.status)
+                    )
+            );
+        }
+
         void assign_search_connection_count(
               AssignmentOdResult&                           od_result
             , const std::map<grouping::OdKey, std::size_t>& search_counts
@@ -388,12 +422,13 @@ namespace timetable::domain::assignment::detail {
     }  // namespace
 
     mathfp::Expected<AssignmentOutput> build_assignment_output_impl(
-          const InputModel&             input
-        , const PreprocessedNetwork&    network
-        , const ConnectionSearchResult& search_result
-        , const ConnectionChoiceResult& choice_result
-        , const DemandSplitResult&      split_result
-        , const SkimMatrixConfig&       skim_config
+          const InputModel&                      input
+        , const PreprocessedNetwork&             network
+        , const ConnectionSearchResult&          search_result
+        , const ConnectionChoiceResult&          choice_result
+        , const DemandSplitResult&               split_result
+        , const VehicleJourneyItemCapacityInput& vehicle_journey_item_capacity
+        , const SkimMatrixConfig&                skim_config
     ) {
         MATHFP_TRY(validate_choice_flat_projection(choice_result));
         MATHFP_TRY(validate_split_shares_are_task_local(choice_result, split_result));
@@ -421,12 +456,21 @@ namespace timetable::domain::assignment::detail {
                 , skim_config
             )
         );
+        MATHFP_TRY_LET(
+              VehicleJourneyItemOverloadAssessment
+            , vehicle_journey_item_loads
+            , build_vehicle_journey_item_loads_output(
+                  split_result
+                , vehicle_journey_item_capacity
+            )
+        );
 
         AssignmentOutput output{
               .mode        = AssignmentOutputMode::Calculated
             , .summary     = build_output_summary(input, search_result, choice_result, split_result)
             , .od_results  = {}
             , .loads       = std::move(loads)
+            , .vehicle_journey_item_loads = std::move(vehicle_journey_item_loads)
             , .skim_matrix = std::move(skim_matrix)
         };
         output.od_results.reserve(all_ods.size());
@@ -454,9 +498,13 @@ namespace timetable::domain::assignment::detail {
     }
 
     mathfp::Expected<AssignmentOutput> build_assignment_disabled_output_impl(
-          const InputModel&       input
-        , const SkimMatrixConfig& skim_config
+          const InputModel&                      input
+        , const VehicleJourneyItemCapacityInput& vehicle_journey_item_capacity
+        , const SkimMatrixConfig&                skim_config
     ) {
+        MATHFP_TRY(validate_vehicle_journey_item_capacity_input(
+            vehicle_journey_item_capacity
+        ));
         MATHFP_TRY(validate_skim_matrix_config(skim_config));
         const auto demand_by_od = grouping::group_demand_entries_by_od(input.demand);
         const grouping::ShareGroups shares_by_key{};
@@ -467,6 +515,8 @@ namespace timetable::domain::assignment::detail {
             , .summary     = build_disabled_output_summary(input)
             , .od_results  = {}
             , .loads       = AssignmentLoads{}
+            , .vehicle_journey_item_loads =
+                  make_skipped_assignment_disabled_vehicle_journey_item_overload_assessment()
             , .skim_matrix = AssignmentSkimMatrix{
                   .status = skim_config.enabled
                       ? AssignmentSkimMatrixStatus::SkippedAssignmentDisabled
