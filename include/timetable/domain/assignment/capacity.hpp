@@ -169,6 +169,7 @@ namespace timetable::domain::assignment {
 
     enum class VehicleJourneyItemOverloadAssessmentStatus : std::uint8_t {
           SkippedAssignmentDisabled
+        , DisabledByConfig
         , MissingCapacityInput
         , Calculated
     };
@@ -176,6 +177,9 @@ namespace timetable::domain::assignment {
     inline constexpr std::array kVehicleJourneyItemOverloadAssessmentStatusTokens{
           timetable::EnumStringEntry<VehicleJourneyItemOverloadAssessmentStatus>{
               VehicleJourneyItemOverloadAssessmentStatus::SkippedAssignmentDisabled, "skipped_assignment_disabled"
+          }
+        , timetable::EnumStringEntry<VehicleJourneyItemOverloadAssessmentStatus>{
+              VehicleJourneyItemOverloadAssessmentStatus::DisabledByConfig, "disabled_by_config"
           }
         , timetable::EnumStringEntry<VehicleJourneyItemOverloadAssessmentStatus>{
               VehicleJourneyItemOverloadAssessmentStatus::MissingCapacityInput, "missing_capacity_input"
@@ -291,6 +295,8 @@ namespace timetable::domain::assignment {
     );
 
     [[nodiscard]] VehicleJourneyItemOverloadAssessment make_skipped_assignment_disabled_vehicle_journey_item_overload_assessment();
+
+    [[nodiscard]] VehicleJourneyItemOverloadAssessment make_disabled_by_config_vehicle_journey_item_overload_assessment();
 
     [[nodiscard]] VehicleJourneyItemOverloadAssessment make_missing_capacity_input_vehicle_journey_item_overload_assessment();
 

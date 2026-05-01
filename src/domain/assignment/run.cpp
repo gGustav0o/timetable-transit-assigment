@@ -19,6 +19,7 @@ namespace timetable::domain::assignment {
                 return build_assignment_disabled_output(
                       disabled->input
                     , disabled->vehicle_journey_item_capacity
+                    , disabled->execution
                     , disabled->skim_config
                     , disabled->capacity_aware
                 );
@@ -32,6 +33,7 @@ namespace timetable::domain::assignment {
                 , calculated.choice
                 , calculated.split
                 , calculated.vehicle_journey_item_capacity
+                , calculated.execution
                 , calculated.skim_config
                 , calculated.capacity_aware
             );

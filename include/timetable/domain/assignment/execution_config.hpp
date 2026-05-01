@@ -14,6 +14,7 @@ namespace timetable::domain::assignment {
      */
     struct AssignmentExecutionConfig final {
         bool calculate_assignment{ true };
+        bool calculate_vehicle_journey_item_overload_assessment{ true };
     };
 
     mathfp::Expected<mathfp::Unit> validate_assignment_execution_config(

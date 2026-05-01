@@ -11,6 +11,7 @@ namespace timetable::domain::assignment {
         , const ConnectionChoiceResult&          choice_result
         , const DemandSplitResult&               split_result
         , const VehicleJourneyItemCapacityInput& vehicle_journey_item_capacity
+        , const AssignmentExecutionConfig&        execution
         , const SkimMatrixConfig&                skim_config
         , const CapacityAwareAssignmentDiagnostics& capacity_aware
     ) {
@@ -21,6 +22,7 @@ namespace timetable::domain::assignment {
             , choice_result
             , split_result
             , vehicle_journey_item_capacity
+            , execution
             , skim_config
             , capacity_aware
         );
@@ -29,12 +31,14 @@ namespace timetable::domain::assignment {
     mathfp::Expected<AssignmentOutput> build_assignment_disabled_output(
           const InputModel&                      input
         , const VehicleJourneyItemCapacityInput& vehicle_journey_item_capacity
+        , const AssignmentExecutionConfig&        execution
         , const SkimMatrixConfig&                skim_config
         , const CapacityAwareAssignmentDiagnostics& capacity_aware
     ) {
         return detail::build_assignment_disabled_output_impl(
               input
             , vehicle_journey_item_capacity
+            , execution
             , skim_config
             , capacity_aware
         );

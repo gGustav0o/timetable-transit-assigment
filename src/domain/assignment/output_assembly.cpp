@@ -224,7 +224,14 @@ namespace timetable::domain::assignment::detail {
               const DemandSplitResult&               split_result
             , const std::vector<TimeInterval>&        intervals
             , const VehicleJourneyItemCapacityInput& vehicle_journey_item_capacity
+            , const AssignmentExecutionConfig&        execution
         ) {
+            MATHFP_TRY(validate_assignment_execution_config(execution));
+
+            if (!execution.calculate_vehicle_journey_item_overload_assessment) {
+                return make_disabled_by_config_vehicle_journey_item_overload_assessment();
+            }
+
             MATHFP_TRY(validate_vehicle_journey_item_capacity_input(
                 vehicle_journey_item_capacity
             ));
@@ -430,6 +437,7 @@ namespace timetable::domain::assignment::detail {
         , const ConnectionChoiceResult&          choice_result
         , const DemandSplitResult&               split_result
         , const VehicleJourneyItemCapacityInput& vehicle_journey_item_capacity
+        , const AssignmentExecutionConfig&        execution
         , const SkimMatrixConfig&                skim_config
         , const CapacityAwareAssignmentDiagnostics& capacity_aware
     ) {
@@ -467,6 +475,7 @@ namespace timetable::domain::assignment::detail {
                   split_result
                 , input.intervals
                 , vehicle_journey_item_capacity
+                , execution
             )
         );
 
@@ -506,10 +515,12 @@ namespace timetable::domain::assignment::detail {
     mathfp::Expected<AssignmentOutput> build_assignment_disabled_output_impl(
           const InputModel&                      input
         , const VehicleJourneyItemCapacityInput& vehicle_journey_item_capacity
+        , const AssignmentExecutionConfig&        execution
         , const SkimMatrixConfig&                skim_config
         , const CapacityAwareAssignmentDiagnostics& capacity_aware
     ) {
         MATHFP_TRY(validate_capacity_aware_assignment_diagnostics(capacity_aware));
+        MATHFP_TRY(validate_assignment_execution_config(execution));
         MATHFP_TRY(validate_vehicle_journey_item_capacity_input(
             vehicle_journey_item_capacity
         ));

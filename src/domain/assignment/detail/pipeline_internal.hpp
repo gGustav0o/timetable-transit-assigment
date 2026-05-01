@@ -558,6 +558,7 @@ namespace timetable::domain::assignment::detail {
             , .search                        = std::move(last_search)
             , .choice                        = std::move(last_choice)
             , .split                         = std::move(last_split)
+            , .execution                     = input.execution
             , .skim_config                   = input.skim_matrix
             , .capacity_aware                = capacity_aware
         };
@@ -580,6 +581,7 @@ namespace timetable::domain::assignment::detail {
             return AssignmentPipelineDisabledResult{
                   .input                         = std::move(input.input)
                 , .vehicle_journey_item_capacity = std::move(input.vehicle_journey_item_capacity)
+                , .execution                     = input.execution
                 , .skim_config                   = input.skim_matrix
                 , .capacity_aware                =
                       make_capacity_aware_assignment_disabled_diagnostics(
@@ -642,6 +644,7 @@ namespace timetable::domain::assignment::detail {
             , .search                        = std::move(search_step.result)
             , .choice                        = std::move(choice_result)
             , .split                         = std::move(split_step.result)
+            , .execution                     = input.execution
             , .skim_config                   = input.skim_matrix
             , .capacity_aware                = split_step.capacity_aware
         };

@@ -5,6 +5,19 @@ project(timetable-transit-assigment
   LANGUAGES CXX
 )
 
+option(TIMETABLE_ENABLE_RUNTIME_OVERRIDES
+  "Enable compile-time runtime override policy"
+  OFF
+)
+option(TIMETABLE_OVERRIDE_DISABLE_CAPACITY_AWARE_ASSIGNMENT
+  "Force-disable behavioral capacity-aware assignment when runtime overrides are enabled"
+  OFF
+)
+option(TIMETABLE_OVERRIDE_DISABLE_VEHICLE_JOURNEY_ITEM_OVERLOAD_ASSESSMENT
+  "Force-disable vehicle journey item overload assessment when runtime overrides are enabled"
+  OFF
+)
+
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/ProjectOptions.cmake)
 
 set(MATHFP_ENABLE_RANGES ON CACHE BOOL "Enable mathfp ranges module")
@@ -54,6 +67,7 @@ add_executable(timetable-transit-assigment
   src/domain/assignment/search/preprocessed_network.cpp
   src/domain/assignment/search/search.cpp
   src/domain/assignment/run.cpp
+  src/domain/assignment/runtime_overrides.cpp
   src/domain/assignment/split/split.cpp
   src/domain/assignment/validation/choice.cpp
   src/domain/assignment/validation/complete_connection_dominance.cpp
@@ -117,6 +131,27 @@ target_include_directories(timetable-transit-assigment
 )
 
 target_compile_features(timetable-transit-assigment PRIVATE cxx_std_20)
+
+if(TIMETABLE_ENABLE_RUNTIME_OVERRIDES)
+  target_compile_definitions(timetable-transit-assigment
+    PRIVATE
+      TIMETABLE_ENABLE_RUNTIME_OVERRIDES
+  )
+
+  if(TIMETABLE_OVERRIDE_DISABLE_CAPACITY_AWARE_ASSIGNMENT)
+    target_compile_definitions(timetable-transit-assigment
+      PRIVATE
+        TIMETABLE_OVERRIDE_DISABLE_CAPACITY_AWARE_ASSIGNMENT
+    )
+  endif()
+
+  if(TIMETABLE_OVERRIDE_DISABLE_VEHICLE_JOURNEY_ITEM_OVERLOAD_ASSESSMENT)
+    target_compile_definitions(timetable-transit-assigment
+      PRIVATE
+        TIMETABLE_OVERRIDE_DISABLE_VEHICLE_JOURNEY_ITEM_OVERLOAD_ASSESSMENT
+    )
+  endif()
+endif()
 
 target_link_libraries(timetable-transit-assigment
   PRIVATE

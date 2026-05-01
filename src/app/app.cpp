@@ -14,7 +14,9 @@
 #include <fmt/format.h>
 
 #include "timetable/app/error_format.hpp"
+#include "timetable/config/runtime_override_policy.hpp"
 #include "timetable/domain/assignment/run.hpp"
+#include "timetable/domain/assignment/runtime_overrides.hpp"
 #include "timetable/infra/assignment_output_files.hpp"
 #include "timetable/infra/log_entry.hpp"
 #include "timetable/infra/logging.hpp"
@@ -379,6 +381,29 @@ namespace timetable::app {
                           "orchestration_stage"
                         , std::string("input_load")
                     );
+                })
+                | and_then([&](timetable::domain::AssignmentInput input) {
+                    return timetable::domain::assignment::apply_runtime_override_policy(
+                          std::move(input)
+                        , timetable::config::kRuntimeOverridePolicy
+                    )
+                        | inspect_error([logger](const auto& err) {
+                            if (logger) {
+                                logger->error(
+                                      "runtime override application failed:\n{}"
+                                    , timetable::app::format_error(err)
+                                );
+                            }
+                        })
+                        | inspect_error([](const auto& err) {
+                            report_failure("runtime override application failed", err);
+                        })
+                        | map_error([](mathfp::Error err) {
+                            return std::move(err).ctx(
+                                  "orchestration_stage"
+                                , std::string("runtime_override")
+                            );
+                        });
                 })
                 | and_then([&](timetable::domain::AssignmentInput input) {
                     return timetable::domain::assignment::run_timetable_assignment(std::move(input))

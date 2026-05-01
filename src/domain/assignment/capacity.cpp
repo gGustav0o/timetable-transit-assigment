@@ -826,6 +826,7 @@ namespace timetable::domain::assignment {
     ) {
         switch (assessment.status) {
             case VehicleJourneyItemOverloadAssessmentStatus::SkippedAssignmentDisabled:
+            case VehicleJourneyItemOverloadAssessmentStatus::DisabledByConfig:
             case VehicleJourneyItemOverloadAssessmentStatus::MissingCapacityInput:
                 if (assessment.items.empty()) {
                     return mathfp::kUnit;
@@ -871,6 +872,13 @@ namespace timetable::domain::assignment {
     VehicleJourneyItemOverloadAssessment make_skipped_assignment_disabled_vehicle_journey_item_overload_assessment() {
         return VehicleJourneyItemOverloadAssessment{
               .status = VehicleJourneyItemOverloadAssessmentStatus::SkippedAssignmentDisabled
+            , .items  = {}
+        };
+    }
+
+    VehicleJourneyItemOverloadAssessment make_disabled_by_config_vehicle_journey_item_overload_assessment() {
+        return VehicleJourneyItemOverloadAssessment{
+              .status = VehicleJourneyItemOverloadAssessmentStatus::DisabledByConfig
             , .items  = {}
         };
     }

@@ -15,6 +15,7 @@ namespace timetable::domain::assignment {
     struct AssignmentPipelineDisabledResult final {
         InputModel                          input{};
         VehicleJourneyItemCapacityInput     vehicle_journey_item_capacity{};
+        AssignmentExecutionConfig           execution{};
         SkimMatrixConfig                    skim_config{};
         CapacityAwareAssignmentDiagnostics  capacity_aware{};
     };
@@ -26,6 +27,7 @@ namespace timetable::domain::assignment {
         ConnectionSearchResult              search{};
         ConnectionChoiceResult              choice{};
         DemandSplitResult                   split{};
+        AssignmentExecutionConfig           execution{};
         SkimMatrixConfig                    skim_config{};
         CapacityAwareAssignmentDiagnostics  capacity_aware{};
     };
