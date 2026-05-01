@@ -22,6 +22,7 @@ namespace timetable::domain::assignment {
         , const DemandSplitResult&               split_result
         , const VehicleJourneyItemCapacityInput& vehicle_journey_item_capacity
         , const SkimMatrixConfig&                skim_config
+        , const CapacityAwareAssignmentDiagnostics& capacity_aware
     );
 
     /**
@@ -34,6 +35,7 @@ namespace timetable::domain::assignment {
           const InputModel&                      input
         , const VehicleJourneyItemCapacityInput& vehicle_journey_item_capacity
         , const SkimMatrixConfig&                skim_config
+        , const CapacityAwareAssignmentDiagnostics& capacity_aware
     );
 
 }  // namespace timetable::domain::assignment

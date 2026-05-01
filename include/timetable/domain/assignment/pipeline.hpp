@@ -16,6 +16,7 @@ namespace timetable::domain::assignment {
         InputModel                          input{};
         VehicleJourneyItemCapacityInput     vehicle_journey_item_capacity{};
         SkimMatrixConfig                    skim_config{};
+        CapacityAwareAssignmentDiagnostics  capacity_aware{};
     };
 
     struct AssignmentPipelineCalculatedResult final {
@@ -26,6 +27,7 @@ namespace timetable::domain::assignment {
         ConnectionChoiceResult              choice{};
         DemandSplitResult                   split{};
         SkimMatrixConfig                    skim_config{};
+        CapacityAwareAssignmentDiagnostics  capacity_aware{};
     };
 
     using AssignmentPipelineResult = std::variant<

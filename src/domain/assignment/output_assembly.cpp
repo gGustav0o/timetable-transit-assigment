@@ -429,7 +429,9 @@ namespace timetable::domain::assignment::detail {
         , const DemandSplitResult&               split_result
         , const VehicleJourneyItemCapacityInput& vehicle_journey_item_capacity
         , const SkimMatrixConfig&                skim_config
+        , const CapacityAwareAssignmentDiagnostics& capacity_aware
     ) {
+        MATHFP_TRY(validate_capacity_aware_assignment_diagnostics(capacity_aware));
         MATHFP_TRY(validate_choice_flat_projection(choice_result));
         MATHFP_TRY(validate_split_shares_are_task_local(choice_result, split_result));
 
@@ -472,6 +474,7 @@ namespace timetable::domain::assignment::detail {
             , .loads       = std::move(loads)
             , .vehicle_journey_item_loads = std::move(vehicle_journey_item_loads)
             , .skim_matrix = std::move(skim_matrix)
+            , .capacity_aware = capacity_aware
         };
         output.od_results.reserve(all_ods.size());
 
@@ -501,7 +504,9 @@ namespace timetable::domain::assignment::detail {
           const InputModel&                      input
         , const VehicleJourneyItemCapacityInput& vehicle_journey_item_capacity
         , const SkimMatrixConfig&                skim_config
+        , const CapacityAwareAssignmentDiagnostics& capacity_aware
     ) {
+        MATHFP_TRY(validate_capacity_aware_assignment_diagnostics(capacity_aware));
         MATHFP_TRY(validate_vehicle_journey_item_capacity_input(
             vehicle_journey_item_capacity
         ));
@@ -522,6 +527,7 @@ namespace timetable::domain::assignment::detail {
                       ? AssignmentSkimMatrixStatus::SkippedAssignmentDisabled
                       : AssignmentSkimMatrixStatus::DisabledByConfig
               }
+            , .capacity_aware = capacity_aware
         };
         output.od_results.reserve(demand_by_od.size());
 

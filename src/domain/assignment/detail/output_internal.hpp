@@ -38,12 +38,14 @@ namespace timetable::domain::assignment::detail {
         , const DemandSplitResult&               split_result
         , const VehicleJourneyItemCapacityInput& vehicle_journey_item_capacity
         , const SkimMatrixConfig&                skim_config
+        , const CapacityAwareAssignmentDiagnostics& capacity_aware
     );
 
     mathfp::Expected<AssignmentOutput> build_assignment_disabled_output_impl(
           const InputModel&                      input
         , const VehicleJourneyItemCapacityInput& vehicle_journey_item_capacity
         , const SkimMatrixConfig&                skim_config
+        , const CapacityAwareAssignmentDiagnostics& capacity_aware
     );
 
 }  // namespace timetable::domain::assignment::detail

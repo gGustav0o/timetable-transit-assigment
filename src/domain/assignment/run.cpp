@@ -20,6 +20,7 @@ namespace timetable::domain::assignment {
                       disabled->input
                     , disabled->vehicle_journey_item_capacity
                     , disabled->skim_config
+                    , disabled->capacity_aware
                 );
             }
 
@@ -32,6 +33,7 @@ namespace timetable::domain::assignment {
                 , calculated.split
                 , calculated.vehicle_journey_item_capacity
                 , calculated.skim_config
+                , calculated.capacity_aware
             );
         }
 

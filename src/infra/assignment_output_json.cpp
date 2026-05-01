@@ -10,6 +10,8 @@
 
 #include <fmt/format.h>
 
+#include <mathfp/types/units.hpp>
+
 #include "timetable/domain/segment_semantics.hpp"
 
 namespace timetable::infra {
@@ -707,6 +709,36 @@ namespace timetable::infra {
             writer.end_object();
         }
 
+        void write_capacity_aware_metadata(
+              JsonWriter& writer
+            , const timetable::domain::assignment::CapacityAwareAssignmentDiagnostics& diagnostics
+        ) {
+            writer.begin_object();
+            writer.key("capacity_aware_enabled");
+            writer.boolean(diagnostics.capacity_aware_enabled);
+            writer.key("iterations");
+            writer.integer(static_cast<std::int64_t>(diagnostics.iterations));
+            writer.key("converged");
+            writer.boolean(diagnostics.converged);
+            writer.key("max_load_delta");
+            writer.number(diagnostics.max_load_delta);
+            writer.key("used_factor");
+            writer.number(mathfp::units::as_dimless(diagnostics.used_factor));
+            writer.key("penalty_policy");
+            writer.string(timetable::domain::assignment::to_string(diagnostics.penalty_policy));
+            writer.end_object();
+        }
+
+        void write_metadata(
+              JsonWriter& writer
+            , const timetable::domain::AssignmentOutput& output
+        ) {
+            writer.begin_object();
+            writer.key("capacity_aware");
+            write_capacity_aware_metadata(writer, output.capacity_aware);
+            writer.end_object();
+        }
+
         std::string_view output_mode_token(
             timetable::domain::AssignmentOutputMode mode
         ) noexcept {
@@ -727,7 +759,7 @@ namespace timetable::infra {
         JsonWriter writer;
         writer.begin_object();
         writer.key("schema");
-        writer.string("timetable.assignment_output.v8");
+        writer.string("timetable.assignment_output.v9");
         writer.key("mode");
         writer.string(output_mode_token(output.mode));
         writer.key("units");
@@ -743,6 +775,8 @@ namespace timetable::infra {
         writer.end_object();
         writer.key("summary");
         write_output_summary(writer, output.summary);
+        writer.key("metadata");
+        write_metadata(writer, output);
         writer.key("od_results");
         writer.begin_array();
         for (const auto& od_result : output.od_results) {

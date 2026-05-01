@@ -472,7 +472,9 @@ D:\Development\projects\timetable-transit-assigment\out\build\vcpkg\Release\resu
 15. время выполнения назначения спроса: 121.270 s;
 16. на момент анализируемого прогона результаты были записаны в assignment_summary.txt, assignment_output.json, od_summary.csv, connections.csv, shares.csv, segments.csv и loads.csv.
 
-В текущем контракте вывода дополнительно предусмотрены metadata.csv, skim_matrix.csv и секция skim_matrix в assignment_output.json. metadata.csv содержит mode, skim_status и основные счетчики результата. Skim-матрица строится по OD-временным задачам при basePara.calcAssign = True и basePara.calcSkimMatr = True; при отключенном assignment и включенном skim экспортируется статус skipped_assignment_disabled без строк entries.
+В текущем контракте вывода дополнительно предусмотрены metadata.csv, skim_matrix.csv, vehicle_journey_item_loads.csv, секция skim_matrix, секция vehicle_journey_item_loads и объект metadata.capacity_aware в assignment_output.json. metadata.csv сохраняет прежний набор колонок и содержит mode, skim_status и основные счетчики результата. Capacity-aware диагностика экспортируется только в JSON metadata, чтобы не менять CSV-контракт.
+
+Skim-матрица строится по OD-временным задачам при basePara.calcAssign = True и basePara.calcSkimMatr = True; при отключенном assignment и включенном skim экспортируется статус skipped_assignment_disabled без строк entries. vehicle_journey_item_loads.csv является отдельным отчетом по загрузке и перегрузке vehicle journey item; при отсутствии veh_journey_item_cap.csv JSON/CSV результат получает статус missing_capacity_input без строк оценки перегрузки.
 
 Агрегированная статистика поиска по строкам пакетов:
 
@@ -589,6 +591,8 @@ D:\Development\projects\timetable-transit-assigment\out\build\vcpkg\Release\resu
 Параметр lowImpConnShare определяет размер подмножества: соединения сортируются по возрастанию split_impedance, затем берется ceil(lowImpConnShare * n) соединений из начала списка. Если lowImpConnShare > 0 и n > 0, сохраняется не менее одного соединения. Параметр volumeWeighted влияет только на расчет агрегированных значений, а не на выбор соединений для skim-агрегации.
 
 Файл metadata.csv содержит одну строку с mode, skim_status, счетчиками OD/соединений/долей/skim entries, total_demand_passengers, assigned_passengers и runtime_seconds. Он используется для машинно-читаемой фиксации режима результата без изменения колонок существующих аналитических CSV.
+
+Объект assignment_output.json.metadata.capacity_aware содержит диагностику поведенческого capacity-aware split: capacity_aware_enabled, iterations, converged, max_load_delta, used_factor и penalty_policy. При отключенном capacity-aware split значения iterations, max_load_delta и used_factor равны нулю, а converged равен false. При включенном режиме used_factor соответствует PerceivedJourneyTime.volCapRatioFactor, а penalty_policy задает форму штрафа по отношению загрузки к провозной способности.
 
 13.7. Что хорошо и согласуется с теорией
 

@@ -6,6 +6,7 @@
 
 #include "timetable/domain/model.hpp"
 #include "timetable/domain/params.hpp"
+#include "timetable/domain/assignment/capacity_aware_assignment.hpp"
 #include "timetable/domain/assignment/choice/choice.hpp"
 #include "timetable/domain/assignment/connection_admissibility.hpp"
 
@@ -27,6 +28,21 @@ namespace timetable::domain::assignment {
     };
 
     /**
+     * @brief Result of the capacity-aware fixed-point split layer.
+     *
+     * split_result is the last demand split evaluated by the behavioral model.
+     * split_loads is the direct half-open vehicle-item projection of that split.
+     * load_state is the MSA-smoothed state used for convergence diagnostics and
+     * as the exogenous load state of the next capacity-aware iteration.
+     */
+    struct CapacityAwareDemandSplitResult final {
+        DemandSplitResult                split_result{};
+        VehicleJourneyItemLoads          split_loads{};
+        VehicleJourneyItemLoadState      load_state{};
+        CapacityAwareSplitDiagnostics    diagnostics{};
+    };
+
+    /**
      * @brief Split each demand entry over the chosen alternatives of its task.
      */
     mathfp::Expected<DemandSplitResult> split_demand_over_connections(
@@ -34,6 +50,40 @@ namespace timetable::domain::assignment {
         , const InputModel&           input
         , const SearchParams&         params
         , const DemandSegmentTimeConfig& demand_segment_time
+    );
+
+    /**
+     * @brief One capacity-aware split evaluation over a fixed load state.
+     *
+     * This function does not solve the endogenous capacity fixed point by
+     * itself. It evaluates split probabilities with capacity costs derived from
+     * an externally supplied vehicle journey item load state. The iterative
+     * layer must call this function repeatedly and update the load state.
+     */
+    mathfp::Expected<DemandSplitResult> split_demand_over_connections_capacity_aware(
+          const ConnectionChoiceResult& choice_result
+        , const InputModel&             input
+        , const SearchParams&           params
+        , const DemandSegmentTimeConfig& demand_segment_time
+        , const CapacityAwareAssignmentConfig& capacity_config
+        , const VehicleJourneyItemLoadState& load_state
+        , const VehicleJourneyItemCapacitySet& capacity_set
+    );
+
+    /**
+     * @brief Solve the capacity-aware split fixed point over a fixed alternative set.
+     *
+     * The function keeps search/choice alternatives fixed and iterates only the
+     * demand split/load state relation. Loads are updated by MSA:
+     * L_{k+1} = (1 - alpha_k) L_k + alpha_k L_hat_k, alpha_k = 1 / k.
+     */
+    mathfp::Expected<CapacityAwareDemandSplitResult> iterate_capacity_aware_split(
+          const ConnectionChoiceResult& choice_result
+        , const InputModel&             input
+        , const SearchParams&           params
+        , const DemandSegmentTimeConfig& demand_segment_time
+        , const CapacityAwareAssignmentConfig& capacity_config
+        , const VehicleJourneyItemCapacitySet& capacity_set
     );
 
 }  // namespace timetable::domain::assignment

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <mathfp/core/expected.hpp>
+#include <mathfp/core/unit.hpp>
 
 #include "timetable/domain/assignment.hpp"
 #include "timetable/domain/assignment/choice/choice.hpp"
@@ -49,6 +50,42 @@ namespace timetable::domain::assignment {
           const DemandSplitResult&        split_result
         , const ConnectionChoiceResult& choice_result
         , const InputModel&             input
+    );
+
+    /**
+     * @brief Validate capacity-aware split inputs before fixed-point iteration.
+     *
+     * Contract:
+     * - base split inputs must be valid;
+     * - positive PerceivedJourneyTime.volCapRatioFactor must agree with enabled
+     *   capacity-aware split config;
+     * - vehicle journey item capacity input must be loaded;
+     * - every ride item occupied by every chosen alternative must have positive
+     *   total capacity.
+     */
+    mathfp::Expected<mathfp::Unit> validate_capacity_aware_split_step_input(
+          const ConnectionChoiceResult& choice_result
+        , const InputModel&             input
+        , const SearchParams&           params
+        , const DemandSegmentTimeConfig& demand_segment_time
+        , const CapacityAwareAssignmentConfig& capacity_config
+        , const VehicleJourneyItemCapacityInput& capacity_input
+    );
+
+    /**
+     * @brief Validate the capacity-aware fixed-point split result.
+     *
+     * Contract:
+     * - split_result is a valid split over the chosen alternatives;
+     * - split_loads are the exact half-open projection of split_result;
+     * - load_state and diagnostics are finite and consistent with the iteration
+     *   config.
+     */
+    mathfp::Expected<mathfp::Unit> validate_capacity_aware_split_step_output(
+          const CapacityAwareDemandSplitResult& result
+        , const ConnectionChoiceResult&         choice_result
+        , const InputModel&                     input
+        , const CapacityAwareAssignmentConfig&  capacity_config
     );
 
     /**

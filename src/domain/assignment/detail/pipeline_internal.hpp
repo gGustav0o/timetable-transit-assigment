@@ -6,6 +6,7 @@
 #include <mathfp/core/error.hpp>
 #include <mathfp/core/expected.hpp>
 #include <mathfp/core/try.hpp>
+#include <mathfp/types/units.hpp>
 
 #include "timetable/domain/assignment.hpp"
 #include "timetable/domain/assignment/complete_connection_diagnostics.hpp"
@@ -24,6 +25,11 @@ namespace timetable::domain::assignment::detail {
     struct SearchStepResult final {
         ConnectionSearchResult result{};
         double                 fare_scale{};
+    };
+
+    struct SplitStepResult final {
+        DemandSplitResult                  result{};
+        CapacityAwareAssignmentDiagnostics capacity_aware{};
     };
 
     inline mathfp::Expected<PreprocessedNetwork> build_preprocessed_step(
@@ -165,34 +171,105 @@ namespace timetable::domain::assignment::detail {
         return choice_result;
     }
 
-    inline mathfp::Expected<DemandSplitResult> run_validated_split_step(
+    inline mathfp::Expected<SplitStepResult> run_validated_split_step(
           const ConnectionChoiceResult& choice_result
-        , const InputModel&             input
-        , const SearchParams&           params
-        , const DemandSegmentTimeConfig& demand_segment_time
+        , const AssignmentInput&        input
     ) {
-        MATHFP_TRY(validate_split_step_input(
-              choice_result
-            , input
-            , params.split
-            , demand_segment_time
-        ));
-        MATHFP_TRY_LET(
-              DemandSplitResult
-            , split_result
-            , split_demand_over_connections(
-                  choice_result
-                , input
-                , params
-                , demand_segment_time
-            )
+        using timetable::infra::LogLevel;
+        using timetable::infra::progress::log;
+
+        const auto capacity_factor = mathfp::units::as_dimless(
+            input.params.split.perceived_journey_time.volume_capacity_ratio
         );
+        const auto capacity_aware_enabled =
+               input.capacity_aware_assignment.capacity_aware_split_enabled
+            && capacity_factor > 0.0;
+
+        DemandSplitResult split_result{};
+
+        if (capacity_aware_enabled) {
+            MATHFP_TRY(validate_capacity_aware_split_step_input(
+                  choice_result
+                , input.input
+                , input.params
+                , input.demand_segment_time
+                , input.capacity_aware_assignment
+                , input.vehicle_journey_item_capacity
+            ));
+
+            MATHFP_TRY_LET(
+                  CapacityAwareDemandSplitResult
+                , capacity_split
+                , iterate_capacity_aware_split(
+                      choice_result
+                    , input.input
+                    , input.params
+                    , input.demand_segment_time
+                    , input.capacity_aware_assignment
+                    , input.vehicle_journey_item_capacity.capacities
+                )
+            );
+            MATHFP_TRY(validate_capacity_aware_split_step_output(
+                  capacity_split
+                , choice_result
+                , input.input
+                , input.capacity_aware_assignment
+            ));
+            MATHFP_TRY_LET(
+                  CapacityAwareAssignmentDiagnostics
+                , capacity_aware
+                , make_capacity_aware_assignment_diagnostics(
+                      true
+                    , capacity_split.diagnostics
+                    , Dimless{ capacity_factor }
+                    , input.capacity_aware_assignment.penalty_policy
+                )
+            );
+
+            if (!capacity_split.diagnostics.converged) {
+                log(
+                      "capacity-aware split reached max_iterations before convergence; using last evaluated split"
+                    , LogLevel::Warning
+                );
+            }
+
+            split_result = std::move(capacity_split.split_result);
+            return SplitStepResult{
+                  .result         = std::move(split_result)
+                , .capacity_aware = capacity_aware
+            };
+        } else {
+            MATHFP_TRY(validate_split_step_input(
+                  choice_result
+                , input.input
+                , input.params.split
+                , input.demand_segment_time
+            ));
+            MATHFP_TRY_LET(
+                  DemandSplitResult
+                , ordinary_split
+                , split_demand_over_connections(
+                      choice_result
+                    , input.input
+                    , input.params
+                    , input.demand_segment_time
+                )
+            );
+            split_result = std::move(ordinary_split);
+        }
+
         MATHFP_TRY(validate_split_step_output(
               split_result
             , choice_result
-            , input
+            , input.input
         ));
-        return split_result;
+        return SplitStepResult{
+              .result = std::move(split_result)
+            , .capacity_aware =
+                  make_capacity_aware_assignment_disabled_diagnostics(
+                      input.capacity_aware_assignment.penalty_policy
+                  )
+        };
     }
 
     inline mathfp::Expected<AssignmentPipelineResult> run_timetable_assignment_pipeline_with_context(
@@ -213,6 +290,10 @@ namespace timetable::domain::assignment::detail {
                   .input                         = std::move(input.input)
                 , .vehicle_journey_item_capacity = std::move(input.vehicle_journey_item_capacity)
                 , .skim_config                   = input.skim_matrix
+                , .capacity_aware                =
+                      make_capacity_aware_assignment_disabled_diagnostics(
+                          input.capacity_aware_assignment.penalty_policy
+                      )
             };
         }
 
@@ -242,13 +323,11 @@ namespace timetable::domain::assignment::detail {
             )
         );
         MATHFP_TRY_LET(
-              DemandSplitResult
-            , split_result
+              SplitStepResult
+            , split_step
             , run_validated_split_step(
                   choice_result
-                , input.input
-                , input.params
-                , input.demand_segment_time
+                , input
             )
         );
 
@@ -258,8 +337,9 @@ namespace timetable::domain::assignment::detail {
             , .network                       = std::move(network)
             , .search                        = std::move(search_step.result)
             , .choice                        = std::move(choice_result)
-            , .split                         = std::move(split_result)
+            , .split                         = std::move(split_step.result)
             , .skim_config                   = input.skim_matrix
+            , .capacity_aware                = split_step.capacity_aware
         };
     }
 

@@ -4,6 +4,7 @@
 #include "timetable/domain/assignment.hpp"
 #include "timetable/domain/assignment/assignment_period.hpp"
 #include "timetable/domain/assignment/capacity.hpp"
+#include "timetable/domain/assignment/capacity_aware_assignment.hpp"
 #include "timetable/domain/assignment/choice.hpp"
 #include "timetable/domain/assignment/choice/choice_config.hpp"
 #include "timetable/domain/assignment/complete_connection_diagnostics.hpp"

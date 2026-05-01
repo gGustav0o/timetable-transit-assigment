@@ -1,6 +1,7 @@
 #include "timetable/infra/pair_file_data_source.hpp"
 
 #include "timetable/domain/assignment/assignment_period.hpp"
+#include "timetable/domain/assignment/capacity_aware_assignment.hpp"
 #include "timetable/domain/assignment/connection_admissibility.hpp"
 #include "timetable/domain/assignment/execution_config.hpp"
 #include "timetable/domain/params_factory.hpp"
@@ -62,6 +63,7 @@ namespace timetable::infra {
             timetable::domain::assignment::AssignmentPeriodConfig   assignment_period{};
             timetable::domain::assignment::ConnectionDeletionConfig connection_deletion{};
             timetable::domain::assignment::DemandSegmentTimeConfig  demand_segment_time{};
+            timetable::domain::assignment::CapacityAwareAssignmentConfig capacity_aware_assignment{};
         };
 
         struct PairSearchTimeDomainSpec final {
@@ -101,6 +103,7 @@ namespace timetable::infra {
             double                               transfer_wait_time{};
             double                               transfer_count{};
             double                               fare{};
+            double                               volume_capacity_ratio{};
             timetable::domain::FareNormalization fare_normalization{};
         };
 
@@ -131,6 +134,7 @@ namespace timetable::infra {
             double pjt_transfer_walk_time{};
             double pjt_transfer_wait_time{};
             double pjt_transfer_count{};
+            double pjt_volume_capacity_ratio{};
             double departure_early{};
             double departure_late{};
             timetable::domain::SplitChoiceModel choice_model{};
@@ -190,6 +194,7 @@ namespace timetable::infra {
                   , .transfer_wait_time = 2.25
                   , .transfer_count     = 12.0
                   , .fare               = 1.0
+                  , .volume_capacity_ratio = 0.0
                   , .fare_normalization = timetable::domain::FareNormalization{
                           .kind        = timetable::domain::FareNormalization::Kind::Median
                         , .fixed_scale = 1.0
@@ -214,6 +219,7 @@ namespace timetable::infra {
                   , .pjt_transfer_walk_time    = 1.5
                   , .pjt_transfer_wait_time    = 2.25
                   , .pjt_transfer_count        = 2.0
+                  , .pjt_volume_capacity_ratio = 0.0
                   , .departure_early           = 1.0
                   , .departure_late            = 1.0
                   , .choice_model              = timetable::domain::SplitChoiceModel::BoxCox
@@ -438,6 +444,7 @@ namespace timetable::infra {
                         , Dimless{ kPairRuntimeDefaultSpec.search_impedance.transfer_count }
                         , Dimless{ kPairRuntimeDefaultSpec.search_impedance.fare }
                         , kPairRuntimeDefaultSpec.search_impedance.fare_normalization
+                        , Dimless{ kPairRuntimeDefaultSpec.search_impedance.volume_capacity_ratio }
                     )
                     , make_transfer_limits(
                           TransferCount{ kPairRuntimeDefaultSpec.transfers.max_transfers }
@@ -490,6 +497,8 @@ namespace timetable::infra {
                         , .transfer_walk_time = Dimless{ kPairRuntimeDefaultSpec.split.pjt_transfer_walk_time }
                         , .transfer_wait_time = Dimless{ kPairRuntimeDefaultSpec.split.pjt_transfer_wait_time }
                         , .transfer_count     = Dimless{ kPairRuntimeDefaultSpec.split.pjt_transfer_count }
+                        , .volume_capacity_ratio =
+                              Dimless{ kPairRuntimeDefaultSpec.split.pjt_volume_capacity_ratio }
                     }
                     , TemporalUtilityWeights{
                           .early_departure = Dimless{ kPairRuntimeDefaultSpec.split.departure_early }
@@ -573,6 +582,8 @@ namespace timetable::infra {
                 , .assignment_period   = std::move(assignment_period)
                 , .connection_deletion = timetable::domain::assignment::ConnectionDeletionConfig{}
                 , .demand_segment_time = timetable::domain::assignment::DemandSegmentTimeConfig{}
+                , .capacity_aware_assignment =
+                      timetable::domain::assignment::make_capacity_aware_assignment_disabled_config()
             };
         }
 
@@ -700,6 +711,8 @@ namespace timetable::infra {
             input.assignment_period   = std::move(defaults.assignment_period);
             input.connection_deletion = std::move(defaults.connection_deletion);
             input.demand_segment_time = std::move(defaults.demand_segment_time);
+            input.capacity_aware_assignment =
+                std::move(defaults.capacity_aware_assignment);
 
             if (!paths.params_txt.has_value()) {
                 status("parsing: applying built-in pair defaults");
@@ -725,8 +738,10 @@ namespace timetable::infra {
             input.assignment_period   = std::move(parsed_params.assignment_period);
             input.connection_deletion = std::move(parsed_params.connection_deletion);
             input.demand_segment_time = std::move(parsed_params.demand_segment_time);
+            input.capacity_aware_assignment =
+                std::move(parsed_params.capacity_aware_assignment);
             log(
-                  "parsing: pair-file runtime uses SearchParams, AssignmentExecutionConfig, CompleteConnectionDominanceConfig, SearchPruningConfig, SkimMatrixConfig, AssignmentPeriodConfig, and connection-admissibility configs from params.txt; runtime choice/search-time rollout configs keep built-in defaults"
+                  "parsing: pair-file runtime uses SearchParams, AssignmentExecutionConfig, CompleteConnectionDominanceConfig, SearchPruningConfig, SkimMatrixConfig, AssignmentPeriodConfig, connection-admissibility configs, and capacity-aware config from params.txt; runtime choice/search-time rollout configs keep built-in defaults"
                 , LogLevel::Info
             );
             return mathfp::kUnit;

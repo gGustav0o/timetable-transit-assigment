@@ -50,6 +50,11 @@ namespace timetable::domain {
      * + w_twt  * TWait(c)
      * + w_nt   * NT(c)
      * + w_fare * FARE(c).
+     *
+     * volume_capacity_ratio is parsed and stored for the future
+     * capacity-aware search layer. It must not be applied inside the current
+     * branch-and-bound search until capacity costs are fixed exogenously for a
+     * search iteration.
      */
     struct SearchImpedance final {
         Dimless           in_vehicle_time{};
@@ -59,6 +64,7 @@ namespace timetable::domain {
         Dimless           transfer_wait_time{};
         Dimless           transfer_count{};
         Dimless           fare{};
+        Dimless           volume_capacity_ratio{};
         FareNormalization fare_normalization{};
     };
 
@@ -121,6 +127,12 @@ namespace timetable::domain {
      * + w_walk * TWalk(c)
      * + w_twt  * TWait(c)
      * + w_nt   * NT(c)
+     * + w_vcr  * CAP(c, L)
+     *
+     * CAP(c, L) is a future capacity exposure term of the form
+     * sum_e ride_time_e * phi(load_e / capacity_e). The factor is parsed now,
+     * but the exposure term is added only by the capacity-aware split layer.
+     *
      * U_a(c) = u_early * max(0, start(a) - DEP(c))
      *        + u_late  * max(0, DEP(c) - end(a))
      * IMP_a(c) = q_time * PJT(c) + q_departure * U_a(c) + q_fare * FARE(c).
@@ -135,6 +147,7 @@ namespace timetable::domain {
         Dimless transfer_walk_time{};
         Dimless transfer_wait_time{};
         Dimless transfer_count{};
+        Dimless volume_capacity_ratio{};
     };
 
     struct TemporalUtilityWeights final {

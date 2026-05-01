@@ -274,6 +274,83 @@ namespace timetable::domain::assignment {
             return mathfp::kUnit;
         }
 
+        using VehicleJourneyItemCapacityLookup =
+            std::map<VehicleJourneyItemKey, const VehicleJourneyItemCapacity*>;
+
+        [[nodiscard]] VehicleJourneyItemCapacityLookup build_capacity_lookup(
+            const VehicleJourneyItemCapacitySet& capacities
+        ) {
+            VehicleJourneyItemCapacityLookup lookup;
+            for (const auto& capacity : capacities.items) {
+                lookup.emplace(capacity.key, &capacity);
+            }
+            return lookup;
+        }
+
+        mathfp::Expected<mathfp::Unit> validate_capacity_for_occupied_item(
+              const VehicleJourneyItemCapacityLookup& lookup
+            , VehicleJourneyItemKey                   item
+            , std::size_t                             connection_index
+        ) {
+            const auto it = lookup.find(item);
+            if (it == lookup.end()) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("capacity-aware split alternative uses vehicle journey item without capacity")
+                        .ctx("connection_index", static_cast<std::int64_t>(connection_index))
+                        .ctx("trip_id", item.trip.get())
+                        .ctx("from_index", item.from_index.get())
+                );
+            }
+
+            if (!(it->second->total_capacity > 0.0)) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("capacity-aware split requires positive total capacity for every occupied item")
+                        .ctx("connection_index", static_cast<std::int64_t>(connection_index))
+                        .ctx("trip_id", item.trip.get())
+                        .ctx("from_index", item.from_index.get())
+                        .ctx("total_capacity", it->second->total_capacity)
+                );
+            }
+
+            return mathfp::kUnit;
+        }
+
+        mathfp::Expected<mathfp::Unit> validate_capacity_coverage_for_choice_result(
+              const ConnectionChoiceResult&       choice_result
+            , const VehicleJourneyItemCapacitySet& capacities
+        ) {
+            MATHFP_TRY(validate_vehicle_journey_item_capacity_set(capacities));
+            const auto capacity_lookup = build_capacity_lookup(capacities);
+
+            std::size_t connection_index = 0;
+            for (const auto& task_result : choice_result.task_results) {
+                for (const auto& connection : task_result.connections) {
+                    for (const auto& leg : canonical_connection(connection).trace.legs) {
+                        if (!is_ride_leg(leg.kind)) {
+                            continue;
+                        }
+
+                        MATHFP_TRY_LET(
+                              std::vector<VehicleJourneyItemKey>
+                            , occupied_items
+                            , vehicle_journey_items_occupied(leg)
+                        );
+
+                        for (const auto& item : occupied_items) {
+                            MATHFP_TRY(validate_capacity_for_occupied_item(
+                                  capacity_lookup
+                                , item
+                                , connection_index
+                            ));
+                        }
+                    }
+                    ++connection_index;
+                }
+            }
+
+            return mathfp::kUnit;
+        }
+
     }  // namespace
 
     mathfp::Expected<mathfp::Unit> validate_split_step_input(
@@ -532,6 +609,122 @@ namespace timetable::domain::assignment {
 
         if (split_result.shares.empty()) {
             detail::validation::warn("split output: no demand shares were produced");
+        }
+
+        return mathfp::kUnit;
+    }
+
+    mathfp::Expected<mathfp::Unit> validate_capacity_aware_split_step_input(
+          const ConnectionChoiceResult& choice_result
+        , const InputModel&             input
+        , const SearchParams&           params
+        , const DemandSegmentTimeConfig& demand_segment_time
+        , const CapacityAwareAssignmentConfig& capacity_config
+        , const VehicleJourneyItemCapacityInput& capacity_input
+    ) {
+        MATHFP_TRY(validate_split_step_input(
+              choice_result
+            , input
+            , params.split
+            , demand_segment_time
+        ));
+        MATHFP_TRY(validate_capacity_aware_assignment_config(capacity_config));
+        MATHFP_TRY(validate_vehicle_journey_item_capacity_input(capacity_input));
+
+        const auto split_factor = mathfp::units::as_dimless(
+            params.split.perceived_journey_time.volume_capacity_ratio
+        );
+
+        if (!(split_factor > 0.0)) {
+            return mathfp::unexpected(
+                mathfp::invalid_arg("capacity-aware split step requires positive PerceivedJourneyTime.volCapRatioFactor")
+                    .ctx("vol_cap_ratio_factor", split_factor)
+            );
+        }
+
+        if (!capacity_config.capacity_aware_split_enabled) {
+            return mathfp::unexpected(
+                mathfp::invalid_arg("capacity-aware split step requires enabled capacity-aware split config")
+                    .ctx("vol_cap_ratio_factor", split_factor)
+            );
+        }
+
+        if (capacity_input.status != VehicleJourneyItemCapacityInputStatus::Loaded) {
+            return mathfp::unexpected(
+                mathfp::invalid_arg("capacity-aware split step requires loaded vehicle journey item capacity input")
+                    .ctx("capacity_input_status", std::string(to_string(capacity_input.status)))
+            );
+        }
+
+        return validate_capacity_coverage_for_choice_result(
+              choice_result
+            , capacity_input.capacities
+        );
+    }
+
+    mathfp::Expected<mathfp::Unit> validate_capacity_aware_split_step_output(
+          const CapacityAwareDemandSplitResult& result
+        , const ConnectionChoiceResult&         choice_result
+        , const InputModel&                     input
+        , const CapacityAwareAssignmentConfig&  capacity_config
+    ) {
+        MATHFP_TRY(validate_capacity_aware_assignment_config(capacity_config));
+        MATHFP_TRY(validate_split_step_output(
+              result.split_result
+            , choice_result
+            , input
+        ));
+        MATHFP_TRY(validate_vehicle_journey_item_loads(result.split_loads));
+        MATHFP_TRY(validate_vehicle_journey_item_load_projection(
+              result.split_result
+            , result.split_loads
+        ));
+        MATHFP_TRY(validate_vehicle_journey_item_load_state(result.load_state));
+        MATHFP_TRY(validate_capacity_aware_split_diagnostics(result.diagnostics));
+
+        if (result.diagnostics.enabled && result.diagnostics.iterations <= 0) {
+            return mathfp::unexpected(
+                mathfp::internal_error("enabled capacity-aware split diagnostics must contain at least one iteration")
+                    .ctx("iterations", result.diagnostics.iterations)
+            );
+        }
+
+        if (result.diagnostics.enabled
+            && result.diagnostics.iterations > capacity_config.iteration.max_iterations) {
+            return mathfp::unexpected(
+                mathfp::internal_error("capacity-aware split diagnostics exceed configured max_iterations")
+                    .ctx("iterations", result.diagnostics.iterations)
+                    .ctx("max_iterations", capacity_config.iteration.max_iterations)
+            );
+        }
+
+        if (result.diagnostics.enabled && result.diagnostics.converged) {
+            const auto satisfies_absolute =
+                result.diagnostics.max_load_delta
+                    <= capacity_config.iteration.absolute_load_tolerance;
+            const auto satisfies_relative =
+                result.diagnostics.max_relative_load_delta
+                    <= capacity_config.iteration.relative_load_tolerance;
+
+            if (!satisfies_absolute && !satisfies_relative) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("converged capacity-aware split diagnostics do not satisfy configured tolerances")
+                        .ctx("max_load_delta", result.diagnostics.max_load_delta)
+                        .ctx("absolute_load_tolerance", capacity_config.iteration.absolute_load_tolerance)
+                        .ctx("max_relative_load_delta", result.diagnostics.max_relative_load_delta)
+                        .ctx("relative_load_tolerance", capacity_config.iteration.relative_load_tolerance)
+                );
+            }
+        }
+
+        if (result.diagnostics.enabled
+            && !result.diagnostics.converged
+            && result.diagnostics.iterations != capacity_config.iteration.max_iterations) {
+            return mathfp::unexpected(
+                mathfp::internal_error("non-converged capacity-aware split must stop only at max_iterations")
+                    .ctx("iterations", result.diagnostics.iterations)
+                    .ctx("max_iterations", capacity_config.iteration.max_iterations)
+            );
         }
 
         return mathfp::kUnit;

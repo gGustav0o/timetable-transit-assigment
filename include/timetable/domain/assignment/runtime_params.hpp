@@ -1,6 +1,7 @@
 #pragma once
 
 #include "timetable/domain/assignment/assignment_period.hpp"
+#include "timetable/domain/assignment/capacity_aware_assignment.hpp"
 #include "timetable/domain/assignment/complete_connection_retention.hpp"
 #include "timetable/domain/assignment/connection_admissibility.hpp"
 #include "timetable/domain/assignment/execution_config.hpp"
@@ -25,6 +26,8 @@ namespace timetable::domain {
      * choice/split rather than search impedance or split weights.
      * AssignmentExecutionConfig controls top-level execution stages and is not
      * part of the mathematical search/choice/split model.
+     * CapacityAwareAssignmentConfig controls the future endogenous load layer
+     * and is separate from post-assignment overload assessment.
      */
     struct AssignmentRuntimeParams final {
         SearchParams                         search{};
@@ -35,6 +38,7 @@ namespace timetable::domain {
         assignment::AssignmentPeriodConfig   assignment_period{};
         assignment::ConnectionDeletionConfig connection_deletion{};
         assignment::DemandSegmentTimeConfig  demand_segment_time{};
+        assignment::CapacityAwareAssignmentConfig capacity_aware_assignment{};
     };
 
 }  // namespace timetable::domain

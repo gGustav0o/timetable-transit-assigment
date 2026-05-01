@@ -7,6 +7,7 @@
 #include <map>
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <mathfp/core/error.hpp>
@@ -19,6 +20,7 @@
 #include <fmt/format.h>
 
 #include "../detail/grouping.hpp"
+#include "timetable/domain/assignment/capacity_aware_assignment.hpp"
 #include "timetable/domain/assignment/connection_admissibility.hpp"
 #include "timetable/domain/numeric.hpp"
 #include "timetable/infra/progress_bus.hpp"
@@ -51,6 +53,12 @@ namespace timetable::domain::assignment {
             ConnectionMetrics metrics{};
             double            perceived_journey_time{};
             double            independence{};
+        };
+
+        struct SplitCapacityContext final {
+            const CapacityAwareAssignmentConfig* config{};
+            const VehicleJourneyItemLoadState*   load_state{};
+            const VehicleJourneyItemCapacitySet* capacity_set{};
         };
 
         std::size_t max_weight_index(
@@ -451,6 +459,19 @@ namespace timetable::domain::assignment {
             return 1.0 / (1.0 + influence_sum.value());
         }
 
+        void assign_split_independences(
+              std::vector<SplitAlternative>& alternatives
+            , const SplitIndependenceConfig& config
+        ) noexcept {
+            for (std::size_t i = 0; i < alternatives.size(); ++i) {
+                alternatives[i].independence = split_independence(
+                      config
+                    , alternatives
+                    , i
+                );
+            }
+        }
+
         std::vector<SplitAlternative> derive_split_alternatives(
               const std::vector<const SearchConnection*>& connections
             , const SplitParams&            params
@@ -473,15 +494,72 @@ namespace timetable::domain::assignment {
                 );
             }
 
-            for (std::size_t i = 0; i < alternatives.size(); ++i) {
-                alternatives[i].independence = split_independence(
-                      params.independence
-                    , alternatives
-                    , i
+            assign_split_independences(alternatives, params.independence);
+
+            return alternatives;
+        }
+
+        bool capacity_split_context_enabled(
+              const SplitCapacityContext* context
+            , const SplitParams&          params
+        ) noexcept {
+            return context != nullptr
+                && context->config != nullptr
+                && context->load_state != nullptr
+                && context->capacity_set != nullptr
+                && context->config->capacity_aware_split_enabled
+                && mathfp::units::as_dimless(
+                    params.perceived_journey_time.volume_capacity_ratio
+                ) > 0.0;
+        }
+
+        mathfp::Expected<std::vector<SplitAlternative>> apply_capacity_to_split_alternatives(
+              const std::vector<SplitAlternative>& alternatives
+            , IntervalId                           interval
+            , const SplitParams&                   params
+            , const SplitCapacityContext*          context
+        ) {
+            if (!capacity_split_context_enabled(context, params)) {
+                return alternatives;
+            }
+
+            std::vector<SplitAlternative> adjusted;
+            adjusted.reserve(alternatives.size());
+
+            for (const auto& alternative : alternatives) {
+                MATHFP_TRY_LET(
+                      CapacityExposure
+                    , exposure
+                    , connection_capacity_exposure(
+                          alternative.connection
+                        , interval
+                        , *context->load_state
+                        , *context->capacity_set
+                        , context->config->penalty_policy
+                      )
+                );
+                MATHFP_TRY_LET(
+                      double
+                    , adjusted_perceived_journey_time
+                    , capacity_adjusted_perceived_journey_time(
+                          alternative.perceived_journey_time
+                        , exposure
+                        , params.perceived_journey_time.volume_capacity_ratio
+                      )
+                );
+
+                adjusted.push_back(
+                    SplitAlternative{
+                          .connection             = alternative.connection
+                        , .metrics                = alternative.metrics
+                        , .perceived_journey_time = adjusted_perceived_journey_time
+                        , .independence           = 0.0
+                    }
                 );
             }
 
-            return alternatives;
+            assign_split_independences(adjusted, params.independence);
+            return adjusted;
         }
 
         using IntervalLookup = std::map<IntervalId, const TimeInterval*>;
@@ -505,6 +583,7 @@ namespace timetable::domain::assignment {
         }
 
         using ChoiceTaskLookup = std::map<detail::grouping::DemandKey, const ChoiceTaskResult*>;
+        using VehicleJourneyItemLoadScalarMap = std::map<VehicleJourneyItemLoadKey, double>;
 
         mathfp::Expected<ChoiceTaskLookup> build_choice_task_lookup(
             const ConnectionChoiceResult& choice_result
@@ -528,13 +607,145 @@ namespace timetable::domain::assignment {
             return lookup;
         }
 
-    }  // namespace
+        VehicleJourneyItemLoadScalarMap load_scalar_map(
+            const VehicleJourneyItemLoadState& state
+        ) {
+            VehicleJourneyItemLoadScalarMap loads;
+            for (const auto& item : state.items) {
+                loads.emplace(item.key, item.passengers);
+            }
+            return loads;
+        }
 
-    mathfp::Expected<DemandSplitResult> split_demand_over_connections(
-          const ConnectionChoiceResult& choice_result
-        , const InputModel&             input
-        , const SearchParams&           params
-        , const DemandSegmentTimeConfig& demand_segment_time
+        VehicleJourneyItemLoadScalarMap load_scalar_map(
+            const VehicleJourneyItemLoads& loads
+        ) {
+            VehicleJourneyItemLoadScalarMap out;
+            for (const auto& item : loads.items) {
+                out.emplace(item.key, item.passengers);
+            }
+            return out;
+        }
+
+        double load_value(
+              const VehicleJourneyItemLoadScalarMap& loads
+            , const VehicleJourneyItemLoadKey&       key
+        ) noexcept {
+            const auto it = loads.find(key);
+            return it == loads.end() ? 0.0 : it->second;
+        }
+
+        std::vector<VehicleJourneyItemLoadKey> load_key_union(
+              const VehicleJourneyItemLoadScalarMap& lhs
+            , const VehicleJourneyItemLoadScalarMap& rhs
+        ) {
+            std::vector<VehicleJourneyItemLoadKey> keys;
+            keys.reserve(lhs.size() + rhs.size());
+            for (const auto& [key, _] : lhs) {
+                keys.push_back(key);
+            }
+            for (const auto& [key, _] : rhs) {
+                if (lhs.find(key) == lhs.end()) {
+                    keys.push_back(key);
+                }
+            }
+            std::sort(keys.begin(), keys.end());
+            return keys;
+        }
+
+        struct LoadStateDelta final {
+            double max_absolute{};
+            double max_relative{};
+        };
+
+        LoadStateDelta load_state_delta(
+              const VehicleJourneyItemLoadState& previous
+            , const VehicleJourneyItemLoadState& next
+        ) {
+            const auto previous_map = load_scalar_map(previous);
+            const auto next_map     = load_scalar_map(next);
+            const auto keys         = load_key_union(previous_map, next_map);
+
+            LoadStateDelta delta{};
+            for (const auto& key : keys) {
+                const auto previous_value = load_value(previous_map, key);
+                const auto next_value     = load_value(next_map, key);
+                const auto absolute_delta = std::abs(next_value - previous_value);
+                const auto scale = std::max(
+                      { 1.0, std::abs(previous_value), std::abs(next_value) }
+                );
+
+                delta.max_absolute = std::max(delta.max_absolute, absolute_delta);
+                delta.max_relative = std::max(delta.max_relative, absolute_delta / scale);
+            }
+
+            return delta;
+        }
+
+        mathfp::Expected<VehicleJourneyItemLoadState> msa_update_load_state(
+              const VehicleJourneyItemLoadState& previous
+            , const VehicleJourneyItemLoads&     candidate
+            , double                             alpha
+        ) {
+            if (!(alpha > 0.0 && alpha <= 1.0) || !std::isfinite(alpha)) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("capacity-aware MSA alpha must be finite and in (0, 1]")
+                        .ctx("alpha", alpha)
+                );
+            }
+
+            const auto previous_map  = load_scalar_map(previous);
+            const auto candidate_map = load_scalar_map(candidate);
+            const auto keys          = load_key_union(previous_map, candidate_map);
+
+            std::vector<VehicleJourneyItemLoad> updated;
+            updated.reserve(keys.size());
+
+            for (const auto& key : keys) {
+                const auto previous_value  = load_value(previous_map, key);
+                const auto candidate_value = load_value(candidate_map, key);
+                const auto next_value =
+                    (1.0 - alpha) * previous_value + alpha * candidate_value;
+
+                if (!std::isfinite(next_value) || next_value < 0.0) {
+                    return mathfp::unexpected(
+                        mathfp::domain_error("capacity-aware MSA produced invalid vehicle journey item load")
+                            .ctx("interval_id", key.interval.get())
+                            .ctx("trip_id", key.item.trip.get())
+                            .ctx("from_index", key.item.from_index.get())
+                            .ctx("load", next_value)
+                    );
+                }
+
+                if (next_value > 0.0) {
+                    updated.push_back(
+                        VehicleJourneyItemLoad{
+                              .key        = key
+                            , .passengers = next_value
+                        }
+                    );
+                }
+            }
+
+            return make_vehicle_journey_item_load_state(std::move(updated));
+        }
+
+        bool capacity_split_converged(
+              const CapacityIterationConfig& iteration
+            , LoadStateDelta                 delta
+        ) noexcept {
+            return delta.max_absolute <= iteration.absolute_load_tolerance
+                || delta.max_relative <= iteration.relative_load_tolerance;
+        }
+
+        mathfp::Expected<DemandSplitResult> split_demand_over_connections_impl(
+              const ConnectionChoiceResult& choice_result
+            , const InputModel&             input
+            , const SearchParams&           params
+            , const DemandSegmentTimeConfig& demand_segment_time
+            , const SplitCapacityContext*   capacity_context
+            , std::string_view              progress_label
+            , std::string_view              result_label
     ) {
         using timetable::infra::LogLevel;
         using timetable::infra::progress::both;
@@ -543,15 +754,16 @@ namespace timetable::domain::assignment {
         MATHFP_TRY(validate_supported_split_choice_model(params.split.choice_model.model));
         MATHFP_TRY(validate_demand_segment_time_config(demand_segment_time));
 
-        both("split: demand assignment");
+        both(progress_label);
         log(
             fmt::format(
-                  "split input: chosen_connections = {:>8}  choice_tasks = {:>8}  demand_entries = {:>8}  choice_model = {}  demand_basis = {}"
+                  "split input: chosen_connections = {:>8}  choice_tasks = {:>8}  demand_entries = {:>8}  choice_model = {}  demand_basis = {}  capacity_aware = {}"
                 , choice_result.connections.size()
                 , choice_result.task_results.size()
                 , input.demand.size()
                 , to_string(params.split.choice_model.model)
                 , to_string(demand_segment_time.basis)
+                , capacity_split_context_enabled(capacity_context, params.split) ? "true" : "false"
             )
             , LogLevel::Info
         );
@@ -609,9 +821,19 @@ namespace timetable::domain::assignment {
             for (const auto& connection : task_result.connections) {
                 task_connections.push_back(&connection);
             }
-            const auto alternatives = derive_split_alternatives(
+            const auto base_alternatives = derive_split_alternatives(
                   task_connections
                 , params.split
+            );
+            MATHFP_TRY_LET(
+                  std::vector<SplitAlternative>
+                , alternatives
+                , apply_capacity_to_split_alternatives(
+                      base_alternatives
+                    , demand.interval
+                    , params.split
+                    , capacity_context
+                )
             );
             std::vector<double> independences;
             std::vector<double> split_impedances;
@@ -734,8 +956,203 @@ namespace timetable::domain::assignment {
             )
             , LogLevel::Info
         );
-        both("split: demand assignment done");
+        both(result_label);
         return result;
+    }
+
+    }  // namespace
+
+    mathfp::Expected<DemandSplitResult> split_demand_over_connections(
+          const ConnectionChoiceResult& choice_result
+        , const InputModel&             input
+        , const SearchParams&           params
+        , const DemandSegmentTimeConfig& demand_segment_time
+    ) {
+        return split_demand_over_connections_impl(
+              choice_result
+            , input
+            , params
+            , demand_segment_time
+            , nullptr
+            , "split: demand assignment"
+            , "split: demand assignment done"
+        );
+    }
+
+    mathfp::Expected<DemandSplitResult> split_demand_over_connections_capacity_aware(
+          const ConnectionChoiceResult& choice_result
+        , const InputModel&             input
+        , const SearchParams&           params
+        , const DemandSegmentTimeConfig& demand_segment_time
+        , const CapacityAwareAssignmentConfig& capacity_config
+        , const VehicleJourneyItemLoadState& load_state
+        , const VehicleJourneyItemCapacitySet& capacity_set
+    ) {
+        MATHFP_TRY(validate_capacity_aware_assignment_config(capacity_config));
+        MATHFP_TRY(validate_vehicle_journey_item_load_state(load_state));
+        MATHFP_TRY(validate_vehicle_journey_item_capacity_set(capacity_set));
+
+        const auto capacity_context = SplitCapacityContext{
+              .config       = &capacity_config
+            , .load_state   = &load_state
+            , .capacity_set = &capacity_set
+        };
+
+        return split_demand_over_connections_impl(
+              choice_result
+            , input
+            , params
+            , demand_segment_time
+            , &capacity_context
+            , "split: capacity-aware demand assignment"
+            , "split: capacity-aware demand assignment done"
+        );
+    }
+
+    mathfp::Expected<CapacityAwareDemandSplitResult> iterate_capacity_aware_split(
+          const ConnectionChoiceResult& choice_result
+        , const InputModel&             input
+        , const SearchParams&           params
+        , const DemandSegmentTimeConfig& demand_segment_time
+        , const CapacityAwareAssignmentConfig& capacity_config
+        , const VehicleJourneyItemCapacitySet& capacity_set
+    ) {
+        using timetable::infra::LogLevel;
+        using timetable::infra::progress::both;
+        using timetable::infra::progress::log;
+
+        MATHFP_TRY(validate_capacity_aware_assignment_config(capacity_config));
+        MATHFP_TRY(validate_vehicle_journey_item_capacity_set(capacity_set));
+
+        const auto capacity_factor = mathfp::units::as_dimless(
+            params.split.perceived_journey_time.volume_capacity_ratio
+        );
+        const auto enabled = capacity_config.capacity_aware_split_enabled
+            && capacity_factor > 0.0;
+
+        if (!enabled) {
+            MATHFP_TRY_LET(
+                  DemandSplitResult
+                , split_result
+                , split_demand_over_connections(
+                      choice_result
+                    , input
+                    , params
+                    , demand_segment_time
+                )
+            );
+            MATHFP_TRY_LET(
+                  VehicleJourneyItemLoads
+                , split_loads
+                , build_vehicle_journey_item_loads(split_result)
+            );
+            MATHFP_TRY_LET(
+                  VehicleJourneyItemLoadState
+                , load_state
+                , make_vehicle_journey_item_load_state(split_loads)
+            );
+
+            return CapacityAwareDemandSplitResult{
+                  .split_result = std::move(split_result)
+                , .split_loads  = std::move(split_loads)
+                , .load_state   = std::move(load_state)
+                , .diagnostics  = make_capacity_aware_split_disabled_diagnostics()
+            };
+        }
+
+        both("split: capacity-aware fixed-point iteration");
+        log(
+            fmt::format(
+                  "capacity-aware split input: max_iterations = {}  abs_tol = {}  rel_tol = {}  penalty_policy = {}"
+                , capacity_config.iteration.max_iterations
+                , capacity_config.iteration.absolute_load_tolerance
+                , capacity_config.iteration.relative_load_tolerance
+                , to_string(capacity_config.penalty_policy)
+            )
+            , LogLevel::Info
+        );
+
+        VehicleJourneyItemLoadState current_state{};
+        DemandSplitResult           last_split_result{};
+        VehicleJourneyItemLoads     last_split_loads{};
+        CapacityAwareSplitDiagnostics diagnostics{
+              .enabled                 = true
+            , .iterations              = 0
+            , .converged               = false
+            , .max_load_delta          = 0.0
+            , .max_relative_load_delta = 0.0
+        };
+
+        for (std::int32_t iteration = 1;
+             iteration <= capacity_config.iteration.max_iterations;
+             ++iteration) {
+            MATHFP_TRY_LET(
+                  DemandSplitResult
+                , candidate_split
+                , split_demand_over_connections_capacity_aware(
+                      choice_result
+                    , input
+                    , params
+                    , demand_segment_time
+                    , capacity_config
+                    , current_state
+                    , capacity_set
+                )
+            );
+            MATHFP_TRY_LET(
+                  VehicleJourneyItemLoads
+                , candidate_loads
+                , build_vehicle_journey_item_loads(candidate_split)
+            );
+
+            const auto alpha = 1.0 / static_cast<double>(iteration);
+            MATHFP_TRY_LET(
+                  VehicleJourneyItemLoadState
+                , next_state
+                , msa_update_load_state(
+                      current_state
+                    , candidate_loads
+                    , alpha
+                )
+            );
+
+            const auto delta = load_state_delta(current_state, next_state);
+            diagnostics.iterations              = iteration;
+            diagnostics.max_load_delta          = delta.max_absolute;
+            diagnostics.max_relative_load_delta = delta.max_relative;
+
+            last_split_result = std::move(candidate_split);
+            last_split_loads  = std::move(candidate_loads);
+            current_state     = std::move(next_state);
+
+            if (capacity_split_converged(capacity_config.iteration, delta)) {
+                diagnostics.converged = true;
+                break;
+            }
+        }
+
+        MATHFP_TRY(validate_capacity_aware_split_diagnostics(diagnostics));
+        MATHFP_TRY(validate_vehicle_journey_item_load_state(current_state));
+        MATHFP_TRY(validate_vehicle_journey_item_loads(last_split_loads));
+
+        log(
+            fmt::format(
+                  "capacity-aware split result: iterations = {}  converged = {}  max_load_delta = {}  max_relative_load_delta = {}"
+                , diagnostics.iterations
+                , diagnostics.converged ? "true" : "false"
+                , diagnostics.max_load_delta
+                , diagnostics.max_relative_load_delta
+            )
+            , LogLevel::Info
+        );
+        both("split: capacity-aware fixed-point iteration done");
+
+        return CapacityAwareDemandSplitResult{
+              .split_result = std::move(last_split_result)
+            , .split_loads  = std::move(last_split_loads)
+            , .load_state   = std::move(current_state)
+            , .diagnostics  = diagnostics
+        };
     }
 
 }  // namespace timetable::domain::assignment

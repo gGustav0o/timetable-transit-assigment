@@ -12,6 +12,7 @@
 #include "timetable/domain/segments.hpp"
 #include "timetable/domain/assignment/assignment_period.hpp"
 #include "timetable/domain/assignment/capacity.hpp"
+#include "timetable/domain/assignment/capacity_aware_assignment.hpp"
 #include "timetable/domain/assignment/choice/choice.hpp"
 #include "timetable/domain/assignment/choice/choice_config.hpp"
 #include "timetable/domain/assignment/complete_connection_retention.hpp"
@@ -42,6 +43,7 @@ namespace timetable::domain {
         assignment::ConnectionDeletionConfig connection_deletion{};
         assignment::DemandSegmentTimeConfig  demand_segment_time{};
         assignment::AssignmentExecutionConfig execution{};
+        assignment::CapacityAwareAssignmentConfig capacity_aware_assignment{};
         assignment::VehicleJourneyItemCapacityInput vehicle_journey_item_capacity{};
         std::optional<PresegmentedInput>     presegmented{};
     };
@@ -231,6 +233,7 @@ namespace timetable::domain {
         AssignmentLoads                  loads{};
         assignment::VehicleJourneyItemOverloadAssessment vehicle_journey_item_loads{};
         assignment::AssignmentSkimMatrix skim_matrix{};
+        assignment::CapacityAwareAssignmentDiagnostics capacity_aware{};
     };
 
 }  // namespace timetable::domain

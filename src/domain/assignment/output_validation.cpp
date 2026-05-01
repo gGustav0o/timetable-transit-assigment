@@ -419,6 +419,13 @@ namespace timetable::domain::assignment::detail {
                 mathfp::internal_error("disabled assignment output cannot contain calculated skim matrix")
             );
         }
+        MATHFP_TRY(validate_capacity_aware_assignment_diagnostics(output.capacity_aware));
+        if (output.mode == AssignmentOutputMode::AssignmentDisabled
+            && output.capacity_aware.capacity_aware_enabled) {
+            return mathfp::unexpected(
+                mathfp::internal_error("disabled assignment output cannot contain enabled capacity-aware diagnostics")
+            );
+        }
         if (output.mode == AssignmentOutputMode::Calculated
             && output.skim_matrix.status == AssignmentSkimMatrixStatus::SkippedAssignmentDisabled) {
             return mathfp::unexpected(

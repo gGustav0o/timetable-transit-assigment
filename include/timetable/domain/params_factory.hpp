@@ -24,6 +24,7 @@ namespace timetable::domain {
             MATHFP_TRY(validation::ensure_nonneg(impedance.transfer_wait_time , "search_impedance.transfer_wait_time"));
             MATHFP_TRY(validation::ensure_nonneg(impedance.transfer_count     , "search_impedance.transfer_count"));
             MATHFP_TRY(validation::ensure_nonneg(impedance.fare               , "search_impedance.fare"));
+            MATHFP_TRY(validation::ensure_nonneg(impedance.volume_capacity_ratio, "search_impedance.volume_capacity_ratio"));
             return mathfp::kUnit;
         }
 
@@ -121,6 +122,9 @@ namespace timetable::domain {
             ));
             MATHFP_TRY(validation::ensure_nonneg(
                 weights.transfer_count, "perceived_journey_time.transfer_count"
+            ));
+            MATHFP_TRY(validation::ensure_nonneg(
+                weights.volume_capacity_ratio, "perceived_journey_time.volume_capacity_ratio"
             ));
             return mathfp::kUnit;
         }
@@ -265,6 +269,7 @@ namespace timetable::domain {
         , Dimless           transfer_count
         , Dimless           fare
         , FareNormalization fare_normalization = {}
+        , Dimless           volume_capacity_ratio = Dimless{ 0.0 }
     ) {
         SearchImpedance impedance{
               .in_vehicle_time    = in_vehicle_time
@@ -274,6 +279,7 @@ namespace timetable::domain {
             , .transfer_wait_time = transfer_wait_time
             , .transfer_count     = transfer_count
             , .fare               = fare
+            , .volume_capacity_ratio = volume_capacity_ratio
             , .fare_normalization = fare_normalization
         };
         MATHFP_TRY(detail::ensure_nonnegative_search_impedance_inputs(impedance));

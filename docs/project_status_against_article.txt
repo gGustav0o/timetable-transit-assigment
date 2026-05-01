@@ -237,7 +237,9 @@
 10) расчет занял 121.270 секунды;
 11) на момент этого прогона были сформированы выходные таблицы: od_summary.csv, connections.csv, shares.csv, segments.csv, loads.csv и assignment_output.json.
 
-В текущей версии к этому набору добавлены metadata.csv, skim_matrix.csv и секция skim_matrix в assignment_output.json. Файл metadata.csv содержит mode, skim_status и основные счетчики результата. Skim-матрица рассчитывается только при basePara.calcAssign = True, поскольку является проекцией над результатами choice/split; при отключенном assignment и включенном basePara.calcSkimMatr экспортируется статус skipped_assignment_disabled.
+В текущей версии к этому набору добавлены metadata.csv, skim_matrix.csv, vehicle_journey_item_loads.csv, секция skim_matrix, секция vehicle_journey_item_loads и объект metadata.capacity_aware в assignment_output.json. Файл metadata.csv сохраняет прежний контракт и содержит mode, skim_status и основные счетчики результата; capacity-aware диагностика намеренно экспортируется только в JSON metadata, чтобы не менять схему CSV.
+
+Skim-матрица рассчитывается только при basePara.calcAssign = True, поскольку является проекцией над результатами choice/split; при отключенном assignment и включенном basePara.calcSkimMatr экспортируется статус skipped_assignment_disabled. Оценка загрузки и перегрузки vehicle journey item выполняется постфактум по DemandSplitResult и optional-файлу veh_journey_item_cap.csv. Поведенческий capacity-aware split подключается отдельно через PerceivedJourneyTime.volCapRatioFactor и решается fixed-point/MSA итерациями на фиксированном множестве выбранных альтернатив. В assignment_output.json поле metadata.capacity_aware содержит capacity_aware_enabled, iterations, converged, max_load_delta, used_factor и penalty_policy.
 
 Единственное предупреждение в этом прогоне связано с тарифом: вес стоимости проезда положителен, но во входных сегментах нет положительных значений FARE, поэтому тарифный компонент в этом сценарии фактически равен нулю.
 
@@ -256,4 +258,4 @@ params.txt подключен для SearchParams, AssignmentExecutionConfig, Co
 Но этот путь не оформлен как поддерживаемый режим запуска.
 
 8.4. Ограничение вместимости
-Проект рассчитывает загрузки после распределения спроса, но не изменяет выбор пассажиров из-за перегрузки.
+В текущей версии реализованы две разные части работы с вместимостью. Post-assignment overload assessment рассчитывает загрузку и статус перегрузки каждого vehicle journey item после распределения спроса. Capacity-aware split изменяет воспринимаемое время поездки через PerceivedJourneyTime.volCapRatioFactor на основе отношения load / capacity и решается итерационно. При этом capacity-aware search пока не реализован: SearchImp.volCapRatioFactor читается и хранится, но не применяется внутри branch-and-bound search, чтобы не нарушить корректность dominance без внешне фиксированной функции загрузки.

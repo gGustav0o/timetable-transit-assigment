@@ -100,6 +100,57 @@ namespace timetable::domain::assignment {
             return mathfp::kUnit;
         }
 
+        mathfp::Expected<mathfp::Unit> validate_capacity_aware_assignment_input(
+            const AssignmentInput& input
+        ) {
+            MATHFP_TRY(validate_capacity_aware_assignment_config(
+                input.capacity_aware_assignment
+            ));
+            MATHFP_TRY(validate_vehicle_journey_item_capacity_input(
+                input.vehicle_journey_item_capacity
+            ));
+
+            const auto split_factor = mathfp::units::as_dimless(
+                input.params.split.perceived_journey_time.volume_capacity_ratio
+            );
+
+            if (split_factor > 0.0
+                && !input.capacity_aware_assignment.capacity_aware_split_enabled) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("positive PerceivedJourneyTime.volCapRatioFactor requires enabled capacity-aware split")
+                        .ctx("vol_cap_ratio_factor", split_factor)
+                );
+            }
+
+            if (input.capacity_aware_assignment.capacity_aware_split_enabled
+                && !(split_factor > 0.0)) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("enabled capacity-aware split requires positive PerceivedJourneyTime.volCapRatioFactor")
+                        .ctx("vol_cap_ratio_factor", split_factor)
+                );
+            }
+
+            if (split_factor > 0.0
+                && input.vehicle_journey_item_capacity.status
+                    != VehicleJourneyItemCapacityInputStatus::Loaded) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("capacity-aware split requires loaded vehicle journey item capacity input")
+                        .ctx(
+                              "capacity_input_status"
+                            , std::string(to_string(input.vehicle_journey_item_capacity.status))
+                          )
+                );
+            }
+
+            if (mathfp::units::as_dimless(input.params.impedance.volume_capacity_ratio) > 0.0) {
+                detail::validation::warn(
+                    "preprocessing input: SearchImp.volCapRatioFactor is parsed but not applied until capacity-aware search is implemented"
+                );
+            }
+
+            return mathfp::kUnit;
+        }
+
     }  // namespace
 
     mathfp::Expected<mathfp::Unit> validate_preprocessing_step_input(
@@ -138,9 +189,7 @@ namespace timetable::domain::assignment {
 
         MATHFP_TRY(validate_skim_matrix_config(input.skim_matrix));
         MATHFP_TRY(validate_assignment_execution_config(input.execution));
-        MATHFP_TRY(validate_vehicle_journey_item_capacity_input(
-            input.vehicle_journey_item_capacity
-        ));
+        MATHFP_TRY(validate_capacity_aware_assignment_input(input));
         MATHFP_TRY(validate_complete_connection_dominance_config(
             input.complete_connection_dominance
         ));

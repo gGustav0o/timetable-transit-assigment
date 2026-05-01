@@ -20,6 +20,8 @@
   - splitPara.BoxCoxTransformImp — подключен как флаг преобразования split impedance перед вычислением веса выбора.
   - splitPara.BoxCoxPara — подключен как параметр t преобразования Box-Cox для splitPara.BoxCoxTransformImp.
   - Independence.useIndependence — подключен как флаг включения коэффициента независимости похожих альтернатив в split-модели.
+  - SearchImp.volCapRatioFactor — читается и хранится в SearchImpedance.volume_capacity_ratio как параметр будущего capacity-aware search; в текущем search-алгоритме не применяется, чтобы не нарушать корректность dominance.
+  - PerceivedJourneyTime.volCapRatioFactor — читается и хранится в PerceivedJourneyTimeWeights.volume_capacity_ratio; положительное значение включает capacity-aware split и применяется в итерационном fixed-point/MSA слое при наличии veh_journey_item_cap.csv.
   - searchPara.allowDominanceForEquivalentConnections — подключен как флаг partial-search retention между эквивалентными состояниями поиска.
   - searchPara.deactivateDominanceOfDirectConnections — подключен как флаг complete-connection dominance: прямое полное соединение не может доминировать другие complete connections и suffix lower-bound candidates.
   - veh_journey_item_cap.csv — подключен как необязательный вход провозной способности vehicle journey items для post-assignment overload assessment.
@@ -162,16 +164,21 @@
 
 Связь с volCapRatioFactor:
 
-  - SearchImp.volCapRatioFactor и PerceivedJourneyTime.volCapRatioFactor пока не подключены к behavioral impedance;
-  - текущая capacity-реализация выполняет только post-assignment overload assessment, то есть оценивает перегрузку после расчета choice/split и не влияет на поиск, выбор или распределение спроса;
-  - корректное подключение SearchImp.volCapRatioFactor и PerceivedJourneyTime.volCapRatioFactor требует capacity-aware итерационного слоя, потому что загрузка зависит от выбора пассажиров, а выбор пассажиров зависит от загрузки;
-  - безопасная будущая схема: сначала считать нагрузки предыдущей итерации как внешнюю функцию capacity cost, затем использовать ее в search/split impedance и обновлять нагрузки через итерационный fixed-point/MSA-процесс;
-  - до появления такого слоя параметры volCapRatioFactor остаются в разделе требующих переработки кода.
+  - SearchImp.volCapRatioFactor и PerceivedJourneyTime.volCapRatioFactor теперь читаются из params.txt и хранятся в доменной модели параметров;
+  - SearchImp.volCapRatioFactor хранится как SearchImpedance.volume_capacity_ratio, но не применяется внутри branch-and-bound search до реализации capacity-aware search с фиксированными загрузками предыдущей итерации;
+  - PerceivedJourneyTime.volCapRatioFactor хранится как PerceivedJourneyTimeWeights.volume_capacity_ratio и применяется в capacity-aware split:
+      capacity_exposure(c, L) = sum_e ride_time_e * phi(load_e / capacity_e),
+      PJT'(c, L) = PJT(c) + volCapRatioFactor * capacity_exposure(c, L);
+  - capacity-aware split решается итерационно на фиксированном множестве выбранных альтернатив: split -> vehicle journey item loads -> MSA update -> повторный split;
+  - если PerceivedJourneyTime.volCapRatioFactor > 0, pipeline требует загруженный veh_journey_item_cap.csv; при отсутствии capacity input расчет завершается ошибкой вместо молчаливого игнорирования capacity-aware режима;
+  - validation capacity-aware split проверяет, что для каждого ride item, занимаемого выбранными альтернативами, существует запись capacity и TOTALCAP > 0; zero capacity остается допустимым статусом только для post-assignment overload assessment, но не для behavioral capacity-aware split;
+  - результат capacity-aware split валидируется как обычный split, а также проверяется корректность half-open проекции split -> vehicle journey item loads, конечность load state и согласованность diagnostics с max_iterations и заданными tolerance;
+  - JSON output содержит metadata.capacity_aware: capacity_aware_enabled, iterations, converged, max_load_delta, used_factor, penalty_policy; CSV-экспорты не меняются;
+  - SearchImp.volCapRatioFactor пока остается только parser/runtime параметром: безопасное поведенческое применение в search требует отдельного capacity-aware search слоя с фиксированными загрузками предыдущей итерации.
 
 Требуют переработки кода
 
-  - SearchImp.volCapRatioFactor — требуется capacity-aware итерационный слой для корректного учета загрузки/провозной способности в search impedance; текущая реализация считает только post-assignment overload assessment.
-  - PerceivedJourneyTime.volCapRatioFactor — требуется capacity-aware итерационный слой для корректного учета загрузки/провозной способности в perceived journey time; текущая реализация считает только post-assignment overload assessment.
+  - SearchImp.volCapRatioFactor — параметр читается, но для корректного поведенческого применения требуется capacity-aware search-итерационный слой; текущая реализация не добавляет его в search impedance.
   - splitPara.LohseExp — параметр читается, но формула Lohse пока не утверждена и runtime явно отклоняет choiceModel = Lohse.
 
   Неоднозначны или требуют уточнения смысла

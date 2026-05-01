@@ -15,6 +15,7 @@
 #include <mathfp/core/traverse.hpp>
 #include <mathfp/core/try.hpp>
 
+#include "timetable/domain/assignment/capacity_aware_assignment.hpp"
 #include "timetable/domain/assignment/validation.hpp"
 #include "timetable/domain/params_factory.hpp"
 
@@ -83,6 +84,7 @@ namespace timetable::infra::params_txt::detail {
             double transfer_wait_time{};
             double transfer_count{};
             double fare{};
+            double volume_capacity_ratio{};
         };
 
         struct SplitImpedanceFields final {
@@ -99,6 +101,7 @@ namespace timetable::infra::params_txt::detail {
             double transfer_walk_time{};
             double transfer_wait_time{};
             double transfer_count{};
+            double volume_capacity_ratio{};
         };
 
         struct SplitIndependenceFields final {
@@ -192,14 +195,15 @@ namespace timetable::infra::params_txt::detail {
                     NumberFieldSpec{ "maxTWT", "root.searchPara.TemporalSuitability", "transfer_limits.max_transfer_wait" }
                 };
 
-                std::array<NumberFieldSpec, 7> search_impedance{
+                std::array<NumberFieldSpec, 8> search_impedance{
                     NumberFieldSpec{ "inVehTimeFactor"      , "root.searchPara.SearchImp", "search_impedance.in_vehicle_time" },
                     NumberFieldSpec{ "accessTimeFactor"     , "root.searchPara.SearchImp", "search_impedance.access_time" },
                     NumberFieldSpec{ "egressTimeFactor"     , "root.searchPara.SearchImp", "search_impedance.egress_time" },
                     NumberFieldSpec{ "walkTimeFactor"       , "root.searchPara.SearchImp", "search_impedance.transfer_walk_time" },
                     NumberFieldSpec{ "transferWaitTimeFactor", "root.searchPara.SearchImp", "search_impedance.transfer_wait_time" },
                     NumberFieldSpec{ "numTransfersFactor"   , "root.searchPara.SearchImp", "search_impedance.transfer_count" },
-                    NumberFieldSpec{ "supplementsFactor"    , "root.searchPara.SearchImp", "search_impedance.fare" }
+                    NumberFieldSpec{ "supplementsFactor"    , "root.searchPara.SearchImp", "search_impedance.fare" },
+                    NumberFieldSpec{ "volCapRatioFactor"    , "root.searchPara.SearchImp", "search_impedance.volume_capacity_ratio" }
                 };
 
                 std::array<StringFieldSpec, 1> split_choice_model{
@@ -213,7 +217,7 @@ namespace timetable::infra::params_txt::detail {
                     NumberFieldSpec{ "fareFactor"                 , "root.splitPara.SplitImp", "split_impedance.q_fare" }
                 };
 
-                std::array<NumberFieldSpec, 6> split_perceived_journey_time{
+                std::array<NumberFieldSpec, 7> split_perceived_journey_time{
                     NumberFieldSpec{
                           "inVehTimeFactor"
                         , "root.splitPara.SplitImp.PerceivedJourneyTime"
@@ -243,6 +247,11 @@ namespace timetable::infra::params_txt::detail {
                           "numTransfersFactor"
                         , "root.splitPara.SplitImp.PerceivedJourneyTime"
                         , "split_perceived_journey_time.transfer_count"
+                    },
+                    NumberFieldSpec{
+                          "volCapRatioFactor"
+                        , "root.splitPara.SplitImp.PerceivedJourneyTime"
+                        , "split_perceived_journey_time.volume_capacity_ratio"
                     }
                 };
 
@@ -383,9 +392,9 @@ namespace timetable::infra::params_txt::detail {
 
         mathfp::Expected<SearchImpedanceFields> read_search_impedance_fields(
               const Object&                                         obj
-            , const std::array<NumberFieldSpec, 7>& field_specs
+            , const std::array<NumberFieldSpec, 8>& field_specs
         ) {
-            MATHFP_TRY_LET(DoubleArray<7>, values, read_number_array(obj, field_specs));
+            MATHFP_TRY_LET(DoubleArray<8>, values, read_number_array(obj, field_specs));
             const auto [
                   in_vehicle_time
                 , access_time
@@ -394,6 +403,7 @@ namespace timetable::infra::params_txt::detail {
                 , transfer_wait_time
                 , transfer_count
                 , fare
+                , volume_capacity_ratio
             ] = values;
             return SearchImpedanceFields{
                   .in_vehicle_time    = in_vehicle_time
@@ -403,6 +413,7 @@ namespace timetable::infra::params_txt::detail {
                 , .transfer_wait_time = transfer_wait_time
                 , .transfer_count     = transfer_count
                 , .fare               = fare
+                , .volume_capacity_ratio = volume_capacity_ratio
             };
         }
 
@@ -422,9 +433,9 @@ namespace timetable::infra::params_txt::detail {
 
         mathfp::Expected<PerceivedJourneyTimeFields> read_perceived_journey_time_fields(
               const Object&                                         obj
-            , const std::array<NumberFieldSpec, 6>& field_specs
+            , const std::array<NumberFieldSpec, 7>& field_specs
         ) {
-            MATHFP_TRY_LET(DoubleArray<6>, values, read_number_array(obj, field_specs));
+            MATHFP_TRY_LET(DoubleArray<7>, values, read_number_array(obj, field_specs));
             const auto [
                   in_vehicle_time
                 , access_time
@@ -432,6 +443,7 @@ namespace timetable::infra::params_txt::detail {
                 , transfer_walk_time
                 , transfer_wait_time
                 , transfer_count
+                , volume_capacity_ratio
             ] = values;
             return PerceivedJourneyTimeFields{
                   .in_vehicle_time    = in_vehicle_time
@@ -440,6 +452,7 @@ namespace timetable::infra::params_txt::detail {
                 , .transfer_walk_time = transfer_walk_time
                 , .transfer_wait_time = transfer_wait_time
                 , .transfer_count     = transfer_count
+                , .volume_capacity_ratio = volume_capacity_ratio
             };
         }
 
@@ -546,6 +559,8 @@ namespace timetable::infra::params_txt::detail {
                 , Dimless{ fields.transfer_wait_time }
                 , Dimless{ fields.transfer_count }
                 , Dimless{ fields.fare }
+                , {}
+                , Dimless{ fields.volume_capacity_ratio }
             );
         }
 
@@ -691,6 +706,8 @@ namespace timetable::infra::params_txt::detail {
                     , .transfer_walk_time = Dimless{ split_pjt_fields.transfer_walk_time }
                     , .transfer_wait_time = Dimless{ split_pjt_fields.transfer_wait_time }
                     , .transfer_count     = Dimless{ split_pjt_fields.transfer_count }
+                    , .volume_capacity_ratio =
+                          Dimless{ split_pjt_fields.volume_capacity_ratio }
                 }
                 , TemporalUtilityWeights{
                       .early_departure = Dimless{ split_imp_fields.departure_early }
@@ -708,6 +725,25 @@ namespace timetable::infra::params_txt::detail {
                     , .lower_quality_scale       =
                           Dimless{ indep_fields.lower_quality_scale }
                 }
+            );
+        }
+
+        mathfp::Expected<timetable::domain::assignment::CapacityAwareAssignmentConfig>
+        make_capacity_aware_assignment_config_from_params(
+            const timetable::domain::SearchParams& search_params
+        ) {
+            using namespace timetable::domain;
+            using namespace timetable::domain::assignment;
+
+            const auto split_factor = mathfp::units::as_dimless(
+                search_params.split.perceived_journey_time.volume_capacity_ratio
+            );
+
+            return make_capacity_aware_assignment_config(
+                  split_factor > 0.0
+                , false
+                , CapacityPenaltyPolicy::VolumeCapacityRatio
+                , CapacityIterationConfig{}
             );
         }
 
@@ -1099,6 +1135,11 @@ namespace timetable::infra::params_txt::detail {
     ) {
         MATHFP_TRY_LET(timetable::domain::SearchParams, search_params, map_params(root));
         MATHFP_TRY_LET(
+              timetable::domain::assignment::CapacityAwareAssignmentConfig
+            , capacity_aware_assignment
+            , make_capacity_aware_assignment_config_from_params(search_params)
+        );
+        MATHFP_TRY_LET(
               timetable::domain::assignment::AssignmentExecutionConfig
             , execution
             , parse_assignment_execution_config(root)
@@ -1143,6 +1184,7 @@ namespace timetable::infra::params_txt::detail {
             , .assignment_period   = std::move(assignment_period)
             , .connection_deletion = std::move(connection_deletion)
             , .demand_segment_time = std::move(demand_segment_time)
+            , .capacity_aware_assignment = std::move(capacity_aware_assignment)
         };
     }
 
