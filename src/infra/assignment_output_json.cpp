@@ -716,6 +716,8 @@ namespace timetable::infra {
             writer.begin_object();
             writer.key("capacity_aware_enabled");
             writer.boolean(diagnostics.capacity_aware_enabled);
+            writer.key("capacity_aware_search_enabled");
+            writer.boolean(diagnostics.capacity_aware_search_enabled);
             writer.key("iterations");
             writer.integer(static_cast<std::int64_t>(diagnostics.iterations));
             writer.key("converged");
@@ -759,7 +761,7 @@ namespace timetable::infra {
         JsonWriter writer;
         writer.begin_object();
         writer.key("schema");
-        writer.string("timetable.assignment_output.v9");
+        writer.string("timetable.assignment_output.v10");
         writer.key("mode");
         writer.string(output_mode_token(output.mode));
         writer.key("units");

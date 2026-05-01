@@ -26,8 +26,8 @@ namespace timetable::domain {
      * choice/split rather than search impedance or split weights.
      * AssignmentExecutionConfig controls top-level execution stages and is not
      * part of the mathematical search/choice/split model.
-     * CapacityAwareAssignmentConfig controls the future endogenous load layer
-     * and is separate from post-assignment overload assessment.
+     * CapacityAwareAssignmentConfig controls the endogenous behavioral load
+     * layer and is separate from post-assignment overload assessment.
      */
     struct AssignmentRuntimeParams final {
         SearchParams                         search{};

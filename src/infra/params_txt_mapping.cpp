@@ -738,10 +738,15 @@ namespace timetable::infra::params_txt::detail {
             const auto split_factor = mathfp::units::as_dimless(
                 search_params.split.perceived_journey_time.volume_capacity_ratio
             );
+            const auto search_factor = mathfp::units::as_dimless(
+                search_params.impedance.volume_capacity_ratio
+            );
 
             return make_capacity_aware_assignment_config(
                   split_factor > 0.0
-                , false
+                , search_factor > 0.0
+                    ? CapacityAwareSearchMode::Enabled
+                    : CapacityAwareSearchMode::Disabled
                 , CapacityPenaltyPolicy::VolumeCapacityRatio
                 , CapacityIterationConfig{}
             );

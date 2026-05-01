@@ -55,13 +55,38 @@ namespace timetable::domain::assignment {
         double       relative_load_tolerance{ 1.0e-6 };
     };
 
+    enum class CapacityAwareSearchMode : std::uint8_t {
+          Disabled
+        , StoredOnly
+        , Enabled
+    };
+
+    inline constexpr std::array kCapacityAwareSearchModeTokens{
+          timetable::EnumStringEntry<CapacityAwareSearchMode>{
+              CapacityAwareSearchMode::Disabled, "disabled"
+          }
+        , timetable::EnumStringEntry<CapacityAwareSearchMode>{
+              CapacityAwareSearchMode::StoredOnly, "stored_only"
+          }
+        , timetable::EnumStringEntry<CapacityAwareSearchMode>{
+              CapacityAwareSearchMode::Enabled, "enabled"
+          }
+    };
+
+    [[nodiscard]] inline constexpr std::string_view to_string(
+        CapacityAwareSearchMode value
+    ) noexcept {
+        return timetable::enum_to_string(value, kCapacityAwareSearchModeTokens);
+    }
+
     /**
      * @brief Top-level domain switch for capacity-aware assignment.
      *
      * capacity_aware_split_enabled means that vehicle journey item loads affect
-     * split impedance through a fixed-point layer. capacity_aware_search_enabled
-     * is reserved for the later search layer, where capacity costs must be
-     * fixed exogenously for a search iteration to preserve dominance semantics.
+     * split impedance through a fixed-point layer. search_mode controls whether
+     * SearchImp.volCapRatioFactor is disabled, stored without behavioral use,
+     * or applied by the external assignment iteration layer with a fixed load
+     * state per search iteration.
      *
      * This config is intentionally separate from VehicleJourneyItemOverload:
      * overload assessment is a post-assignment report, while this model changes
@@ -69,7 +94,7 @@ namespace timetable::domain::assignment {
      */
     struct CapacityAwareAssignmentConfig final {
         bool                    capacity_aware_split_enabled{ false };
-        bool                    capacity_aware_search_enabled{ false };
+        CapacityAwareSearchMode search_mode{ CapacityAwareSearchMode::Disabled };
         CapacityPenaltyPolicy   penalty_policy{ CapacityPenaltyPolicy::VolumeCapacityRatio };
         CapacityIterationConfig iteration{};
     };
@@ -98,10 +123,11 @@ namespace timetable::domain::assignment {
     };
 
     /**
-     * @brief Diagnostics of the capacity-aware split fixed-point loop.
+     * @brief Diagnostics of a capacity-aware fixed-point loop.
      *
-     * Diagnostics describe the behavioral split layer only. Post-assignment
-     * overload assessment has its own status model.
+     * The same scalar diagnostics are used for split-only iteration over a
+     * fixed alternative set and for the outer search-choice-split assignment
+     * iteration. Post-assignment overload assessment has its own status model.
      */
     struct CapacityAwareSplitDiagnostics final {
         bool         enabled{ false };
@@ -111,15 +137,21 @@ namespace timetable::domain::assignment {
         double       max_relative_load_delta{ 0.0 };
     };
 
+    struct CapacityLoadStateDelta final {
+        double max_absolute{};
+        double max_relative{};
+    };
+
     /**
      * @brief Public diagnostics of the capacity-aware behavioral assignment layer.
      *
-     * This is the compact, output-facing projection of the fixed-point split
-     * diagnostics. used_factor is the factor that was behaviorally applied; it
-     * is zero when capacity-aware split is disabled.
+     * This is the compact, output-facing projection of the active fixed-point
+     * loop. iterations/converged describe the common assignment loop when
+     * capacity-aware search is enabled, otherwise the split-only loop.
      */
     struct CapacityAwareAssignmentDiagnostics final {
         bool                  capacity_aware_enabled{ false };
+        bool                  capacity_aware_search_enabled{ false };
         std::int32_t          iterations{ 0 };
         bool                  converged{ false };
         double                max_load_delta{ 0.0 };
@@ -129,6 +161,10 @@ namespace timetable::domain::assignment {
 
     [[nodiscard]] mathfp::Expected<mathfp::Unit> validate_capacity_penalty_policy(
         CapacityPenaltyPolicy policy
+    );
+
+    [[nodiscard]] mathfp::Expected<mathfp::Unit> validate_capacity_aware_search_mode(
+        CapacityAwareSearchMode mode
     );
 
     [[nodiscard]] mathfp::Expected<mathfp::Unit> validate_capacity_iteration_config(
@@ -207,7 +243,7 @@ namespace timetable::domain::assignment {
 
     [[nodiscard]] mathfp::Expected<CapacityAwareAssignmentConfig> make_capacity_aware_assignment_config(
           bool                    capacity_aware_split_enabled
-        , bool                    capacity_aware_search_enabled
+        , CapacityAwareSearchMode search_mode
         , CapacityPenaltyPolicy   penalty_policy
         , CapacityIterationConfig iteration
     );
@@ -224,8 +260,25 @@ namespace timetable::domain::assignment {
         Time equivalent_time
     );
 
+    [[nodiscard]] CapacityLoadStateDelta load_state_delta(
+          const VehicleJourneyItemLoadState& previous
+        , const VehicleJourneyItemLoadState& next
+    );
+
+    [[nodiscard]] mathfp::Expected<VehicleJourneyItemLoadState> msa_update_load_state(
+          const VehicleJourneyItemLoadState& previous
+        , const VehicleJourneyItemLoads&     candidate
+        , double                             alpha
+    );
+
+    [[nodiscard]] bool capacity_iteration_converged(
+          const CapacityIterationConfig& iteration
+        , CapacityLoadStateDelta         delta
+    ) noexcept;
+
     [[nodiscard]] mathfp::Expected<CapacityAwareAssignmentDiagnostics> make_capacity_aware_assignment_diagnostics(
           bool                            capacity_aware_enabled
+        , bool                            capacity_aware_search_enabled
         , const CapacityAwareSplitDiagnostics& split_diagnostics
         , Dimless                         used_factor
         , CapacityPenaltyPolicy           penalty_policy

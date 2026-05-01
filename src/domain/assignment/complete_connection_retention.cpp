@@ -1,42 +1,64 @@
 #include "timetable/domain/assignment/complete_connection_retention.hpp"
 
 #include <algorithm>
+#include <cstdint>
 #include <limits>
 #include <utility>
 
+#include <mathfp/core/error.hpp>
+#include <mathfp/core/try.hpp>
 #include <mathfp/types/units.hpp>
-
-#include "timetable/domain/impedance.hpp"
 
 namespace timetable::domain::assignment {
     namespace {
 
-        [[nodiscard]] double complete_connection_impedance(
-              const ConnectionMetrics& connection_metrics
-            , const SearchParams&      params
-            , double                   fare_scale
+        [[nodiscard]] ConnectionImpedanceComponents complete_connection_base_components(
+            const ConnectionMetrics& connection_metrics
         ) noexcept {
-            return connection_impedance_value(
-                  ConnectionImpedanceComponents{
-                      .in_vehicle_time    = connection_metrics.in_vehicle_time
-                    , .access_time        = connection_metrics.access_time
-                    , .egress_time        = connection_metrics.egress_time
-                    , .transfer_walk_time = connection_metrics.transfer_walk_time
-                    , .transfer_wait_time = connection_metrics.transfer_wait_time
-                    , .transfer_count     = connection_metrics.transfer_count
-                    , .fare               = connection_metrics.fare
-                  }
-                , params.impedance
-                , fare_scale
+            return ConnectionImpedanceComponents{
+                  .in_vehicle_time    = connection_metrics.in_vehicle_time
+                , .access_time        = connection_metrics.access_time
+                , .egress_time        = connection_metrics.egress_time
+                , .transfer_walk_time = connection_metrics.transfer_walk_time
+                , .transfer_wait_time = connection_metrics.transfer_wait_time
+                , .transfer_count     = connection_metrics.transfer_count
+                , .fare               = connection_metrics.fare
+            };
+        }
+
+        [[nodiscard]] mathfp::Expected<CapacityExposure> complete_connection_capacity_exposure(
+              const SearchConnection& connection
+            , const SearchCostContext& search_cost
+            , IntervalId               interval
+        ) {
+            switch (search_cost.mode) {
+                case SearchCostMode::BaseOnly:
+                    return make_capacity_exposure(Time{ 0.0 });
+
+                case SearchCostMode::CapacityAware:
+                    return search_capacity_exposure(
+                          connection
+                        , interval
+                        , search_cost.capacity
+                    );
+            }
+
+            return mathfp::unexpected(
+                mathfp::invalid_arg("unknown search cost mode")
+                    .ctx("mode", static_cast<std::int64_t>(search_cost.mode))
             );
         }
 
-        [[nodiscard]] CompleteConnectionAlternative make_complete_connection_alternative(
-              SearchConnection    connection
-            , const SearchParams& params
-            , double              fare_scale
+        [[nodiscard]] mathfp::Expected<CompleteConnectionAlternative> make_complete_connection_alternative(
+              SearchConnection          connection
+            , const SearchCostContext&  search_cost
+            , IntervalId                interval
         ) {
-            const auto metrics = complete_connection_metrics(connection, params, fare_scale);
+            MATHFP_TRY_LET(
+                  CompleteConnectionMetrics
+                , metrics
+                , complete_connection_metrics(connection, search_cost, interval)
+            );
             return CompleteConnectionAlternative{
                   .connection = std::move(connection)
                 , .metrics    = metrics
@@ -115,22 +137,41 @@ namespace timetable::domain::assignment {
 
     }  // namespace
 
-    CompleteConnectionMetrics complete_connection_metrics(
-          const SearchConnection& connection
-        , const SearchParams&     params
-        , double                  fare_scale
+    mathfp::Expected<CompleteConnectionMetrics> complete_connection_metrics(
+          const SearchConnection&  connection
+        , const SearchCostContext& search_cost
+        , IntervalId               interval
     ) {
+        MATHFP_TRY(validate_search_cost_context(search_cost));
         const auto connection_metrics = metrics_of(connection);
+        MATHFP_TRY_LET(
+              CapacityExposure
+            , exposure
+            , complete_connection_capacity_exposure(
+                  connection
+                , search_cost
+                , interval
+            )
+        );
+        MATHFP_TRY_LET(
+              SearchCostComponents
+            , components
+            , make_search_cost_components(
+                  complete_connection_base_components(connection_metrics)
+                , exposure
+            )
+        );
+        MATHFP_TRY_LET(
+              double
+            , impedance
+            , search_impedance(components, search_cost)
+        );
         return CompleteConnectionMetrics{
               .departure   = connection_metrics.departure_time
             , .arrival     = connection_metrics.arrival_time
             , .journey_time = connection_metrics.journey_time
             , .transfers    = connection_metrics.transfer_count
-            , .impedance    = complete_connection_impedance(
-                  connection_metrics
-                , params
-                , fare_scale
-              )
+            , .impedance    = impedance
         };
     }
 
@@ -208,17 +249,21 @@ namespace timetable::domain::assignment {
              + mathfp::units::as_dimless(tolerances.nt_add);
     }
 
-    CompleteConnectionRetentionDecision retain_exact_complete_connection(
+    mathfp::Expected<CompleteConnectionRetentionDecision> retain_exact_complete_connection(
           CompleteConnectionRetention& retention
         , SearchConnection             connection
-        , const SearchParams&          params
-        , double                       fare_scale
+        , const SearchCostContext&     search_cost
+        , IntervalId                   interval
         , const CompleteConnectionDominanceConfig& dominance_config
     ) {
-        auto candidate = make_complete_connection_alternative(
-              std::move(connection)
-            , params
-            , fare_scale
+        MATHFP_TRY_LET(
+              CompleteConnectionAlternative
+            , candidate
+            , make_complete_connection_alternative(
+                  std::move(connection)
+                , search_cost
+                , interval
+            )
         );
 
         for (const auto& known : retention.alternatives) {
@@ -263,17 +308,17 @@ namespace timetable::domain::assignment {
         };
     }
 
-    CompleteConnectionRetentionDecision retain_exact_complete_connection(
+    mathfp::Expected<CompleteConnectionRetentionDecision> retain_exact_complete_connection(
           CompleteConnectionRetention& retention
         , SearchConnection             connection
-        , const SearchParams&          params
-        , double                       fare_scale
+        , const SearchCostContext&     search_cost
+        , IntervalId                   interval
     ) {
         return retain_exact_complete_connection(
               retention
             , std::move(connection)
-            , params
-            , fare_scale
+            , search_cost
+            , interval
             , CompleteConnectionDominanceConfig{}
         );
     }
@@ -304,25 +349,26 @@ namespace timetable::domain::assignment {
         return materialize_sorted_connections(std::move(retained));
     }
 
-    std::vector<SearchConnection> refine_complete_connection_ptrs(
+    mathfp::Expected<std::vector<SearchConnection>> refine_complete_connection_ptrs(
           const std::vector<const SearchConnection*>& connections
-        , const SearchParams&                         params
-        , double                                      fare_scale
+        , const SearchCostContext&                    search_cost
+        , IntervalId                                  interval
+        , const ChoiceTolerances&                     tolerances
         , ChoiceRolloutStage                          rollout_stage
     ) {
         CompleteConnectionRetention retention;
         retention.alternatives.reserve(connections.size());
         for (const auto* connection : connections) {
-            (void)retain_exact_complete_connection(
+            MATHFP_TRY(retain_exact_complete_connection(
                   retention
                 , *connection
-                , params
-                , fare_scale
-            );
+                , search_cost
+                , interval
+            ));
         }
         return finalize_complete_connection_retention(
               retention
-            , params.choice_tolerances
+            , tolerances
             , rollout_stage
         );
     }

@@ -39,6 +39,7 @@ add_executable(timetable-transit-assigment
   src/domain/assignment/search_pruning.cpp
   src/domain/assignment/search_pruning_diagnostics.cpp
   src/domain/assignment/search_pruning_plan.cpp
+  src/domain/assignment/search_cost.cpp
   src/domain/assignment/search_time_domain.cpp
   src/domain/assignment/search_time_domain_diagnostics.cpp
   src/domain/assignment/search_time_domain_builder.cpp

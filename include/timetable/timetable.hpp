@@ -19,6 +19,7 @@
 #include "timetable/domain/assignment/search_pruning_config.hpp"
 #include "timetable/domain/assignment/search_pruning_diagnostics.hpp"
 #include "timetable/domain/assignment/search_pruning_plan.hpp"
+#include "timetable/domain/assignment/search_cost.hpp"
 #include "timetable/domain/assignment/search.hpp"
 #include "timetable/domain/assignment/search_time_domain.hpp"
 #include "timetable/domain/assignment/search_time_domain_config.hpp"

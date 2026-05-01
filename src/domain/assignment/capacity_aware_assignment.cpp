@@ -52,6 +52,7 @@ namespace timetable::domain::assignment {
 
         using LoadLookup = std::map<VehicleJourneyItemLoadKey, const VehicleJourneyItemLoad*>;
         using CapacityLookup = std::map<VehicleJourneyItemKey, const VehicleJourneyItemCapacity*>;
+        using VehicleJourneyItemLoadScalarMap = std::map<VehicleJourneyItemLoadKey, double>;
 
         [[nodiscard]] LoadLookup build_load_lookup(
             const VehicleJourneyItemLoadState& state
@@ -71,6 +72,52 @@ namespace timetable::domain::assignment {
                 lookup.emplace(capacity.key, &capacity);
             }
             return lookup;
+        }
+
+        [[nodiscard]] VehicleJourneyItemLoadScalarMap load_scalar_map(
+            const VehicleJourneyItemLoadState& state
+        ) {
+            VehicleJourneyItemLoadScalarMap out;
+            for (const auto& item : state.items) {
+                out.emplace(item.key, item.passengers);
+            }
+            return out;
+        }
+
+        [[nodiscard]] VehicleJourneyItemLoadScalarMap load_scalar_map(
+            const VehicleJourneyItemLoads& loads
+        ) {
+            VehicleJourneyItemLoadScalarMap out;
+            for (const auto& item : loads.items) {
+                out.emplace(item.key, item.passengers);
+            }
+            return out;
+        }
+
+        [[nodiscard]] double load_value(
+              const VehicleJourneyItemLoadScalarMap& loads
+            , const VehicleJourneyItemLoadKey&       key
+        ) noexcept {
+            const auto it = loads.find(key);
+            return it == loads.end() ? 0.0 : it->second;
+        }
+
+        [[nodiscard]] std::vector<VehicleJourneyItemLoadKey> load_key_union(
+              const VehicleJourneyItemLoadScalarMap& lhs
+            , const VehicleJourneyItemLoadScalarMap& rhs
+        ) {
+            std::vector<VehicleJourneyItemLoadKey> keys;
+            keys.reserve(lhs.size() + rhs.size());
+            for (const auto& [key, _] : lhs) {
+                keys.push_back(key);
+            }
+            for (const auto& [key, _] : rhs) {
+                if (lhs.find(key) == lhs.end()) {
+                    keys.push_back(key);
+                }
+            }
+            std::sort(keys.begin(), keys.end());
+            return keys;
         }
 
         [[nodiscard]] double load_for_item(
@@ -188,6 +235,22 @@ namespace timetable::domain::assignment {
         );
     }
 
+    mathfp::Expected<mathfp::Unit> validate_capacity_aware_search_mode(
+        CapacityAwareSearchMode mode
+    ) {
+        switch (mode) {
+            case CapacityAwareSearchMode::Disabled:
+            case CapacityAwareSearchMode::StoredOnly:
+            case CapacityAwareSearchMode::Enabled:
+                return mathfp::kUnit;
+        }
+
+        return mathfp::unexpected(
+            mathfp::invalid_arg("unknown capacity-aware search mode")
+                .ctx("mode", static_cast<std::int64_t>(mode))
+        );
+    }
+
     mathfp::Expected<mathfp::Unit> validate_capacity_iteration_config(
         const CapacityIterationConfig& config
     ) {
@@ -221,17 +284,9 @@ namespace timetable::domain::assignment {
     mathfp::Expected<mathfp::Unit> validate_capacity_aware_assignment_config(
         const CapacityAwareAssignmentConfig& config
     ) {
+        MATHFP_TRY(validate_capacity_aware_search_mode(config.search_mode));
         MATHFP_TRY(validate_capacity_penalty_policy(config.penalty_policy));
         MATHFP_TRY(validate_capacity_iteration_config(config.iteration));
-
-        if (config.capacity_aware_search_enabled) {
-            return mathfp::unexpected(
-                mathfp::invalid_arg("capacity-aware search is a separate future layer and is not implemented yet")
-                    .ctx("capacity_aware_split_enabled", config.capacity_aware_split_enabled ? "true" : "false")
-                    .ctx("capacity_aware_search_enabled", "true")
-            );
-        }
-
         return mathfp::kUnit;
     }
 
@@ -315,9 +370,17 @@ namespace timetable::domain::assignment {
         const auto used_factor = mathfp::units::as_dimless(diagnostics.used_factor);
         MATHFP_TRY(ensure_finite_nonnegative(used_factor, "used_factor"));
 
+        if (diagnostics.capacity_aware_search_enabled
+            && !diagnostics.capacity_aware_enabled) {
+            return mathfp::unexpected(
+                mathfp::invalid_arg("capacity-aware search diagnostics require enabled capacity-aware assignment diagnostics")
+            );
+        }
+
         if (!diagnostics.capacity_aware_enabled) {
             if (
-                   diagnostics.iterations == 0
+                   !diagnostics.capacity_aware_search_enabled
+                && diagnostics.iterations == 0
                 && !diagnostics.converged
                 && diagnostics.max_load_delta == 0.0
                 && used_factor == 0.0
@@ -328,6 +391,10 @@ namespace timetable::domain::assignment {
             return mathfp::unexpected(
                 mathfp::invalid_arg("disabled capacity-aware assignment diagnostics must be empty")
                     .ctx("iterations", diagnostics.iterations)
+                    .ctx(
+                          "capacity_aware_search_enabled"
+                        , diagnostics.capacity_aware_search_enabled ? "true" : "false"
+                    )
                     .ctx("converged", diagnostics.converged ? "true" : "false")
                     .ctx("max_load_delta", diagnostics.max_load_delta)
                     .ctx("used_factor", used_factor)
@@ -511,13 +578,13 @@ namespace timetable::domain::assignment {
 
     mathfp::Expected<CapacityAwareAssignmentConfig> make_capacity_aware_assignment_config(
           bool                    capacity_aware_split_enabled
-        , bool                    capacity_aware_search_enabled
+        , CapacityAwareSearchMode search_mode
         , CapacityPenaltyPolicy   penalty_policy
         , CapacityIterationConfig iteration
     ) {
         CapacityAwareAssignmentConfig config{
               .capacity_aware_split_enabled  = capacity_aware_split_enabled
-            , .capacity_aware_search_enabled = capacity_aware_search_enabled
+            , .search_mode                   = search_mode
             , .penalty_policy                = penalty_policy
             , .iteration                     = iteration
         };
@@ -554,8 +621,89 @@ namespace timetable::domain::assignment {
         return exposure;
     }
 
+    CapacityLoadStateDelta load_state_delta(
+          const VehicleJourneyItemLoadState& previous
+        , const VehicleJourneyItemLoadState& next
+    ) {
+        const auto previous_map = load_scalar_map(previous);
+        const auto next_map     = load_scalar_map(next);
+        const auto keys         = load_key_union(previous_map, next_map);
+
+        CapacityLoadStateDelta delta{};
+        for (const auto& key : keys) {
+            const auto previous_value = load_value(previous_map, key);
+            const auto next_value     = load_value(next_map, key);
+            const auto absolute_delta = std::abs(next_value - previous_value);
+            const auto scale = std::max(
+                  { 1.0, std::abs(previous_value), std::abs(next_value) }
+            );
+
+            delta.max_absolute = std::max(delta.max_absolute, absolute_delta);
+            delta.max_relative = std::max(delta.max_relative, absolute_delta / scale);
+        }
+
+        return delta;
+    }
+
+    mathfp::Expected<VehicleJourneyItemLoadState> msa_update_load_state(
+          const VehicleJourneyItemLoadState& previous
+        , const VehicleJourneyItemLoads&     candidate
+        , double                             alpha
+    ) {
+        if (!(alpha > 0.0 && alpha <= 1.0) || !std::isfinite(alpha)) {
+            return mathfp::unexpected(
+                mathfp::invalid_arg("capacity-aware MSA alpha must be finite and in (0, 1]")
+                    .ctx("alpha", alpha)
+            );
+        }
+
+        const auto previous_map  = load_scalar_map(previous);
+        const auto candidate_map = load_scalar_map(candidate);
+        const auto keys          = load_key_union(previous_map, candidate_map);
+
+        std::vector<VehicleJourneyItemLoad> updated;
+        updated.reserve(keys.size());
+
+        for (const auto& key : keys) {
+            const auto previous_value  = load_value(previous_map, key);
+            const auto candidate_value = load_value(candidate_map, key);
+            const auto next_value =
+                (1.0 - alpha) * previous_value + alpha * candidate_value;
+
+            if (!std::isfinite(next_value) || next_value < 0.0) {
+                return mathfp::unexpected(
+                    mathfp::domain_error("capacity-aware MSA produced invalid vehicle journey item load")
+                        .ctx("interval_id", key.interval.get())
+                        .ctx("trip_id", key.item.trip.get())
+                        .ctx("from_index", key.item.from_index.get())
+                        .ctx("load", next_value)
+                );
+            }
+
+            if (next_value > 0.0) {
+                updated.push_back(
+                    VehicleJourneyItemLoad{
+                          .key        = key
+                        , .passengers = next_value
+                    }
+                );
+            }
+        }
+
+        return make_vehicle_journey_item_load_state(std::move(updated));
+    }
+
+    bool capacity_iteration_converged(
+          const CapacityIterationConfig& iteration
+        , CapacityLoadStateDelta         delta
+    ) noexcept {
+        return delta.max_absolute <= iteration.absolute_load_tolerance
+            || delta.max_relative <= iteration.relative_load_tolerance;
+    }
+
     mathfp::Expected<CapacityAwareAssignmentDiagnostics> make_capacity_aware_assignment_diagnostics(
           bool                                  capacity_aware_enabled
+        , bool                                  capacity_aware_search_enabled
         , const CapacityAwareSplitDiagnostics& split_diagnostics
         , Dimless                               used_factor
         , CapacityPenaltyPolicy                 penalty_policy
@@ -572,6 +720,7 @@ namespace timetable::domain::assignment {
 
         CapacityAwareAssignmentDiagnostics diagnostics{
               .capacity_aware_enabled = capacity_aware_enabled
+            , .capacity_aware_search_enabled = capacity_aware_search_enabled
             , .iterations              = split_diagnostics.iterations
             , .converged               = split_diagnostics.converged
             , .max_load_delta          = split_diagnostics.max_load_delta
@@ -588,6 +737,7 @@ namespace timetable::domain::assignment {
     ) {
         return CapacityAwareAssignmentDiagnostics{
               .capacity_aware_enabled = false
+            , .capacity_aware_search_enabled = false
             , .iterations              = 0
             , .converged               = false
             , .max_load_delta          = 0.0
@@ -599,7 +749,7 @@ namespace timetable::domain::assignment {
     CapacityAwareAssignmentConfig make_capacity_aware_assignment_disabled_config() {
         return CapacityAwareAssignmentConfig{
               .capacity_aware_split_enabled  = false
-            , .capacity_aware_search_enabled = false
+            , .search_mode                   = CapacityAwareSearchMode::Disabled
             , .penalty_policy                = CapacityPenaltyPolicy::VolumeCapacityRatio
             , .iteration                     = CapacityIterationConfig{}
         };

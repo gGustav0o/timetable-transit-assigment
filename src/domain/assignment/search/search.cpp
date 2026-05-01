@@ -24,6 +24,7 @@
 
 #include "timetable/domain/endpoints.hpp"
 #include "timetable/domain/assignment/complete_connection_retention.hpp"
+#include "timetable/domain/assignment/search_cost.hpp"
 #include "timetable/domain/assignment/search_pruning.hpp"
 #include "timetable/domain/assignment/search_pruning_diagnostics.hpp"
 #include "timetable/domain/assignment/validation.hpp"
@@ -83,12 +84,12 @@ namespace timetable::domain::assignment {
         };
 
         /**
-         * @brief Parameter-independent metrics of a partial connection prefix.
+         * @brief Incremental metrics of a partial connection prefix.
          *
-         * Search may use parameterized evaluations of these metrics for pruning,
-         * but the branch state keeps the metrics themselves separate from those
-         * evaluations. The invariant is that these values are the incremental
-         * fold of SearchPartialTrace from the root to this branch.
+         * The time, transfer and fare fields are parameter-independent base
+         * metrics. capacity_exposure is a separate projection over a fixed
+         * exogenous load snapshot for capacity-aware search; it is not a
+         * post-assignment overload assessment.
          */
         struct SearchPartialMetrics final {
             std::optional<Time> departure{};
@@ -100,6 +101,7 @@ namespace timetable::domain::assignment {
             Time                egress_time{};
             TransferCount       transfers{};
             double              fare{};
+            CapacityExposure    capacity_exposure{};
         };
 
         struct SearchBranch final {
@@ -1439,12 +1441,24 @@ namespace timetable::domain::assignment {
             return contains(*first_departure_domain, *successor.departure);
         }
 
-        PartialPruningMetrics make_partial_pruning_metrics(
+        mathfp::Expected<PartialPruningMetrics> make_partial_pruning_metrics(
               const SearchBranch&    branch
-            , const SearchImpedance& impedance
-            , double                 fare_scale
+            , const SearchCostContext& search_cost
         ) {
             const auto journey_time = partial_journey_time(branch.metrics);
+            MATHFP_TRY_LET(
+                  SearchCostComponents
+                , cost_components
+                , make_search_cost_components(
+                      partial_impedance_components(branch.metrics)
+                    , branch.metrics.capacity_exposure
+                )
+            );
+            MATHFP_TRY_LET(
+                  double
+                , impedance
+                , search_impedance(cost_components, search_cost)
+            );
 
             return PartialPruningMetrics{
                   .departure    = *branch.metrics.departure
@@ -1453,11 +1467,7 @@ namespace timetable::domain::assignment {
                 , .walk_time    = partial_walk_time(branch.metrics)
                 , .transfers    = branch.metrics.transfers
                 , .fare         = branch.metrics.fare
-                , .impedance    = connection_impedance_value(
-                      partial_impedance_components(branch.metrics)
-                    , impedance
-                    , fare_scale
-                )
+                , .impedance    = impedance
             };
         }
 
@@ -1516,15 +1526,21 @@ namespace timetable::domain::assignment {
             };
         };
 
-        [[nodiscard]] double partial_impedance_value(
+        [[nodiscard]] mathfp::Expected<double> partial_impedance_value(
               const SearchBranch&    branch
-            , const SearchImpedance& impedance
-            , double                 fare_scale
-        ) noexcept {
-            return connection_impedance_value(
-                  partial_impedance_components(branch.metrics)
-                , impedance
-                , fare_scale
+            , const SearchCostContext& search_cost
+        ) {
+            MATHFP_TRY_LET(
+                  SearchCostComponents
+                , cost_components
+                , make_search_cost_components(
+                      partial_impedance_components(branch.metrics)
+                    , branch.metrics.capacity_exposure
+                )
+            );
+            return search_impedance(
+                  cost_components
+                , search_cost
             );
         }
 
@@ -1537,12 +1553,41 @@ namespace timetable::domain::assignment {
             return branch.metrics.access_time;
         }
 
-        [[nodiscard]] CompletionMetricLowerBound completion_metric_lower_bound(
+        [[nodiscard]] double suffix_capacity_impedance_lower_bound(
+            const SearchCostContext& search_cost
+        ) noexcept {
+            switch (search_cost.mode) {
+                case SearchCostMode::BaseOnly:
+                    return 0.0;
+
+                case SearchCostMode::CapacityAware:
+                    /*
+                     * Supported capacity penalties are non-negative for valid
+                     * load/capacity ratios, and the volume-capacity weight is
+                     * validated as non-negative. Therefore zero is an
+                     * admissible lower bound for the unknown suffix capacity
+                     * term. This may weaken suffix pruning, but cannot reject
+                     * a completion that could become feasible under the full
+                     * capacity-aware search impedance.
+                     */
+                    return 0.0;
+            }
+
+            return 0.0;
+        }
+
+        [[nodiscard]] mathfp::Expected<CompletionMetricLowerBound> completion_metric_lower_bound(
               const SearchBranch&                branch
             , const ResidualSuffixLowerBounds& suffix
-            , const SearchParams&                params
-            , double                             fare_scale
-        ) noexcept {
+            , const SearchCostContext&           search_cost
+        ) {
+            MATHFP_TRY_LET(
+                  double
+                , partial_impedance
+                , partial_impedance_value(branch, search_cost)
+            );
+            const auto suffix_capacity_impedance =
+                suffix_capacity_impedance_lower_bound(search_cost);
             return CompletionMetricLowerBound{
                   .departure   = branch.metrics.departure
                 , .arrival     = branch.metrics.current_time.has_value()
@@ -1556,11 +1601,9 @@ namespace timetable::domain::assignment {
                   }
                 , .transfers    = static_cast<double>(branch.metrics.transfers.get())
                     + static_cast<double>(suffix.transfers.get())
-                , .impedance    = partial_impedance_value(
-                      branch
-                    , params.impedance
-                    , fare_scale
-                  ) + suffix.impedance
+                , .impedance    = partial_impedance
+                    + suffix.impedance
+                    + suffix_capacity_impedance
             };
         }
 
@@ -1631,16 +1674,16 @@ namespace timetable::domain::assignment {
             return false;
         }
 
-        [[nodiscard]] SuffixLowerBoundPruningDecision evaluate_suffix_lower_bound_pruning(
+        [[nodiscard]] mathfp::Expected<SuffixLowerBoundPruningDecision> evaluate_suffix_lower_bound_pruning(
               const SearchBranch&                branch
             , const SearchTask&                  task
             , const ResidualReachability&        reachability
             , const CompleteConnectionRetention& complete_retention
             , const SearchParams&                params
+            , const SearchCostContext&           search_cost
             , const ChoiceConfig&                choice_config
             , const CompleteConnectionDominanceConfig& dominance_config
-            , double                             fare_scale
-        ) noexcept {
+        ) {
             if (complete_retention.alternatives.empty()) {
                 return SuffixLowerBoundPruningDecision{ .feasible = true };
             }
@@ -1658,11 +1701,14 @@ namespace timetable::domain::assignment {
                 return SuffixLowerBoundPruningDecision{ .feasible = true };
             }
 
-            const auto lower_bound = completion_metric_lower_bound(
-                  branch
-                , lower_bound_it->second
-                , params
-                , fare_scale
+            MATHFP_TRY_LET(
+                  CompletionMetricLowerBound
+                , lower_bound
+                , completion_metric_lower_bound(
+                      branch
+                    , lower_bound_it->second
+                    , search_cost
+                )
             );
 
             for (const auto& complete : complete_retention.alternatives) {
@@ -2206,9 +2252,46 @@ namespace timetable::domain::assignment {
             return trace;
         }
 
+        [[nodiscard]] CapacityExposure add_capacity_exposure(
+              CapacityExposure lhs
+            , CapacityExposure rhs
+        ) noexcept {
+            return CapacityExposure{
+                Time{
+                    lhs.equivalent_time.value()
+                    + rhs.equivalent_time.value()
+                }
+            };
+        }
+
+        [[nodiscard]] mathfp::Expected<CapacityExposure> timed_successor_capacity_exposure(
+              const ConnectionSegment& segment
+            , const RouteSegment&      route_segment
+            , IntervalId               interval
+            , const SearchCostContext& search_cost
+        ) {
+            switch (search_cost.mode) {
+                case SearchCostMode::BaseOnly:
+                    return make_capacity_exposure(Time{ 0.0 });
+
+                case SearchCostMode::CapacityAware:
+                    return search_capacity_exposure(
+                          make_ride_leg(segment, route_segment)
+                        , interval
+                        , search_cost.capacity
+                    );
+            }
+
+            return mathfp::unexpected(
+                mathfp::invalid_arg("unknown search cost mode")
+                    .ctx("mode", static_cast<std::int64_t>(search_cost.mode))
+            );
+        }
+
         [[nodiscard]] SearchPartialMetrics extend_metrics_with_timed(
               SearchPartialMetrics      metrics
             , const ConnectionSegment& segment
+            , CapacityExposure          capacity_exposure
         ) {
             const auto had_departure = metrics.departure.has_value();
             if (!had_departure) {
@@ -2229,15 +2312,31 @@ namespace timetable::domain::assignment {
             };
             metrics.current_time = *segment.arrival;
             metrics.fare         = metrics.fare + segment.fare.value_or(0.0);
+            metrics.capacity_exposure = add_capacity_exposure(
+                  metrics.capacity_exposure
+                , capacity_exposure
+            );
             return metrics;
         }
 
-        [[nodiscard]] SearchBranch extend_with_timed(
+        [[nodiscard]] mathfp::Expected<SearchBranch> extend_with_timed(
               const SearchBranch&      branch
             , std::size_t              branch_index
             , const ConnectionSegment& segment
             , const RouteSegment&      route_segment
+            , IntervalId               interval
+            , const SearchCostContext& search_cost
         ) {
+            MATHFP_TRY_LET(
+                  CapacityExposure
+                , capacity_exposure
+                , timed_successor_capacity_exposure(
+                      segment
+                    , route_segment
+                    , interval
+                    , search_cost
+                )
+            );
             return SearchBranch{
                   .trace   = extend_trace_with_timed(
                         branch.trace
@@ -2246,31 +2345,51 @@ namespace timetable::domain::assignment {
                       , segment
                       , route_segment
                   )
-                , .metrics = extend_metrics_with_timed(branch.metrics, segment)
+                , .metrics = extend_metrics_with_timed(
+                      branch.metrics
+                    , segment
+                    , capacity_exposure
+                  )
             };
         }
 
-        std::optional<SearchBranch> extend_branch(
+        mathfp::Expected<std::optional<SearchBranch>> extend_branch(
               const BranchArena&         branches
             , std::size_t                branch_index
             , const SearchBranch&        branch
             , const PreprocessedNetwork& network
             , const ConnectionSegment&   successor
+            , IntervalId                  interval
+            , const SearchCostContext&    search_cost
         ) {
             const auto& route_segment = route_segment_at(network, successor.route_segment);
             if (is_walk_connection(successor)) {
                 const auto next_physical = physical_to_key(route_segment);
                 if (branch_revisits_physical(branches, branch, next_physical)) {
-                    return std::nullopt;
+                    return std::optional<SearchBranch>{};
                 }
-                return extend_with_walk(branch, branch_index, route_segment, successor.id);
+                return std::optional<SearchBranch>{
+                    extend_with_walk(branch, branch_index, route_segment, successor.id)
+                };
             }
 
             const auto next_occurrence = occurrence_key(line_topology_of(route_segment)->to);
             if (branch_revisits_occurrence(branches, branch, next_occurrence)) {
-                return std::nullopt;
+                return std::optional<SearchBranch>{};
             }
-            return extend_with_timed(branch, branch_index, successor, route_segment);
+            MATHFP_TRY_LET(
+                  SearchBranch
+                , extended
+                , extend_with_timed(
+                      branch
+                    , branch_index
+                    , successor
+                    , route_segment
+                    , interval
+                    , search_cost
+                )
+            );
+            return std::optional<SearchBranch>{ std::move(extended) };
         }
 
         template <typename Visitor>
@@ -2362,13 +2481,13 @@ namespace timetable::domain::assignment {
             return std::optional<SearchConnection>{ std::move(connection) };
         }
 
-        SearchPruningDecision retain_branch(
+        mathfp::Expected<SearchPruningDecision> retain_branch(
               const SearchBranch&               branch
             , SearchTaskRetention&              retention
             , const SearchParams&               params
+            , const SearchCostContext&          search_cost
             , const SearchPruningExecutionPlan& pruning_execution
             , SearchPruningRuntimeStats&        pruning_stats
-            , double                            fare_scale
         ) {
             if (!branch.metrics.departure.has_value() || !branch.metrics.current_time.has_value()) {
                 return SearchPruningDecision{
@@ -2379,7 +2498,11 @@ namespace timetable::domain::assignment {
             }
 
             ++pruning_stats.evaluated_candidates;
-            auto metrics = make_partial_pruning_metrics(branch, params.impedance, fare_scale);
+            MATHFP_TRY_LET(
+                  PartialPruningMetrics
+                , metrics
+                , make_partial_pruning_metrics(branch, search_cost)
+            );
             const auto node  = search_node_key(branch, pruning_execution);
             auto it          = retention.known_metrics.find(node);
             if (it == retention.known_metrics.end()) {
@@ -2542,7 +2665,7 @@ namespace timetable::domain::assignment {
               const SearchBranch&        branch
             , const PreprocessedNetwork& network
             , const SearchParams&        params
-            , double                     fare_scale
+            , const SearchCostContext&   search_cost
             , const SearchTask&          task
             , const AssignmentPeriodConfig& assignment_period
             , const ConnectionAdmissibilityConfig& admissibility_config
@@ -2569,12 +2692,15 @@ namespace timetable::domain::assignment {
                 const auto retention_decision = retain_exact_complete_connection(
                       retention.complete_connections
                     , std::move(*complete)
-                    , params
-                    , fare_scale
+                    , search_cost
+                    , task.interval.id
                     , dominance_config
                 );
-                stats.removed_complete_dominated += retention_decision.removed_dominated;
-                if (!retention_decision.accepted) {
+                if (!retention_decision) {
+                    return mathfp::unexpected(std::move(retention_decision.error()));
+                }
+                stats.removed_complete_dominated += retention_decision->removed_dominated;
+                if (!retention_decision->accepted) {
                     ++stats.rejected_complete_dominance;
                 }
             }
@@ -2585,8 +2711,8 @@ namespace timetable::domain::assignment {
               const SearchBatch&                 batch
             , const PreprocessedNetwork&        network
             , const ResidualReverseGraph&        reverse_graph
-            , double                            fare_scale
             , const SearchParams&               params
+            , const SearchCostContext&          search_cost
             , const ChoiceConfig&                choice_config
             , const AssignmentPeriodConfig&      assignment_period
             , const ConnectionAdmissibilityConfig& admissibility_config
@@ -2617,8 +2743,8 @@ namespace timetable::domain::assignment {
                   reverse_graph
                 , batch_task_span
                 , params.transfers.max_transfers
-                , params.impedance
-                , fare_scale
+                , search_cost.impedance
+                , search_cost.fare_scale
             );
             MATHFP_TRY(validate_residual_reachability(
                   reachability
@@ -2652,6 +2778,7 @@ namespace timetable::domain::assignment {
                           , .egress_time      = Time{ 0.0 }
                           , .transfers        = TransferCount{ 0 }
                           , .fare             = 0.0
+                          , .capacity_exposure = CapacityExposure{ Time{ 0.0 } }
                       }
                 }
             );
@@ -2814,7 +2941,22 @@ namespace timetable::domain::assignment {
                         return;
                     }
 
-                    auto candidate = extend_branch(branches, branch_index, branch, network, successor);
+                    auto candidate_result = extend_branch(
+                          branches
+                        , branch_index
+                        , branch
+                        , network
+                        , successor
+                        , batch.key.interval
+                        , search_cost
+                    );
+                    if (!candidate_result) {
+                        successor_error = mathfp::unexpected(
+                            std::move(candidate_result.error())
+                        );
+                        return;
+                    }
+                    auto candidate = std::move(*candidate_result);
                     if (!candidate.has_value()) {
                         ++stats.rejected_cycles;
                         return;
@@ -2837,7 +2979,7 @@ namespace timetable::domain::assignment {
                                   *candidate
                                 , network
                                 , params
-                                , fare_scale
+                                , search_cost
                                 , *batch.tasks[task_pos].task
                                 , assignment_period
                                 , admissibility_config
@@ -2886,36 +3028,48 @@ namespace timetable::domain::assignment {
                     std::vector<RejectedSuffixLowerBoundTask> lower_bound_rejected_tasks;
                     lower_bound_rejected_tasks.reserve(reachable_tasks.reachable.size());
                     for (const auto task_pos : reachable_tasks.reachable) {
-                        const auto lower_bound_decision = evaluate_suffix_lower_bound_pruning(
+                        auto lower_bound_decision = evaluate_suffix_lower_bound_pruning(
                               *candidate
                             , *batch.tasks[task_pos].task
                             , reachability
                             , retentions[task_pos].complete_connections
                             , params
+                            , search_cost
                             , choice_config
                             , complete_connection_dominance
-                            , fare_scale
                         );
-                        if (!lower_bound_decision.feasible) {
+                        if (!lower_bound_decision) {
+                            successor_error = mathfp::unexpected(
+                                std::move(lower_bound_decision.error())
+                            );
+                            return;
+                        }
+                        if (!lower_bound_decision->feasible) {
                             lower_bound_rejected_tasks.push_back(
                                 RejectedSuffixLowerBoundTask{
                                       .task_position = task_pos
-                                    , .reason        = lower_bound_decision.rejection_reason
+                                    , .reason        = lower_bound_decision->rejection_reason
                                 }
                             );
                             ++task_stats[task_pos].rejected_dominance_or_tolerance;
                             continue;
                         }
 
-                        const auto pruning_decision = retain_branch(
+                        auto pruning_decision = retain_branch(
                               *candidate
                             , retentions[task_pos]
                             , params
+                            , search_cost
                             , pruning_execution
                             , stats.pruning
-                            , fare_scale
                         );
-                        if (!pruning_decision.accepted) {
+                        if (!pruning_decision) {
+                            successor_error = mathfp::unexpected(
+                                std::move(pruning_decision.error())
+                            );
+                            return;
+                        }
+                        if (!pruning_decision->accepted) {
                             ++task_stats[task_pos].rejected_dominance_or_tolerance;
                             continue;
                         }
@@ -3272,8 +3426,8 @@ namespace timetable::domain::assignment {
     mathfp::Expected<ConnectionSearchResult> search_connections_branch_and_bound(
           const PreprocessedNetwork& network
         , std::span<const SearchTask> tasks
-        , double                     fare_scale
         , const SearchParams&        params
+        , const SearchCostContext&   search_cost
         , const ChoiceConfig&         choice_config
         , const AssignmentPeriodConfig& assignment_period
         , const ConnectionAdmissibilityConfig& admissibility_config
@@ -3290,6 +3444,7 @@ namespace timetable::domain::assignment {
         MATHFP_TRY(validate_complete_connection_dominance_config(
             complete_connection_dominance
         ));
+        MATHFP_TRY(validate_search_cost_context(search_cost));
 
         both("search: branch-and-bound");
         log(
@@ -3336,7 +3491,7 @@ namespace timetable::domain::assignment {
             fmt::format(
                 "search setup: tasks = {:>8}  fare_scale = {:.6f}  time_domain = task"
                 , tasks.size()
-                , fare_scale
+                , search_cost.fare_scale
             )
             , LogLevel::Info
         );
@@ -3396,8 +3551,8 @@ namespace timetable::domain::assignment {
                       batch
                     , network
                     , residual_reverse_graph
-                    , fare_scale
                     , params
+                    , search_cost
                     , choice_config
                     , assignment_period
                     , admissibility_config
@@ -3420,6 +3575,58 @@ namespace timetable::domain::assignment {
         );
         both("search: branch-and-bound done");
         return result;
+    }
+
+    mathfp::Expected<ConnectionSearchResult> search_connections_branch_and_bound(
+          const PreprocessedNetwork& network
+        , std::span<const SearchTask> tasks
+        , const SearchParams&        params
+        , const SearchCostContext&   search_cost
+        , const ChoiceConfig&         choice_config
+        , const AssignmentPeriodConfig& assignment_period
+        , const ConnectionAdmissibilityConfig& admissibility_config
+        , const SearchPruningExecutionPlan* pruning_execution
+    ) {
+        return search_connections_branch_and_bound(
+              network
+            , tasks
+            , params
+            , search_cost
+            , choice_config
+            , assignment_period
+            , admissibility_config
+            , pruning_execution
+            , CompleteConnectionDominanceConfig{}
+        );
+    }
+
+    mathfp::Expected<ConnectionSearchResult> search_connections_branch_and_bound(
+          const PreprocessedNetwork& network
+        , std::span<const SearchTask> tasks
+        , double                     fare_scale
+        , const SearchParams&        params
+        , const ChoiceConfig&         choice_config
+        , const AssignmentPeriodConfig& assignment_period
+        , const ConnectionAdmissibilityConfig& admissibility_config
+        , const SearchPruningExecutionPlan* pruning_execution
+        , const CompleteConnectionDominanceConfig& complete_connection_dominance
+    ) {
+        MATHFP_TRY_LET(
+              SearchCostContext
+            , search_cost
+            , make_base_search_cost_context(params.impedance, fare_scale)
+        );
+        return search_connections_branch_and_bound(
+              network
+            , tasks
+            , params
+            , search_cost
+            , choice_config
+            , assignment_period
+            , admissibility_config
+            , pruning_execution
+            , complete_connection_dominance
+        );
     }
 
     mathfp::Expected<ConnectionSearchResult> search_connections_branch_and_bound(

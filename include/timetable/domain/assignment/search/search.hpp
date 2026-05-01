@@ -22,6 +22,7 @@
 namespace timetable::domain::assignment {
 
     struct CompleteConnectionDominanceConfig;
+    struct SearchCostContext;
 
     struct SearchTaskRefTag {};
 
@@ -160,6 +161,29 @@ namespace timetable::domain::assignment {
     /**
      * @brief Enumerate feasible connections using timetable-based branch & bound.
      */
+    mathfp::Expected<ConnectionSearchResult> search_connections_branch_and_bound(
+          const PreprocessedNetwork&        network
+        , std::span<const SearchTask>        tasks
+        , const SearchParams&               params
+        , const SearchCostContext&          search_cost
+        , const ChoiceConfig&                choice_config
+        , const AssignmentPeriodConfig&      assignment_period
+        , const ConnectionAdmissibilityConfig& admissibility_config
+        , const SearchPruningExecutionPlan* pruning_execution = nullptr
+    );
+
+    mathfp::Expected<ConnectionSearchResult> search_connections_branch_and_bound(
+          const PreprocessedNetwork&        network
+        , std::span<const SearchTask>        tasks
+        , const SearchParams&               params
+        , const SearchCostContext&          search_cost
+        , const ChoiceConfig&                choice_config
+        , const AssignmentPeriodConfig&      assignment_period
+        , const ConnectionAdmissibilityConfig& admissibility_config
+        , const SearchPruningExecutionPlan* pruning_execution
+        , const CompleteConnectionDominanceConfig& complete_connection_dominance
+    );
+
     mathfp::Expected<ConnectionSearchResult> search_connections_branch_and_bound(
           const PreprocessedNetwork&        network
         , std::span<const SearchTask>        tasks

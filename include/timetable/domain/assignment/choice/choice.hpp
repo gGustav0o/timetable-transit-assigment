@@ -5,6 +5,7 @@
 #include <mathfp/core/expected.hpp>
 
 #include "timetable/domain/assignment/choice/choice_config.hpp"
+#include "timetable/domain/assignment/search_cost.hpp"
 #include "timetable/domain/params.hpp"
 #include "timetable/domain/assignment/search/search.hpp"
 
@@ -30,7 +31,7 @@ namespace timetable::domain::assignment {
     mathfp::Expected<ConnectionChoiceResult> choose_connections(
           const ConnectionSearchResult& search_result
         , const SearchParams&           params
-        , double                        fare_scale
+        , const SearchCostContext&      search_cost
         , const ChoiceConfig&           config
         , const AssignmentPeriodConfig& assignment_period
         , const ConnectionAdmissibilityConfig& admissibility_config

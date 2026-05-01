@@ -59,6 +59,8 @@ namespace timetable::domain::assignment {
      * - base split inputs must be valid;
      * - positive PerceivedJourneyTime.volCapRatioFactor must agree with enabled
      *   capacity-aware split config;
+     * - positive SearchImp.volCapRatioFactor must agree with enabled
+     *   capacity-aware search config or explicit stored-only mode;
      * - vehicle journey item capacity input must be loaded;
      * - every ride item occupied by every chosen alternative must have positive
      *   total capacity.

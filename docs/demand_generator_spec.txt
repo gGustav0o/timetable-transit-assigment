@@ -592,7 +592,7 @@ Skim-матрица строится по OD-временным задачам �
 
 Файл metadata.csv содержит одну строку с mode, skim_status, счетчиками OD/соединений/долей/skim entries, total_demand_passengers, assigned_passengers и runtime_seconds. Он используется для машинно-читаемой фиксации режима результата без изменения колонок существующих аналитических CSV.
 
-Объект assignment_output.json.metadata.capacity_aware содержит диагностику поведенческого capacity-aware split: capacity_aware_enabled, iterations, converged, max_load_delta, used_factor и penalty_policy. При отключенном capacity-aware split значения iterations, max_load_delta и used_factor равны нулю, а converged равен false. При включенном режиме used_factor соответствует PerceivedJourneyTime.volCapRatioFactor, а penalty_policy задает форму штрафа по отношению загрузки к провозной способности.
+Объект assignment_output.json.metadata.capacity_aware содержит диагностику поведенческого capacity-aware assignment: capacity_aware_enabled, capacity_aware_search_enabled, iterations, converged, max_load_delta, used_factor и penalty_policy. При отключенном поведенческом capacity-aware режиме значения iterations, max_load_delta и used_factor равны нулю, а converged равен false. При capacity_aware_search_enabled = true значения iterations, converged и max_load_delta относятся к общему циклу search -> choice -> split -> load projection -> MSA update; иначе они относятся к split-only fixed-point loop. При включенном режиме used_factor соответствует максимальному из примененных SearchImp.volCapRatioFactor и PerceivedJourneyTime.volCapRatioFactor, а penalty_policy задает форму штрафа по отношению загрузки к провозной способности.
 
 13.7. Что хорошо и согласуется с теорией
 

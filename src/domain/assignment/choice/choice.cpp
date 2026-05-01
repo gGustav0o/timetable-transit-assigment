@@ -57,10 +57,10 @@ namespace timetable::domain::assignment {
             return connections;
         }
 
-        ChoiceTaskSelection choose_task_connections(
+        mathfp::Expected<ChoiceTaskSelection> choose_task_connections(
               const SearchTaskResult& task_result
             , const SearchParams&     params
-            , double                  fare_scale
+            , const SearchCostContext& search_cost
             , const ChoiceConfig&     config
             , const AssignmentPeriodConfig& assignment_period
             , const ConnectionAdmissibilityConfig& admissibility_config
@@ -70,11 +70,17 @@ namespace timetable::domain::assignment {
                 , assignment_period
                 , admissibility_config
             );
-            auto chosen = refine_complete_connection_ptrs(
-                  task_connections
-                , params
-                , fare_scale
-                , config.rollout_stage
+            MATHFP_TRY_LET(
+                  std::vector<SearchConnection>
+                , chosen
+                , refine_complete_connection_ptrs(
+                      // Final choice retention must use the same metric as search retention.
+                      task_connections
+                    , search_cost
+                    , task_result.task.interval.id
+                    , params.choice_tolerances
+                    , config.rollout_stage
+                )
             );
             return ChoiceTaskSelection{
                   .result = ChoiceTaskResult{
@@ -91,7 +97,7 @@ namespace timetable::domain::assignment {
     mathfp::Expected<ConnectionChoiceResult> choose_connections(
           const ConnectionSearchResult& search_result
         , const SearchParams&           params
-        , double                        fare_scale
+        , const SearchCostContext&      search_cost
         , const ChoiceConfig&           config
         , const AssignmentPeriodConfig& assignment_period
         , const ConnectionAdmissibilityConfig& admissibility_config
@@ -102,6 +108,7 @@ namespace timetable::domain::assignment {
 
         MATHFP_TRY(validate_assignment_period_config(assignment_period));
         MATHFP_TRY(validate_connection_admissibility_config(admissibility_config));
+        MATHFP_TRY(validate_search_cost_context(search_cost));
 
         both("choice: pruning connections");
         log(
@@ -120,13 +127,17 @@ namespace timetable::domain::assignment {
         std::size_t nonempty_task_count = 0;
         std::size_t admissibility_rejected_count = 0;
         for (const auto& task_result : search_result.task_results) {
-            auto selection = choose_task_connections(
-                  task_result
-                , params
-                , fare_scale
-                , config
-                , assignment_period
-                , admissibility_config
+            MATHFP_TRY_LET(
+                  ChoiceTaskSelection
+                , selection
+                , choose_task_connections(
+                      task_result
+                    , params
+                    , search_cost
+                    , config
+                    , assignment_period
+                    , admissibility_config
+                )
             );
             auto chosen_task = std::move(selection.result);
             admissibility_rejected_count += selection.admissibility_rejected;

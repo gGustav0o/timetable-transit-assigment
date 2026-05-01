@@ -113,6 +113,13 @@ namespace timetable::domain::assignment {
             const auto split_factor = mathfp::units::as_dimless(
                 input.params.split.perceived_journey_time.volume_capacity_ratio
             );
+            const auto search_factor = mathfp::units::as_dimless(
+                input.params.impedance.volume_capacity_ratio
+            );
+            const auto search_enabled = input.capacity_aware_assignment.search_mode
+                == CapacityAwareSearchMode::Enabled;
+            const auto search_stored_only = input.capacity_aware_assignment.search_mode
+                == CapacityAwareSearchMode::StoredOnly;
 
             if (split_factor > 0.0
                 && !input.capacity_aware_assignment.capacity_aware_split_enabled) {
@@ -130,11 +137,29 @@ namespace timetable::domain::assignment {
                 );
             }
 
-            if (split_factor > 0.0
+            if (search_factor > 0.0 && !search_enabled && !search_stored_only) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("positive SearchImp.volCapRatioFactor requires enabled capacity-aware search or explicit stored-only mode")
+                        .ctx("vol_cap_ratio_factor", search_factor)
+                        .ctx(
+                              "capacity_aware_search_mode"
+                            , std::string(to_string(input.capacity_aware_assignment.search_mode))
+                        )
+                );
+            }
+
+            if (search_enabled && !(search_factor > 0.0)) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("enabled capacity-aware search requires positive SearchImp.volCapRatioFactor")
+                        .ctx("vol_cap_ratio_factor", search_factor)
+                );
+            }
+
+            if ((split_factor > 0.0 || search_enabled)
                 && input.vehicle_journey_item_capacity.status
                     != VehicleJourneyItemCapacityInputStatus::Loaded) {
                 return mathfp::unexpected(
-                    mathfp::invalid_arg("capacity-aware split requires loaded vehicle journey item capacity input")
+                    mathfp::invalid_arg("behavioral capacity-aware assignment requires loaded vehicle journey item capacity input")
                         .ctx(
                               "capacity_input_status"
                             , std::string(to_string(input.vehicle_journey_item_capacity.status))
@@ -142,9 +167,9 @@ namespace timetable::domain::assignment {
                 );
             }
 
-            if (mathfp::units::as_dimless(input.params.impedance.volume_capacity_ratio) > 0.0) {
+            if (search_stored_only && search_factor > 0.0) {
                 detail::validation::warn(
-                    "preprocessing input: SearchImp.volCapRatioFactor is parsed but not applied until capacity-aware search is implemented"
+                    "preprocessing input: SearchImp.volCapRatioFactor is stored but not applied because capacity-aware search mode is stored_only"
                 );
             }
 

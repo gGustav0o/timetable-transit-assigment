@@ -3,7 +3,10 @@
 #include <cstddef>
 #include <vector>
 
+#include <mathfp/core/expected.hpp>
+
 #include "timetable/domain/assignment/choice/choice_config.hpp"
+#include "timetable/domain/assignment/search_cost.hpp"
 #include "timetable/domain/assignment/search/search.hpp"
 #include "timetable/domain/params.hpp"
 
@@ -62,10 +65,10 @@ namespace timetable::domain::assignment {
         std::vector<CompleteConnectionAlternative> alternatives{};
     };
 
-    [[nodiscard]] CompleteConnectionMetrics complete_connection_metrics(
+    [[nodiscard]] mathfp::Expected<CompleteConnectionMetrics> complete_connection_metrics(
           const SearchConnection& connection
-        , const SearchParams&     params
-        , double                  fare_scale
+        , const SearchCostContext& search_cost
+        , IntervalId              interval
     );
 
     [[nodiscard]] bool is_direct_connection(
@@ -94,18 +97,18 @@ namespace timetable::domain::assignment {
         , const ChoiceTolerances&                tolerances
     ) noexcept;
 
-    [[nodiscard]] CompleteConnectionRetentionDecision retain_exact_complete_connection(
+    [[nodiscard]] mathfp::Expected<CompleteConnectionRetentionDecision> retain_exact_complete_connection(
           CompleteConnectionRetention& retention
         , SearchConnection             connection
-        , const SearchParams&          params
-        , double                       fare_scale
+        , const SearchCostContext&     search_cost
+        , IntervalId                   interval
     );
 
-    [[nodiscard]] CompleteConnectionRetentionDecision retain_exact_complete_connection(
+    [[nodiscard]] mathfp::Expected<CompleteConnectionRetentionDecision> retain_exact_complete_connection(
           CompleteConnectionRetention&            retention
         , SearchConnection                        connection
-        , const SearchParams&                     params
-        , double                                  fare_scale
+        , const SearchCostContext&                search_cost
+        , IntervalId                              interval
         , const CompleteConnectionDominanceConfig& dominance_config
     );
 
@@ -115,10 +118,11 @@ namespace timetable::domain::assignment {
         , ChoiceRolloutStage                 rollout_stage
     );
 
-    [[nodiscard]] std::vector<SearchConnection> refine_complete_connection_ptrs(
+    [[nodiscard]] mathfp::Expected<std::vector<SearchConnection>> refine_complete_connection_ptrs(
           const std::vector<const SearchConnection*>& connections
-        , const SearchParams&                         params
-        , double                                      fare_scale
+        , const SearchCostContext&                    search_cost
+        , IntervalId                                  interval
+        , const ChoiceTolerances&                     tolerances
         , ChoiceRolloutStage                          rollout_stage
     );
 
