@@ -112,6 +112,10 @@ namespace timetable::domain::assignment {
      * This is intentionally separate from AssignmentLoads. AssignmentLoads
      * reports selected ride-segment flows, while this profile expands each ride
      * leg to adjacent in-vehicle occupancy items.
+     *
+     * The profile is sparse by design: it contains only vehicle journey items
+     * with positive demand-induced load. Zero-load rows belong to the
+     * capacity-anchored overload assessment, not to this load projection.
      */
     struct VehicleJourneyItemLoads final {
         std::vector<VehicleJourneyItemLoad> items{};
@@ -187,6 +191,18 @@ namespace timetable::domain::assignment {
         return timetable::enum_to_string(value, kVehicleJourneyItemOverloadAssessmentStatusTokens);
     }
 
+    /**
+     * @brief Capacity-anchored overload assessment for vehicle journey items.
+     *
+     * When capacity input is loaded, a calculated assessment is defined on the
+     * full reporting support:
+     *
+     *   (time intervals x capacity rows) union loaded items without capacity.
+     *
+     * Therefore capacity rows with zero passengers are materialized as explicit
+     * rows. Loaded items without a capacity row remain visible with
+     * MissingCapacity status.
+     */
     struct VehicleJourneyItemOverloadAssessment final {
         VehicleJourneyItemOverloadAssessmentStatus status{
             VehicleJourneyItemOverloadAssessmentStatus::MissingCapacityInput
@@ -281,6 +297,7 @@ namespace timetable::domain::assignment {
     [[nodiscard]] mathfp::Expected<VehicleJourneyItemOverloadAssessment> assess_vehicle_journey_item_overload(
           const VehicleJourneyItemLoads&       loads
         , const VehicleJourneyItemCapacitySet& capacities
+        , const std::vector<TimeInterval>&     intervals
     );
 
 }  // namespace timetable::domain::assignment

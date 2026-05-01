@@ -474,7 +474,7 @@ D:\Development\projects\timetable-transit-assigment\out\build\vcpkg\Release\resu
 
 В текущем контракте вывода дополнительно предусмотрены metadata.csv, skim_matrix.csv, vehicle_journey_item_loads.csv, секция skim_matrix, секция vehicle_journey_item_loads и объект metadata.capacity_aware в assignment_output.json. metadata.csv сохраняет прежний набор колонок и содержит mode, skim_status и основные счетчики результата. Capacity-aware диагностика экспортируется только в JSON metadata, чтобы не менять CSV-контракт.
 
-Skim-матрица строится по OD-временным задачам при basePara.calcAssign = True и basePara.calcSkimMatr = True; при отключенном assignment и включенном skim экспортируется статус skipped_assignment_disabled без строк entries. vehicle_journey_item_loads.csv является отдельным отчетом по загрузке и перегрузке vehicle journey item; при отсутствии veh_journey_item_cap.csv JSON/CSV результат получает статус missing_capacity_input без строк оценки перегрузки.
+Skim-матрица строится по OD-временным задачам при basePara.calcAssign = True и basePara.calcSkimMatr = True; при отключенном assignment и включенном skim экспортируется статус skipped_assignment_disabled без строк entries. vehicle_journey_item_loads.csv является отдельным отчетом по загрузке и перегрузке vehicle journey item. При наличии veh_journey_item_cap.csv отчет строится на полном support: каждая строка capacity-файла материализуется для каждого time interval, включая passengers = 0, а нагруженные items без найденной capacity добавляются отдельными строками со статусом missing_capacity. При отсутствии veh_journey_item_cap.csv JSON/CSV результат получает статус missing_capacity_input без строк оценки перегрузки.
 
 Агрегированная статистика поиска по строкам пакетов:
 

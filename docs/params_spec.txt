@@ -153,7 +153,10 @@
   - конечный to_index не включается, поэтому terminal item с нулевой capacity не должен получать нагрузку только из-за высадки на последней позиции;
   - после split результат DemandSplitResult проецируется в VehicleJourneyItemLoads: для каждой положительной доли спроса и каждого ride-leg пассажиры добавляются ко всем occupied items;
   - validation проверяет сохранение пассажиро-элементной суммы: sum(item_loads) = sum(share.passengers * occupied_item_count);
-  - overload assessment сопоставляет item-loads с capacity по ключу (trip_id, from_index);
+  - overload assessment строится на полном отчетном support: все пары (time interval, capacity row) плюс нагруженные items без найденной capacity;
+  - строки capacity-файла с нулевой нагрузкой материализуются в AssignmentOutput.vehicle_journey_item_loads с passengers = 0;
+  - нагруженные items без capacity сохраняются отдельными строками со статусом missing_capacity;
+  - сопоставление item-loads с capacity выполняется по ключу (trip_id, from_index);
   - для найденной capacity рассчитываются load_factor = passengers / TOTALCAP и overload_passengers = max(0, passengers - TOTALCAP);
   - статусы строк overload: ok, overloaded, missing_capacity, zero_capacity;
   - если файл capacity отсутствует, AssignmentOutput.vehicle_journey_item_loads получает status = missing_capacity_input и строки не формируются;

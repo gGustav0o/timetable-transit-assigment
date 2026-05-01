@@ -220,8 +220,9 @@ namespace timetable::domain::assignment::detail {
             };
         }
 
-        mathfp::Expected<VehicleJourneyItemOverloadAssessment> build_vehicle_journey_item_loads_output(
+        mathfp::Expected<VehicleJourneyItemOverloadAssessment> build_vehicle_journey_item_overload_assessment_output(
               const DemandSplitResult&               split_result
+            , const std::vector<TimeInterval>&        intervals
             , const VehicleJourneyItemCapacityInput& vehicle_journey_item_capacity
         ) {
             MATHFP_TRY(validate_vehicle_journey_item_capacity_input(
@@ -241,6 +242,7 @@ namespace timetable::domain::assignment::detail {
                     return assess_vehicle_journey_item_overload(
                           item_loads
                         , vehicle_journey_item_capacity.capacities
+                        , intervals
                     );
                 }
             }
@@ -461,8 +463,9 @@ namespace timetable::domain::assignment::detail {
         MATHFP_TRY_LET(
               VehicleJourneyItemOverloadAssessment
             , vehicle_journey_item_loads
-            , build_vehicle_journey_item_loads_output(
+            , build_vehicle_journey_item_overload_assessment_output(
                   split_result
+                , input.intervals
                 , vehicle_journey_item_capacity
             )
         );
