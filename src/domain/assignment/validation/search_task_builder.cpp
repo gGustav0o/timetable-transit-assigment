@@ -42,16 +42,15 @@ namespace timetable::domain::assignment {
         mathfp::Expected<mathfp::Unit> validate_active_assignment_window(
               const DemandEntry&             demand
             , const TimeInterval&            interval
-            , const AssignmentPeriodConfig&  assignment_period
         ) {
             const auto window = expand_interval_to_search_window(
                   interval
-                , assignment_time_padding(assignment_period)
+                , SearchTimePadding{}
             );
             if (!std::isfinite(window.begin.value())
                 || !std::isfinite(window.end.value())) {
                 return mathfp::unexpected(
-                    mathfp::invalid_arg("assignment period expansion produced a non-finite search task window")
+                    mathfp::invalid_arg("demand interval produced a non-finite search task window")
                         .ctx("origin"     , demand.origin     .get())
                         .ctx("destination", demand.destination.get())
                         .ctx("interval_id", interval.id       .get())
@@ -66,14 +65,8 @@ namespace timetable::domain::assignment {
     }  // namespace
 
     mathfp::Expected<mathfp::Unit> validate_search_task_builder_input(
-          const InputModel&             input
-        , const AssignmentPeriodConfig& assignment_period
+        const InputModel& input
     ) {
-        MATHFP_TRY(validate_assignment_period_config(assignment_period));
-        MATHFP_TRY(validate_search_time_padding(
-            assignment_time_padding(assignment_period)
-        ));
-
         if (input.demand.empty()) {
             detail::validation::warn(
                 "search task builder input: demand is empty; no search tasks will be materialized"
@@ -103,7 +96,6 @@ namespace timetable::domain::assignment {
             MATHFP_TRY(validate_active_assignment_window(
                   demand
                 , *interval_it->second
-                , assignment_period
             ));
         }
 

@@ -1,6 +1,7 @@
 #include "timetable/domain/assignment/search/search.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
 #include <deque>
@@ -326,7 +327,10 @@ namespace timetable::domain::assignment {
 
         constexpr std::size_t kTaskProgressStep    = 10;
         constexpr std::size_t kSearchHeartbeatStep = 100'000;
+        constexpr std::size_t kSearchWallClockSuccessorCheckStep = 16'384;
         constexpr std::size_t kInitialTaskBranchReserve = 4'096;
+        constexpr auto kSearchWallClockHeartbeatInterval =
+            std::chrono::seconds{ 30 };
 
         const RouteSegment& route_segment_at(
               const PreprocessedNetwork& network
@@ -1446,14 +1450,10 @@ namespace timetable::domain::assignment {
             , const SearchCostContext& search_cost
         ) {
             const auto journey_time = partial_journey_time(branch.metrics);
-            MATHFP_TRY_LET(
-                  SearchCostComponents
-                , cost_components
-                , make_search_cost_components(
-                      partial_impedance_components(branch.metrics)
-                    , branch.metrics.capacity_exposure
-                )
-            );
+            const auto cost_components = SearchCostComponents{
+                  .base = partial_impedance_components(branch.metrics)
+                , .capacity_exposure = branch.metrics.capacity_exposure
+            };
             MATHFP_TRY_LET(
                   double
                 , impedance
@@ -1530,14 +1530,10 @@ namespace timetable::domain::assignment {
               const SearchBranch&    branch
             , const SearchCostContext& search_cost
         ) {
-            MATHFP_TRY_LET(
-                  SearchCostComponents
-                , cost_components
-                , make_search_cost_components(
-                      partial_impedance_components(branch.metrics)
-                    , branch.metrics.capacity_exposure
-                )
-            );
+            const auto cost_components = SearchCostComponents{
+                  .base = partial_impedance_components(branch.metrics)
+                , .capacity_exposure = branch.metrics.capacity_exposure
+            };
             return search_impedance(
                   cost_components
                 , search_cost
@@ -2272,7 +2268,7 @@ namespace timetable::domain::assignment {
         ) {
             switch (search_cost.mode) {
                 case SearchCostMode::BaseOnly:
-                    return make_capacity_exposure(Time{ 0.0 });
+                    return CapacityExposure{ Time{ 0.0 } };
 
                 case SearchCostMode::CapacityAware:
                     return search_capacity_exposure(
@@ -2718,6 +2714,7 @@ namespace timetable::domain::assignment {
             , const ConnectionAdmissibilityConfig& admissibility_config
             , const SearchPruningExecutionPlan& pruning_execution
             , const CompleteConnectionDominanceConfig& complete_connection_dominance
+            , SearchDiagnosticsContext          diagnostics
             , std::size_t                       batch_index
             , std::size_t                       batch_count
             , std::vector<SearchTaskResult>&    result_slots
@@ -2806,16 +2803,56 @@ namespace timetable::domain::assignment {
 
             status(
                 fmt::format(
-                      "search: batch {}/{} origin={} interval={} tasks={} frontier={} found={}"
+                      "search: batch {}/{} origin={} interval={} tasks={} capacity_iteration={} frontier={} found={}"
                     , batch_index + 1
                     , batch_count
                     , batch.key.origin.get()
                     , batch.key.interval.get()
                     , batch.tasks.size()
+                    , diagnostics.capacity_iteration
                     , current_frontier.size()
                     , retained_connection_count(retentions)
                 )
             );
+
+            using Clock = std::chrono::steady_clock;
+            const auto batch_started_at = Clock::now();
+            auto last_wall_clock_heartbeat = batch_started_at;
+            auto emit_wall_clock_heartbeat =
+                [&](const char* stage, std::size_t branch_index) {
+                    const auto now = Clock::now();
+                    if (now - last_wall_clock_heartbeat
+                        < kSearchWallClockHeartbeatInterval) {
+                        return;
+                    }
+                    last_wall_clock_heartbeat = now;
+                    const auto elapsed_ms = std::chrono::duration_cast<
+                        std::chrono::milliseconds
+                    >(now - batch_started_at).count();
+                    log(
+                        fmt::format(
+                              "search wall heartbeat: batch={:>8} origin={:>4} interval={:>4}"
+                              " tasks={:>5} capacity_iteration={:>4} stage={} branch={} elapsed_ms={}"
+                              " expanded={:>8} generated={:>8} accepted={:>8} found={:>8}"
+                              " frontier={}/{}"
+                            , static_cast<std::int64_t>(batch_index)
+                            , batch.key.origin.get()
+                            , batch.key.interval.get()
+                            , batch.tasks.size()
+                            , diagnostics.capacity_iteration
+                            , stage
+                            , static_cast<std::int64_t>(branch_index)
+                            , static_cast<std::int64_t>(elapsed_ms)
+                            , stats.expanded_branches
+                            , stats.generated_successors
+                            , stats.accepted_branches
+                            , retained_connection_count(retentions)
+                            , current_frontier.size()
+                            , next_frontier.size()
+                        )
+                        , LogLevel::Info
+                    );
+                };
 
             while (!current_frontier.empty() || !next_frontier.empty()) {
                 if (current_frontier.empty()) {
@@ -2827,6 +2864,7 @@ namespace timetable::domain::assignment {
 
                 const auto branch_index = current_frontier.front();
                 current_frontier.pop_front();
+                emit_wall_clock_heartbeat("branch", branch_index);
                 const auto branch = branches[branch_index];
                 const auto active_tasks = std::span<const std::size_t>{
                       branch_active_tasks[branch_index].data()
@@ -2837,12 +2875,13 @@ namespace timetable::domain::assignment {
                 if ((stats.expanded_branches % kSearchHeartbeatStep) == 0) {
                     status(
                         fmt::format(
-                              "search: batch {}/{} origin={} interval={} tasks={} expanded={} accepted={} found={} frontier={}/{}"
+                              "search: batch {}/{} origin={} interval={} tasks={} capacity_iteration={} expanded={} accepted={} found={} frontier={}/{}"
                             , batch_index + 1
                             , batch_count
                             , batch.key.origin.get()
                             , batch.key.interval.get()
                             , batch.tasks.size()
+                            , diagnostics.capacity_iteration
                             , stats.expanded_branches
                             , stats.accepted_branches
                             , retained_connection_count(retentions)
@@ -2852,7 +2891,7 @@ namespace timetable::domain::assignment {
                     );
                     log(
                         fmt::format(
-                              "search heartbeat: batch={:>8} origin={:>4} interval={:>4} tasks={:>5} expanded={:>8} generated={:>8}"
+                              "search heartbeat: batch={:>8} origin={:>4} interval={:>4} tasks={:>5} capacity_iteration={:>4} expanded={:>8} generated={:>8}"
                               " accepted={:>8} found={:>8} rejected(time_domain/feasibility/reboarding/cycles/limit/reachability/dominance)={}/{}/{}/{}/{}/{}/{}"
                               " lower_bound_pruned={}"
                               " pruning(exact/approx/inserted/skipped)={}/{}/{}/{}"
@@ -2861,6 +2900,7 @@ namespace timetable::domain::assignment {
                             , batch.key.origin.get()
                             , batch.key.interval.get()
                             , batch.tasks.size()
+                            , diagnostics.capacity_iteration
                             , stats.expanded_branches
                             , stats.generated_successors
                             , stats.accepted_branches
@@ -2908,6 +2948,9 @@ namespace timetable::domain::assignment {
                         return;
                     }
                     ++stats.generated_successors;
+                    if ((stats.generated_successors % kSearchWallClockSuccessorCheckStep) == 0) {
+                        emit_wall_clock_heartbeat("successor", branch_index);
+                    }
                     const auto& successor               = connection_segment_at(network, successor_id);
                     const auto& successor_route_segment = route_segment_at(
                           network
@@ -3218,17 +3261,14 @@ namespace timetable::domain::assignment {
         : connection_(std::move(connection)) {}
 
     mathfp::Expected<std::vector<SearchTask>> build_search_tasks(
-          const InputModel&             input
-        , const AssignmentPeriodConfig& assignment_period
+        const InputModel& input
     ) {
-        MATHFP_TRY(validate_assignment_period_config(assignment_period));
-        const auto padding = assignment_time_padding(assignment_period);
-
         auto intervals_result = interval_lookup(input);
         if (!intervals_result) {
             return mathfp::unexpected(std::move(intervals_result.error()));
         }
         auto intervals = std::move(*intervals_result);
+        const auto task_departure_padding = SearchTimePadding{};
         std::vector<SearchTask> tasks;
         tasks.reserve(input.demand.size());
 
@@ -3251,7 +3291,10 @@ namespace timetable::domain::assignment {
                   SearchTimeDomain
                 , departure_domain
                 , make_search_time_domain(std::vector<SearchTimeWindow>{
-                    expand_interval_to_search_window(*interval_it->second, padding)
+                    expand_interval_to_search_window(
+                          *interval_it->second
+                        , task_departure_padding
+                    )
                 })
             );
 
@@ -3433,6 +3476,7 @@ namespace timetable::domain::assignment {
         , const ConnectionAdmissibilityConfig& admissibility_config
         , const SearchPruningExecutionPlan* pruning_execution
         , const CompleteConnectionDominanceConfig& complete_connection_dominance
+        , SearchDiagnosticsContext diagnostics
     ) {
         using timetable::infra::LogLevel;
         using timetable::infra::progress::both;
@@ -3455,6 +3499,19 @@ namespace timetable::domain::assignment {
                 , network.connection_segments.size()
                 , tasks.size()
                 , params.transfers.max_transfers.get()
+            )
+            , LogLevel::Info
+        );
+        log(
+            fmt::format(
+                  "search cost: mode={}  fare_scale={:.6f}  capacity_iteration={}  capacity_index(loads/capacities/trips/prefixes)={}/{}/{}/{}"
+                , to_string(search_cost.mode)
+                , search_cost.fare_scale
+                , diagnostics.capacity_iteration
+                , search_cost.capacity.index.load_positions.size()
+                , search_cost.capacity.index.capacity_positions.size()
+                , search_cost.capacity.index.capacity_trip_positions.size()
+                , search_cost.capacity.index.penalty_prefixes.size()
             )
             , LogLevel::Info
         );
@@ -3524,24 +3581,26 @@ namespace timetable::domain::assignment {
             if (i == 0 || (i % kTaskProgressStep) == 0 || (i + 1) == batches.size()) {
                 status(
                     fmt::format(
-                          "search: batch {}/{} origin={} interval={} tasks={} total_found={}"
+                          "search: batch {}/{} origin={} interval={} tasks={} capacity_iteration={} total_found={}"
                         , i + 1
                         , batches.size()
                         , batch.key.origin.get()
                         , batch.key.interval.get()
                         , batch.tasks.size()
+                        , diagnostics.capacity_iteration
                         , total_found
                     )
                 );
             }
             log(
                 fmt::format(
-                      "search batch start: {}/{} origin={} interval={} tasks={} cumulative_found={}"
+                      "search batch start: {}/{} origin={} interval={} tasks={} capacity_iteration={} cumulative_found={}"
                     , i + 1
                     , batches.size()
                     , batch.key.origin.get()
                     , batch.key.interval.get()
                     , batch.tasks.size()
+                    , diagnostics.capacity_iteration
                     , total_found
                 )
                 , LogLevel::Info
@@ -3558,6 +3617,7 @@ namespace timetable::domain::assignment {
                     , admissibility_config
                     , effective_pruning_execution
                     , complete_connection_dominance
+                    , diagnostics
                     , i
                     , batches.size()
                     , result.task_results
@@ -3586,6 +3646,7 @@ namespace timetable::domain::assignment {
         , const AssignmentPeriodConfig& assignment_period
         , const ConnectionAdmissibilityConfig& admissibility_config
         , const SearchPruningExecutionPlan* pruning_execution
+        , SearchDiagnosticsContext diagnostics
     ) {
         return search_connections_branch_and_bound(
               network
@@ -3597,6 +3658,7 @@ namespace timetable::domain::assignment {
             , admissibility_config
             , pruning_execution
             , CompleteConnectionDominanceConfig{}
+            , diagnostics
         );
     }
 
@@ -3610,6 +3672,7 @@ namespace timetable::domain::assignment {
         , const ConnectionAdmissibilityConfig& admissibility_config
         , const SearchPruningExecutionPlan* pruning_execution
         , const CompleteConnectionDominanceConfig& complete_connection_dominance
+        , SearchDiagnosticsContext diagnostics
     ) {
         MATHFP_TRY_LET(
               SearchCostContext
@@ -3626,6 +3689,7 @@ namespace timetable::domain::assignment {
             , admissibility_config
             , pruning_execution
             , complete_connection_dominance
+            , diagnostics
         );
     }
 
@@ -3638,6 +3702,7 @@ namespace timetable::domain::assignment {
         , const AssignmentPeriodConfig& assignment_period
         , const ConnectionAdmissibilityConfig& admissibility_config
         , const SearchPruningExecutionPlan* pruning_execution
+        , SearchDiagnosticsContext diagnostics
     ) {
         return search_connections_branch_and_bound(
               network
@@ -3649,6 +3714,7 @@ namespace timetable::domain::assignment {
             , admissibility_config
             , pruning_execution
             , CompleteConnectionDominanceConfig{}
+            , diagnostics
         );
     }
 

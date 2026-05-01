@@ -33,7 +33,7 @@ namespace timetable::domain::assignment {
         ) {
             switch (search_cost.mode) {
                 case SearchCostMode::BaseOnly:
-                    return make_capacity_exposure(Time{ 0.0 });
+                    return CapacityExposure{ Time{ 0.0 } };
 
                 case SearchCostMode::CapacityAware:
                     return search_capacity_exposure(
@@ -53,11 +53,54 @@ namespace timetable::domain::assignment {
               SearchConnection          connection
             , const SearchCostContext&  search_cost
             , IntervalId                interval
+        );
+
+        [[nodiscard]] mathfp::Expected<CompleteConnectionMetrics> complete_connection_metrics_unchecked_context(
+              const SearchConnection&  connection
+            , const SearchCostContext& search_cost
+            , IntervalId               interval
+        ) {
+            const auto connection_metrics = metrics_of(connection);
+            MATHFP_TRY_LET(
+                  CapacityExposure
+                , exposure
+                , complete_connection_capacity_exposure(
+                      connection
+                    , search_cost
+                    , interval
+                )
+            );
+            const auto components = SearchCostComponents{
+                  .base = complete_connection_base_components(connection_metrics)
+                , .capacity_exposure = exposure
+            };
+            MATHFP_TRY_LET(
+                  double
+                , impedance
+                , search_impedance(components, search_cost)
+            );
+            return CompleteConnectionMetrics{
+                  .departure   = connection_metrics.departure_time
+                , .arrival     = connection_metrics.arrival_time
+                , .journey_time = connection_metrics.journey_time
+                , .transfers    = connection_metrics.transfer_count
+                , .impedance    = impedance
+            };
+        }
+
+        [[nodiscard]] mathfp::Expected<CompleteConnectionAlternative> make_complete_connection_alternative(
+              SearchConnection          connection
+            , const SearchCostContext&  search_cost
+            , IntervalId                interval
         ) {
             MATHFP_TRY_LET(
                   CompleteConnectionMetrics
                 , metrics
-                , complete_connection_metrics(connection, search_cost, interval)
+                , complete_connection_metrics_unchecked_context(
+                      connection
+                    , search_cost
+                    , interval
+                )
             );
             return CompleteConnectionAlternative{
                   .connection = std::move(connection)
@@ -143,36 +186,11 @@ namespace timetable::domain::assignment {
         , IntervalId               interval
     ) {
         MATHFP_TRY(validate_search_cost_context(search_cost));
-        const auto connection_metrics = metrics_of(connection);
-        MATHFP_TRY_LET(
-              CapacityExposure
-            , exposure
-            , complete_connection_capacity_exposure(
-                  connection
-                , search_cost
-                , interval
-            )
+        return complete_connection_metrics_unchecked_context(
+              connection
+            , search_cost
+            , interval
         );
-        MATHFP_TRY_LET(
-              SearchCostComponents
-            , components
-            , make_search_cost_components(
-                  complete_connection_base_components(connection_metrics)
-                , exposure
-            )
-        );
-        MATHFP_TRY_LET(
-              double
-            , impedance
-            , search_impedance(components, search_cost)
-        );
-        return CompleteConnectionMetrics{
-              .departure   = connection_metrics.departure_time
-            , .arrival     = connection_metrics.arrival_time
-            , .journey_time = connection_metrics.journey_time
-            , .transfers    = connection_metrics.transfer_count
-            , .impedance    = impedance
-        };
     }
 
     bool is_direct_connection(

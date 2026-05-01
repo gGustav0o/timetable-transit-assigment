@@ -26,14 +26,14 @@ namespace timetable::domain::assignment {
         AssignmentPeriodUnit::Minutes;
 
     /**
-     * @brief Demand assignment period around an original demand interval.
+     * @brief Assignment-period padding around an original demand interval.
      *
-     * For an interval [start, end], the assignment period is:
-     * [start - pre_assign_period, end + post_assign_period].
+     * For an interval [start, end], the assignment-period admissibility window
+     * is [start - pre_assign_period, end + post_assign_period].
      *
-     * The original demand interval remains the behavioral reference for split
-     * temporal utility; this config only defines the admissible assignment-time
-     * support around it.
+     * This config is intentionally not a search-time pruning policy. The
+     * first-departure search domain is derived from the demand interval unless
+     * an explicit SearchTimeDomain policy is applied.
      */
     struct AssignmentPeriodConfig final {
         Time pre_assign_period{};

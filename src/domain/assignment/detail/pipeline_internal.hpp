@@ -89,6 +89,7 @@ namespace timetable::domain::assignment::detail {
           const PreprocessedNetwork& net
         , const AssignmentInput&     input
         , const VehicleJourneyItemLoadState& fixed_load_state
+        , SearchDiagnosticsContext diagnostics = {}
     ) {
         using timetable::infra::LogLevel;
         using timetable::infra::progress::log;
@@ -153,15 +154,13 @@ namespace timetable::domain::assignment::detail {
             , LogLevel::Info
         );
         MATHFP_TRY(validate_search_task_builder_input(
-              input.input
-            , input.assignment_period
+            input.input
         ));
         MATHFP_TRY_LET(
               std::vector<SearchTask>
             , search_tasks
             , build_search_tasks(
-                  input.input
-                , input.assignment_period
+                input.input
             )
         );
         MATHFP_TRY_LET(
@@ -177,9 +176,10 @@ namespace timetable::domain::assignment::detail {
                 , ConnectionAdmissibilityConfig{
                       .deletion    = input.connection_deletion
                     , .demand_time = input.demand_segment_time
-                  }
+                }
                 , &search_pruning_execution
                 , input.complete_connection_dominance
+                , diagnostics
             )
         );
         MATHFP_TRY(validate_search_step_output(
@@ -429,10 +429,24 @@ namespace timetable::domain::assignment::detail {
         for (std::int32_t iteration = 1;
              iteration <= input.capacity_aware_assignment.iteration.max_iterations;
              ++iteration) {
+            /*
+             * The load state is fixed for the whole search/choice/split
+             * evaluation below. This is the correctness condition that keeps
+             * branch-and-bound dominance and suffix lower bounds valid under
+             * capacity-aware search: one iteration optimizes one immutable
+             * generalized-cost function.
+             */
             MATHFP_TRY_LET(
                   SearchStepResult
                 , search_step
-                , run_validated_search_step(network, input, current_state)
+                , run_validated_search_step(
+                      network
+                    , input
+                    , current_state
+                    , SearchDiagnosticsContext{
+                          .capacity_iteration = iteration
+                      }
+                  )
             );
             MATHFP_TRY_LET(
                   ConnectionChoiceResult

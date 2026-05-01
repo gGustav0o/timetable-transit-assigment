@@ -91,9 +91,19 @@ namespace timetable::domain::assignment {
         std::vector<SearchTaskResult> task_results{};
     };
 
+    /**
+     * @brief Runtime diagnostics context for search logging.
+     *
+     * This is intentionally separate from SearchCostContext: it describes the
+     * outer execution run, not the mathematical cost function optimized by
+     * branch-and-bound.
+     */
+    struct SearchDiagnosticsContext final {
+        std::int32_t capacity_iteration{};
+    };
+
     mathfp::Expected<std::vector<SearchTask>> build_search_tasks(
-          const InputModel&              input
-        , const AssignmentPeriodConfig&  assignment_period
+        const InputModel& input
     );
 
     [[nodiscard]] std::vector<const SearchConnection*> search_connection_ptrs(
@@ -170,6 +180,7 @@ namespace timetable::domain::assignment {
         , const AssignmentPeriodConfig&      assignment_period
         , const ConnectionAdmissibilityConfig& admissibility_config
         , const SearchPruningExecutionPlan* pruning_execution = nullptr
+        , SearchDiagnosticsContext diagnostics = {}
     );
 
     mathfp::Expected<ConnectionSearchResult> search_connections_branch_and_bound(
@@ -182,6 +193,7 @@ namespace timetable::domain::assignment {
         , const ConnectionAdmissibilityConfig& admissibility_config
         , const SearchPruningExecutionPlan* pruning_execution
         , const CompleteConnectionDominanceConfig& complete_connection_dominance
+        , SearchDiagnosticsContext diagnostics = {}
     );
 
     mathfp::Expected<ConnectionSearchResult> search_connections_branch_and_bound(
@@ -193,6 +205,7 @@ namespace timetable::domain::assignment {
         , const AssignmentPeriodConfig&      assignment_period
         , const ConnectionAdmissibilityConfig& admissibility_config
         , const SearchPruningExecutionPlan* pruning_execution = nullptr
+        , SearchDiagnosticsContext diagnostics = {}
     );
 
     mathfp::Expected<ConnectionSearchResult> search_connections_branch_and_bound(
@@ -205,6 +218,7 @@ namespace timetable::domain::assignment {
         , const ConnectionAdmissibilityConfig& admissibility_config
         , const SearchPruningExecutionPlan* pruning_execution
         , const CompleteConnectionDominanceConfig& complete_connection_dominance
+        , SearchDiagnosticsContext diagnostics = {}
     );
 
 }  // namespace timetable::domain::assignment

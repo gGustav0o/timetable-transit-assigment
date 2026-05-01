@@ -1,8 +1,12 @@
 #pragma once
 
 #include <array>
+#include <compare>
+#include <cstddef>
 #include <cstdint>
+#include <map>
 #include <string_view>
+#include <vector>
 
 #include <mathfp/core/expected.hpp>
 #include <mathfp/core/unit.hpp>
@@ -41,16 +45,46 @@ namespace timetable::domain::assignment {
     }
 
     /**
+     * @brief Immutable lookup indexes for capacity-aware search evaluation.
+     *
+     * The maps store positions, not pointers, so the index remains valid after
+     * SearchCapacityCostConfig moves. It is derived from load_state and
+     * capacity_set and must be rebuilt when either collection changes.
+     */
+    struct SearchCapacityTripPenaltyKey final {
+        IntervalId interval{};
+        TripId     trip{};
+
+        auto operator<=>(const SearchCapacityTripPenaltyKey&) const = default;
+    };
+
+    struct SearchCapacityTripPenaltyPrefix final {
+        std::vector<RoutePosition> positions{};
+        std::vector<double>        cumulative_penalties{};
+    };
+
+    struct SearchCapacityCostIndex final {
+        std::map<VehicleJourneyItemLoadKey, std::size_t> load_positions{};
+        std::map<VehicleJourneyItemKey, std::size_t>     capacity_positions{};
+        std::map<TripId, std::vector<RoutePosition>>     capacity_trip_positions{};
+        std::map<SearchCapacityTripPenaltyKey, SearchCapacityTripPenaltyPrefix> penalty_prefixes{};
+    };
+
+    /**
      * @brief Fixed capacity-cost data for one capacity-aware search iteration.
      *
      * load_state is an exogenous snapshot. It must not be mutated while a
      * branch-and-bound run evaluates dominance, pruning and choice metrics.
+     * index is built once from this fixed snapshot and capacity_set by the
+     * SearchCostContext factory; hot search-cost evaluation must use this
+     * immutable lookup data instead of scanning capacity/load vectors.
      */
     struct SearchCapacityCostConfig final {
         Dimless                       volume_capacity_ratio{};
         CapacityPenaltyPolicy         penalty_policy{ CapacityPenaltyPolicy::VolumeCapacityRatio };
         VehicleJourneyItemLoadState   load_state{};
         VehicleJourneyItemCapacitySet capacity_set{};
+        SearchCapacityCostIndex       index{};
     };
 
     /**
@@ -146,6 +180,13 @@ namespace timetable::domain::assignment {
         , Dimless          volume_capacity_ratio
     );
 
+    /**
+     * @brief Evaluate search impedance for already validated cost data.
+     *
+     * Full SearchCostContext validation belongs to make_*_search_cost_context
+     * and pipeline boundaries. This function is intentionally lightweight
+     * because it is called from branch-and-bound dominance and retention loops.
+     */
     [[nodiscard]] mathfp::Expected<double> search_impedance(
           const SearchCostComponents& components
         , const SearchCostContext&    context

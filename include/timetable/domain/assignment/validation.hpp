@@ -134,18 +134,17 @@ namespace timetable::domain::assignment {
      * @brief Validate inputs used to materialize OD-interval SearchTask objects.
      *
      * Contract:
-     * - the assignment period must be finite and non-negative;
      * - intervals used by positive-demand entries must exist and satisfy start < end;
-     * - the assignment-period expansion of every active interval must produce
-     *   a finite valid departure-time domain.
+     * - each active demand interval must itself be a finite valid departure-time
+     *   domain.
      *
-     * This is intentionally independent of SearchTimePaddingPolicy. Search tasks
-     * are bounded by the assignment period, while SearchTimePaddingPolicy belongs
-     * to search-time-domain planning/optimization.
+     * This is intentionally independent of AssignmentPeriodConfig and
+     * SearchTimePaddingPolicy. AssignmentPeriodConfig is an admissibility model
+     * for complete connections; search-time widening belongs to explicit
+     * search-time-domain planning.
      */
     mathfp::Expected<mathfp::Unit> validate_search_task_builder_input(
-          const InputModel&              input
-        , const AssignmentPeriodConfig&  assignment_period
+        const InputModel& input
     );
 
     /**

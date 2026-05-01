@@ -741,12 +741,14 @@ namespace timetable::infra::params_txt::detail {
             const auto search_factor = mathfp::units::as_dimless(
                 search_params.impedance.volume_capacity_ratio
             );
+            const auto search_mode =
+                search_factor > 0.0
+                    ? CapacityAwareSearchMode::StoredOnly
+                    : CapacityAwareSearchMode::Disabled;
 
             return make_capacity_aware_assignment_config(
                   split_factor > 0.0
-                , search_factor > 0.0
-                    ? CapacityAwareSearchMode::Enabled
-                    : CapacityAwareSearchMode::Disabled
+                , search_mode
                 , CapacityPenaltyPolicy::VolumeCapacityRatio
                 , CapacityIterationConfig{}
             );

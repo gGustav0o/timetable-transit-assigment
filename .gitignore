@@ -28,5 +28,6 @@ __pycache__/
 *.pyc
 
 # Local datasets / large input files
+baselines/
 data/
 /AGENTS.md

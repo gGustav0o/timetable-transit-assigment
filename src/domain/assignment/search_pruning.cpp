@@ -304,9 +304,19 @@ namespace timetable::domain::assignment {
         , SearchPruningMetricSet    metric_set
         , SearchPruningMetrics      metrics
     ) {
+        const auto dominated_begin = std::lower_bound(
+              metric_set.metrics.begin()
+            , metric_set.metrics.end()
+            , metrics.arrival.value()
+            , [](const SearchPruningMetrics& lhs, double arrival_value) {
+                return lhs.arrival.value() < arrival_value;
+            }
+        );
+
+        const auto old_size = metric_set.metrics.size();
         metric_set.metrics.erase(
-            std::remove_if(
-                  metric_set.metrics.begin()
+              std::remove_if(
+                  dominated_begin
                 , metric_set.metrics.end()
                 , [&](const SearchPruningMetrics& existing) {
                     return dominates_exactly(exact_policy, metrics, existing);
@@ -315,6 +325,7 @@ namespace timetable::domain::assignment {
           , metric_set.metrics.end()
         );
 
+        const auto removed = old_size - metric_set.metrics.size();
         const auto insertion = std::lower_bound(
               metric_set.metrics.begin()
             , metric_set.metrics.end()
@@ -323,8 +334,13 @@ namespace timetable::domain::assignment {
                 return lhs.arrival.value() < arrival_value;
             }
         );
+        const auto inserted_metrics = metrics;
         metric_set.metrics.insert(insertion, std::move(metrics));
-        metric_set.summary = summarize_pruning_metrics(metric_set.metrics);
+        if (removed > 0) {
+            metric_set.summary = summarize_pruning_metrics(metric_set.metrics);
+        } else {
+            update_summary_with_metrics(metric_set.summary, inserted_metrics);
+        }
         return metric_set;
     }
 
