@@ -16,6 +16,17 @@
       }
     },
     {
+      "name": "vcpkg-no-capacity-stages",
+      "inherits": "vcpkg",
+      "displayName": "VS + vcpkg, capacity stages disabled",
+      "binaryDir": "${sourceDir}/out/build/vcpkg-no-capacity-stages",
+      "cacheVariables": {
+        "TIMETABLE_ENABLE_RUNTIME_OVERRIDES": "ON",
+        "TIMETABLE_OVERRIDE_DISABLE_CAPACITY_AWARE_ASSIGNMENT": "ON",
+        "TIMETABLE_OVERRIDE_DISABLE_VEHICLE_JOURNEY_ITEM_OVERLOAD_ASSESSMENT": "ON"
+      }
+    },
+    {
       "name": "vcpkg-linux",
       "displayName": "WSL + vcpkg toolchain (manifest)",
       "generator": "Ninja Multi-Config",
@@ -29,6 +40,17 @@
         "MATHFP_ENABLE_LINALG": "ON",
         "MATHFP_ENABLE_GRAPH": "ON",
         "MATHFP_ENABLE_INTEROP": "ON"
+      }
+    },
+    {
+      "name": "vcpkg-linux-no-capacity-stages",
+      "inherits": "vcpkg-linux",
+      "displayName": "WSL + vcpkg, capacity stages disabled",
+      "binaryDir": "${sourceDir}/out/build/vcpkg-linux-no-capacity-stages",
+      "cacheVariables": {
+        "TIMETABLE_ENABLE_RUNTIME_OVERRIDES": "ON",
+        "TIMETABLE_OVERRIDE_DISABLE_CAPACITY_AWARE_ASSIGNMENT": "ON",
+        "TIMETABLE_OVERRIDE_DISABLE_VEHICLE_JOURNEY_ITEM_OVERLOAD_ASSESSMENT": "ON"
       }
     }
   ],
@@ -44,6 +66,11 @@
       "configuration": "Release"
     },
     {
+      "name": "release-no-capacity-stages",
+      "configurePreset": "vcpkg-no-capacity-stages",
+      "configuration": "Release"
+    },
+    {
       "name": "wsl-debug",
       "configurePreset": "vcpkg-linux",
       "configuration": "Debug"
@@ -51,6 +78,11 @@
     {
       "name": "wsl-release",
       "configurePreset": "vcpkg-linux",
+      "configuration": "Release"
+    },
+    {
+      "name": "wsl-release-no-capacity-stages",
+      "configurePreset": "vcpkg-linux-no-capacity-stages",
       "configuration": "Release"
     }
   ]

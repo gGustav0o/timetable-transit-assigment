@@ -69,6 +69,7 @@
       PerceivedJourneyTime.volCapRatioFactor = 0,
       SearchImp.volCapRatioFactor при положительном значении остается stored_only и не меняет search;
   - TIMETABLE_OVERRIDE_DISABLE_VEHICLE_JOURNEY_ITEM_OVERLOAD_ASSESSMENT принудительно отключает post-assignment overload assessment без отключения основного assignment pipeline;
+  - готовые presets для такого режима: release-no-capacity-stages, local-release-no-capacity-stages, wsl-release-no-capacity-stages, local-wsl-release-no-capacity-stages;
   - compile-time override имеет приоритет над params.txt и предназначен для воспроизводимых экспериментальных конфигураций, когда нужно быстро исключить отдельную стадию без правки входных параметров.
 
 Семантика basePara.preAssignPeriod/basePara.postAssignPeriod:

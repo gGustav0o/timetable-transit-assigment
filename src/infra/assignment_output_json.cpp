@@ -26,8 +26,7 @@ namespace timetable::infra {
             }
 
             void end_object() {
-                buffer_.push_back('}');
-                stack_.pop_back();
+                end_container('}');
             }
 
             void begin_array() {
@@ -37,8 +36,7 @@ namespace timetable::infra {
             }
 
             void end_array() {
-                buffer_.push_back(']');
-                stack_.pop_back();
+                end_container(']');
             }
 
             void key(std::string_view name) {
@@ -46,9 +44,10 @@ namespace timetable::infra {
                 if (!frame.first) {
                     buffer_.push_back(',');
                 }
+                newline_and_indent(stack_.size());
                 frame.first = false;
                 append_escaped_string(name);
-                buffer_.push_back(':');
+                buffer_.append(": ");
                 frame.expecting_value = true;
             }
 
@@ -78,6 +77,7 @@ namespace timetable::infra {
             }
 
             [[nodiscard]] std::string finish() && {
+                buffer_.push_back('\n');
                 return std::move(buffer_);
             }
 
@@ -93,6 +93,15 @@ namespace timetable::infra {
                 bool      expecting_value{ false };
             };
 
+            void end_container(char closing) {
+                const auto frame = stack_.back();
+                if (!frame.first) {
+                    newline_and_indent(stack_.size() - 1);
+                }
+                buffer_.push_back(closing);
+                stack_.pop_back();
+            }
+
             void begin_value() {
                 if (stack_.empty()) {
                     return;
@@ -103,11 +112,17 @@ namespace timetable::infra {
                     if (!frame.first) {
                         buffer_.push_back(',');
                     }
+                    newline_and_indent(stack_.size());
                     frame.first = false;
                     return;
                 }
 
                 frame.expecting_value = false;
+            }
+
+            void newline_and_indent(std::size_t depth) {
+                buffer_.push_back('\n');
+                buffer_.append(depth * 2, ' ');
             }
 
             void append_escaped_string(std::string_view value) {

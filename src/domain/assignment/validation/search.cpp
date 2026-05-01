@@ -1,11 +1,13 @@
 #include "timetable/domain/assignment/validation.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
 
 #include <mathfp/core/error.hpp>
+#include <mathfp/core/numeric_tolerance.hpp>
 #include <mathfp/core/try.hpp>
 #include <mathfp/core/unit.hpp>
 
@@ -306,6 +308,49 @@ namespace timetable::domain::assignment {
             return mathfp::kUnit;
         }
 
+        [[nodiscard]] double trace_time_scale(
+              const ConnectionMetrics&      metrics
+            , const EvaluatedConnectionTrace& evaluated
+            , Time                         transfer_time
+        ) noexcept {
+            const auto event_scale = (std::max)(
+                  std::abs(metrics.departure_time.value())
+                , std::abs(metrics.arrival_time.value())
+            );
+            const auto evaluated_event_scale = (std::max)(
+                  std::abs(evaluated.departure.value())
+                , std::abs(evaluated.arrival.value())
+            );
+            const auto duration_scale = (std::max)(
+                  std::abs(metrics.journey_time.value())
+                , std::abs(evaluated.journey_time.value())
+            );
+            const auto transfer_scale = (std::max)(
+                  std::abs(transfer_time.value())
+                , std::abs(evaluated.transfer_time.value())
+            );
+            return (std::max)(
+                  (std::max)(event_scale, evaluated_event_scale)
+                , (std::max)(duration_scale, transfer_scale)
+            );
+        }
+
+        [[nodiscard]] bool almost_equal_trace_time(
+              double      lhs
+            , double      rhs
+            , double      time_scale
+            , std::size_t term_count
+        ) noexcept {
+            const auto count = static_cast<double>((std::max)(std::size_t{ 1 }, term_count));
+            const auto k     = (std::max)(32.0, 16.0 * count);
+            return mathfp::almost_equal(
+                  lhs
+                , rhs
+                , mathfp::abs_tolerance_scaled(time_scale, k)
+                , k * mathfp::rel_tolerance_coeff<double>()
+            );
+        }
+
         mathfp::Expected<mathfp::Unit> validate_evaluated_segments_against_canonical_connection(
               const SearchConnection&     connection
             , const EvaluatedConnectionTrace& evaluated
@@ -316,6 +361,11 @@ namespace timetable::domain::assignment {
             const auto metrics     = metrics_of(connection);
             const auto transfer_time =
                 metrics.transfer_wait_time + metrics.transfer_walk_time;
+            const auto accumulation_terms = (std::max)(
+                  connection_segment_trace(connection).size()
+                , canonical_connection(connection).trace.legs.size()
+            );
+            const auto time_scale = trace_time_scale(metrics, evaluated, transfer_time);
 
             if (evaluated.start.kind != EndpointKind::Zone || evaluated.start.id != origin.get()) {
                 return mathfp::unexpected(
@@ -333,10 +383,24 @@ namespace timetable::domain::assignment {
             }
             if (!detail::validation::almost_equal_time(metrics.departure_time, evaluated.departure)
                 || !detail::validation::almost_equal_time(metrics.arrival_time, evaluated.arrival)
-                || !detail::validation::almost_equal_time(metrics.journey_time, evaluated.journey_time)
-                || !detail::validation::almost_equal_time(transfer_time, evaluated.transfer_time)
+                || !almost_equal_trace_time(
+                    metrics.journey_time.value(),
+                    evaluated.journey_time.value(),
+                    time_scale,
+                    accumulation_terms
+                )
+                || !almost_equal_trace_time(
+                    transfer_time.value(),
+                    evaluated.transfer_time.value(),
+                    time_scale,
+                    accumulation_terms
+                )
                 || metrics.transfer_count != evaluated.transfers
-                || !detail::validation::almost_equal_scalar(metrics.fare, evaluated.fare)) {
+                || !detail::validation::almost_equal_accumulated(
+                    metrics.fare,
+                    evaluated.fare,
+                    accumulation_terms
+                )) {
                 return mathfp::unexpected(
                     mathfp::internal_error("canonical connection metrics disagree with segment trace")
                         .ctx("connection_index"   , static_cast<std::int64_t>(index))
@@ -344,6 +408,14 @@ namespace timetable::domain::assignment {
                         .ctx("evaluated_departure", evaluated.departure.value())
                         .ctx("canonical_arrival"  , metrics.arrival_time.value())
                         .ctx("evaluated_arrival"  , evaluated.arrival.value())
+                        .ctx("canonical_journey_time", metrics.journey_time.value())
+                        .ctx("evaluated_journey_time", evaluated.journey_time.value())
+                        .ctx("canonical_transfer_time", transfer_time.value())
+                        .ctx("evaluated_transfer_time", evaluated.transfer_time.value())
+                        .ctx("canonical_transfers", static_cast<std::int64_t>(metrics.transfer_count.get()))
+                        .ctx("evaluated_transfers", static_cast<std::int64_t>(evaluated.transfers.get()))
+                        .ctx("canonical_fare", metrics.fare)
+                        .ctx("evaluated_fare", evaluated.fare)
                 );
             }
             return mathfp::kUnit;
