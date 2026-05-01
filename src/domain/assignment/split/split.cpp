@@ -28,26 +28,6 @@
 namespace timetable::domain::assignment {
     namespace {
 
-        double transfer_count_value(
-            TransferCount transfers
-        ) noexcept {
-            return static_cast<double>(transfers.get());
-        }
-
-        double weighted_duration(
-              Time    duration
-            , Dimless weight
-        ) noexcept {
-            return mathfp::units::as_dimless(weight) * duration.value();
-        }
-
-        double weighted_transfer_count(
-              TransferCount transfers
-            , Dimless       weight
-        ) noexcept {
-            return mathfp::units::as_dimless(weight) * transfer_count_value(transfers);
-        }
-
         struct SplitAlternative final {
             SearchConnection  connection;
             ConnectionMetrics metrics{};
@@ -147,12 +127,24 @@ namespace timetable::domain::assignment {
             , const PerceivedJourneyTimeWeights& weights
         ) noexcept {
             return
-                  weighted_duration(metrics.in_vehicle_time   , weights.in_vehicle_time)
-                + weighted_duration(metrics.access_time       , weights.access_time)
-                + weighted_duration(metrics.egress_time       , weights.egress_time)
-                + weighted_duration(metrics.transfer_walk_time, weights.transfer_walk_time)
-                + weighted_duration(metrics.transfer_wait_time, weights.transfer_wait_time)
-                + weighted_transfer_count(metrics.transfer_count, weights.transfer_count);
+                  timetable::domain::weighted_duration(
+                      metrics.in_vehicle_time
+                    , weights.in_vehicle_time
+                  )
+                + timetable::domain::weighted_duration(metrics.access_time, weights.access_time)
+                + timetable::domain::weighted_duration(metrics.egress_time, weights.egress_time)
+                + timetable::domain::weighted_duration(
+                      metrics.transfer_walk_time
+                    , weights.transfer_walk_time
+                  )
+                + timetable::domain::weighted_duration(
+                      metrics.transfer_wait_time
+                    , weights.transfer_wait_time
+                  )
+                + timetable::domain::weighted_transfer_count(
+                      metrics.transfer_count
+                    , weights.transfer_count
+                );
         }
 
         Time split_reference_time(
