@@ -8,10 +8,13 @@
 #include <string_view>
 #include <vector>
 
+#include <boost/container/small_vector.hpp>
+
 #include <mathfp/core/expected.hpp>
 #include <mathfp/core/unit.hpp>
 
 #include "timetable/enum_string.hpp"
+#include "timetable/domain/assignment/search/residual_reachability.hpp"
 #include "timetable/domain/endpoints.hpp"
 #include "timetable/domain/model.hpp"
 #include "timetable/domain/params.hpp"
@@ -31,8 +34,11 @@ namespace timetable::domain::assignment {
      * Current state space:
      * - physical endpoint
      * - optional stop occurrence
+     * - structural branch phase
      * - transfer context of the last timed leg
      *
+     * The phase is required because walk-phase states can share the same
+     * physical endpoint while having different admissible continuations.
      * The transfer context is required because feasibility of future timed
      * successors depends not only on the current physical/occurrence position,
      * but also on the last timed trip/line through same-trip and same-line
@@ -48,6 +54,7 @@ namespace timetable::domain::assignment {
     struct SearchPruningStateKey final {
         EndpointKey                       physical{};
         std::optional<StopOccurrenceKey>  occurrence{};
+        SearchBranchPhase                 phase{ SearchBranchPhase::AtOrigin };
         SearchPruningTransferContext      transfer{};
 
         auto operator<=>(const SearchPruningStateKey&) const = default;
@@ -70,6 +77,11 @@ namespace timetable::domain::assignment {
         double        fare{};
         double        impedance{};
     };
+
+    using SearchPruningMetricVector = boost::container::small_vector<
+          SearchPruningMetrics
+        , 1
+    >;
 
     /**
      * @brief Exact-dominance contract for the current pruning state space.
@@ -131,7 +143,7 @@ namespace timetable::domain::assignment {
      * - summary agrees with metrics
      */
     struct SearchPruningMetricSet final {
-        std::vector<SearchPruningMetrics> metrics{};
+        SearchPruningMetricVector metrics{};
         SearchPruningSummary              summary{};
     };
 

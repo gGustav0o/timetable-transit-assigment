@@ -35,6 +35,15 @@ namespace timetable::domain::assignment {
             summary.min_fare         = std::min(summary.min_fare        , metrics.fare);
         }
 
+        [[nodiscard]] std::span<const SearchPruningMetrics> metric_span(
+            const SearchPruningMetricVector& metrics
+        ) noexcept {
+            return std::span<const SearchPruningMetrics>{
+                  metrics.data()
+                , metrics.size()
+            };
+        }
+
     }  // namespace
 
     mathfp::Expected<SearchPruningMetrics> make_search_pruning_metrics(
@@ -138,7 +147,7 @@ namespace timetable::domain::assignment {
             }
         }
 
-        const auto recomputed = summarize_pruning_metrics(metric_set.metrics);
+        const auto recomputed = summarize_pruning_metrics(metric_span(metric_set.metrics));
         if (
             recomputed.empty != metric_set.summary.empty
             || (
@@ -255,7 +264,7 @@ namespace timetable::domain::assignment {
         , const SearchPruningMetrics&    candidate
         , const SearchPruningMetricSet& metric_set
     ) noexcept {
-        if (!is_exactly_relevant(exact_policy, candidate, metric_set.metrics)) {
+        if (!is_exactly_relevant(exact_policy, candidate, metric_span(metric_set.metrics))) {
             return ExactPruningDecision{
                   .reason   = SearchPruningReason::RejectedExactDominance
                 , .accepted = false
@@ -337,7 +346,7 @@ namespace timetable::domain::assignment {
         const auto inserted_metrics = metrics;
         metric_set.metrics.insert(insertion, std::move(metrics));
         if (removed > 0) {
-            metric_set.summary = summarize_pruning_metrics(metric_set.metrics);
+            metric_set.summary = summarize_pruning_metrics(metric_span(metric_set.metrics));
         } else {
             update_summary_with_metrics(metric_set.summary, inserted_metrics);
         }

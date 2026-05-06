@@ -14,9 +14,11 @@ namespace timetable::domain::assignment {
      * @brief Search-state factorization requested by the pruning model.
      *
      * CurrentPhysicalOccurrenceAndTransferContext preserves the current search
-     * semantics:
+     * semantics. The historical token name is kept for configuration
+     * compatibility; the concrete key also contains the branch phase because
+     * walk-phase states have different admissible continuations:
      * pruning compares partial metric vectors only within the same physical
-     * endpoint, the same optional stop occurrence, and the same
+     * endpoint, the same optional stop occurrence, the same branch phase, and the same
      * continuation-relevant transfer context carried by the previous timed leg.
      */
     enum class SearchPruningStateSpace : std::uint8_t {
@@ -156,6 +158,7 @@ namespace timetable::domain::assignment {
         EndpointKey                      physical{};
         std::optional<StopOccurrenceKey> current_occurrence{};
         std::optional<StopOccurrenceKey> last_timed_occurrence{};
+        SearchBranchPhase                phase{ SearchBranchPhase::AtOrigin };
         SearchPruningTransferContext     transfer{};
     };
 
@@ -187,6 +190,7 @@ namespace timetable::domain::assignment {
                   projection
                 , stop_reference
               )
+            , .phase      = projection.phase
             , .transfer   = projection.transfer
         };
     }

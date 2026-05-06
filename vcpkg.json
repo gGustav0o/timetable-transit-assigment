@@ -6,6 +6,8 @@
   "dependencies": [
     "tl-expected",
     "fmt",
+    "boost-container",
+    "boost-unordered",
     "boost-range",
     "boost-graph",
     "eigen3",

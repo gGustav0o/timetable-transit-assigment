@@ -10,14 +10,17 @@ namespace timetable::domain::assignment {
     /**
      * @brief Phase of a branch in the timetable connection tree.
      *
-     * The phase is a derived property of a concrete search branch, not mutable
-     * state. It captures the structural constraints of the paper's connection
-     * tree: access before the first timed ride, then ride/transfer/egress after
-     * a timed ride, and completion only at the task destination zone.
+     * The phase captures the structural constraints of the paper's connection
+     * tree. Walk legs are atomic connection segments: access may occur only
+     * before the first boarding, transfer walk may occur only after a timed
+     * ride and cannot be chained with another walk leg, and completion occurs
+     * only at the task destination zone.
      */
     enum class SearchBranchPhase : std::uint8_t {
-          BeforeFirstBoarding
+          AtOrigin
+        , BeforeFirstBoarding
         , AfterTimedRide
+        , AfterTransferWalk
         , Completed
     };
 
@@ -32,7 +35,7 @@ namespace timetable::domain::assignment {
     struct RelaxedSuffixState final {
         EndpointKey       current_physical{};
         ZoneId            destination{};
-        SearchBranchPhase phase{ SearchBranchPhase::BeforeFirstBoarding };
+        SearchBranchPhase phase{ SearchBranchPhase::AtOrigin };
         TransferCount     remaining_transfers{};
     };
 
@@ -40,6 +43,7 @@ namespace timetable::domain::assignment {
         SearchBranchPhase phase
     ) noexcept {
         return phase == SearchBranchPhase::AfterTimedRide
+            || phase == SearchBranchPhase::AfterTransferWalk
             || phase == SearchBranchPhase::Completed;
     }
 

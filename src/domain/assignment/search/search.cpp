@@ -1,6 +1,7 @@
 #include "timetable/domain/assignment/search/search.hpp"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <bit>
 #include <chrono>
@@ -12,6 +13,7 @@
 #include <iterator>
 #include <limits>
 #include <map>
+#include <memory>
 #include <optional>
 #include <queue>
 #include <span>
@@ -21,6 +23,8 @@
 #include <unordered_set>
 #include <utility>
 #include <vector>
+
+#include <boost/unordered/unordered_flat_map.hpp>
 
 #include <mathfp/core/error.hpp>
 #include <mathfp/core/try.hpp>
@@ -62,6 +66,7 @@ namespace timetable::domain::assignment {
                     seed = seed * 31u + std::hash<std::int64_t>{}(key.occurrence->stop    .get());
                     seed = seed * 31u + std::hash<std::int64_t>{}(key.occurrence->position.get());
                 }
+                seed = seed * 31u + std::hash<std::uint8_t>{}(static_cast<std::uint8_t>(key.phase));
                 seed = seed * 31u + std::hash<bool>{}(key.transfer.last_trip.has_value());
                 if (key.transfer.last_trip.has_value()) {
                     seed = seed * 31u + std::hash<std::int64_t>{}(key.transfer.last_trip->get());
@@ -84,7 +89,7 @@ namespace timetable::domain::assignment {
             ZoneId                             origin{};
             EndpointKey                        current_physical{};
             std::optional<StopOccurrenceKey>   current_occurrence{};
-            ConnectionTrace                    connection_trace{};
+            SearchBranchPhase                  phase{ SearchBranchPhase::AtOrigin };
             std::optional<std::size_t>         parent_branch{};
             std::optional<ConnectionSegmentId> incoming_segment{};
             const ConnectionSegment*           last_timed_segment{};
@@ -117,6 +122,81 @@ namespace timetable::domain::assignment {
             SearchPartialMetrics metrics{};
         };
 
+        struct BranchSlot final {
+            std::unique_ptr<SearchBranch> branch{};
+            std::optional<std::size_t>    parent{};
+            std::size_t                   live_children{};
+            bool                          self_released{};
+        };
+
+        using BranchArena = std::deque<BranchSlot>;
+
+        [[nodiscard]] const SearchBranch& branch_at(
+              const BranchArena& branches
+            , std::size_t        index
+        ) {
+            return *branches.at(index).branch;
+        }
+
+        [[nodiscard]] SearchBranch& branch_at(
+              BranchArena& branches
+            , std::size_t  index
+        ) {
+            return *branches.at(index).branch;
+        }
+
+        std::size_t append_branch(
+              BranchArena& branches
+            , SearchBranch branch
+        ) {
+            const auto parent = branch.trace.parent_branch;
+            if (parent.has_value()) {
+                ++branches.at(*parent).live_children;
+            }
+            branches.push_back(
+                BranchSlot{
+                      .branch = std::make_unique<SearchBranch>(std::move(branch))
+                    , .parent = parent
+                }
+            );
+            return branches.size() - 1u;
+        }
+
+        template <typename ReleasePayload>
+        void release_branch_if_closed(
+              BranchArena&     branches
+            , std::size_t      index
+            , ReleasePayload&& release_payload
+        ) {
+            auto&& release = release_payload;
+            auto cursor = std::optional<std::size_t>{ index };
+            while (cursor.has_value()) {
+                auto& slot = branches.at(*cursor);
+                slot.self_released = true;
+                if (slot.live_children != 0u || slot.branch == nullptr) {
+                    return;
+                }
+
+                const auto parent = slot.parent;
+                slot.branch.reset();
+                release(*cursor);
+
+                if (!parent.has_value()) {
+                    return;
+                }
+
+                auto& parent_slot = branches.at(*parent);
+                if (parent_slot.live_children == 0u) {
+                    return;
+                }
+                --parent_slot.live_children;
+                if (!parent_slot.self_released) {
+                    return;
+                }
+                cursor = parent;
+            }
+        }
+
         enum class ReachabilityRejectionReason : std::uint8_t {
               Phase
             , TransferBudget
@@ -128,6 +208,110 @@ namespace timetable::domain::assignment {
             std::size_t transfer_budget{};
             std::size_t unreachable_destination{};
         };
+
+        struct WalkKindStats final {
+            std::size_t access{};
+            std::size_t transfer{};
+            std::size_t egress{};
+        };
+
+        struct BranchPhaseStats final {
+            std::size_t at_origin{};
+            std::size_t before_first_boarding{};
+            std::size_t after_timed_ride{};
+            std::size_t after_transfer_walk{};
+            std::size_t completed{};
+        };
+
+        void increment_walk_kind_stats(
+              WalkKindStats&    stats
+            , ConnectionLegKind kind
+        ) noexcept {
+            switch (kind) {
+                case ConnectionLegKind::AccessWalk:
+                    ++stats.access;
+                    return;
+
+                case ConnectionLegKind::TransferWalk:
+                    ++stats.transfer;
+                    return;
+
+                case ConnectionLegKind::EgressWalk:
+                    ++stats.egress;
+                    return;
+
+                case ConnectionLegKind::Ride:
+                case ConnectionLegKind::InitialWait:
+                case ConnectionLegKind::TransferWait:
+                case ConnectionLegKind::FinalWait:
+                    return;
+            }
+        }
+
+        [[nodiscard]] std::size_t& phase_counter(
+              BranchPhaseStats& stats
+            , SearchBranchPhase phase
+        ) noexcept {
+            switch (phase) {
+                case SearchBranchPhase::AtOrigin:
+                    return stats.at_origin;
+
+                case SearchBranchPhase::BeforeFirstBoarding:
+                    return stats.before_first_boarding;
+
+                case SearchBranchPhase::AfterTimedRide:
+                    return stats.after_timed_ride;
+
+                case SearchBranchPhase::AfterTransferWalk:
+                    return stats.after_transfer_walk;
+
+                case SearchBranchPhase::Completed:
+                    return stats.completed;
+            }
+
+            return stats.completed;
+        }
+
+        void increment_phase_stats(
+              BranchPhaseStats& stats
+            , SearchBranchPhase phase
+        ) noexcept {
+            ++phase_counter(stats, phase);
+        }
+
+        void decrement_phase_stats(
+              BranchPhaseStats& stats
+            , SearchBranchPhase phase
+        ) noexcept {
+            auto& counter = phase_counter(stats, phase);
+            if (counter > 0u) {
+                --counter;
+            }
+        }
+
+        [[nodiscard]] std::string format_walk_kind_stats(
+            const WalkKindStats& stats
+        ) {
+            return fmt::format(
+                  "access/transfer/egress={}/{}/{}"
+                , stats.access
+                , stats.transfer
+                , stats.egress
+            );
+        }
+
+        [[nodiscard]] std::string format_branch_phase_stats(
+            const BranchPhaseStats& stats
+        ) {
+            return fmt::format(
+                  "origin/preboard/timed/transfer_walk/completed={}/{}/{}/{}/{}"
+                , stats.at_origin
+                , stats.before_first_boarding
+                , stats.after_timed_ride
+                , stats.after_transfer_walk
+                , stats.completed
+            );
+        }
 
         enum class SuffixLowerBoundRejectionReason : std::uint8_t {
               ExactDominance
@@ -147,6 +331,10 @@ namespace timetable::domain::assignment {
             std::size_t expanded_branches{};
             std::size_t generated_successors{};
             std::size_t accepted_branches{};
+            WalkKindStats generated_walk{};
+            WalkKindStats accepted_walk{};
+            std::size_t rejected_consecutive_walk{};
+            BranchPhaseStats accepted_branches_by_phase{};
             std::size_t rejected_time_domain{};
             std::size_t rejected_feasibility{};
             std::size_t rejected_reboarding{};
@@ -182,8 +370,11 @@ namespace timetable::domain::assignment {
             return lookup;
         }
 
-        using NodeMetricMap = std::unordered_map<SearchNodeKey, NodeMetricSet, SearchNodeKeyHash>;
-        using BranchArena   = std::deque<SearchBranch>;
+        using NodeMetricMap = boost::unordered_flat_map<
+              SearchNodeKey
+            , NodeMetricSet
+            , SearchNodeKeyHash
+        >;
 
         enum class SearchProjectionSlotKind : std::uint8_t {
               DemandTask
@@ -277,7 +468,7 @@ namespace timetable::domain::assignment {
 
         struct ResidualReachabilityKey final {
             EndpointKey       current_physical{};
-            SearchBranchPhase phase{ SearchBranchPhase::BeforeFirstBoarding };
+            SearchBranchPhase phase{ SearchBranchPhase::AtOrigin };
             TransferCount     remaining_transfers{};
         };
 
@@ -367,38 +558,67 @@ namespace timetable::domain::assignment {
 
         struct ActiveIndexSet final {
             static constexpr std::size_t word_bits = 64;
+            static constexpr std::size_t inline_word_count = 4;
 
             std::size_t size{};
-            std::vector<std::uint64_t> words{};
+            std::array<std::uint64_t, inline_word_count> inline_words{};
+            std::vector<std::uint64_t> heap_words{};
 
             ActiveIndexSet() = default;
 
             explicit ActiveIndexSet(std::size_t element_count)
                 : size{ element_count }
-                , words((element_count + word_bits - 1u) / word_bits, 0u)
-            {}
+            {
+                if (!uses_inline_storage()) {
+                    heap_words.assign(word_count(), 0u);
+                }
+            }
 
             [[nodiscard]] static ActiveIndexSet full(std::size_t element_count) {
                 ActiveIndexSet result{ element_count };
-                std::fill(result.words.begin(), result.words.end(), ~std::uint64_t{ 0 });
+                for (std::size_t i = 0; i < result.word_count(); ++i) {
+                    result.word(i) = ~std::uint64_t{ 0 };
+                }
                 const auto tail_bits = element_count % word_bits;
-                if (!result.words.empty() && tail_bits != 0u) {
-                    result.words.back() &= (std::uint64_t{ 1 } << tail_bits) - 1u;
+                if (result.word_count() != 0u && tail_bits != 0u) {
+                    result.word(result.word_count() - 1u) &=
+                        (std::uint64_t{ 1 } << tail_bits) - 1u;
                 }
                 return result;
             }
 
+            [[nodiscard]] std::size_t word_count() const noexcept {
+                return (size + word_bits - 1u) / word_bits;
+            }
+
+            [[nodiscard]] bool uses_inline_storage() const noexcept {
+                return word_count() <= inline_word_count;
+            }
+
+            [[nodiscard]] std::uint64_t word(std::size_t index) const noexcept {
+                return uses_inline_storage()
+                    ? inline_words[index]
+                    : heap_words[index];
+            }
+
+            [[nodiscard]] std::uint64_t& word(std::size_t index) noexcept {
+                return uses_inline_storage()
+                    ? inline_words[index]
+                    : heap_words[index];
+            }
+
             [[nodiscard]] bool empty() const noexcept {
-                return std::all_of(
-                      words.begin()
-                    , words.end()
-                    , [](std::uint64_t word) { return word == 0u; }
-                );
+                for (std::size_t i = 0; i < word_count(); ++i) {
+                    if (word(i) != 0u) {
+                        return false;
+                    }
+                }
+                return true;
             }
 
             [[nodiscard]] bool contains(std::size_t index) const noexcept {
                 return index < size
-                    && (words[index / word_bits]
+                    && (word(index / word_bits)
                         & (std::uint64_t{ 1 } << (index % word_bits))) != 0u;
             }
 
@@ -406,42 +626,89 @@ namespace timetable::domain::assignment {
                 if (index >= size) {
                     return;
                 }
-                words[index / word_bits] |= std::uint64_t{ 1 } << (index % word_bits);
+                word(index / word_bits) |= std::uint64_t{ 1 } << (index % word_bits);
             }
 
             [[nodiscard]] ActiveIndexSet intersect(
                 const ActiveIndexSet& rhs
             ) const {
                 ActiveIndexSet result{ std::min(size, rhs.size) };
-                const auto common_words = std::min(words.size(), rhs.words.size());
+                const auto common_words = std::min(word_count(), rhs.word_count());
                 for (std::size_t i = 0; i < common_words; ++i) {
-                    result.words[i] = words[i] & rhs.words[i];
+                    result.word(i) = word(i) & rhs.word(i);
                 }
                 return result;
+            }
+
+            [[nodiscard]] bool equals(const ActiveIndexSet& rhs) const noexcept {
+                if (size != rhs.size) {
+                    return false;
+                }
+                for (std::size_t i = 0; i < word_count(); ++i) {
+                    if (word(i) != rhs.word(i)) {
+                        return false;
+                    }
+                }
+                return true;
             }
 
             template <typename Visitor>
             void for_each_index(Visitor&& visit) const {
                 auto&& visitor = visit;
-                for (std::size_t word_index = 0; word_index < words.size(); ++word_index) {
-                    auto word = words[word_index];
-                    while (word != 0u) {
-                        const auto bit = static_cast<std::size_t>(std::countr_zero(word));
+                for (std::size_t word_index = 0; word_index < word_count(); ++word_index) {
+                    auto bits = word(word_index);
+                    while (bits != 0u) {
+                        const auto bit = static_cast<std::size_t>(std::countr_zero(bits));
                         const auto index = word_index * word_bits + bit;
                         if (index < size) {
                             visitor(index);
                         }
-                        word &= word - 1u;
+                        bits &= bits - 1u;
                     }
                 }
             }
+        };
+
+        struct FixedActiveMask final {
+            static constexpr std::size_t max_words = ActiveIndexSet::inline_word_count;
+            static constexpr std::size_t max_size  = max_words * ActiveIndexSet::word_bits;
+
+            std::size_t size{};
+            std::array<std::uint64_t, max_words> words{};
+
+            [[nodiscard]] static FixedActiveMask from(
+                const ActiveIndexSet& source
+            ) noexcept {
+                FixedActiveMask result{
+                      .size = source.size
+                };
+                const auto copied_words = std::min(source.word_count(), max_words);
+                for (std::size_t i = 0; i < copied_words; ++i) {
+                    result.words[i] = source.word(i);
+                }
+                return result;
+            }
+
+            [[nodiscard]] ActiveIndexSet to_active_index_set() const {
+                ActiveIndexSet result{ size };
+                const auto copied_words = std::min(result.word_count(), max_words);
+                for (std::size_t i = 0; i < copied_words; ++i) {
+                    result.word(i) = words[i];
+                }
+                return result;
+            }
+        };
+
+        struct DemandBranchProjectionState final {
+            ActiveIndexSet active_tasks{};
+            ActiveIndexSet active_targets{};
         };
 
         constexpr std::size_t kTaskProgressStep    = 10;
         constexpr std::size_t kSearchHeartbeatStep = 10'000;
         constexpr std::size_t kSearchWallClockSuccessorCheckStep = 16'384;
         constexpr std::size_t kInitialTaskBranchReserve = 4'096;
-        constexpr std::size_t kAllZoneMaxParallelBatches = 2;
+        constexpr std::size_t kAllZoneMaxParallelBatches = 1;
         constexpr auto kSearchWallClockHeartbeatInterval =
             std::chrono::seconds{ 30 };
 
@@ -704,6 +971,7 @@ namespace timetable::domain::assignment {
             }
 
             if (state.phase == SearchBranchPhase::Completed) {
+                // Reverse of AfterTimedRide --egress walk--> Completed.
                 for (const auto edge : predecessors->second) {
                     const auto predecessor = edge.predecessor;
                     if (predecessor.kind != EndpointKind::Stop) {
@@ -722,7 +990,8 @@ namespace timetable::domain::assignment {
                 return;
             }
 
-            if (state.phase == SearchBranchPhase::AfterTimedRide) {
+            if (state.phase == SearchBranchPhase::AfterTransferWalk) {
+                // Reverse of AfterTimedRide --transfer walk--> AfterTransferWalk.
                 for (const auto edge : predecessors->second) {
                     const auto predecessor = edge.predecessor;
                     if (predecessor.kind != EndpointKind::Stop) {
@@ -742,6 +1011,7 @@ namespace timetable::domain::assignment {
             }
 
             if (state.phase == SearchBranchPhase::BeforeFirstBoarding) {
+                // Reverse of AtOrigin --access walk--> BeforeFirstBoarding.
                 for (const auto edge : predecessors->second) {
                     const auto predecessor = edge.predecessor;
                     if (predecessor.kind != EndpointKind::Zone) {
@@ -752,7 +1022,7 @@ namespace timetable::domain::assignment {
                         , frontier
                         , ResidualReachabilityKey{
                               .current_physical    = predecessor
-                            , .phase               = SearchBranchPhase::BeforeFirstBoarding
+                            , .phase               = SearchBranchPhase::AtOrigin
                             , .remaining_transfers = state.remaining_transfers
                           }
                     );
@@ -795,12 +1065,25 @@ namespace timetable::domain::assignment {
 
                 // Every later timed boarding consumes one remaining transfer.
                 if (state.remaining_transfers < max_transfers) {
+                    // Reverse of AfterTimedRide --timed ride--> AfterTimedRide.
                     enqueue_reachable_state(
                           destination
                         , frontier
                         , ResidualReachabilityKey{
                               .current_physical    = predecessor
                             , .phase               = SearchBranchPhase::AfterTimedRide
+                            , .remaining_transfers = TransferCount{
+                                  state.remaining_transfers.get() + 1
+                              }
+                          }
+                    );
+                    // Reverse of AfterTransferWalk --timed ride--> AfterTimedRide.
+                    enqueue_reachable_state(
+                          destination
+                        , frontier
+                        , ResidualReachabilityKey{
+                              .current_physical    = predecessor
+                            , .phase               = SearchBranchPhase::AfterTransferWalk
                             , .remaining_transfers = TransferCount{
                                   state.remaining_transfers.get() + 1
                               }
@@ -850,7 +1133,7 @@ namespace timetable::domain::assignment {
                             , .kind        = ResidualTransitionKind::EgressWalk
                         });
                     }
-                } else if (state.phase == SearchBranchPhase::AfterTimedRide) {
+                } else if (state.phase == SearchBranchPhase::AfterTransferWalk) {
                     for (const auto edge : walk_predecessors->second) {
                         if (edge.predecessor.kind != EndpointKind::Stop) {
                             continue;
@@ -873,7 +1156,7 @@ namespace timetable::domain::assignment {
                         visitor(ResidualPredecessorTransition{
                               .predecessor = ResidualReachabilityKey{
                                     .current_physical    = edge.predecessor
-                                  , .phase               = SearchBranchPhase::BeforeFirstBoarding
+                                  , .phase               = SearchBranchPhase::AtOrigin
                                   , .remaining_transfers = state.remaining_transfers
                                 }
                             , .run_time    = edge.run_time
@@ -912,6 +1195,17 @@ namespace timetable::domain::assignment {
                           .predecessor = ResidualReachabilityKey{
                                 .current_physical    = edge.predecessor
                               , .phase               = SearchBranchPhase::AfterTimedRide
+                              , .remaining_transfers = TransferCount{
+                                    state.remaining_transfers.get() + 1
+                                }
+                            }
+                        , .run_time    = edge.run_time
+                        , .kind        = ResidualTransitionKind::TransferTimedRide
+                    });
+                    visitor(ResidualPredecessorTransition{
+                          .predecessor = ResidualReachabilityKey{
+                                .current_physical    = edge.predecessor
+                              , .phase               = SearchBranchPhase::AfterTransferWalk
                               , .remaining_transfers = TransferCount{
                                     state.remaining_transfers.get() + 1
                                 }
@@ -1235,6 +1529,42 @@ namespace timetable::domain::assignment {
                     );
                 }
 
+                if (state.phase == SearchBranchPhase::AtOrigin
+                    && state.current_physical.kind != EndpointKind::Zone) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("residual reachability contains at-origin state outside zone")
+                            .ctx("destination", destination.get())
+                            .ctx("endpoint_kind", static_cast<std::int64_t>(state.current_physical.kind))
+                            .ctx("endpoint_id", state.current_physical.id)
+                            .ctx("remaining_transfers", state.remaining_transfers.get())
+                    );
+                }
+
+                if ((state.phase == SearchBranchPhase::BeforeFirstBoarding
+                        || state.phase == SearchBranchPhase::AfterTimedRide
+                        || state.phase == SearchBranchPhase::AfterTransferWalk)
+                    && state.current_physical.kind != EndpointKind::Stop) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("residual reachability contains stop-phase state outside stop")
+                            .ctx("destination", destination.get())
+                            .ctx("phase", static_cast<std::int64_t>(state.phase))
+                            .ctx("endpoint_kind", static_cast<std::int64_t>(state.current_physical.kind))
+                            .ctx("endpoint_id", state.current_physical.id)
+                            .ctx("remaining_transfers", state.remaining_transfers.get())
+                    );
+                }
+
+                if (state.phase == SearchBranchPhase::Completed
+                    && state.current_physical.kind != EndpointKind::Zone) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("residual reachability contains completed state outside zone")
+                            .ctx("destination", destination.get())
+                            .ctx("endpoint_kind", static_cast<std::int64_t>(state.current_physical.kind))
+                            .ctx("endpoint_id", state.current_physical.id)
+                            .ctx("remaining_transfers", state.remaining_transfers.get())
+                    );
+                }
+
                 if (state.remaining_transfers < max_transfers) {
                     const auto relaxed_more_budget_state = ResidualReachabilityKey{
                           .current_physical    = state.current_physical
@@ -1441,6 +1771,7 @@ namespace timetable::domain::assignment {
                   .physical              = branch.trace.current_physical
                 , .current_occurrence    = branch.trace.current_occurrence
                 , .last_timed_occurrence = search_last_timed_occurrence(branch)
+                , .phase                 = branch.trace.phase
                 , .transfer              = search_transfer_context(branch)
             };
         }
@@ -1466,7 +1797,7 @@ namespace timetable::domain::assignment {
 
             auto cursor = branch.trace.parent_branch;
             while (cursor.has_value()) {
-                const auto& ancestor = branches[*cursor];
+                const auto& ancestor = branch_at(branches, *cursor);
                 if (ancestor.trace.current_physical == next) {
                     return true;
                 }
@@ -1487,7 +1818,7 @@ namespace timetable::domain::assignment {
 
             auto cursor = branch.trace.parent_branch;
             while (cursor.has_value()) {
-                const auto& ancestor = branches[*cursor];
+                const auto& ancestor = branch_at(branches, *cursor);
                 if (ancestor.trace.current_occurrence.has_value() && ancestor.trace.current_occurrence.value() == next) {
                     return true;
                 }
@@ -1513,9 +1844,7 @@ namespace timetable::domain::assignment {
             if (is_complete_connection(branch, task_destination)) {
                 return SearchBranchPhase::Completed;
             }
-            return branch.metrics.departure.has_value()
-                ? SearchBranchPhase::AfterTimedRide
-                : SearchBranchPhase::BeforeFirstBoarding;
+            return branch.trace.phase;
         }
 
         [[nodiscard]] TransferCount remaining_transfer_budget(
@@ -2127,33 +2456,81 @@ namespace timetable::domain::assignment {
             return active;
         }
 
-        bool is_batch_admissible_walk_successor(
+        struct WalkExtensionTransition final {
+            ConnectionLegKind kind{ ConnectionLegKind::AccessWalk };
+            SearchBranchPhase next_phase{ SearchBranchPhase::BeforeFirstBoarding };
+        };
+
+        std::optional<WalkExtensionTransition> walk_extension_transition_table(
+              SearchBranchPhase phase
+            , EndpointKey        from
+            , EndpointKey        to
+            , bool               active_destination
+        ) noexcept {
+            switch (phase) {
+                case SearchBranchPhase::AtOrigin:
+                    if (from.kind == EndpointKind::Zone
+                        && to.kind == EndpointKind::Stop) {
+                        return WalkExtensionTransition{
+                              .kind       = ConnectionLegKind::AccessWalk
+                            , .next_phase = SearchBranchPhase::BeforeFirstBoarding
+                        };
+                    }
+                    return std::nullopt;
+
+                case SearchBranchPhase::AfterTimedRide:
+                    if (from.kind == EndpointKind::Stop
+                        && to.kind == EndpointKind::Stop) {
+                        return WalkExtensionTransition{
+                              .kind       = ConnectionLegKind::TransferWalk
+                            , .next_phase = SearchBranchPhase::AfterTransferWalk
+                        };
+                    }
+                    if (from.kind == EndpointKind::Stop
+                        && to.kind == EndpointKind::Zone
+                        && active_destination) {
+                        return WalkExtensionTransition{
+                              .kind       = ConnectionLegKind::EgressWalk
+                            , .next_phase = SearchBranchPhase::Completed
+                        };
+                    }
+                    return std::nullopt;
+
+                case SearchBranchPhase::BeforeFirstBoarding:
+                case SearchBranchPhase::AfterTransferWalk:
+                case SearchBranchPhase::Completed:
+                    return std::nullopt;
+            }
+
+            return std::nullopt;
+        }
+
+        std::optional<WalkExtensionTransition> admissible_walk_extension_transition(
               ZoneId                         origin
             , const ActiveIndexSet&          active_targets
             , std::span<const SearchCompletionTarget> batch_targets
             , const SearchBranch&            branch
             , const RouteSegment&            route_segment
         ) noexcept {
+            const auto from_physical = branch.trace.current_physical;
             const auto next_physical = physical_to_key(route_segment);
-            const auto before_first_timed_boarding = !branch.metrics.departure.has_value();
 
-            if (before_first_timed_boarding) {
-                if (branch.trace.current_physical.kind != EndpointKind::Zone
-                    || branch.trace.current_physical.id != origin.get()) {
-                    return false;
-                }
-                // In the paper's connection tree, access is one connection
-                // segment from the origin centroid to the first boarding stop.
-                return next_physical.kind == EndpointKind::Stop;
+            if (branch.trace.phase == SearchBranchPhase::AtOrigin
+                && (from_physical.kind != EndpointKind::Zone
+                    || from_physical.id != origin.get())) {
+                return std::nullopt;
             }
 
-            if (branch.trace.current_physical.kind == EndpointKind::Zone) {
-                return false;
-            }
-            if (next_physical.kind == EndpointKind::Zone) {
-                return is_active_batch_destination(next_physical, active_targets, batch_targets);
-            }
-            return true;
+            return walk_extension_transition_table(
+                  branch.trace.phase
+                , from_physical
+                , next_physical
+                , is_active_batch_destination(
+                      next_physical
+                    , active_targets
+                    , batch_targets
+                  )
+            );
         }
 
         [[nodiscard]] Time add_time(
@@ -2161,48 +2538,6 @@ namespace timetable::domain::assignment {
             , Time rhs
         ) noexcept {
             return Time{ lhs.value() + rhs.value() };
-        }
-
-        [[nodiscard]] Time duration_of(
-            const ConnectionLeg& leg
-        ) noexcept {
-            return Time{ leg.end_time.value() - leg.start_time.value() };
-        }
-
-        [[nodiscard]] Time next_relative_access_start(
-            const ConnectionTrace& trace
-        ) noexcept {
-            if (trace.legs.empty()) {
-                return Time{ 0.0 };
-            }
-            return trace.legs.back().end_time;
-        }
-
-        [[nodiscard]] ConnectionTrace anchor_access_trace(
-              ConnectionTrace trace
-            , Time            departure
-        ) {
-            auto cursor = departure;
-            for (auto& leg : trace.legs) {
-                const auto duration = duration_of(leg);
-                leg.start_time = cursor;
-                leg.end_time   = add_time(cursor, duration);
-                cursor         = leg.end_time;
-            }
-            return trace;
-        }
-
-        [[nodiscard]] ConnectionLegKind classify_walk_extension(
-              const SearchPartialMetrics& metrics
-            , EndpointKey                  next_physical
-        ) noexcept {
-            if (!metrics.departure.has_value()) {
-                return ConnectionLegKind::AccessWalk;
-            }
-            if (next_physical.kind == EndpointKind::Zone) {
-                return ConnectionLegKind::EgressWalk;
-            }
-            return ConnectionLegKind::TransferWalk;
         }
 
         [[nodiscard]] ConnectionLeg make_walk_leg(
@@ -2230,14 +2565,14 @@ namespace timetable::domain::assignment {
         }
 
         [[nodiscard]] std::optional<ConnectionLeg> make_transfer_wait_leg(
-              const SearchPartialMetrics& metrics
+              Time                        current_time
             , const ConnectionSegment&    segment
             , EndpointKey                  physical
         ) noexcept {
-            if (!metrics.current_time.has_value() || !segment.departure.has_value()) {
+            if (!segment.departure.has_value()) {
                 return std::nullopt;
             }
-            if (segment.departure->value() <= metrics.current_time->value()) {
+            if (segment.departure->value() <= current_time.value()) {
                 return std::nullopt;
             }
             return ConnectionLeg{
@@ -2251,11 +2586,22 @@ namespace timetable::domain::assignment {
                 , .line               = std::nullopt
                 , .route              = std::nullopt
                 , .trip               = std::nullopt
-                , .start_time         = *metrics.current_time
+                , .start_time         = current_time
                 , .end_time           = *segment.departure
                 , .length             = Length{ 0.0 }
                 , .fare               = 0.0
             };
+        }
+
+        [[nodiscard]] std::optional<ConnectionLeg> make_transfer_wait_leg(
+              const SearchPartialMetrics& metrics
+            , const ConnectionSegment&    segment
+            , EndpointKey                  physical
+        ) noexcept {
+            if (!metrics.current_time.has_value()) {
+                return std::nullopt;
+            }
+            return make_transfer_wait_leg(*metrics.current_time, segment, physical);
         }
 
         [[nodiscard]] ConnectionLeg make_ride_leg(
@@ -2282,74 +2628,81 @@ namespace timetable::domain::assignment {
         }
 
         [[nodiscard]] SearchPartialTrace extend_trace_with_walk(
-              SearchPartialTrace trace
-            , std::size_t         branch_index
-            , const SearchPartialMetrics& metrics
-            , const RouteSegment& route_segment
-            , ConnectionSegmentId segment_id
+              SearchPartialTrace            trace
+            , std::size_t                    branch_index
+            , const RouteSegment&            route_segment
+            , ConnectionSegmentId            segment_id
+            , const WalkExtensionTransition& transition
         ) {
             const auto next_physical = physical_to_key(route_segment);
-            const auto kind          = classify_walk_extension(metrics, next_physical);
-            const auto start_time    = metrics.current_time.has_value()
-                ? *metrics.current_time
-                : next_relative_access_start(trace.connection_trace);
-
-            trace.connection_trace.legs.push_back(
-                make_walk_leg(kind, segment_id, route_segment, start_time)
-            );
             trace.parent_branch      = branch_index;
             trace.incoming_segment   = segment_id;
             trace.current_physical   = next_physical;
             trace.current_occurrence = std::nullopt;
+            trace.phase              = transition.next_phase;
             return trace;
         }
 
         [[nodiscard]] SearchPartialMetrics extend_metrics_with_walk(
               SearchPartialMetrics metrics
             , const RouteSegment&   route_segment
-            , EndpointKey           next_physical
+            , ConnectionLegKind     kind
         ) {
-            if (metrics.departure.has_value()) {
-                metrics.current_time = Time{
-                    metrics.current_time->value() + route_segment.run_time.value()
-                };
-                if (next_physical.kind == EndpointKind::Stop) {
+            switch (kind) {
+                case ConnectionLegKind::AccessWalk:
+                    metrics.access_time = Time{
+                        metrics.access_time.value() + route_segment.run_time.value()
+                    };
+                    return metrics;
+
+                case ConnectionLegKind::TransferWalk:
+                    metrics.current_time = Time{
+                        metrics.current_time->value() + route_segment.run_time.value()
+                    };
                     metrics.transfer_walk_time = Time{
                         metrics.transfer_walk_time.value() + route_segment.run_time.value()
                     };
-                } else {
+                    return metrics;
+
+                case ConnectionLegKind::EgressWalk:
+                    metrics.current_time = Time{
+                        metrics.current_time->value() + route_segment.run_time.value()
+                    };
                     metrics.egress_time = Time{
                         metrics.egress_time.value() + route_segment.run_time.value()
                     };
-                }
-            } else {
-                metrics.access_time = Time{
-                    metrics.access_time.value() + route_segment.run_time.value()
-                };
+                    return metrics;
+
+                case ConnectionLegKind::Ride:
+                case ConnectionLegKind::InitialWait:
+                case ConnectionLegKind::TransferWait:
+                case ConnectionLegKind::FinalWait:
+                    return metrics;
             }
 
             return metrics;
         }
 
         [[nodiscard]] SearchBranch extend_with_walk(
-              const SearchBranch& branch
-            , std::size_t         branch_index
-            , const RouteSegment& route_segment
-            , ConnectionSegmentId segment_id
+              const SearchBranch&           branch
+            , std::size_t                   branch_index
+            , const RouteSegment&           route_segment
+            , ConnectionSegmentId           segment_id
+            , const WalkExtensionTransition& transition
         ) {
             const auto trace = extend_trace_with_walk(
                   branch.trace
                 , branch_index
-                , branch.metrics
                 , route_segment
                 , segment_id
+                , transition
             );
             return SearchBranch{
                   .trace   = trace
                 , .metrics = extend_metrics_with_walk(
                       branch.metrics
                     , route_segment
-                    , trace.current_physical
+                    , transition.kind
                   )
             };
         }
@@ -2357,31 +2710,36 @@ namespace timetable::domain::assignment {
         [[nodiscard]] SearchPartialTrace extend_trace_with_timed(
               SearchPartialTrace       trace
             , std::size_t               branch_index
-            , const SearchPartialMetrics& metrics
             , const ConnectionSegment& segment
             , const RouteSegment&      route_segment
+            , SearchBranchPhase         next_phase
         ) {
             const auto next_occurrence = occurrence_key(line_topology_of(route_segment)->to);
-            if (!metrics.departure.has_value()) {
-                trace.connection_trace = anchor_access_trace(
-                      std::move(trace.connection_trace)
-                    , Time{ segment.departure->value() - metrics.access_time.value() }
-                );
-            } else if (auto wait_leg = make_transfer_wait_leg(
-                  metrics
-                , segment
-                , trace.current_physical
-            )) {
-                trace.connection_trace.legs.push_back(*wait_leg);
-            }
-            trace.connection_trace.legs.push_back(make_ride_leg(segment, route_segment));
             trace.parent_branch                  = branch_index;
             trace.incoming_segment               = segment.id;
             trace.current_physical               = physical_to_key(route_segment);
             trace.current_occurrence             = next_occurrence;
+            trace.phase                          = next_phase;
             trace.last_timed_segment             = &segment;
             trace.last_timed_route_segment       = &route_segment;
             return trace;
+        }
+
+        std::optional<SearchBranchPhase> timed_extension_transition(
+            SearchBranchPhase phase
+        ) noexcept {
+            switch (phase) {
+                case SearchBranchPhase::BeforeFirstBoarding:
+                case SearchBranchPhase::AfterTimedRide:
+                case SearchBranchPhase::AfterTransferWalk:
+                    return SearchBranchPhase::AfterTimedRide;
+
+                case SearchBranchPhase::AtOrigin:
+                case SearchBranchPhase::Completed:
+                    return std::nullopt;
+            }
+
+            return std::nullopt;
         }
 
         [[nodiscard]] CapacityExposure add_capacity_exposure(
@@ -2461,6 +2819,7 @@ namespace timetable::domain::assignment {
             , std::size_t              branch_index
             , const ConnectionSegment& segment
             , const RouteSegment&      route_segment
+            , SearchBranchPhase         next_phase
             , std::optional<IntervalId> interval
             , const SearchCostContext& search_cost
         ) {
@@ -2478,16 +2837,155 @@ namespace timetable::domain::assignment {
                   .trace   = extend_trace_with_timed(
                         branch.trace
                       , branch_index
-                      , branch.metrics
                       , segment
                       , route_segment
+                      , next_phase
                   )
                 , .metrics = extend_metrics_with_timed(
                       branch.metrics
                     , segment
                     , capacity_exposure
-                  )
+                )
             };
+        }
+
+        [[nodiscard]] const char* search_branch_phase_name(
+            SearchBranchPhase phase
+        ) noexcept {
+            switch (phase) {
+                case SearchBranchPhase::AtOrigin:
+                    return "at_origin";
+
+                case SearchBranchPhase::BeforeFirstBoarding:
+                    return "before_first_boarding";
+
+                case SearchBranchPhase::AfterTimedRide:
+                    return "after_timed_ride";
+
+                case SearchBranchPhase::AfterTransferWalk:
+                    return "after_transfer_walk";
+
+                case SearchBranchPhase::Completed:
+                    return "completed";
+            }
+
+            return "unknown";
+        }
+
+        [[nodiscard]] mathfp::Expected<mathfp::Unit> phase_invariant_error(
+              const SearchBranch& branch
+            , const char*         reason
+        ) {
+            return mathfp::unexpected(
+                mathfp::internal_error("search branch phase invariant violation")
+                    .ctx("reason", std::string(reason))
+                    .ctx("phase", std::string(search_branch_phase_name(branch.trace.phase)))
+                    .ctx("origin", branch.trace.origin.get())
+                    .ctx("current_kind", static_cast<std::int64_t>(branch.trace.current_physical.kind))
+                    .ctx("current_id", branch.trace.current_physical.id)
+            );
+        }
+
+        [[nodiscard]] mathfp::Expected<mathfp::Unit> validate_search_branch_phase_invariants(
+            const SearchBranch& branch
+        ) {
+            const auto physical = branch.trace.current_physical;
+            switch (branch.trace.phase) {
+                case SearchBranchPhase::AtOrigin:
+                    if (physical != endpoint_key(branch.trace.origin)) {
+                        return phase_invariant_error(branch, "at-origin branch is not located at its origin zone");
+                    }
+                    if (branch.trace.current_occurrence.has_value()) {
+                        return phase_invariant_error(branch, "at-origin branch has stop occurrence");
+                    }
+                    if (branch.trace.parent_branch.has_value()
+                        || branch.trace.incoming_segment.has_value()) {
+                        return phase_invariant_error(branch, "at-origin branch has predecessor edge");
+                    }
+                    if (branch.trace.last_timed_segment != nullptr
+                        || branch.trace.last_timed_route_segment != nullptr) {
+                        return phase_invariant_error(branch, "at-origin branch has timed context");
+                    }
+                    if (branch.metrics.departure.has_value()
+                        || branch.metrics.current_time.has_value()) {
+                        return phase_invariant_error(branch, "at-origin branch has time state");
+                    }
+                    return mathfp::kUnit;
+
+                case SearchBranchPhase::BeforeFirstBoarding:
+                    if (physical.kind != EndpointKind::Stop) {
+                        return phase_invariant_error(branch, "preboarding branch is not located at a stop");
+                    }
+                    if (branch.trace.current_occurrence.has_value()) {
+                        return phase_invariant_error(branch, "preboarding branch has stop occurrence");
+                    }
+                    if (!branch.trace.parent_branch.has_value()
+                        || !branch.trace.incoming_segment.has_value()) {
+                        return phase_invariant_error(branch, "preboarding branch has no access-walk predecessor");
+                    }
+                    if (branch.trace.last_timed_segment != nullptr
+                        || branch.trace.last_timed_route_segment != nullptr) {
+                        return phase_invariant_error(branch, "preboarding branch has timed context");
+                    }
+                    if (branch.metrics.departure.has_value()
+                        || branch.metrics.current_time.has_value()) {
+                        return phase_invariant_error(branch, "preboarding branch has time state");
+                    }
+                    return mathfp::kUnit;
+
+                case SearchBranchPhase::AfterTimedRide:
+                    if (physical.kind != EndpointKind::Stop) {
+                        return phase_invariant_error(branch, "after-timed branch is not located at a stop");
+                    }
+                    if (!branch.trace.current_occurrence.has_value()) {
+                        return phase_invariant_error(branch, "after-timed branch has no stop occurrence");
+                    }
+                    if (branch.trace.last_timed_segment == nullptr
+                        || branch.trace.last_timed_route_segment == nullptr) {
+                        return phase_invariant_error(branch, "after-timed branch has no timed context");
+                    }
+                    if (!branch.metrics.departure.has_value()
+                        || !branch.metrics.current_time.has_value()) {
+                        return phase_invariant_error(branch, "after-timed branch has incomplete time state");
+                    }
+                    return mathfp::kUnit;
+
+                case SearchBranchPhase::AfterTransferWalk:
+                    if (physical.kind != EndpointKind::Stop) {
+                        return phase_invariant_error(branch, "after-transfer-walk branch is not located at a stop");
+                    }
+                    if (branch.trace.current_occurrence.has_value()) {
+                        return phase_invariant_error(branch, "after-transfer-walk branch has stop occurrence");
+                    }
+                    if (branch.trace.last_timed_segment == nullptr
+                        || branch.trace.last_timed_route_segment == nullptr) {
+                        return phase_invariant_error(branch, "after-transfer-walk branch has no timed context");
+                    }
+                    if (!branch.metrics.departure.has_value()
+                        || !branch.metrics.current_time.has_value()) {
+                        return phase_invariant_error(branch, "after-transfer-walk branch has incomplete time state");
+                    }
+                    return mathfp::kUnit;
+
+                case SearchBranchPhase::Completed:
+                    if (physical.kind != EndpointKind::Zone) {
+                        return phase_invariant_error(branch, "completed branch is not located at a zone");
+                    }
+                    if (branch.trace.current_occurrence.has_value()) {
+                        return phase_invariant_error(branch, "completed branch has stop occurrence");
+                    }
+                    if (branch.trace.last_timed_segment == nullptr
+                        || branch.trace.last_timed_route_segment == nullptr) {
+                        return phase_invariant_error(branch, "completed branch has no timed context");
+                    }
+                    if (!branch.metrics.departure.has_value()
+                        || !branch.metrics.current_time.has_value()) {
+                        return phase_invariant_error(branch, "completed branch has incomplete time state");
+                    }
+                    return mathfp::kUnit;
+            }
+
+            return phase_invariant_error(branch, "unknown branch phase");
         }
 
         mathfp::Expected<std::optional<SearchBranch>> extend_branch(
@@ -2496,20 +2994,34 @@ namespace timetable::domain::assignment {
             , const SearchBranch&        branch
             , const PreprocessedNetwork& network
             , const ConnectionSegment&   successor
+            , const std::optional<WalkExtensionTransition>& walk_transition
             , std::optional<IntervalId>   interval
             , const SearchCostContext&    search_cost
         ) {
             const auto& route_segment = route_segment_at(network, successor.route_segment);
             if (is_walk_connection(successor)) {
+                if (!walk_transition.has_value()) {
+                    return std::optional<SearchBranch>{};
+                }
                 const auto next_physical = physical_to_key(route_segment);
                 if (branch_revisits_physical(branches, branch, next_physical)) {
                     return std::optional<SearchBranch>{};
                 }
                 return std::optional<SearchBranch>{
-                    extend_with_walk(branch, branch_index, route_segment, successor.id)
+                    extend_with_walk(
+                          branch
+                        , branch_index
+                        , route_segment
+                        , successor.id
+                        , *walk_transition
+                    )
                 };
             }
 
+            const auto next_phase = timed_extension_transition(branch.trace.phase);
+            if (!next_phase.has_value()) {
+                return std::optional<SearchBranch>{};
+            }
             const auto next_occurrence = occurrence_key(line_topology_of(route_segment)->to);
             if (branch_revisits_occurrence(branches, branch, next_occurrence)) {
                 return std::optional<SearchBranch>{};
@@ -2522,6 +3034,7 @@ namespace timetable::domain::assignment {
                     , branch_index
                     , successor
                     , route_segment
+                    , *next_phase
                     , interval
                     , search_cost
                 )
@@ -2529,7 +3042,7 @@ namespace timetable::domain::assignment {
             return std::optional<SearchBranch>{ std::move(extended) };
         }
 
-        template <typename Visitor>
+        template <typename Visitor, typename RejectedWalkVisitor>
         void for_each_successor(
               const PreprocessedNetwork& network
             , ZoneId                      origin
@@ -2539,8 +3052,10 @@ namespace timetable::domain::assignment {
             , const TransferLimits&      limits
             , const SearchTimeDomain*    first_departure_domain
             , Visitor&&                  visit
+            , RejectedWalkVisitor&&      reject_walk
         ) {
             auto&& visitor = visit;
+            auto&& walk_rejection_visitor = reject_walk;
             const auto lookup = preprocessing::lookup_from(
                   network.route_index
                 , network.connection_index
@@ -2550,14 +3065,17 @@ namespace timetable::domain::assignment {
             for (const auto connection_id : lookup.walk_connections) {
                 const auto& connection = connection_segment_at(network, connection_id);
                 const auto& route_segment = route_segment_at(network, connection.route_segment);
-                if (is_batch_admissible_walk_successor(
+                if (auto transition = admissible_walk_extension_transition(
                       origin
                     , active_targets
                     , batch_targets
                     , branch
                     , route_segment
                 )) {
-                    visitor(connection_id);
+                    visitor(connection_id, std::optional<WalkExtensionTransition>{ *transition });
+                } else if (branch.trace.phase == SearchBranchPhase::BeforeFirstBoarding
+                    || branch.trace.phase == SearchBranchPhase::AfterTransferWalk) {
+                    walk_rejection_visitor(connection_id);
                 }
             }
 
@@ -2567,7 +3085,9 @@ namespace timetable::domain::assignment {
                 , branch.metrics.current_time
                 , limits
                 , first_departure_domain
-                , visitor
+                , [&](ConnectionSegmentId connection_id) {
+                      visitor(connection_id, std::optional<WalkExtensionTransition>{});
+                  }
             );
         }
 
@@ -2584,8 +3104,129 @@ namespace timetable::domain::assignment {
             return segments;
         }
 
+        std::vector<ConnectionSegmentId> branch_connection_segments(
+              const BranchArena&  branches
+            , const SearchBranch& branch
+        ) {
+            std::vector<ConnectionSegmentId> reversed_segments;
+            const auto* cursor = &branch;
+            while (cursor->trace.incoming_segment.has_value()) {
+                reversed_segments.push_back(*cursor->trace.incoming_segment);
+                if (!cursor->trace.parent_branch.has_value()) {
+                    break;
+                }
+                cursor = &branch_at(branches, *cursor->trace.parent_branch);
+            }
+            std::reverse(reversed_segments.begin(), reversed_segments.end());
+            return reversed_segments;
+        }
+
+        [[nodiscard]] std::optional<std::size_t> first_timed_segment_position(
+              const PreprocessedNetwork&              network
+            , std::span<const ConnectionSegmentId>     segments
+        ) {
+            for (std::size_t i = 0; i < segments.size(); ++i) {
+                if (!is_walk_connection(connection_segment_at(network, segments[i]))) {
+                    return i;
+                }
+            }
+            return std::nullopt;
+        }
+
+        [[nodiscard]] Time access_time_before_first_timed(
+              const PreprocessedNetwork&              network
+            , std::span<const ConnectionSegmentId>     segments
+            , std::size_t                             first_timed_pos
+        ) {
+            Time access_time{ 0.0 };
+            for (std::size_t i = 0; i < first_timed_pos; ++i) {
+                const auto& segment = connection_segment_at(network, segments[i]);
+                const auto& route_segment = route_segment_at(network, segment.route_segment);
+                access_time = add_time(access_time, route_segment.run_time);
+            }
+            return access_time;
+        }
+
+        mathfp::Expected<ConnectionTrace> materialize_connection_trace(
+              const BranchArena&         branches
+            , const SearchBranch&        branch
+            , const PreprocessedNetwork& network
+        ) {
+            const auto segments = branch_connection_segments(branches, branch);
+            const auto first_timed_pos = first_timed_segment_position(network, segments);
+            if (!first_timed_pos.has_value()) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("completed search branch has no timed segment")
+                        .ctx("origin", branch.trace.origin.get())
+                        .ctx("endpoint_id", branch.trace.current_physical.id)
+                );
+            }
+
+            const auto& first_timed_segment = connection_segment_at(
+                  network
+                , segments[*first_timed_pos]
+            );
+            if (!first_timed_segment.departure.has_value()) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("first timed segment has no departure while materializing trace")
+                        .ctx("segment", first_timed_segment.id.get())
+                );
+            }
+
+            auto cursor = Time{
+                first_timed_segment.departure->value()
+                - access_time_before_first_timed(
+                      network
+                    , segments
+                    , *first_timed_pos
+                  ).value()
+            };
+            auto current_physical = endpoint_key(branch.trace.origin);
+            bool after_first_timed = false;
+            ConnectionTrace trace;
+            trace.legs.reserve(segments.size() + branch.metrics.transfers.get());
+
+            for (const auto segment_id : segments) {
+                const auto& segment = connection_segment_at(network, segment_id);
+                const auto& route_segment = route_segment_at(network, segment.route_segment);
+                if (is_walk_connection(segment)) {
+                    const auto next_physical = physical_to_key(route_segment);
+                    const auto kind = after_first_timed
+                        ? (next_physical.kind == EndpointKind::Zone
+                            ? ConnectionLegKind::EgressWalk
+                            : ConnectionLegKind::TransferWalk)
+                        : ConnectionLegKind::AccessWalk;
+                    auto leg = make_walk_leg(kind, segment_id, route_segment, cursor);
+                    cursor = leg.end_time;
+                    current_physical = leg.physical_to;
+                    trace.legs.push_back(std::move(leg));
+                    continue;
+                }
+
+                if (after_first_timed) {
+                    if (auto wait_leg = make_transfer_wait_leg(
+                          cursor
+                        , segment
+                        , current_physical
+                    )) {
+                        cursor = wait_leg->end_time;
+                        trace.legs.push_back(*wait_leg);
+                    }
+                }
+
+                auto ride_leg = make_ride_leg(segment, route_segment);
+                cursor = ride_leg.end_time;
+                current_physical = ride_leg.physical_to;
+                after_first_timed = true;
+                trace.legs.push_back(std::move(ride_leg));
+            }
+
+            return trace;
+        }
+
         mathfp::Expected<std::optional<SearchConnection>> complete_connection(
-              const SearchBranch&        branch
+              const BranchArena&         branches
+            , const SearchBranch&        branch
             , const PreprocessedNetwork& network
             , const TransferLimits&      limits
             , ZoneId                     destination
@@ -2607,12 +3248,17 @@ namespace timetable::domain::assignment {
             }
 
             MATHFP_TRY_LET(
+                  ConnectionTrace
+                , trace
+                , materialize_connection_trace(branches, branch, network)
+            );
+            MATHFP_TRY_LET(
                   SearchConnection
                 , connection
                 , make_search_connection(
                       branch.trace.origin
                     , destination
-                    , branch.trace.connection_trace
+                    , std::move(trace)
                 )
             );
             return std::optional<SearchConnection>{ std::move(connection) };
@@ -2751,6 +3397,70 @@ namespace timetable::domain::assignment {
             return total;
         }
 
+        struct SearchStorageDiagnostics final {
+            std::size_t branch_slots{};
+            std::size_t live_branches{};
+            std::size_t released_branches{};
+            std::size_t projection_states{};
+            std::size_t tree_pruning_nodes{};
+            std::size_t tree_pruning_buckets{};
+            float       tree_pruning_load_factor{};
+            std::size_t tree_pruning_insertions{};
+            std::size_t retained_complete_connections{};
+            std::size_t approximate_direct_bytes{};
+        };
+
+        [[nodiscard]] SearchStorageDiagnostics search_storage_diagnostics(
+              const BranchArena&                         branches
+            , std::size_t                                released_branches
+            , std::size_t                                projection_state_count
+            , std::size_t                                projection_state_size
+            , const TreePartialRetention&                tree_retention
+            , std::span<const SearchProjectionRetention> retentions
+            , const SearchPruningRuntimeStats&           pruning_stats
+        ) noexcept {
+            const auto pruning_nodes = tree_retention.known_metrics.size();
+            const auto pruning_buckets = tree_retention.known_metrics.bucket_count();
+            const auto live_branches = branches.size() - released_branches;
+            const auto approximate_direct_bytes =
+                  branches.size() * sizeof(BranchSlot)
+                + live_branches * sizeof(SearchBranch)
+                + projection_state_count * projection_state_size
+                + pruning_nodes * sizeof(NodeMetricMap::value_type)
+                + pruning_buckets * sizeof(void*);
+            return SearchStorageDiagnostics{
+                  .branch_slots = branches.size()
+                , .live_branches = live_branches
+                , .released_branches = released_branches
+                , .projection_states = projection_state_count
+                , .tree_pruning_nodes = pruning_nodes
+                , .tree_pruning_buckets = pruning_buckets
+                , .tree_pruning_load_factor = tree_retention.known_metrics.load_factor()
+                , .tree_pruning_insertions = pruning_stats.inserted_metrics
+                , .retained_complete_connections = retained_connection_count(retentions)
+                , .approximate_direct_bytes = approximate_direct_bytes
+            };
+        }
+
+        [[nodiscard]] std::string format_search_storage_diagnostics(
+            const SearchStorageDiagnostics& diagnostics
+        ) {
+            return fmt::format(
+                  "search storage: branch_slots={} live_branches={} released_branches={} projection_states={} tree_pruning(nodes/buckets/load/insertions)={}/{}/{:.3f}/{} retained_complete={} approx_direct_mb={:.2f}"
+                , diagnostics.branch_slots
+                , diagnostics.live_branches
+                , diagnostics.released_branches
+                , diagnostics.projection_states
+                , diagnostics.tree_pruning_nodes
+                , diagnostics.tree_pruning_buckets
+                , diagnostics.tree_pruning_load_factor
+                , diagnostics.tree_pruning_insertions
+                , diagnostics.retained_complete_connections
+                , static_cast<double>(diagnostics.approximate_direct_bytes)
+                    / (1024.0 * 1024.0)
+            );
+        }
+
         struct ReachabilityTaskFilter final {
             ActiveIndexSet reachable{};
             std::vector<RejectedReachabilityTask> unreachable{};
@@ -2779,9 +3489,7 @@ namespace timetable::domain::assignment {
         ) noexcept {
             return ResidualReachabilityKey{
                   .current_physical    = branch.trace.current_physical
-                , .phase               = branch.metrics.departure.has_value()
-                    ? SearchBranchPhase::AfterTimedRide
-                    : SearchBranchPhase::BeforeFirstBoarding
+                , .phase               = branch.trace.phase
                 , .remaining_transfers = remaining_transfer_budget(branch, limits)
             };
         }
@@ -2918,6 +3626,31 @@ namespace timetable::domain::assignment {
             return target_positions.intersect(reachability_entry.reachable);
         }
 
+        [[nodiscard]] ReachabilityRejectionReason summarize_target_reachability_rejection(
+              const ActiveIndexSet&        target_positions
+            , const ReachabilityMaskEntry& reachability_entry
+        ) noexcept {
+            const auto priority = [](ReachabilityRejectionReason reason) noexcept {
+                switch (reason) {
+                    case ReachabilityRejectionReason::UnreachableDestination:
+                        return 3;
+                    case ReachabilityRejectionReason::TransferBudget:
+                        return 2;
+                    case ReachabilityRejectionReason::Phase:
+                        return 1;
+                }
+                return 0;
+            };
+            auto result = ReachabilityRejectionReason::Phase;
+            target_positions.for_each_index([&](std::size_t target_pos) {
+                const auto reason = reachability_entry.rejection_reasons[target_pos];
+                if (priority(reason) > priority(result)) {
+                    result = reason;
+                }
+            });
+            return result;
+        }
+
         [[nodiscard]] ReachabilityTaskFilter filter_task_positions_by_reachability(
               const ActiveIndexSet&        task_positions
             , const ReachabilityMaskEntry& reachability_entry
@@ -3026,6 +3759,7 @@ namespace timetable::domain::assignment {
 
         mathfp::Expected<mathfp::Unit> retain_complete_for_slot(
               const SearchBranch&        branch
+            , const BranchArena&         branches
             , const PreprocessedNetwork& network
             , const SearchParams&        params
             , const SearchCostContext&   search_cost
@@ -3039,7 +3773,13 @@ namespace timetable::domain::assignment {
             MATHFP_TRY_LET(
                   std::optional<SearchConnection>
                 , complete
-                , complete_connection(branch, network, params.transfers, slot.destination)
+                , complete_connection(
+                      branches
+                    , branch
+                    , network
+                    , params.transfers
+                    , slot.destination
+                  )
             );
             if (complete.has_value()) {
                 ++stats.completed_connections;
@@ -3136,8 +3876,9 @@ namespace timetable::domain::assignment {
             TaskSearchStats                   stats;
             std::vector<TaskSearchStats>      task_stats(batch.projection_slots.size());
             BranchArena                       branches;
-            std::vector<ActiveIndexSet>        branch_active_tasks;
-            std::vector<ActiveIndexSet>        branch_active_targets;
+            std::deque<std::unique_ptr<FixedActiveMask>> completion_projection_states;
+            std::deque<std::unique_ptr<DemandBranchProjectionState>> demand_projection_states;
+            std::size_t                       released_branches = 0;
             const SearchTimeDomain*           first_departure_domain = batch.departure_domain;
             const auto                        batch_task_span =
                 std::span<const SearchProjectionSlot>{
@@ -3151,6 +3892,15 @@ namespace timetable::domain::assignment {
                 };
             const auto target_projection_slots =
                 completion_target_projection_slots(batch_task_span);
+            if (target_projection_slots
+                && batch.projection_slots.size() > FixedActiveMask::max_size) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("completion-target fixed active mask capacity exceeded")
+                        .ctx("origin", batch.key.origin.get())
+                        .ctx("projection_slots", static_cast<std::int64_t>(batch.projection_slots.size()))
+                        .ctx("mask_capacity", static_cast<std::int64_t>(FixedActiveMask::max_size))
+                );
+            }
             const auto                        reachability = build_residual_reachability(
                   reverse_graph
                 , batch_target_span
@@ -3169,39 +3919,40 @@ namespace timetable::domain::assignment {
                 , .max_transfers  = params.transfers.max_transfers
             };
 
-            branch_active_tasks.reserve(kInitialTaskBranchReserve);
-            branch_active_targets.reserve(kInitialTaskBranchReserve);
-
             std::deque<std::size_t> current_frontier;
             std::deque<std::size_t> next_frontier;
-            branches.push_back(
-                SearchBranch{
-                      .trace = SearchPartialTrace{
-                            .origin                   = batch.key.origin
-                          , .current_physical         = endpoint_key(batch.key.origin)
-                          , .current_occurrence       = std::nullopt
-                          , .connection_trace         = ConnectionTrace{}
-                          , .parent_branch            = std::nullopt
-                          , .incoming_segment         = std::nullopt
-                          , .last_timed_segment       = nullptr
-                          , .last_timed_route_segment = nullptr
-                      }
-                    , .metrics = SearchPartialMetrics{
-                            .departure        = std::nullopt
-                          , .current_time     = std::nullopt
-                          , .access_time      = Time{ 0.0 }
-                          , .in_vehicle_time  = Time{ 0.0 }
-                          , .transfer_wait_time = Time{ 0.0 }
-                          , .transfer_walk_time = Time{ 0.0 }
-                          , .egress_time      = Time{ 0.0 }
-                          , .transfers        = TransferCount{ 0 }
-                          , .fare             = 0.0
-                          , .capacity_exposure = CapacityExposure{ Time{ 0.0 } }
-                      }
-                }
+            const auto root_branch_index = append_branch(
+                branches
+              , SearchBranch{
+                    .trace = SearchPartialTrace{
+                          .origin                   = batch.key.origin
+                        , .current_physical         = endpoint_key(batch.key.origin)
+                        , .current_occurrence       = std::nullopt
+                        , .phase                    = SearchBranchPhase::AtOrigin
+                        , .parent_branch            = std::nullopt
+                        , .incoming_segment         = std::nullopt
+                        , .last_timed_segment       = nullptr
+                        , .last_timed_route_segment = nullptr
+                    }
+                  , .metrics = SearchPartialMetrics{
+                          .departure        = std::nullopt
+                        , .current_time     = std::nullopt
+                        , .access_time      = Time{ 0.0 }
+                        , .in_vehicle_time  = Time{ 0.0 }
+                        , .transfer_wait_time = Time{ 0.0 }
+                        , .transfer_walk_time = Time{ 0.0 }
+                        , .egress_time      = Time{ 0.0 }
+                        , .transfers        = TransferCount{ 0 }
+                        , .fare             = 0.0
+                        , .capacity_exposure = CapacityExposure{ Time{ 0.0 } }
+                  }
+              }
             );
+            MATHFP_TRY(validate_search_branch_phase_invariants(
+                branch_at(branches, root_branch_index)
+            ));
             const auto root_reachability_key = reachability_mask_key(
-                  branches.back()
+                  branch_at(branches, root_branch_index)
                 , params.transfers
             );
             auto root_reachable_targets = filter_target_positions_by_reachability(
@@ -3220,9 +3971,35 @@ namespace timetable::domain::assignment {
                 , task_stats
                 , stats
             );
-            branch_active_tasks.push_back(std::move(root_reachability.reachable));
-            branch_active_targets.push_back(std::move(root_reachable_targets));
-            current_frontier.push_back(0);
+            if (target_projection_slots) {
+                if (!root_reachability.reachable.equals(root_reachable_targets)) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("completion-target root reachability masks disagree")
+                            .ctx("origin", batch.key.origin.get())
+                    );
+                }
+                completion_projection_states.push_back(
+                    std::make_unique<FixedActiveMask>(
+                        FixedActiveMask::from(root_reachability.reachable)
+                    )
+                );
+            } else {
+                demand_projection_states.push_back(
+                    std::make_unique<DemandBranchProjectionState>(
+                        DemandBranchProjectionState{
+                              .active_tasks = std::move(root_reachability.reachable)
+                            , .active_targets = std::move(root_reachable_targets)
+                        }
+                    )
+                );
+            }
+            current_frontier.push_back(root_branch_index);
+            BranchPhaseStats current_frontier_by_phase;
+            BranchPhaseStats next_frontier_by_phase;
+            increment_phase_stats(
+                  current_frontier_by_phase
+                , SearchBranchPhase::AtOrigin
+            );
 
             status(
                 fmt::format(
@@ -3242,6 +4019,33 @@ namespace timetable::domain::assignment {
             using Clock = std::chrono::steady_clock;
             const auto batch_started_at = Clock::now();
             auto last_wall_clock_heartbeat = batch_started_at;
+            auto projection_state_count = [&]() noexcept {
+                return target_projection_slots
+                    ? completion_projection_states.size() - released_branches
+                    : demand_projection_states.size() - released_branches;
+            };
+            const auto projection_state_size = target_projection_slots
+                ? sizeof(FixedActiveMask)
+                : sizeof(DemandBranchProjectionState);
+            auto emit_storage_diagnostics = [&]() {
+                log(
+                    format_search_storage_diagnostics(
+                        search_storage_diagnostics(
+                              branches
+                            , released_branches
+                            , projection_state_count()
+                            , projection_state_size
+                            , tree_partial_retention
+                            , std::span<const SearchProjectionRetention>{
+                                  retentions.data()
+                                , retentions.size()
+                              }
+                            , stats.pruning
+                        )
+                    )
+                    , LogLevel::Info
+                );
+            };
             auto emit_wall_clock_heartbeat =
                 [&](const char* stage, std::size_t branch_index) {
                     const auto now = Clock::now();
@@ -3259,6 +4063,9 @@ namespace timetable::domain::assignment {
                               " tasks={:>5} targets={:>5} capacity_iteration={:>4} stage={} branch={} elapsed_ms={}"
                               " expanded={:>8} generated={:>8} accepted={:>8} found={:>8}"
                               " frontier={}/{}"
+                              " frontier_phase(current={}, next={})"
+                              " walk_generated({}) walk_accepted({}) rejected_consecutive_walk={}"
+                              " accepted_phase({})"
                             , static_cast<std::int64_t>(batch_index)
                             , batch.key.origin.get()
                             , format_batch_interval(batch.key.interval)
@@ -3274,14 +4081,35 @@ namespace timetable::domain::assignment {
                             , retained_connection_count(retentions)
                             , current_frontier.size()
                             , next_frontier.size()
+                            , format_branch_phase_stats(current_frontier_by_phase)
+                            , format_branch_phase_stats(next_frontier_by_phase)
+                            , format_walk_kind_stats(stats.generated_walk)
+                            , format_walk_kind_stats(stats.accepted_walk)
+                            , stats.rejected_consecutive_walk
+                            , format_branch_phase_stats(stats.accepted_branches_by_phase)
                         )
                         , LogLevel::Info
                     );
+                    emit_storage_diagnostics();
                 };
+            auto release_projection_payload = [&](std::size_t released_index) noexcept {
+                if (target_projection_slots) {
+                    if (released_index < completion_projection_states.size()) {
+                        completion_projection_states[released_index].reset();
+                    }
+                } else {
+                    if (released_index < demand_projection_states.size()) {
+                        demand_projection_states[released_index].reset();
+                    }
+                }
+                ++released_branches;
+            };
 
             while (!current_frontier.empty() || !next_frontier.empty()) {
                 if (current_frontier.empty()) {
                     current_frontier.swap(next_frontier);
+                    current_frontier_by_phase = next_frontier_by_phase;
+                    next_frontier_by_phase = BranchPhaseStats{};
                 }
 
                 stats.max_current_frontier = std::max(stats.max_current_frontier, current_frontier.size());
@@ -3289,10 +4117,24 @@ namespace timetable::domain::assignment {
 
                 const auto branch_index = current_frontier.front();
                 current_frontier.pop_front();
+                const auto& branch = branch_at(branches, branch_index);
+                decrement_phase_stats(current_frontier_by_phase, branch.trace.phase);
                 emit_wall_clock_heartbeat("branch", branch_index);
-                const auto& branch = branches[branch_index];
-                const auto& active_tasks = branch_active_tasks[branch_index];
-                const auto& active_targets = branch_active_targets[branch_index];
+                ActiveIndexSet completion_active;
+                const ActiveIndexSet* active_tasks_ptr{};
+                const ActiveIndexSet* active_targets_ptr{};
+                if (target_projection_slots) {
+                    completion_active =
+                        completion_projection_states[branch_index]->to_active_index_set();
+                    active_tasks_ptr   = &completion_active;
+                    active_targets_ptr = &completion_active;
+                } else {
+                    const auto& projection_state = *demand_projection_states[branch_index];
+                    active_tasks_ptr   = &projection_state.active_tasks;
+                    active_targets_ptr = &projection_state.active_targets;
+                }
+                const auto& active_tasks   = *active_tasks_ptr;
+                const auto& active_targets = *active_targets_ptr;
                 ++stats.expanded_branches;
 
                 if ((stats.expanded_branches % kSearchHeartbeatStep) == 0) {
@@ -3320,6 +4162,9 @@ namespace timetable::domain::assignment {
                               " lower_bound_pruned={}"
                               " pruning(exact/approx/inserted/skipped)={}/{}/{}/{}"
                               " frontier={}/{}"
+                              " frontier_phase(current={}, next={})"
+                              " walk_generated({}) walk_accepted({}) rejected_consecutive_walk={}"
+                              " accepted_phase({})"
                             , static_cast<std::int64_t>(batch_index)
                             , batch.key.origin.get()
                             , format_batch_interval(batch.key.interval)
@@ -3344,6 +4189,12 @@ namespace timetable::domain::assignment {
                             , stats.pruning.skipped_insertions
                             , current_frontier.size()
                             , next_frontier   .size()
+                            , format_branch_phase_stats(current_frontier_by_phase)
+                            , format_branch_phase_stats(next_frontier_by_phase)
+                            , format_walk_kind_stats(stats.generated_walk)
+                            , format_walk_kind_stats(stats.accepted_walk)
+                            , stats.rejected_consecutive_walk
+                            , format_branch_phase_stats(stats.accepted_branches_by_phase)
                         )
                         , LogLevel::Info
                     );
@@ -3351,11 +4202,17 @@ namespace timetable::domain::assignment {
                         format_search_pruning_runtime_stats(summarize(stats.pruning))
                         , LogLevel::Info
                     );
+                    emit_storage_diagnostics();
                 }
 
                 if (active_targets.empty()
                     || (branch.trace.current_physical.kind == EndpointKind::Zone
                         && branch.metrics.departure.has_value())) {
+                    release_branch_if_closed(
+                          branches
+                        , branch_index
+                        , release_projection_payload
+                    );
                     continue;
                 }
 
@@ -3368,11 +4225,14 @@ namespace timetable::domain::assignment {
                     , branch
                     , params.transfers
                     , first_departure_domain
-                    , [&](ConnectionSegmentId successor_id) {
+                    , [&](ConnectionSegmentId successor_id, std::optional<WalkExtensionTransition> walk_transition) {
                     if (!successor_error) {
                         return;
                     }
                     ++stats.generated_successors;
+                    if (walk_transition.has_value()) {
+                        increment_walk_kind_stats(stats.generated_walk, walk_transition->kind);
+                    }
                     if ((stats.generated_successors % kSearchWallClockSuccessorCheckStep) == 0) {
                         emit_wall_clock_heartbeat("successor", branch_index);
                     }
@@ -3415,6 +4275,7 @@ namespace timetable::domain::assignment {
                         , branch
                         , network
                         , successor
+                        , walk_transition
                         , batch.key.interval
                         , search_cost
                     );
@@ -3427,6 +4288,13 @@ namespace timetable::domain::assignment {
                     auto candidate = std::move(*candidate_result);
                     if (!candidate.has_value()) {
                         ++stats.rejected_cycles;
+                        return;
+                    }
+                    if (auto invariant_result = validate_search_branch_phase_invariants(*candidate);
+                        !invariant_result) {
+                        successor_error = mathfp::unexpected(
+                            std::move(invariant_result.error())
+                        );
                         return;
                     }
 
@@ -3446,10 +4314,12 @@ namespace timetable::domain::assignment {
                             , active_tasks
                             , batch_task_span
                         );
+                        bool retained_complete = false;
                         for (const auto task_pos : complete_task_positions) {
                             const auto completed_before = task_stats[task_pos].completed_connections;
                             auto complete_result = retain_complete_for_slot(
                                   *candidate
+                                , branches
                                 , network
                                 , params
                                 , search_cost
@@ -3468,6 +4338,12 @@ namespace timetable::domain::assignment {
                             }
                             stats.completed_connections +=
                                 task_stats[task_pos].completed_connections - completed_before;
+                            retained_complete =
+                                retained_complete
+                                || task_stats[task_pos].completed_connections > completed_before;
+                        }
+                        if (retained_complete && walk_transition.has_value()) {
+                            increment_walk_kind_stats(stats.accepted_walk, walk_transition->kind);
                         }
                         return;
                     }
@@ -3481,12 +4357,20 @@ namespace timetable::domain::assignment {
                           *candidate
                         , params.transfers
                     );
+                    const auto& target_reachability_entry =
+                        reachability_cache.target_entry(candidate_reachability_key);
                     auto next_active_targets = filter_target_positions_by_reachability(
                           active_targets
-                        , reachability_cache.target_entry(candidate_reachability_key)
+                        , target_reachability_entry
                     );
                     if (next_active_targets.empty()) {
-                        ++stats.rejected_reachability;
+                        add_reachability_rejection(
+                              stats
+                            , summarize_target_reachability_rejection(
+                                  active_targets
+                                , target_reachability_entry
+                              )
+                        );
                         return;
                     }
 
@@ -3598,23 +4482,54 @@ namespace timetable::domain::assignment {
                         return;
                     }
 
-                    auto retained_active_targets = target_projection_slots
-                        ? ActiveIndexSet{ next_active_tasks }
-                        : std::move(next_active_targets);
-
                     ++stats.accepted_branches;
+                    if (walk_transition.has_value()) {
+                        increment_walk_kind_stats(stats.accepted_walk, walk_transition->kind);
+                    }
+                    increment_phase_stats(
+                          stats.accepted_branches_by_phase
+                        , candidate->trace.phase
+                    );
                     const auto same_level =
                         is_walk_connection(successor) || !branch.metrics.departure.has_value();
-                    branches.push_back(std::move(*candidate));
-                    branch_active_targets.push_back(std::move(retained_active_targets));
-                    branch_active_tasks.push_back(std::move(next_active_tasks));
-                    const auto candidate_index = branches.size() - 1;
+                    const auto candidate_phase = candidate->trace.phase;
+                    const auto candidate_index = append_branch(
+                          branches
+                        , std::move(*candidate)
+                    );
+                    if (target_projection_slots) {
+                        completion_projection_states.push_back(
+                            std::make_unique<FixedActiveMask>(
+                                FixedActiveMask::from(next_active_tasks)
+                            )
+                        );
+                    } else {
+                        demand_projection_states.push_back(
+                            std::make_unique<DemandBranchProjectionState>(
+                                DemandBranchProjectionState{
+                                      .active_tasks = std::move(next_active_tasks)
+                                    , .active_targets = std::move(next_active_targets)
+                                }
+                            )
+                        );
+                    }
                     if (same_level) {
                         current_frontier.push_back(candidate_index);
+                        increment_phase_stats(current_frontier_by_phase, candidate_phase);
                     } else {
                         next_frontier   .push_back(candidate_index);
+                        increment_phase_stats(next_frontier_by_phase, candidate_phase);
                     }
-                });
+                }
+                    , [&](ConnectionSegmentId) {
+                          ++stats.rejected_consecutive_walk;
+                      }
+                );
+                release_branch_if_closed(
+                      branches
+                    , branch_index
+                    , release_projection_payload
+                );
                 MATHFP_TRY(std::move(successor_error));
             }
 
@@ -3698,6 +4613,8 @@ namespace timetable::domain::assignment {
                       " rejected(time_domain/feasibility/reboarding/cycles/limit/reachability/dominance)={}/{}/{}/{}/{}/{}/{}"
                       " reachability_detail(phase/budget/unreachable)={}/{}/{} max_frontier={}/{}"
                       " lower_bound_pruned={} lower_bound_detail(exact/imp/jt/nt)={}/{}/{}/{}"
+                      " walk_generated({}) walk_accepted({}) rejected_consecutive_walk={}"
+                      " accepted_phase({})"
                     , batch_index + 1
                     , batch_count
                     , batch.key.origin.get()
@@ -3730,6 +4647,10 @@ namespace timetable::domain::assignment {
                     , stats.suffix_lower_bound_rejections.tolerance_impedance
                     , stats.suffix_lower_bound_rejections.tolerance_journey_time
                     , stats.suffix_lower_bound_rejections.tolerance_transfers
+                    , format_walk_kind_stats(stats.generated_walk)
+                    , format_walk_kind_stats(stats.accepted_walk)
+                    , stats.rejected_consecutive_walk
+                    , format_branch_phase_stats(stats.accepted_branches_by_phase)
                 )
                 , LogLevel::Info
             );
@@ -3737,6 +4658,7 @@ namespace timetable::domain::assignment {
                 format_search_pruning_runtime_stats(summarize(stats.pruning))
                 , LogLevel::Info
             );
+            emit_storage_diagnostics();
 
             return slot_results;
         }
@@ -4500,6 +5422,16 @@ namespace timetable::domain::assignment {
                                         .ctx("batch", static_cast<std::int64_t>(batch_pos))
                                         .ctx("slot_position", static_cast<std::int64_t>(task_pos))
                                         .ctx("target_index", slot.completion_target->get())
+                                );
+                            }
+                            if (batch.completion_targets[task_pos].destination
+                                != slot.destination) {
+                                return mathfp::unexpected(
+                                    mathfp::internal_error("completion-target projection slot destination disagrees with target position")
+                                        .ctx("batch", static_cast<std::int64_t>(batch_pos))
+                                        .ctx("slot_position", static_cast<std::int64_t>(task_pos))
+                                        .ctx("slot_destination", slot.destination.get())
+                                        .ctx("target_destination", batch.completion_targets[task_pos].destination.get())
                                 );
                             }
                             break;

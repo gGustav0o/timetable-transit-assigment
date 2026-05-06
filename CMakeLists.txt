@@ -157,6 +157,8 @@ target_link_libraries(timetable-transit-assigment
   PRIVATE
     mathfp::all
     Boost::boost
+    Boost::container
+    Boost::unordered
     fmt::fmt
     spdlog::spdlog
     unofficial::vincentlaucsb-csv-parser::csv
