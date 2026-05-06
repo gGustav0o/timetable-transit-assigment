@@ -1,10 +1,14 @@
 #include "timetable/domain/assignment/search/search.hpp"
 
 #include <algorithm>
+#include <atomic>
+#include <bit>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <deque>
+#include <future>
 #include <iterator>
 #include <limits>
 #include <map>
@@ -12,6 +16,7 @@
 #include <queue>
 #include <span>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -178,7 +183,7 @@ namespace timetable::domain::assignment {
         }
 
         using NodeMetricMap = std::unordered_map<SearchNodeKey, NodeMetricSet, SearchNodeKeyHash>;
-        using BranchArena       = std::vector<SearchBranch>;
+        using BranchArena   = std::deque<SearchBranch>;
 
         enum class SearchProjectionSlotKind : std::uint8_t {
               DemandTask
@@ -360,10 +365,83 @@ namespace timetable::domain::assignment {
             SuffixLowerBoundRejectionReason reason{ SuffixLowerBoundRejectionReason::ToleranceImpedance };
         };
 
+        struct ActiveIndexSet final {
+            static constexpr std::size_t word_bits = 64;
+
+            std::size_t size{};
+            std::vector<std::uint64_t> words{};
+
+            ActiveIndexSet() = default;
+
+            explicit ActiveIndexSet(std::size_t element_count)
+                : size{ element_count }
+                , words((element_count + word_bits - 1u) / word_bits, 0u)
+            {}
+
+            [[nodiscard]] static ActiveIndexSet full(std::size_t element_count) {
+                ActiveIndexSet result{ element_count };
+                std::fill(result.words.begin(), result.words.end(), ~std::uint64_t{ 0 });
+                const auto tail_bits = element_count % word_bits;
+                if (!result.words.empty() && tail_bits != 0u) {
+                    result.words.back() &= (std::uint64_t{ 1 } << tail_bits) - 1u;
+                }
+                return result;
+            }
+
+            [[nodiscard]] bool empty() const noexcept {
+                return std::all_of(
+                      words.begin()
+                    , words.end()
+                    , [](std::uint64_t word) { return word == 0u; }
+                );
+            }
+
+            [[nodiscard]] bool contains(std::size_t index) const noexcept {
+                return index < size
+                    && (words[index / word_bits]
+                        & (std::uint64_t{ 1 } << (index % word_bits))) != 0u;
+            }
+
+            void set(std::size_t index) noexcept {
+                if (index >= size) {
+                    return;
+                }
+                words[index / word_bits] |= std::uint64_t{ 1 } << (index % word_bits);
+            }
+
+            [[nodiscard]] ActiveIndexSet intersect(
+                const ActiveIndexSet& rhs
+            ) const {
+                ActiveIndexSet result{ std::min(size, rhs.size) };
+                const auto common_words = std::min(words.size(), rhs.words.size());
+                for (std::size_t i = 0; i < common_words; ++i) {
+                    result.words[i] = words[i] & rhs.words[i];
+                }
+                return result;
+            }
+
+            template <typename Visitor>
+            void for_each_index(Visitor&& visit) const {
+                auto&& visitor = visit;
+                for (std::size_t word_index = 0; word_index < words.size(); ++word_index) {
+                    auto word = words[word_index];
+                    while (word != 0u) {
+                        const auto bit = static_cast<std::size_t>(std::countr_zero(word));
+                        const auto index = word_index * word_bits + bit;
+                        if (index < size) {
+                            visitor(index);
+                        }
+                        word &= word - 1u;
+                    }
+                }
+            }
+        };
+
         constexpr std::size_t kTaskProgressStep    = 10;
         constexpr std::size_t kSearchHeartbeatStep = 10'000;
         constexpr std::size_t kSearchWallClockSuccessorCheckStep = 16'384;
         constexpr std::size_t kInitialTaskBranchReserve = 4'096;
+        constexpr std::size_t kAllZoneMaxParallelBatches = 2;
         constexpr auto kSearchWallClockHeartbeatInterval =
             std::chrono::seconds{ 30 };
 
@@ -2034,23 +2112,24 @@ namespace timetable::domain::assignment {
 
         bool is_active_batch_destination(
               EndpointKey                       endpoint
-            , std::span<const std::size_t>      active_targets
+            , const ActiveIndexSet&             active_targets
             , std::span<const SearchCompletionTarget> batch_targets
         ) noexcept {
             if (endpoint.kind != EndpointKind::Zone) {
                 return false;
             }
-            for (const auto target_pos : active_targets) {
+            bool active = false;
+            active_targets.for_each_index([&](std::size_t target_pos) {
                 if (batch_targets[target_pos].destination.get() == endpoint.id) {
-                    return true;
+                    active = true;
                 }
-            }
-            return false;
+            });
+            return active;
         }
 
         bool is_batch_admissible_walk_successor(
               ZoneId                         origin
-            , std::span<const std::size_t>   active_targets
+            , const ActiveIndexSet&          active_targets
             , std::span<const SearchCompletionTarget> batch_targets
             , const SearchBranch&            branch
             , const RouteSegment&            route_segment
@@ -2454,7 +2533,7 @@ namespace timetable::domain::assignment {
         void for_each_successor(
               const PreprocessedNetwork& network
             , ZoneId                      origin
-            , std::span<const std::size_t> active_targets
+            , const ActiveIndexSet&       active_targets
             , std::span<const SearchCompletionTarget> batch_targets
             , const SearchBranch&        branch
             , const TransferLimits&      limits
@@ -2673,31 +2752,14 @@ namespace timetable::domain::assignment {
         }
 
         struct ReachabilityTaskFilter final {
-            std::vector<std::size_t> reachable{};
+            ActiveIndexSet reachable{};
             std::vector<RejectedReachabilityTask> unreachable{};
         };
 
-        [[nodiscard]] std::vector<std::size_t> all_batch_task_positions(
-            std::span<const SearchProjectionSlot> slots
-        ) {
-            std::vector<std::size_t> positions;
-            positions.reserve(slots.size());
-            for (std::size_t i = 0; i < slots.size(); ++i) {
-                positions.push_back(i);
-            }
-            return positions;
-        }
-
-        [[nodiscard]] std::vector<std::size_t> all_batch_target_positions(
-            std::span<const SearchCompletionTarget> targets
-        ) {
-            std::vector<std::size_t> positions;
-            positions.reserve(targets.size());
-            for (std::size_t i = 0; i < targets.size(); ++i) {
-                positions.push_back(i);
-            }
-            return positions;
-        }
+        struct ReachabilityMaskEntry final {
+            ActiveIndexSet reachable{};
+            std::vector<ReachabilityRejectionReason> rejection_reasons{};
+        };
 
         [[nodiscard]] bool completion_target_projection_slots(
             std::span<const SearchProjectionSlot> slots
@@ -2711,63 +2773,169 @@ namespace timetable::domain::assignment {
             );
         }
 
-        [[nodiscard]] std::vector<std::size_t> filter_target_positions_by_reachability(
-              std::span<const std::size_t>                 target_positions
-            , std::span<const SearchCompletionTarget>       targets
-            , const ResidualReachability&                  reachability
-            , const SearchBranch&                          branch
-            , const TransferLimits&                        limits
+        [[nodiscard]] ResidualReachabilityKey reachability_mask_key(
+              const SearchBranch&   branch
+            , const TransferLimits& limits
+        ) noexcept {
+            return ResidualReachabilityKey{
+                  .current_physical    = branch.trace.current_physical
+                , .phase               = branch.metrics.departure.has_value()
+                    ? SearchBranchPhase::AfterTimedRide
+                    : SearchBranchPhase::BeforeFirstBoarding
+                , .remaining_transfers = remaining_transfer_budget(branch, limits)
+            };
+        }
+
+        [[nodiscard]] RelaxedSuffixState relaxed_suffix_state(
+              const ResidualReachabilityKey& key
+            , ZoneId                         destination
+        ) noexcept {
+            return RelaxedSuffixState{
+                  .current_physical    = key.current_physical
+                , .destination         = destination
+                , .phase               = key.phase
+                , .remaining_transfers = key.remaining_transfers
+            };
+        }
+
+        [[nodiscard]] ReachabilityMaskEntry build_target_reachability_mask(
+              const ResidualReachabilityKey&          key
+            , std::span<const SearchCompletionTarget> targets
+            , const ResidualReachability&             reachability
+            , TransferCount                           max_transfers
         ) {
-            std::vector<std::size_t> reachable;
-            reachable.reserve(target_positions.size());
-            for (const auto target_pos : target_positions) {
+            ReachabilityMaskEntry result{
+                  .reachable = ActiveIndexSet{ targets.size() }
+                , .rejection_reasons = std::vector<ReachabilityRejectionReason>(
+                      targets.size()
+                    , ReachabilityRejectionReason::UnreachableDestination
+                  )
+            };
+            for (std::size_t target_pos = 0; target_pos < targets.size(); ++target_pos) {
                 const auto decision = evaluate_residual_reachability(
                       reachability
-                    , relaxed_suffix_state(
-                          branch
-                        , targets[target_pos].destination
-                        , limits
-                      )
-                    , limits.max_transfers
+                    , relaxed_suffix_state(key, targets[target_pos].destination)
+                    , max_transfers
                 );
                 if (decision.feasible) {
-                    reachable.push_back(target_pos);
+                    result.reachable.set(target_pos);
+                } else {
+                    result.rejection_reasons[target_pos] = decision.rejection_reason;
                 }
             }
-            return reachable;
+            return result;
+        }
+
+        [[nodiscard]] ReachabilityMaskEntry build_slot_reachability_mask(
+              const ResidualReachabilityKey&       key
+            , std::span<const SearchProjectionSlot> slots
+            , const ResidualReachability&          reachability
+            , TransferCount                        max_transfers
+        ) {
+            ReachabilityMaskEntry result{
+                  .reachable = ActiveIndexSet{ slots.size() }
+                , .rejection_reasons = std::vector<ReachabilityRejectionReason>(
+                      slots.size()
+                    , ReachabilityRejectionReason::UnreachableDestination
+                  )
+            };
+            for (std::size_t task_pos = 0; task_pos < slots.size(); ++task_pos) {
+                const auto decision = evaluate_residual_reachability(
+                      reachability
+                    , relaxed_suffix_state(key, slots[task_pos].destination)
+                    , max_transfers
+                );
+                if (decision.feasible) {
+                    result.reachable.set(task_pos);
+                } else {
+                    result.rejection_reasons[task_pos] = decision.rejection_reason;
+                }
+            }
+            return result;
+        }
+
+        struct ReachabilityMaskCache final {
+            const ResidualReachability&             reachability;
+            std::span<const SearchCompletionTarget> targets;
+            std::span<const SearchProjectionSlot>   slots;
+            TransferCount                           max_transfers;
+            std::unordered_map<
+                  ResidualReachabilityKey
+                , ReachabilityMaskEntry
+                , ResidualReachabilityKeyHash
+            > target_masks{};
+            std::unordered_map<
+                  ResidualReachabilityKey
+                , ReachabilityMaskEntry
+                , ResidualReachabilityKeyHash
+            > slot_masks{};
+
+            const ReachabilityMaskEntry& target_entry(
+                const ResidualReachabilityKey& key
+            ) {
+                const auto existing = target_masks.find(key);
+                if (existing != target_masks.end()) {
+                    return existing->second;
+                }
+                const auto [it, inserted] = target_masks.emplace(
+                      key
+                    , build_target_reachability_mask(
+                          key
+                        , targets
+                        , reachability
+                        , max_transfers
+                      )
+                );
+                (void)inserted;
+                return it->second;
+            }
+
+            const ReachabilityMaskEntry& slot_entry(
+                const ResidualReachabilityKey& key
+            ) {
+                const auto existing = slot_masks.find(key);
+                if (existing != slot_masks.end()) {
+                    return existing->second;
+                }
+                const auto [it, inserted] = slot_masks.emplace(
+                      key
+                    , build_slot_reachability_mask(
+                          key
+                        , slots
+                        , reachability
+                        , max_transfers
+                      )
+                );
+                (void)inserted;
+                return it->second;
+            }
+        };
+
+        [[nodiscard]] ActiveIndexSet filter_target_positions_by_reachability(
+              const ActiveIndexSet&                     target_positions
+            , const ReachabilityMaskEntry&              reachability_entry
+        ) {
+            return target_positions.intersect(reachability_entry.reachable);
         }
 
         [[nodiscard]] ReachabilityTaskFilter filter_task_positions_by_reachability(
-              std::span<const std::size_t>  task_positions
-            , std::span<const SearchProjectionSlot> slots
-            , const ResidualReachability&   reachability
-            , const SearchBranch&           branch
-            , const TransferLimits&         limits
+              const ActiveIndexSet&        task_positions
+            , const ReachabilityMaskEntry& reachability_entry
         ) {
-            ReachabilityTaskFilter result;
-            result.reachable  .reserve(task_positions.size());
-            result.unreachable.reserve(task_positions.size());
-            for (const auto task_pos : task_positions) {
-                const auto decision = evaluate_residual_reachability(
-                      reachability
-                    , relaxed_suffix_state(
-                          branch
-                        , slots[task_pos].destination
-                        , limits
-                      )
-                    , limits.max_transfers
-                );
-                if (decision.feasible) {
-                    result.reachable.push_back(task_pos);
-                } else {
+            ReachabilityTaskFilter result{
+                  .reachable = task_positions.intersect(reachability_entry.reachable)
+            };
+            result.unreachable.reserve(task_positions.size);
+            task_positions.for_each_index([&](std::size_t task_pos) {
+                if (!reachability_entry.reachable.contains(task_pos)) {
                     result.unreachable.push_back(
                         RejectedReachabilityTask{
                               .task_position = task_pos
-                            , .reason        = decision.rejection_reason
+                            , .reason        = reachability_entry.rejection_reasons[task_pos]
                         }
                     );
                 }
-            }
+            });
             return result;
         }
 
@@ -2801,7 +2969,7 @@ namespace timetable::domain::assignment {
 
         [[nodiscard]] std::vector<std::size_t> matching_complete_tasks(
               const SearchBranch&              branch
-            , std::span<const std::size_t>      active_tasks
+            , const ActiveIndexSet&             active_tasks
             , std::span<const SearchProjectionSlot> batch_tasks
         ) {
             std::vector<std::size_t> matches;
@@ -2810,18 +2978,18 @@ namespace timetable::domain::assignment {
                 return matches;
             }
 
-            for (const auto task_pos : active_tasks) {
+            active_tasks.for_each_index([&](std::size_t task_pos) {
                 if (batch_tasks[task_pos].destination.get()
                     == branch.trace.current_physical.id) {
                     matches.push_back(task_pos);
                 }
-            }
+            });
             return matches;
         }
 
         [[nodiscard]] bool matches_completion_target(
               const SearchBranch&                       branch
-            , std::span<const std::size_t>               active_targets
+            , const ActiveIndexSet&                      active_targets
             , std::span<const SearchCompletionTarget>    batch_targets
         ) noexcept {
             if (!branch.metrics.departure.has_value()
@@ -2829,13 +2997,14 @@ namespace timetable::domain::assignment {
                 return false;
             }
 
-            for (const auto target_pos : active_targets) {
+            bool matches = false;
+            active_targets.for_each_index([&](std::size_t target_pos) {
                 if (batch_targets[target_pos].destination.get()
                     == branch.trace.current_physical.id) {
-                    return true;
+                    matches = true;
                 }
-            }
-            return false;
+            });
+            return matches;
         }
 
         [[nodiscard]] mathfp::Expected<IntervalId> complete_retention_interval(
@@ -2967,8 +3136,8 @@ namespace timetable::domain::assignment {
             TaskSearchStats                   stats;
             std::vector<TaskSearchStats>      task_stats(batch.projection_slots.size());
             BranchArena                       branches;
-            std::vector<std::vector<std::size_t>> branch_active_tasks;
-            std::vector<std::vector<std::size_t>> branch_active_targets;
+            std::vector<ActiveIndexSet>        branch_active_tasks;
+            std::vector<ActiveIndexSet>        branch_active_targets;
             const SearchTimeDomain*           first_departure_domain = batch.departure_domain;
             const auto                        batch_task_span =
                 std::span<const SearchProjectionSlot>{
@@ -2993,8 +3162,13 @@ namespace timetable::domain::assignment {
                   reachability
                 , params.transfers.max_transfers
             ));
+            ReachabilityMaskCache reachability_cache{
+                  .reachability   = reachability
+                , .targets        = batch_target_span
+                , .slots          = batch_task_span
+                , .max_transfers  = params.transfers.max_transfers
+            };
 
-            branches.reserve(kInitialTaskBranchReserve);
             branch_active_tasks.reserve(kInitialTaskBranchReserve);
             branch_active_targets.reserve(kInitialTaskBranchReserve);
 
@@ -3026,27 +3200,17 @@ namespace timetable::domain::assignment {
                       }
                 }
             );
-            const auto root_task_positions = all_batch_task_positions(batch_task_span);
-            const auto root_target_positions = all_batch_target_positions(batch_target_span);
-            auto root_reachable_targets = filter_target_positions_by_reachability(
-                  std::span<const std::size_t>{
-                      root_target_positions.data()
-                    , root_target_positions.size()
-                  }
-                , batch_target_span
-                , reachability
-                , branches.back()
+            const auto root_reachability_key = reachability_mask_key(
+                  branches.back()
                 , params.transfers
             );
+            auto root_reachable_targets = filter_target_positions_by_reachability(
+                  ActiveIndexSet::full(batch.completion_targets.size())
+                , reachability_cache.target_entry(root_reachability_key)
+            );
             auto root_reachability = filter_task_positions_by_reachability(
-                  std::span<const std::size_t>{
-                      root_task_positions.data()
-                    , root_task_positions.size()
-                  }
-                , batch_task_span
-                , reachability
-                , branches.back()
-                , params.transfers
+                  ActiveIndexSet::full(batch.projection_slots.size())
+                , reachability_cache.slot_entry(root_reachability_key)
             );
             record_reachability_rejections(
                   std::span<const RejectedReachabilityTask>{
@@ -3126,15 +3290,9 @@ namespace timetable::domain::assignment {
                 const auto branch_index = current_frontier.front();
                 current_frontier.pop_front();
                 emit_wall_clock_heartbeat("branch", branch_index);
-                const auto branch = branches[branch_index];
-                const auto active_tasks = std::span<const std::size_t>{
-                      branch_active_tasks[branch_index].data()
-                    , branch_active_tasks[branch_index].size()
-                };
-                const auto active_targets = std::span<const std::size_t>{
-                      branch_active_targets[branch_index].data()
-                    , branch_active_targets[branch_index].size()
-                };
+                const auto& branch = branches[branch_index];
+                const auto& active_tasks = branch_active_tasks[branch_index];
+                const auto& active_targets = branch_active_targets[branch_index];
                 ++stats.expanded_branches;
 
                 if ((stats.expanded_branches % kSearchHeartbeatStep) == 0) {
@@ -3319,12 +3477,13 @@ namespace timetable::domain::assignment {
                         return;
                     }
 
+                    const auto candidate_reachability_key = reachability_mask_key(
+                          *candidate
+                        , params.transfers
+                    );
                     auto next_active_targets = filter_target_positions_by_reachability(
                           active_targets
-                        , batch_target_span
-                        , reachability
-                        , *candidate
-                        , params.transfers
+                        , reachability_cache.target_entry(candidate_reachability_key)
                     );
                     if (next_active_targets.empty()) {
                         ++stats.rejected_reachability;
@@ -3355,10 +3514,7 @@ namespace timetable::domain::assignment {
 
                     const auto reachable_tasks = filter_task_positions_by_reachability(
                           active_tasks
-                        , batch_task_span
-                        , reachability
-                        , *candidate
-                        , params.transfers
+                        , reachability_cache.slot_entry(candidate_reachability_key)
                     );
                     record_reachability_rejections(
                           std::span<const RejectedReachabilityTask>{
@@ -3369,11 +3525,13 @@ namespace timetable::domain::assignment {
                         , stats
                     );
 
-                    std::vector<std::size_t> next_active_tasks;
-                    next_active_tasks.reserve(reachable_tasks.reachable.size());
+                    ActiveIndexSet next_active_tasks{ batch.projection_slots.size() };
                     std::vector<RejectedSuffixLowerBoundTask> lower_bound_rejected_tasks;
-                    lower_bound_rejected_tasks.reserve(reachable_tasks.reachable.size());
-                    for (const auto task_pos : reachable_tasks.reachable) {
+                    lower_bound_rejected_tasks.reserve(reachable_tasks.reachable.size);
+                    reachable_tasks.reachable.for_each_index([&](std::size_t task_pos) {
+                        if (!successor_error) {
+                            return;
+                        }
                         auto lower_bound_decision = evaluate_suffix_lower_bound_pruning(
                               *candidate
                             , batch.projection_slots[task_pos].destination
@@ -3398,7 +3556,7 @@ namespace timetable::domain::assignment {
                                 }
                             );
                             ++task_stats[task_pos].rejected_dominance_or_tolerance;
-                            continue;
+                            return;
                         }
 
                         if (partial_retention_scope
@@ -3419,10 +3577,13 @@ namespace timetable::domain::assignment {
                             }
                             if (!pruning_decision->accepted) {
                                 ++task_stats[task_pos].rejected_dominance_or_tolerance;
-                                continue;
+                                return;
                             }
                         }
-                        next_active_tasks.push_back(task_pos);
+                        next_active_tasks.set(task_pos);
+                    });
+                    if (!successor_error) {
+                        return;
                     }
                     record_suffix_lower_bound_rejections(
                           std::span<const RejectedSuffixLowerBoundTask>{
@@ -3438,8 +3599,8 @@ namespace timetable::domain::assignment {
                     }
 
                     auto retained_active_targets = target_projection_slots
-                        ? next_active_tasks
-                        : next_active_targets;
+                        ? ActiveIndexSet{ next_active_tasks }
+                        : std::move(next_active_targets);
 
                     ++stats.accepted_branches;
                     const auto same_level =
@@ -4359,6 +4520,25 @@ namespace timetable::domain::assignment {
             return total;
         }
 
+        [[nodiscard]] std::size_t all_zone_search_worker_count(
+            std::size_t batch_count
+        ) noexcept {
+            if (batch_count == 0u) {
+                return 0u;
+            }
+            const auto hardware = std::max(
+                  1u
+                , std::thread::hardware_concurrency()
+            );
+            return std::min(
+                  batch_count
+                , std::min<std::size_t>(
+                      static_cast<std::size_t>(hardware)
+                    , kAllZoneMaxParallelBatches
+                  )
+            );
+        }
+
         [[nodiscard]] ConnectionSearchResult materialize_demand_task_search_result(
               std::span<const SearchTask>       tasks
             , std::vector<SearchSlotResult>     slot_results
@@ -4977,46 +5157,101 @@ namespace timetable::domain::assignment {
             , LogLevel::Info
         );
 
-        std::vector<SearchSlotResult> slot_results;
-        for (std::size_t i = 0; i < batches.size(); ++i) {
-            const auto& batch = batches[i];
-            if (i == 0 || (i % kTaskProgressStep) == 0 || (i + 1) == batches.size()) {
-                status(
-                    fmt::format(
-                          "all-zone search: batch {}/{} origin={} targets={} projection_slots={} total_found={}"
-                        , i + 1
-                        , batches.size()
-                        , batch.key.origin.get()
-                        , batch.completion_targets.size()
-                        , batch.projection_slots.size()
-                        , search_slot_connection_count(slot_results)
-                    )
-                );
-            }
-            MATHFP_TRY_LET(
-                  std::vector<SearchSlotResult>
-                , batch_slot_results
-                , search_batch_connections(
-                      batch
-                    , network
-                    , residual_reverse_graph
-                    , params
-                    , search_cost
-                    , choice_config
-                    , assignment_period
-                    , admissibility_config
-                    , effective_pruning_execution
-                    , complete_connection_dominance
-                    , execution.config.partial_retention_scope
-                    , diagnostics
-                    , i
-                    , batches.size()
+        const auto worker_count = all_zone_search_worker_count(batches.size());
+        log(
+            fmt::format(
+                  "all-zone search parallel execution: workers={} batches={} max_parallel_batches={}"
+                , worker_count
+                , batches.size()
+                , kAllZoneMaxParallelBatches
+            )
+            , LogLevel::Info
+        );
+
+        std::vector<std::vector<SearchSlotResult>> batch_slot_results(batches.size());
+        std::atomic<std::size_t> next_batch{ 0u };
+        std::atomic<std::size_t> completed_batches{ 0u };
+        std::atomic<std::size_t> found_connections{ 0u };
+        std::vector<std::future<mathfp::Expected<mathfp::Unit>>> workers;
+        workers.reserve(worker_count);
+
+        for (std::size_t worker = 0; worker < worker_count; ++worker) {
+            workers.push_back(
+                std::async(
+                      std::launch::async
+                    , [&, worker]() -> mathfp::Expected<mathfp::Unit> {
+                          for (;;) {
+                              const auto i = next_batch.fetch_add(
+                                    1u
+                                  , std::memory_order_relaxed
+                              );
+                              if (i >= batches.size()) {
+                                  return mathfp::kUnit;
+                              }
+
+                              const auto& batch = batches[i];
+                              if (
+                                     i == 0
+                                  || (i % kTaskProgressStep) == 0
+                                  || (i + 1) == batches.size()
+                              ) {
+                                  status(
+                                      fmt::format(
+                                            "all-zone search: worker={} batch {}/{} origin={} targets={} projection_slots={} completed={} total_found={}"
+                                          , worker
+                                          , i + 1
+                                          , batches.size()
+                                          , batch.key.origin.get()
+                                          , batch.completion_targets.size()
+                                          , batch.projection_slots.size()
+                                          , completed_batches.load(std::memory_order_relaxed)
+                                          , found_connections.load(std::memory_order_relaxed)
+                                      )
+                                  );
+                              }
+
+                              MATHFP_TRY_LET(
+                                    std::vector<SearchSlotResult>
+                                  , results
+                                  , search_batch_connections(
+                                        batch
+                                      , network
+                                      , residual_reverse_graph
+                                      , params
+                                      , search_cost
+                                      , choice_config
+                                      , assignment_period
+                                      , admissibility_config
+                                      , effective_pruning_execution
+                                      , complete_connection_dominance
+                                      , execution.config.partial_retention_scope
+                                      , diagnostics
+                                      , i
+                                      , batches.size()
+                                  )
+                              );
+                              found_connections.fetch_add(
+                                    search_slot_connection_count(results)
+                                  , std::memory_order_relaxed
+                              );
+                              batch_slot_results[i] = std::move(results);
+                              completed_batches.fetch_add(1u, std::memory_order_relaxed);
+                          }
+                      }
                 )
             );
+        }
+
+        for (auto& worker : workers) {
+            MATHFP_TRY(worker.get());
+        }
+
+        std::vector<SearchSlotResult> slot_results;
+        for (auto& results : batch_slot_results) {
             slot_results.insert(
                   slot_results.end()
-                , std::make_move_iterator(batch_slot_results.begin())
-                , std::make_move_iterator(batch_slot_results.end())
+                , std::make_move_iterator(results.begin())
+                , std::make_move_iterator(results.end())
             );
         }
 
