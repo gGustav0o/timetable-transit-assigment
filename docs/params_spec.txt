@@ -24,6 +24,7 @@
   - PerceivedJourneyTime.volCapRatioFactor — читается и хранится в PerceivedJourneyTimeWeights.volume_capacity_ratio; положительное значение включает capacity-aware split и применяется в итерационном fixed-point/MSA слое при наличии veh_journey_item_cap.csv.
   - searchPara.allowDominanceForEquivalentConnections — подключен как флаг partial-search retention между эквивалентными состояниями поиска.
   - searchPara.deactivateDominanceOfDirectConnections — подключен как флаг complete-connection dominance: прямое полное соединение не может доминировать другие complete connections и suffix lower-bound candidates.
+  - searchExecution.partialRetentionScope — необязательный ключ режима partial-retention: tree_global задает целевую article-like реализацию с общей pruning-памятью дерева, projection_slot_local сохраняет прежний консервативный per-projection-slot режим.
   - veh_journey_item_cap.csv — подключен как необязательный вход провозной способности vehicle journey items для post-assignment overload assessment.
   - compile-time runtime override policy — подключена как отдельный верхнеуровневый слой после загрузки входа и до запуска assignment pipeline; применяется только если сборка выполнена с TIMETABLE_ENABLE_RUNTIME_OVERRIDES.
 
@@ -145,6 +146,16 @@
   - поддержанные stop-reference семантики — CurrentStopOccurrence и LastTimedStopOccurrence: сравнение разрешается только внутри выбранного extension-safe equivalent state;
   - validation запрещает неизвестный stop-reference и проверяет, что при allowDominanceForEquivalentConnections = 0 execution plan не включает exact/approximate retention layers;
   - диагностика search-pruning выводит equivalent_dominance, equivalent_stop_reference, use_last_stop_for_equivalent_connections, retention_requested и retention_suppressed_by_equivalent_dominance.
+
+Семантика searchExecution.partialRetentionScope:
+
+  - параметр относится к SearchExecutionConfig и не меняет множество origins, completion targets или result projection;
+  - tree_global задает целевую branch-and-bound семантику статьи: partial-prefix relevance проверяется один раз в рамках дерева по extension-safe search state;
+  - complete-connection retention остается projection-local, потому что завершенные альтернативы материализуются отдельно для каждого demand task или completion target;
+  - projection_slot_local сохраняет прежний консервативный режим, где partial-prefix retention хранится отдельно для каждого projection slot;
+  - при отсутствии ключа CompletionTargets по умолчанию использует tree_global, DemandTasks по умолчанию использует projection_slot_local;
+  - текущая реализация разрешает tree_global только для CompletionTargets, чтобы не смешивать article-like all-zone enumeration с OD-assignment projection без отдельного доказательства корректности;
+  - для CompletionTargets после destination-specific suffix lower-bound pruning активные completion targets дополнительно сужаются до оставшихся projection slots, поскольку target и projection slot взаимно однозначны.
 
 Формализованы как отдельная доменная политика complete-connection dominance
 

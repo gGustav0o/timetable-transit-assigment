@@ -885,6 +885,48 @@ namespace timetable::infra::params_txt::detail {
             return *parsed;
         }
 
+        mathfp::Expected<timetable::domain::assignment::SearchPartialRetentionScope>
+        parse_search_partial_retention_scope_token(const std::string& token) {
+            const auto parsed =
+                timetable::domain::assignment::search_partial_retention_scope_from_string(token);
+            if (!parsed.has_value()) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("unsupported search partial retention scope")
+                        .ctx("partialRetentionScope", token)
+                );
+            }
+            return *parsed;
+        }
+
+        mathfp::Expected<std::optional<std::string>> optional_string_at(
+              const Object&    obj
+            , std::string_view key
+            , std::string_view path
+        ) {
+            const auto it = obj.find(std::string(key));
+            if (it == obj.end()) {
+                return std::nullopt;
+            }
+            if (const auto* str = std::get_if<std::string>(&it->second.data)) {
+                return *str;
+            }
+            return mathfp::unexpected(
+                mathfp::invalid_arg("expected optional string")
+                    .ctx("path", std::string(path))
+                    .ctx("key" , std::string(key))
+            );
+        }
+
+        [[nodiscard]] timetable::domain::assignment::SearchPartialRetentionScope
+        default_partial_retention_scope_for_projection(
+            timetable::domain::assignment::SearchResultProjection result_projection
+        ) noexcept {
+            using namespace timetable::domain::assignment;
+            return result_projection == SearchResultProjection::CompletionTargets
+                ? SearchPartialRetentionScope::TreeGlobal
+                : SearchPartialRetentionScope::ProjectionSlotLocal;
+        }
+
         mathfp::Expected<timetable::domain::assignment::SearchExecutionConfig>
         parse_search_execution_config(const Object& root) {
             using namespace timetable::domain::assignment;
@@ -920,12 +962,35 @@ namespace timetable::infra::params_txt::detail {
             MATHFP_TRY_LET(SearchDestinationScope, destination_scope, parse_search_destination_scope_token(destination_scope_token));
             MATHFP_TRY_LET(SearchResultProjection, result_projection, parse_search_result_projection_token(result_projection_token));
 
+            auto partial_retention_scope =
+                default_partial_retention_scope_for_projection(result_projection);
+            MATHFP_TRY_LET(
+                  std::optional<std::string>
+                , partial_retention_scope_token
+                , optional_string_at(
+                      *obj
+                    , "partialRetentionScope"
+                    , "root.searchExecution"
+                  )
+            );
+            if (partial_retention_scope_token.has_value()) {
+                MATHFP_TRY_LET(
+                      SearchPartialRetentionScope
+                    , parsed_scope
+                    , parse_search_partial_retention_scope_token(
+                          *partial_retention_scope_token
+                      )
+                );
+                partial_retention_scope = parsed_scope;
+            }
+
             return SearchExecutionConfig{
                   .mode               = mode
                 , .origin_scope       = origin_scope
                 , .time_domain_source = time_domain_source
                 , .destination_scope  = destination_scope
                 , .result_projection  = result_projection
+                , .partial_retention_scope = partial_retention_scope
             };
         }
 

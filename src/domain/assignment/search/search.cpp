@@ -197,17 +197,22 @@ namespace timetable::domain::assignment {
         };
 
         /**
-         * @brief Retained pruning and complete-connection state for one projection slot.
+         * @brief Retained complete-connection state for one projection slot.
          *
-         * The slot, not the tree, is the mathematical unit of retention:
-         * DemandTasks retain OD-interval alternatives, while CompletionTargets
-         * retain all-zone alternatives for a target destination. Sharing this
-         * state between slots would mix dominance domains.
+         * Complete alternatives are projection-local: DemandTasks retain
+         * OD-interval alternatives, while CompletionTargets retain alternatives
+         * for one all-zone target destination. Partial-prefix pruning may be
+         * either projection-local or tree-global depending on
+         * SearchPartialRetentionScope.
          */
         struct SearchProjectionRetention final {
             SearchProjectionSlot slot{};
             NodeMetricMap known_metrics{};
             CompleteConnectionRetention complete_connections{};
+        };
+
+        struct TreePartialRetention final {
+            NodeMetricMap known_metrics{};
         };
 
         struct SearchSlotResult final {
@@ -1510,15 +1515,29 @@ namespace timetable::domain::assignment {
         }
 
         void insert_pruning_metrics(
+              NodeMetricMap&                    known_metrics
+            , const SearchPruningExecutionPlan& pruning_execution
+            , SearchNodeKey                     node
+            , PartialPruningMetrics             metrics
+        ) {
+            auto& known = known_metrics[node];
+            known = insert_search_pruning_metrics(
+                  pruning_execution
+                , std::move(known)
+                , std::move(metrics)
+            );
+        }
+
+        void insert_pruning_metrics(
               SearchProjectionRetention&        retention
             , const SearchPruningExecutionPlan& pruning_execution
             , SearchNodeKey                     node
             , PartialPruningMetrics             metrics
         ) {
-            auto& known = retention.known_metrics[node];
-            known = insert_search_pruning_metrics(
-                  pruning_execution
-                , std::move(known)
+            insert_pruning_metrics(
+                  retention.known_metrics
+                , pruning_execution
+                , std::move(node)
                 , std::move(metrics)
             );
         }
@@ -2522,7 +2541,7 @@ namespace timetable::domain::assignment {
 
         mathfp::Expected<SearchPruningDecision> retain_branch(
               const SearchBranch&               branch
-            , SearchProjectionRetention&        retention
+            , NodeMetricMap&                    known_metrics
             , const SearchParams&               params
             , const SearchCostContext&          search_cost
             , const SearchPruningExecutionPlan& pruning_execution
@@ -2543,10 +2562,15 @@ namespace timetable::domain::assignment {
                 , make_partial_pruning_metrics(branch, search_cost)
             );
             const auto node  = search_node_key(branch, pruning_execution);
-            auto it          = retention.known_metrics.find(node);
-            if (it == retention.known_metrics.end()) {
+            auto it          = known_metrics.find(node);
+            if (it == known_metrics.end()) {
                 if (stores_search_pruning_metrics(pruning_execution)) {
-                    insert_pruning_metrics(retention, pruning_execution, node, std::move(metrics));
+                    insert_pruning_metrics(
+                          known_metrics
+                        , pruning_execution
+                        , node
+                        , std::move(metrics)
+                    );
                     ++pruning_stats.inserted_metrics;
                 } else {
                     ++pruning_stats.skipped_insertions;
@@ -2575,13 +2599,54 @@ namespace timetable::domain::assignment {
             }
 
             if (stores_search_pruning_metrics(pruning_execution)) {
-                insert_pruning_metrics(retention, pruning_execution, node, std::move(metrics));
+                insert_pruning_metrics(
+                      known_metrics
+                    , pruning_execution
+                    , node
+                    , std::move(metrics)
+                );
                 ++pruning_stats.inserted_metrics;
             } else {
                 ++pruning_stats.skipped_insertions;
             }
             ++pruning_stats.accepted_candidates;
             return decision;
+        }
+
+        mathfp::Expected<SearchPruningDecision> retain_branch(
+              const SearchBranch&               branch
+            , SearchProjectionRetention&        retention
+            , const SearchParams&               params
+            , const SearchCostContext&          search_cost
+            , const SearchPruningExecutionPlan& pruning_execution
+            , SearchPruningRuntimeStats&        pruning_stats
+        ) {
+            return retain_branch(
+                  branch
+                , retention.known_metrics
+                , params
+                , search_cost
+                , pruning_execution
+                , pruning_stats
+            );
+        }
+
+        mathfp::Expected<SearchPruningDecision> retain_branch(
+              const SearchBranch&               branch
+            , TreePartialRetention&             retention
+            , const SearchParams&               params
+            , const SearchCostContext&          search_cost
+            , const SearchPruningExecutionPlan& pruning_execution
+            , SearchPruningRuntimeStats&        pruning_stats
+        ) {
+            return retain_branch(
+                  branch
+                , retention.known_metrics
+                , params
+                , search_cost
+                , pruning_execution
+                , pruning_stats
+            );
         }
 
         BranchState feasibility_state(
@@ -2632,6 +2697,18 @@ namespace timetable::domain::assignment {
                 positions.push_back(i);
             }
             return positions;
+        }
+
+        [[nodiscard]] bool completion_target_projection_slots(
+            std::span<const SearchProjectionSlot> slots
+        ) noexcept {
+            return std::all_of(
+                  slots.begin()
+                , slots.end()
+                , [](const SearchProjectionSlot& slot) {
+                      return slot.kind == SearchProjectionSlotKind::CompletionTarget;
+                  }
+            );
         }
 
         [[nodiscard]] std::vector<std::size_t> filter_target_positions_by_reachability(
@@ -2848,6 +2925,7 @@ namespace timetable::domain::assignment {
             , const ConnectionAdmissibilityConfig& admissibility_config
             , const SearchPruningExecutionPlan& pruning_execution
             , const CompleteConnectionDominanceConfig& complete_connection_dominance
+            , SearchPartialRetentionScope partial_retention_scope
             , SearchDiagnosticsContext          diagnostics
             , std::size_t                       batch_index
             , std::size_t                       batch_count
@@ -2884,6 +2962,7 @@ namespace timetable::domain::assignment {
             for (const auto& slot : batch.projection_slots) {
                 retentions.push_back(SearchProjectionRetention{ .slot = slot });
             }
+            TreePartialRetention tree_partial_retention{};
 
             TaskSearchStats                   stats;
             std::vector<TaskSearchStats>      task_stats(batch.projection_slots.size());
@@ -2901,6 +2980,8 @@ namespace timetable::domain::assignment {
                       batch.completion_targets.data()
                     , batch.completion_targets.size()
                 };
+            const auto target_projection_slots =
+                completion_target_projection_slots(batch_task_span);
             const auto                        reachability = build_residual_reachability(
                   reverse_graph
                 , batch_target_span
@@ -3250,6 +3331,28 @@ namespace timetable::domain::assignment {
                         return;
                     }
 
+                    if (partial_retention_scope
+                        == SearchPartialRetentionScope::TreeGlobal) {
+                        auto pruning_decision = retain_branch(
+                              *candidate
+                            , tree_partial_retention
+                            , params
+                            , search_cost
+                            , pruning_execution
+                            , stats.pruning
+                        );
+                        if (!pruning_decision) {
+                            successor_error = mathfp::unexpected(
+                                std::move(pruning_decision.error())
+                            );
+                            return;
+                        }
+                        if (!pruning_decision->accepted) {
+                            ++stats.rejected_dominance_or_tolerance;
+                            return;
+                        }
+                    }
+
                     const auto reachable_tasks = filter_task_positions_by_reachability(
                           active_tasks
                         , batch_task_span
@@ -3298,23 +3401,26 @@ namespace timetable::domain::assignment {
                             continue;
                         }
 
-                        auto pruning_decision = retain_branch(
-                              *candidate
-                            , retentions[task_pos]
-                            , params
-                            , search_cost
-                            , pruning_execution
-                            , stats.pruning
-                        );
-                        if (!pruning_decision) {
-                            successor_error = mathfp::unexpected(
-                                std::move(pruning_decision.error())
+                        if (partial_retention_scope
+                            == SearchPartialRetentionScope::ProjectionSlotLocal) {
+                            auto pruning_decision = retain_branch(
+                                  *candidate
+                                , retentions[task_pos]
+                                , params
+                                , search_cost
+                                , pruning_execution
+                                , stats.pruning
                             );
-                            return;
-                        }
-                        if (!pruning_decision->accepted) {
-                            ++task_stats[task_pos].rejected_dominance_or_tolerance;
-                            continue;
+                            if (!pruning_decision) {
+                                successor_error = mathfp::unexpected(
+                                    std::move(pruning_decision.error())
+                                );
+                                return;
+                            }
+                            if (!pruning_decision->accepted) {
+                                ++task_stats[task_pos].rejected_dominance_or_tolerance;
+                                continue;
+                            }
                         }
                         next_active_tasks.push_back(task_pos);
                     }
@@ -3331,11 +3437,15 @@ namespace timetable::domain::assignment {
                         return;
                     }
 
+                    auto retained_active_targets = target_projection_slots
+                        ? next_active_tasks
+                        : next_active_targets;
+
                     ++stats.accepted_branches;
                     const auto same_level =
                         is_walk_connection(successor) || !branch.metrics.departure.has_value();
                     branches.push_back(std::move(*candidate));
-                    branch_active_targets.push_back(std::move(next_active_targets));
+                    branch_active_targets.push_back(std::move(retained_active_targets));
                     branch_active_tasks.push_back(std::move(next_active_tasks));
                     const auto candidate_index = branches.size() - 1;
                     if (same_level) {
@@ -4007,6 +4117,13 @@ namespace timetable::domain::assignment {
                         .ctx("execution_mode", std::string(to_string(config.mode)))
                 );
             }
+            if (config.partial_retention_scope == SearchPartialRetentionScope::TreeGlobal
+                && config.result_projection != SearchResultProjection::CompletionTargets) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("tree-global partial retention currently requires completion-target projection")
+                        .ctx("result_projection", std::string(to_string(config.result_projection)))
+                );
+            }
             return mathfp::kUnit;
         }
 
@@ -4213,6 +4330,15 @@ namespace timetable::domain::assignment {
                                     mathfp::internal_error("completion-target projection slot has invalid payload")
                                         .ctx("batch", static_cast<std::int64_t>(batch_pos))
                                         .ctx("slot_position", static_cast<std::int64_t>(task_pos))
+                                );
+                            }
+                            if (slot.completion_target->get()
+                                != static_cast<std::int64_t>(task_pos)) {
+                                return mathfp::unexpected(
+                                    mathfp::internal_error("completion-target projection slot index does not match its position")
+                                        .ctx("batch", static_cast<std::int64_t>(batch_pos))
+                                        .ctx("slot_position", static_cast<std::int64_t>(task_pos))
+                                        .ctx("target_index", slot.completion_target->get())
                                 );
                             }
                             break;
@@ -4512,7 +4638,11 @@ namespace timetable::domain::assignment {
             , LogLevel::Info
         );
         log(
-              "search projection contract: partial pruning and complete-connection dominance are retained per projection slot"
+            fmt::format(
+                  "search projection contract: result_projection={} partial_retention_scope={} complete_retention=projection_slot_local"
+                , to_string(execution.config.result_projection)
+                , to_string(execution.config.partial_retention_scope)
+            )
             , LogLevel::Info
         );
 
@@ -4608,7 +4738,7 @@ namespace timetable::domain::assignment {
         );
         log(
             fmt::format(
-                  "search diagnostics: search_execution_mode={} origin_scope={} time_domain_source={} destination_scope={} result_projection={}"
+                  "search diagnostics: search_execution_mode={} origin_scope={} time_domain_source={} destination_scope={} result_projection={} partial_retention_scope={}"
                   " tree_count={} expected_tree_count={} tree_count_delta={} search_origin_count={} declared_zone_count={} declared_zone_request_count={}"
                   " active_demand_origin_count={} completion_target_count={} projection_slot_count={}"
                   " zero_completion_target_tree_count={} zero_projection_task_tree_count={}"
@@ -4619,6 +4749,7 @@ namespace timetable::domain::assignment {
                 , to_string(execution.config.time_domain_source)
                 , to_string(execution.config.destination_scope)
                 , to_string(execution.config.result_projection)
+                , to_string(execution.config.partial_retention_scope)
                 , batches.size()
                 , expected_tree_count
                 , signed_count_delta(batches.size(), expected_tree_count)
@@ -4684,6 +4815,7 @@ namespace timetable::domain::assignment {
                     , admissibility_config
                     , effective_pruning_execution
                     , complete_connection_dominance
+                    , execution.config.partial_retention_scope
                     , diagnostics
                     , i
                     , batches.size()
@@ -4764,7 +4896,10 @@ namespace timetable::domain::assignment {
 
         both("search: all-zone branch-and-bound");
         log(
-              "all-zone projection contract: partial pruning and complete-connection dominance are retained per completion-target slot"
+            fmt::format(
+                  "all-zone projection contract: partial_retention_scope={} complete_retention=completion_target_slot"
+                , to_string(execution.config.partial_retention_scope)
+            )
             , LogLevel::Info
         );
         MATHFP_TRY_LET(
@@ -4830,13 +4965,14 @@ namespace timetable::domain::assignment {
         );
         log(
             fmt::format(
-                  "all-zone search comparison diagnostics: trees={} expected_trees={} tree_count_delta={} batches={} targets={} projection_slots={}"
+                  "all-zone search comparison diagnostics: trees={} expected_trees={} tree_count_delta={} batches={} targets={} projection_slots={} partial_retention_scope={}"
                 , tree_jobs.size()
                 , expected_tree_count
                 , signed_count_delta(tree_jobs.size(), expected_tree_count)
                 , batches.size()
                 , batch_execution_diagnostics.completion_target_count
                 , batch_execution_diagnostics.projection_task_count
+                , to_string(execution.config.partial_retention_scope)
             )
             , LogLevel::Info
         );
@@ -4871,6 +5007,7 @@ namespace timetable::domain::assignment {
                     , admissibility_config
                     , effective_pruning_execution
                     , complete_connection_dominance
+                    , execution.config.partial_retention_scope
                     , diagnostics
                     , i
                     , batches.size()

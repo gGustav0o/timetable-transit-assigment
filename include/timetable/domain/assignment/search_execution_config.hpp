@@ -164,6 +164,42 @@ namespace timetable::domain::assignment {
     }
 
     /**
+     * @brief Scope of partial-branch retention inside one search tree.
+     *
+     * ProjectionSlotLocal is the conservative legacy implementation: partial
+     * prefixes are retained separately for every result projection slot.
+     *
+     * TreeGlobal is the article-like branch-and-bound implementation:
+     * partial-prefix relevance is checked once per tree state, while complete
+     * alternatives remain retained per result projection slot.
+     */
+    enum class SearchPartialRetentionScope : std::uint8_t {
+          ProjectionSlotLocal
+        , TreeGlobal
+    };
+
+    inline constexpr std::array kSearchPartialRetentionScopeTokens{
+          timetable::EnumStringEntry<SearchPartialRetentionScope>{
+              SearchPartialRetentionScope::ProjectionSlotLocal,
+              "projection_slot_local"
+          }
+        , timetable::EnumStringEntry<SearchPartialRetentionScope>{
+              SearchPartialRetentionScope::TreeGlobal, "tree_global"
+          }
+    };
+
+    [[nodiscard]] inline constexpr std::string_view to_string(
+        SearchPartialRetentionScope value
+    ) noexcept {
+        return timetable::enum_to_string(value, kSearchPartialRetentionScopeTokens);
+    }
+
+    [[nodiscard]] inline constexpr std::optional<SearchPartialRetentionScope>
+    search_partial_retention_scope_from_string(std::string_view token) noexcept {
+        return timetable::enum_from_string(token, kSearchPartialRetentionScopeTokens);
+    }
+
+    /**
      * @brief Domain-level search execution configuration.
      *
      * The four scope fields define the mathematical tree contract:
@@ -179,6 +215,11 @@ namespace timetable::domain::assignment {
      * required because OD assignment and all-zone/VISUM-like enumeration share
      * the same branch-and-bound tree but materialize different mathematical
      * outputs.
+     *
+     * partial_retention_scope is separate from both fields: it defines whether
+     * partial-branch relevance is stored globally for the tree, as in the
+     * article, or independently for each projection slot, as in the conservative
+     * legacy implementation.
      *
      * DemandTasks contract:
      * - origins: configured by origin_scope;
@@ -200,6 +241,9 @@ namespace timetable::domain::assignment {
         SearchTimeDomainSource   time_domain_source{ SearchTimeDomainSource::ServiceDay };
         SearchDestinationScope   destination_scope{ SearchDestinationScope::DeclaredZones };
         SearchResultProjection   result_projection{ SearchResultProjection::CompletionTargets };
+        SearchPartialRetentionScope partial_retention_scope{
+            SearchPartialRetentionScope::TreeGlobal
+        };
     };
 
     [[nodiscard]] inline constexpr SearchExecutionConfig make_interval_local_search_execution_config(
@@ -210,6 +254,7 @@ namespace timetable::domain::assignment {
             , .time_domain_source = SearchTimeDomainSource::DemandInduced
             , .destination_scope  = SearchDestinationScope::DemandDestinations
             , .result_projection  = SearchResultProjection::DemandTasks
+            , .partial_retention_scope = SearchPartialRetentionScope::ProjectionSlotLocal
         };
     }
 
@@ -221,6 +266,7 @@ namespace timetable::domain::assignment {
             , .time_domain_source = SearchTimeDomainSource::ServiceDay
             , .destination_scope  = SearchDestinationScope::DeclaredZones
             , .result_projection  = SearchResultProjection::DemandTasks
+            , .partial_retention_scope = SearchPartialRetentionScope::ProjectionSlotLocal
         };
     }
 
@@ -232,6 +278,7 @@ namespace timetable::domain::assignment {
             , .time_domain_source = SearchTimeDomainSource::DemandInduced
             , .destination_scope  = SearchDestinationScope::DemandDestinations
             , .result_projection  = SearchResultProjection::DemandTasks
+            , .partial_retention_scope = SearchPartialRetentionScope::ProjectionSlotLocal
         };
     }
 
@@ -243,6 +290,7 @@ namespace timetable::domain::assignment {
             , .time_domain_source = SearchTimeDomainSource::ServiceDay
             , .destination_scope  = SearchDestinationScope::DeclaredZones
             , .result_projection  = SearchResultProjection::CompletionTargets
+            , .partial_retention_scope = SearchPartialRetentionScope::TreeGlobal
         };
     }
 
