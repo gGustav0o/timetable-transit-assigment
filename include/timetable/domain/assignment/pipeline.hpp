@@ -32,8 +32,19 @@ namespace timetable::domain::assignment {
         CapacityAwareAssignmentDiagnostics  capacity_aware{};
     };
 
+    struct AssignmentPipelineAllZoneSearchResult final {
+        InputModel                          input{};
+        VehicleJourneyItemCapacityInput     vehicle_journey_item_capacity{};
+        PreprocessedNetwork                 network{};
+        AllZoneConnectionSearchResult       search{};
+        AssignmentExecutionConfig           execution{};
+        SkimMatrixConfig                    skim_config{};
+        CapacityAwareAssignmentDiagnostics  capacity_aware{};
+    };
+
     using AssignmentPipelineResult = std::variant<
           AssignmentPipelineCalculatedResult
+        , AssignmentPipelineAllZoneSearchResult
         , AssignmentPipelineDisabledResult
     >;
 

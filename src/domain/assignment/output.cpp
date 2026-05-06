@@ -28,6 +28,24 @@ namespace timetable::domain::assignment {
         );
     }
 
+    mathfp::Expected<AssignmentOutput> build_all_zone_search_output(
+          const InputModel&                      input
+        , const AllZoneConnectionSearchResult&   search_result
+        , const VehicleJourneyItemCapacityInput& vehicle_journey_item_capacity
+        , const AssignmentExecutionConfig&        execution
+        , const SkimMatrixConfig&                skim_config
+        , const CapacityAwareAssignmentDiagnostics& capacity_aware
+    ) {
+        return detail::build_all_zone_search_output_impl(
+              input
+            , search_result
+            , vehicle_journey_item_capacity
+            , execution
+            , skim_config
+            , capacity_aware
+        );
+    }
+
     mathfp::Expected<AssignmentOutput> build_assignment_disabled_output(
           const InputModel&                      input
         , const VehicleJourneyItemCapacityInput& vehicle_journey_item_capacity

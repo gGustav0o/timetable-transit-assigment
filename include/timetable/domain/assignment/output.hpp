@@ -27,6 +27,21 @@ namespace timetable::domain::assignment {
     );
 
     /**
+     * @brief Convert an all-zone/VISUM-like search enumeration to public output.
+     *
+     * This is a search-only projection: OD rows are completion-target counters,
+     * not demand-assignment rows. Choice, split, loads, and skim are not run.
+     */
+    mathfp::Expected<AssignmentOutput> build_all_zone_search_output(
+          const InputModel&                      input
+        , const AllZoneConnectionSearchResult&   search_result
+        , const VehicleJourneyItemCapacityInput& vehicle_journey_item_capacity
+        , const AssignmentExecutionConfig&        execution
+        , const SkimMatrixConfig&                skim_config
+        , const CapacityAwareAssignmentDiagnostics& capacity_aware
+    );
+
+    /**
      * @brief Build a canonical output for the mode where assignment is disabled.
      *
      * The output preserves the OD-time demand structure and contains no

@@ -405,6 +405,7 @@ namespace timetable::domain::assignment::detail {
     ) {
         switch (output.mode) {
         case AssignmentOutputMode::Calculated:
+        case AssignmentOutputMode::AllZoneSearch:
         case AssignmentOutputMode::AssignmentDisabled:
             break;
         default:
@@ -438,6 +439,66 @@ namespace timetable::domain::assignment::detail {
             return mathfp::unexpected(
                 mathfp::internal_error("calculated assignment output cannot mark vehicle journey item loads as skipped by disabled assignment")
             );
+        }
+        if (output.mode == AssignmentOutputMode::AllZoneSearch) {
+            if (output.summary.chosen_connection_count != 0
+                || output.summary.demand_share_count != 0
+                || !almost_equal_scalar(output.summary.total_demand_passengers, 0.0)
+                || !almost_equal_scalar(output.summary.assigned_passengers, 0.0)) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("all-zone search output summary must not contain assignment quantities")
+                        .ctx("chosen_connection_count", static_cast<std::int64_t>(output.summary.chosen_connection_count))
+                        .ctx("demand_share_count"     , static_cast<std::int64_t>(output.summary.demand_share_count))
+                        .ctx("total_demand_passengers", output.summary.total_demand_passengers)
+                        .ctx("assigned_passengers"    , output.summary.assigned_passengers)
+                );
+            }
+            if (!output.loads.line_loads.empty()
+                || !output.loads.route_loads.empty()
+                || !output.loads.trip_loads.empty()
+                || !output.loads.segment_loads.empty()) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("all-zone search output must not contain load rows")
+                );
+            }
+            if (output.skim_matrix.status == AssignmentSkimMatrixStatus::Calculated) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("all-zone search output cannot contain calculated skim matrix")
+                );
+            }
+            if (output.vehicle_journey_item_loads.status
+                    != VehicleJourneyItemOverloadAssessmentStatus::SkippedAssignmentDisabled
+                || !output.vehicle_journey_item_loads.items.empty()) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("all-zone search output must not contain vehicle journey item load rows")
+                        .ctx(
+                              "vehicle_journey_item_load_status"
+                            , std::string(to_string(output.vehicle_journey_item_loads.status))
+                        )
+                        .ctx(
+                              "vehicle_journey_item_load_count"
+                            , static_cast<std::int64_t>(output.vehicle_journey_item_loads.items.size())
+                        )
+                );
+            }
+            for (const auto& od_result : output.od_results) {
+                if (od_result.chosen_connection_count != 0
+                    || !almost_equal_scalar(od_result.total_demand_passengers, 0.0)
+                    || !almost_equal_scalar(od_result.assigned_passengers, 0.0)
+                    || !od_result.connections.empty()
+                    || !od_result.intervals.empty()) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("all-zone search OD result must contain only search counters")
+                            .ctx("origin"                 , od_result.origin.get())
+                            .ctx("destination"            , od_result.destination.get())
+                            .ctx("chosen_connection_count", static_cast<std::int64_t>(od_result.chosen_connection_count))
+                            .ctx("total_demand_passengers", od_result.total_demand_passengers)
+                            .ctx("assigned_passengers"    , od_result.assigned_passengers)
+                            .ctx("connection_count"       , static_cast<std::int64_t>(od_result.connections.size()))
+                            .ctx("interval_count"         , static_cast<std::int64_t>(od_result.intervals.size()))
+                    );
+                }
+            }
         }
         if (output.mode == AssignmentOutputMode::AssignmentDisabled) {
             if (output.summary.search_connection_count != 0

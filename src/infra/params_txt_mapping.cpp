@@ -800,6 +800,135 @@ namespace timetable::infra::params_txt::detail {
             );
         }
 
+        mathfp::Expected<const Object*> optional_object_at(
+              const Object&    obj
+            , std::string_view key
+            , std::string_view path
+        ) {
+            const auto it = obj.find(std::string(key));
+            if (it == obj.end()) {
+                return static_cast<const Object*>(nullptr);
+            }
+            const auto* child = std::get_if<Object>(&it->second.data);
+            if (child == nullptr) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("expected optional object")
+                        .ctx("path", std::string(path))
+                        .ctx("key" , std::string(key))
+                );
+            }
+            return child;
+        }
+
+        mathfp::Expected<timetable::domain::assignment::SearchExecutionMode>
+        parse_search_execution_mode_token(const std::string& token) {
+            const auto parsed =
+                timetable::domain::assignment::search_execution_mode_from_string(token);
+            if (!parsed.has_value()) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("unsupported search execution mode")
+                        .ctx("mode", token)
+                );
+            }
+            return *parsed;
+        }
+
+        mathfp::Expected<timetable::domain::assignment::SearchOriginScope>
+        parse_search_origin_scope_token(const std::string& token) {
+            const auto parsed =
+                timetable::domain::assignment::search_origin_scope_from_string(token);
+            if (!parsed.has_value()) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("unsupported search origin scope")
+                        .ctx("originScope", token)
+                );
+            }
+            return *parsed;
+        }
+
+        mathfp::Expected<timetable::domain::assignment::SearchTimeDomainSource>
+        parse_search_time_domain_source_token(const std::string& token) {
+            const auto parsed =
+                timetable::domain::assignment::search_time_domain_source_from_string(token);
+            if (!parsed.has_value()) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("unsupported search time-domain source")
+                        .ctx("timeDomainSource", token)
+                );
+            }
+            return *parsed;
+        }
+
+        mathfp::Expected<timetable::domain::assignment::SearchDestinationScope>
+        parse_search_destination_scope_token(const std::string& token) {
+            const auto parsed =
+                timetable::domain::assignment::search_destination_scope_from_string(token);
+            if (!parsed.has_value()) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("unsupported search destination scope")
+                        .ctx("destinationScope", token)
+                );
+            }
+            return *parsed;
+        }
+
+        mathfp::Expected<timetable::domain::assignment::SearchResultProjection>
+        parse_search_result_projection_token(const std::string& token) {
+            const auto parsed =
+                timetable::domain::assignment::search_result_projection_from_string(token);
+            if (!parsed.has_value()) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("unsupported search result projection")
+                        .ctx("resultProjection", token)
+                );
+            }
+            return *parsed;
+        }
+
+        mathfp::Expected<timetable::domain::assignment::SearchExecutionConfig>
+        parse_search_execution_config(const Object& root) {
+            using namespace timetable::domain::assignment;
+
+            MATHFP_TRY_LET(
+                  const Object*
+                , obj
+                , optional_object_at(root, "searchExecution", "root")
+            );
+            if (obj == nullptr) {
+                return make_all_zone_origin_period_search_execution_config();
+            }
+
+            MATHFP_TRY_LET(std::string, mode_token, string_at(
+                *obj, "mode", "root.searchExecution"
+            ));
+            MATHFP_TRY_LET(std::string, origin_scope_token, string_at(
+                *obj, "originScope", "root.searchExecution"
+            ));
+            MATHFP_TRY_LET(std::string, time_domain_source_token, string_at(
+                *obj, "timeDomainSource", "root.searchExecution"
+            ));
+            MATHFP_TRY_LET(std::string, destination_scope_token, string_at(
+                *obj, "destinationScope", "root.searchExecution"
+            ));
+            MATHFP_TRY_LET(std::string, result_projection_token, string_at(
+                *obj, "resultProjection", "root.searchExecution"
+            ));
+
+            MATHFP_TRY_LET(SearchExecutionMode, mode, parse_search_execution_mode_token(mode_token));
+            MATHFP_TRY_LET(SearchOriginScope, origin_scope, parse_search_origin_scope_token(origin_scope_token));
+            MATHFP_TRY_LET(SearchTimeDomainSource, time_domain_source, parse_search_time_domain_source_token(time_domain_source_token));
+            MATHFP_TRY_LET(SearchDestinationScope, destination_scope, parse_search_destination_scope_token(destination_scope_token));
+            MATHFP_TRY_LET(SearchResultProjection, result_projection, parse_search_result_projection_token(result_projection_token));
+
+            return SearchExecutionConfig{
+                  .mode               = mode
+                , .origin_scope       = origin_scope
+                , .time_domain_source = time_domain_source
+                , .destination_scope  = destination_scope
+                , .result_projection  = result_projection
+            };
+        }
+
         mathfp::Expected<timetable::domain::assignment::AssignmentExecutionConfig> parse_assignment_execution_config(
             const Object& root
         ) {
@@ -1162,6 +1291,11 @@ namespace timetable::infra::params_txt::detail {
             , parse_complete_connection_dominance_config(root)
         );
         MATHFP_TRY_LET(
+              timetable::domain::assignment::SearchExecutionConfig
+            , search_execution
+            , parse_search_execution_config(root)
+        );
+        MATHFP_TRY_LET(
               timetable::domain::assignment::SkimMatrixConfig
             , skim_matrix
             , parse_skim_matrix_config(root)
@@ -1186,6 +1320,7 @@ namespace timetable::infra::params_txt::detail {
               .search              = std::move(search_params)
             , .execution           = std::move(execution)
             , .complete_connection_dominance = complete_connection_dominance
+            , .search_execution    = search_execution
             , .search_pruning      = std::move(search_pruning)
             , .skim_matrix         = std::move(skim_matrix)
             , .assignment_period   = std::move(assignment_period)

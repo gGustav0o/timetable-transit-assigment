@@ -2,7 +2,9 @@
 
 #include <algorithm>
 #include <array>
+#include <fstream>
 #include <optional>
+#include <sstream>
 #include <string>
 #include <string_view>
 #include <unordered_set>
@@ -66,6 +68,16 @@ namespace timetable::infra::csv {
             SegmentColumns                   columns{};
             std::unordered_set<std::int64_t> zone_set{};
         };
+
+        bool is_whitespace_separated_segments_file(
+            const std::filesystem::path& path
+        ) {
+            std::ifstream input(path);
+            std::string first_line;
+            return std::getline(input, first_line)
+                && first_line.find(',') == std::string::npos
+                && first_line.find(' ') != std::string::npos;
+        }
 
         constexpr auto segment_csv_column_defs() {
             return std::array<csv_parse::ColumnDef<SegmentCsvColumns>, 13>{
@@ -160,9 +172,9 @@ namespace timetable::infra::csv {
                     , segment_csv_column_defs()
                 )
             );
-            const auto route_column = reader.index_of("ROUTE_ID");
-            if (route_column != ::csv::CSV_NOT_FOUND) {
-                columns.route = static_cast<std::size_t>(route_column);
+            const auto route_column = csv_parse::index_of_column(reader, "ROUTE_ID");
+            if (route_column != static_cast<std::size_t>(::csv::CSV_NOT_FOUND)) {
+                columns.route = route_column;
             }
 
             return ParsedCsvHeader{
@@ -221,6 +233,126 @@ namespace timetable::infra::csv {
                 parsed_row.route_id = route_id;
             }
             MATHFP_TRY(decode_double_row_fields(parsed_row, row_data, cols, row));
+            return parsed_row;
+        }
+
+        std::vector<std::string> split_whitespace_fields(
+            const std::string& line
+        ) {
+            std::vector<std::string> fields;
+            std::istringstream input(line);
+            std::string field;
+            while (input >> field) {
+                fields.push_back(std::move(field));
+            }
+            return fields;
+        }
+
+        std::size_t index_of_header_field(
+              const std::vector<std::string>& header
+            , std::string_view                expected
+        ) {
+            const auto normalized_expected = csv_parse::normalized_column_name(expected);
+            for (std::size_t i = 0; i < header.size(); ++i) {
+                if (csv_parse::normalized_column_name(header[i]) == normalized_expected) {
+                    return i;
+                }
+            }
+            return static_cast<std::size_t>(::csv::CSV_NOT_FOUND);
+        }
+
+        mathfp::Expected<SegmentCsvColumns> resolve_whitespace_columns(
+            const std::vector<std::string>& header
+        ) {
+            SegmentCsvColumns columns{};
+            for (const auto& [name, member] : segment_csv_column_defs()) {
+                const auto index = index_of_header_field(header, name);
+                if (index == static_cast<std::size_t>(::csv::CSV_NOT_FOUND)) {
+                    return mathfp::unexpected(
+                        mathfp::invalid_arg("missing required connection segments column")
+                            .ctx("column", std::string(name))
+                    );
+                }
+                columns.*member = index;
+            }
+
+            const auto route_index = index_of_header_field(header, "ROUTE_ID");
+            if (route_index != static_cast<std::size_t>(::csv::CSV_NOT_FOUND)) {
+                columns.route = route_index;
+            }
+            return columns;
+        }
+
+        mathfp::Expected<std::int64_t> parse_int64_field(
+              const std::vector<std::string>& fields
+            , std::size_t                     index
+            , std::size_t                     row
+            , std::string_view                column
+        ) {
+            return csv_parse::parse_int64_cell(fields[index], row, column);
+        }
+
+        mathfp::Expected<double> parse_double_field(
+              const std::vector<std::string>& fields
+            , std::size_t                     index
+            , std::size_t                     row
+            , std::string_view                column
+        ) {
+            return csv_parse::parse_double_cell(fields[index], row, column);
+        }
+
+        mathfp::Expected<ParsedSegmentRow> parse_whitespace_segment_row(
+              const std::vector<std::string>& fields
+            , const SegmentCsvColumns&        cols
+            , std::size_t                     row
+            , std::size_t                     expected_field_count
+        ) {
+            if (fields.size() != expected_field_count) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("connection segments whitespace row has unexpected field count")
+                        .ctx("row", static_cast<std::int64_t>(row))
+                        .ctx("expected", static_cast<std::int64_t>(expected_field_count))
+                        .ctx("actual", static_cast<std::int64_t>(fields.size()))
+                );
+            }
+
+            ParsedSegmentRow parsed_row{};
+            MATHFP_TRY_LET(std::int64_t, from_zone, parse_int64_field(fields, cols.from_zone, row, "FROM_ZONE_ID"));
+            MATHFP_TRY_LET(std::int64_t, from_stop, parse_int64_field(fields, cols.from_stop, row, "FROM_STOP_ID"));
+            MATHFP_TRY_LET(std::int64_t, to_zone, parse_int64_field(fields, cols.to_zone, row, "TO_ZONE_ID"));
+            MATHFP_TRY_LET(std::int64_t, to_stop, parse_int64_field(fields, cols.to_stop, row, "TO_STOP_ID"));
+            MATHFP_TRY_LET(std::int64_t, trip_id, parse_int64_field(fields, cols.trip, row, "TRIP_ID"));
+            MATHFP_TRY_LET(std::int64_t, line_id, parse_int64_field(fields, cols.line, row, "LINE_ID"));
+            MATHFP_TRY_LET(std::int64_t, from_index, parse_int64_field(fields, cols.from_index, row, "FROM_INDEX"));
+            MATHFP_TRY_LET(std::int64_t, to_index, parse_int64_field(fields, cols.to_index, row, "TO_INDEX"));
+            MATHFP_TRY_LET(double, length, parse_double_field(fields, cols.length, row, "LENGTH"));
+            MATHFP_TRY_LET(double, time, parse_double_field(fields, cols.time, row, "TIME"));
+            MATHFP_TRY_LET(double, dep, parse_double_field(fields, cols.dep, row, "DEP"));
+            MATHFP_TRY_LET(double, arr, parse_double_field(fields, cols.arr, row, "ARR"));
+            MATHFP_TRY_LET(double, fare, parse_double_field(fields, cols.fare, row, "FARE"));
+
+            parsed_row.from_zone = from_zone;
+            parsed_row.from_stop = from_stop;
+            parsed_row.to_zone = to_zone;
+            parsed_row.to_stop = to_stop;
+            parsed_row.trip_id = trip_id;
+            parsed_row.line_id = line_id;
+            parsed_row.from_index = from_index;
+            parsed_row.to_index = to_index;
+            parsed_row.length = length;
+            parsed_row.time = time;
+            parsed_row.dep = dep;
+            parsed_row.arr = arr;
+            parsed_row.fare = fare;
+
+            if (cols.route.has_value()) {
+                MATHFP_TRY_LET(
+                      std::int64_t
+                    , route_id
+                    , parse_int64_field(fields, *cols.route, row, "ROUTE_ID")
+                );
+                parsed_row.route_id = route_id;
+            }
             return parsed_row;
         }
 
@@ -339,6 +471,82 @@ namespace timetable::infra::csv {
             return data.columns;
         }
 
+        mathfp::Expected<SegmentColumns> parse_connection_segments_whitespace(
+            const std::filesystem::path& path
+        ) {
+            using timetable::infra::LogLevel;
+            using timetable::infra::progress::log;
+            using timetable::infra::progress::status;
+
+            std::ifstream input(path);
+            if (!input) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("failed to open whitespace connection segments file")
+                        .ctx("path", path.string())
+                );
+            }
+
+            std::string line;
+            if (!std::getline(input, line)) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("connection segments whitespace file is empty")
+                        .ctx("path", path.string())
+                );
+            }
+
+            const auto header = split_whitespace_fields(line);
+            if (header.empty()) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("connection segments whitespace file has no header")
+                        .ctx("path", path.string())
+                );
+            }
+
+            MATHFP_TRY_LET(SegmentCsvColumns, columns, resolve_whitespace_columns(header));
+            log(
+                fmt::format("parsing: whitespace columns resolved; header_columns = {}", header.size())
+                , LogLevel::Info
+            );
+
+            ParsedCsvData data;
+            data.zone_set.reserve(256);
+
+            std::size_t row = 1;
+            status("parsing: reading whitespace connection segments (0 rows)");
+            while (std::getline(input, line)) {
+                ++row;
+                report_csv_row_progress(row, data.columns.from_zone_id.size(), data.zone_set.size());
+                if (line.empty()) {
+                    continue;
+                }
+
+                const auto fields = split_whitespace_fields(line);
+                if (fields.empty()) {
+                    continue;
+                }
+
+                MATHFP_TRY_LET(
+                      ParsedSegmentRow
+                    , parsed_row
+                    , parse_whitespace_segment_row(fields, columns, row, header.size())
+                );
+                append_segment_row(data.columns, parsed_row, columns.route.has_value());
+                collect_row_zones(data.zone_set, parsed_row);
+            }
+
+            MATHFP_TRY_LET(SegmentColumns, out, finalize_parsed_csv_data(std::move(data), path));
+            log(
+                fmt::format(
+                      "parsing: whitespace segments parsed; segments = {}  zones = {}"
+                    , out.from_zone_id.size()
+                    , out.zone_ids.size()
+                )
+                , LogLevel::Info
+            );
+            status("parsing: connection segments whitespace file parsed");
+            return out;
+        }
+
     }  // namespace
 
     mathfp::Expected<SegmentColumns> parse_connection_segments_csv(
@@ -347,6 +555,15 @@ namespace timetable::infra::csv {
         using timetable::infra::LogLevel;
         using timetable::infra::progress::log;
         using timetable::infra::progress::status;
+
+        if (is_whitespace_separated_segments_file(path)) {
+            status("parsing: opening whitespace connection segments file");
+            log(
+                  fmt::format("parsing: whitespace header loaded from {}", path.string())
+                , LogLevel::Info
+            );
+            return parse_connection_segments_whitespace(path);
+        }
 
         status("parsing: opening connection segments csv");
         auto input_result = open_connection_segments_csv(path);

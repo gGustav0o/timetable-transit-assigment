@@ -20,7 +20,8 @@ namespace timetable::io {
     // If params.txt is present, the active runtime path uses modeled runtime
     // parameters represented in the domain model.
     // Pair layout directory:
-    // - connection_segments_input.csv
+    // - 7064/connection_segments_7064.csv preferred by default, or
+    //   connection_segments_input.csv as a legacy fallback
     // - params.txt
     // - time_intervals.csv      or generated_demand/time_intervals.csv
     // - od_demand.csv           or generated_demand/od_demand.csv

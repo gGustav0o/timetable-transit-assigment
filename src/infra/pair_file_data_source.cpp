@@ -52,10 +52,18 @@ namespace timetable::infra {
             std::optional<std::filesystem::path> vehicle_journey_item_capacity{};
         };
 
+        inline const std::filesystem::path kDefaultSegmentsPath{
+            "7064/connection_segments_7064.csv"
+        };
+        inline const std::filesystem::path kLegacySegmentsPath{
+            "connection_segments_input.csv"
+        };
+
         struct PairRuntimeDefaults final {
             timetable::domain::SearchParams                         params{};
             timetable::domain::assignment::ChoiceConfig             choice{};
             timetable::domain::assignment::CompleteConnectionDominanceConfig complete_connection_dominance{};
+            timetable::domain::assignment::SearchExecutionConfig    search_execution{};
             timetable::domain::assignment::SearchPruningConfig      search_pruning{};
             timetable::domain::assignment::SearchTimeDomainConfig   search_time_domain{};
             timetable::domain::assignment::AssignmentExecutionConfig execution{};
@@ -317,11 +325,15 @@ namespace timetable::infra {
         mathfp::Expected<PairResolvedPaths> resolve_pair_file_paths(
             const std::filesystem::path& root
         ) {
-            const auto segments_path = root / "connection_segments_input.csv";
+            auto segments_path = root / kDefaultSegmentsPath;
+            if (!std::filesystem::exists(segments_path)) {
+                segments_path = root / kLegacySegmentsPath;
+            }
             if (!std::filesystem::exists(segments_path)) {
                 return mathfp::unexpected(
-                    mathfp::invalid_arg("missing required connection_segments_input.csv")
-                        .ctx("path", segments_path.string())
+                    mathfp::invalid_arg("missing required connection segments file")
+                        .ctx("preferred", (root / kDefaultSegmentsPath).string())
+                        .ctx("fallback", (root / kLegacySegmentsPath).string())
                 );
             }
             if (!std::filesystem::is_regular_file(segments_path)) {
@@ -573,6 +585,7 @@ namespace timetable::infra {
                 , .choice              = std::move(choice)
                 , .complete_connection_dominance =
                       timetable::domain::assignment::CompleteConnectionDominanceConfig{}
+                , .search_execution    = timetable::domain::assignment::SearchExecutionConfig{}
                 , .search_pruning      = std::move(search_pruning)
                 , .search_time_domain  = std::move(search_time_domain)
                 , .execution           = timetable::domain::assignment::AssignmentExecutionConfig{
@@ -704,6 +717,7 @@ namespace timetable::infra {
             input.choice              = std::move(defaults.choice);
             input.complete_connection_dominance =
                 std::move(defaults.complete_connection_dominance);
+            input.search_execution    = defaults.search_execution;
             input.search_pruning      = std::move(defaults.search_pruning);
             input.search_time_domain  = std::move(defaults.search_time_domain);
             input.execution           = std::move(defaults.execution);
@@ -733,6 +747,7 @@ namespace timetable::infra {
             input.execution           = std::move(parsed_params.execution);
             input.complete_connection_dominance =
                 parsed_params.complete_connection_dominance;
+            input.search_execution    = parsed_params.search_execution;
             input.search_pruning      = std::move(parsed_params.search_pruning);
             input.skim_matrix         = std::move(parsed_params.skim_matrix);
             input.assignment_period   = std::move(parsed_params.assignment_period);
@@ -741,7 +756,7 @@ namespace timetable::infra {
             input.capacity_aware_assignment =
                 std::move(parsed_params.capacity_aware_assignment);
             log(
-                  "parsing: pair-file runtime uses SearchParams, AssignmentExecutionConfig, CompleteConnectionDominanceConfig, SearchPruningConfig, SkimMatrixConfig, AssignmentPeriodConfig, connection-admissibility configs, and capacity-aware config from params.txt; runtime choice/search-time rollout configs keep built-in defaults"
+                  "parsing: pair-file runtime uses SearchParams, AssignmentExecutionConfig, CompleteConnectionDominanceConfig, SearchExecutionConfig, SearchPruningConfig, SkimMatrixConfig, AssignmentPeriodConfig, connection-admissibility configs, and capacity-aware config from params.txt; runtime choice and search-time rollout configs keep built-in defaults"
                 , LogLevel::Info
             );
             return mathfp::kUnit;

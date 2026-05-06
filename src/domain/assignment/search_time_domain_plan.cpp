@@ -1,17 +1,98 @@
 #include "timetable/domain/assignment/search_time_domain_plan.hpp"
 
 #include <string>
+#include <vector>
 
 #include <fmt/format.h>
 
 #include <mathfp/core/error.hpp>
 #include <mathfp/core/try.hpp>
 
+#include "timetable/domain/assignment/connection_admissibility.hpp"
 #include "timetable/domain/assignment/search_time_domain_diagnostics.hpp"
 #include "timetable/domain/assignment/validation.hpp"
 #include "timetable/infra/progress_bus.hpp"
 
 namespace timetable::domain::assignment {
+    namespace {
+
+        inline constexpr double kServiceDaySeconds = 24.0 * 60.0 * 60.0;
+
+        mathfp::Expected<SearchTimeDomain> build_assignment_period_full_domain(
+              const InputModel&              input
+            , const AssignmentPeriodConfig&  assignment_period
+        ) {
+            if (input.intervals.empty()) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("assignment-period full search-time domain requires declared intervals")
+                );
+            }
+
+            std::vector<SearchTimeWindow> windows;
+            windows.reserve(input.intervals.size());
+            for (const auto& interval : input.intervals) {
+                if (!(interval.start.value() < interval.end.value())) {
+                    return mathfp::unexpected(
+                        mathfp::invalid_arg("assignment-period full search-time domain requires intervals satisfying start < end")
+                            .ctx("interval_id", interval.id.get())
+                            .ctx("start"      , interval.start.value())
+                            .ctx("end"        , interval.end.value())
+                    );
+                }
+                const auto window = assignment_period_window(
+                      interval
+                    , assignment_period
+                );
+                windows.push_back(
+                    SearchTimeWindow{
+                          .begin = window.begin
+                        , .end   = window.end
+                    }
+                );
+            }
+
+            return make_search_time_domain(std::move(windows));
+        }
+
+        mathfp::Expected<SearchTimeDomain> build_service_day_full_domain() {
+            return make_search_time_domain(
+                std::vector<SearchTimeWindow>{
+                    SearchTimeWindow{
+                          .begin = Time{ 0.0 }
+                        , .end   = Time{ kServiceDaySeconds }
+                    }
+                }
+            );
+        }
+
+        mathfp::Expected<SearchTimeDomain> build_full_period_domain(
+              const InputModel&              input
+            , SearchTimeDomainSource         source
+            , const AssignmentPeriodConfig&  assignment_period
+        ) {
+            switch (source) {
+                case SearchTimeDomainSource::AssignmentPeriod:
+                    return build_assignment_period_full_domain(
+                          input
+                        , assignment_period
+                    );
+
+                case SearchTimeDomainSource::ServiceDay:
+                    return build_service_day_full_domain();
+
+                case SearchTimeDomainSource::DemandInduced:
+                    return mathfp::unexpected(
+                        mathfp::invalid_arg("demand-induced source is not a full-period search-time domain")
+                    );
+            }
+
+            return mathfp::unexpected(
+                mathfp::invalid_arg("unsupported full-period search-time domain source")
+                    .ctx("source", static_cast<std::int64_t>(source))
+            );
+        }
+
+    }  // namespace
 
     mathfp::Expected<SearchTimeDomainExecutionPlan> plan_search_time_domain_execution(
           SearchArchitecture           architecture
@@ -172,6 +253,39 @@ namespace timetable::domain::assignment {
             , timetable::infra::LogLevel::Info
         );
         return std::optional<SearchTimeDomainExecution>{ std::move(execution) };
+    }
+
+    mathfp::Expected<SearchTimeDomainExecution> prepare_full_period_search_time_domain_execution(
+          const InputModel&              input
+        , SearchTimeDomainSource         source
+        , const AssignmentPeriodConfig&  assignment_period
+    ) {
+        MATHFP_TRY(validate_assignment_period_config(assignment_period));
+        MATHFP_TRY_LET(
+              SearchTimeDomain
+            , domain
+            , build_full_period_domain(
+                  input
+                , source
+                , assignment_period
+            )
+        );
+
+        SearchTimeDomainExecution execution{
+              .source_mode    = SearchWindowMode::Global
+            , .adaptation     = SearchTimeDomainAdaptation::Strict
+            , .padding        = source == SearchTimeDomainSource::AssignmentPeriod
+                ? assignment_time_padding(assignment_period)
+                : SearchTimePadding{}
+            , .global_domain  = std::move(domain)
+            , .origin_domains = {}
+        };
+        MATHFP_TRY(validate_search_time_domain_execution(execution));
+        timetable::infra::progress::log(
+            format_search_time_domain_execution_summary(summarize(execution))
+            , timetable::infra::LogLevel::Info
+        );
+        return execution;
     }
 
 }  // namespace timetable::domain::assignment

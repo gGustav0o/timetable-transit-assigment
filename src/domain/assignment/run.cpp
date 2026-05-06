@@ -25,6 +25,17 @@ namespace timetable::domain::assignment {
                 );
             }
 
+            if (const auto* all_zone = std::get_if<AssignmentPipelineAllZoneSearchResult>(&result)) {
+                return build_all_zone_search_output(
+                      all_zone->input
+                    , all_zone->search
+                    , all_zone->vehicle_journey_item_capacity
+                    , all_zone->execution
+                    , all_zone->skim_config
+                    , all_zone->capacity_aware
+                );
+            }
+
             const auto& calculated = std::get<AssignmentPipelineCalculatedResult>(result);
             return build_assignment_output(
                   calculated.input

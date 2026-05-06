@@ -1,10 +1,12 @@
 #pragma once
 
 #include <array>
+#include <cctype>
 #include <cstdint>
 #include <cstdlib>
 #include <exception>
 #include <filesystem>
+#include <fstream>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -117,12 +119,27 @@ namespace timetable::infra::csv_parse {
         , std::string_view             what
     ) {
         try {
+            auto delimiter = ',';
+            {
+                std::ifstream input(path);
+                std::string first_line;
+                if (std::getline(input, first_line)
+                    && first_line.find(',') == std::string::npos
+                    && first_line.find(' ') != std::string::npos) {
+                    delimiter = ' ';
+                }
+            }
+
             auto format = ::csv::CSVFormat{};
-            format.delimiter(',')
+            format.delimiter(delimiter)
                 .quote('"')
                 .header_row(0)
-                .trim({ ' ', '\t' })
                 .variable_columns(::csv::VariableColumnPolicy::THROW);
+            if (delimiter == ',') {
+                format.trim({ ' ', '\t' });
+            } else {
+                format.trim({ '\t' });
+            }
 
             return ::csv::CSVReader(path.string(), format);
         } catch (const std::exception& e) {
@@ -135,6 +152,37 @@ namespace timetable::infra::csv_parse {
         }
     }
 
+    [[nodiscard]] inline std::string normalized_column_name(std::string_view value) {
+        std::string out;
+        out.reserve(value.size());
+        for (const auto ch : value) {
+            out.push_back(static_cast<char>(
+                std::tolower(static_cast<unsigned char>(ch))
+            ));
+        }
+        return out;
+    }
+
+    [[nodiscard]] inline std::size_t index_of_column(
+          const ::csv::CSVReader& reader
+        , std::string_view        expected
+    ) {
+        const auto exact = reader.index_of(std::string(expected));
+        if (exact != ::csv::CSV_NOT_FOUND) {
+            return static_cast<std::size_t>(exact);
+        }
+
+        const auto normalized_expected = normalized_column_name(expected);
+        const auto names = reader.get_col_names();
+        for (std::size_t i = 0; i < names.size(); ++i) {
+            if (normalized_column_name(names[i]) == normalized_expected) {
+                return i;
+            }
+        }
+
+        return static_cast<std::size_t>(::csv::CSV_NOT_FOUND);
+    }
+
     template <typename Columns, typename Defs>
     [[nodiscard]] inline mathfp::Expected<Columns> resolve_csv_columns(
           const ::csv::CSVReader& reader
@@ -142,14 +190,14 @@ namespace timetable::infra::csv_parse {
     ) {
         Columns resolved{};
         for (const auto& [name, member] : defs) {
-            const auto resolved_column = reader.index_of(std::string(name));
-            if (resolved_column == ::csv::CSV_NOT_FOUND) {
+            const auto resolved_column = index_of_column(reader, name);
+            if (resolved_column == static_cast<std::size_t>(::csv::CSV_NOT_FOUND)) {
                 return mathfp::unexpected(
                     mathfp::invalid_arg("missing required csv column")
                         .ctx("column", std::string(name))
                 );
             }
-            resolved.*member = static_cast<std::size_t>(resolved_column);
+            resolved.*member = resolved_column;
         }
         return resolved;
     }

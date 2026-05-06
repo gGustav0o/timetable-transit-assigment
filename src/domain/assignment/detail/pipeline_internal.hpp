@@ -1,6 +1,8 @@
 #pragma once
 
 #include <algorithm>
+#include <optional>
+#include <span>
 #include <utility>
 #include <vector>
 
@@ -20,6 +22,7 @@
 #include "timetable/domain/assignment/search_cost.hpp"
 #include "timetable/domain/assignment/search_pruning_diagnostics.hpp"
 #include "timetable/domain/assignment/search_pruning_plan.hpp"
+#include "timetable/domain/assignment/search_time_domain_plan.hpp"
 #include "timetable/domain/assignment/split.hpp"
 #include "timetable/domain/assignment/validation.hpp"
 #include "timetable/infra/progress_bus.hpp"
@@ -27,9 +30,10 @@
 namespace timetable::domain::assignment::detail {
 
     struct SearchStepResult final {
-        ConnectionSearchResult result{};
-        double                 fare_scale{};
-        SearchCostContext      search_cost{};
+        ConnectionSearchResult                    result{};
+        std::optional<AllZoneConnectionSearchResult> all_zone_result{};
+        double                                    fare_scale{};
+        SearchCostContext                         search_cost{};
     };
 
     struct SplitStepResult final {
@@ -64,6 +68,45 @@ namespace timetable::domain::assignment::detail {
                   )
             )
         };
+    }
+
+    [[nodiscard]] inline SearchExecutionMode pipeline_search_execution_mode(
+        const AssignmentInput& input
+    ) noexcept {
+        return input.search_execution.mode;
+    }
+
+    inline mathfp::Expected<std::optional<SearchTimeDomainExecution>>
+    prepare_pipeline_search_time_domain_execution(
+          const AssignmentInput& input
+        , SearchExecutionMode    execution_mode
+    ) {
+        if (execution_mode != SearchExecutionMode::OriginPeriod) {
+            return std::optional<SearchTimeDomainExecution>{};
+        }
+
+        if (input.search_execution.time_domain_source
+            != SearchTimeDomainSource::DemandInduced) {
+            MATHFP_TRY_LET(
+                  SearchTimeDomainExecution
+                , execution
+                , prepare_full_period_search_time_domain_execution(
+                      input.input
+                    , input.search_execution.time_domain_source
+                    , input.assignment_period
+                )
+            );
+            return std::optional<SearchTimeDomainExecution>{ std::move(execution) };
+        }
+
+        return prepare_search_time_domain_execution(
+              input.input
+            , input.search_time_domain.model.padding_policy
+            , input.params.split
+            , input.search_time_domain.runtime.architecture
+            , input.search_time_domain.runtime.rollout_stage
+            , input.search_time_domain.model.requested_mode
+        );
     }
 
     inline mathfp::Expected<PreprocessedNetwork> build_preprocessed_step(
@@ -163,12 +206,65 @@ namespace timetable::domain::assignment::detail {
                 input.input
             )
         );
+        const auto search_execution_mode = pipeline_search_execution_mode(input);
+        MATHFP_TRY_LET(
+              std::optional<SearchTimeDomainExecution>
+            , search_time_domain_execution
+            , prepare_pipeline_search_time_domain_execution(
+                  input
+                , search_execution_mode
+            )
+        );
+        SearchDiagnosticsContext search_diagnostics = diagnostics;
+        search_diagnostics.declared_zone_count = input.input.zones.size();
+        const auto execution_request = SearchExecutionRequest{
+              .config = input.search_execution
+            , .time_domain_execution = search_time_domain_execution.has_value()
+                ? &*search_time_domain_execution
+                : nullptr
+            , .declared_zones = std::span<const Zone>{
+                  input.input.zones.data()
+                , input.input.zones.size()
+              }
+        };
+
+        if (input.search_execution.result_projection
+            == SearchResultProjection::CompletionTargets) {
+            MATHFP_TRY_LET(
+                  AllZoneConnectionSearchResult
+                , all_zone_search_result
+                , search_all_zone_connections_branch_and_bound(
+                      net
+                    , search_tasks
+                    , execution_request
+                    , params
+                    , search_cost
+                    , input.choice
+                    , input.assignment_period
+                    , ConnectionAdmissibilityConfig{
+                          .deletion    = input.connection_deletion
+                        , .demand_time = input.demand_segment_time
+                      }
+                    , &search_pruning_execution
+                    , input.complete_connection_dominance
+                    , search_diagnostics
+                )
+            );
+            return SearchStepResult{
+                  .result          = {}
+                , .all_zone_result = std::move(all_zone_search_result)
+                , .fare_scale      = fare_scale
+                , .search_cost     = std::move(search_cost)
+            };
+        }
+
         MATHFP_TRY_LET(
               ConnectionSearchResult
             , search_result
             , search_connections_branch_and_bound(
                   net
                 , search_tasks
+                , execution_request
                 , params
                 , search_cost
                 , input.choice
@@ -179,7 +275,7 @@ namespace timetable::domain::assignment::detail {
                 }
                 , &search_pruning_execution
                 , input.complete_connection_dominance
-                , diagnostics
+                , search_diagnostics
             )
         );
         MATHFP_TRY(validate_search_step_output(
@@ -595,6 +691,32 @@ namespace timetable::domain::assignment::detail {
             , network
             , run_validated_preprocessing_step(input)
         );
+
+        if (input.search_execution.result_projection
+            == SearchResultProjection::CompletionTargets) {
+            MATHFP_TRY_LET(
+                  SearchStepResult
+                , search_step
+                , run_validated_search_step(network, input, VehicleJourneyItemLoadState{})
+            );
+            if (!search_step.all_zone_result.has_value()) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("all-zone search projection did not materialize all-zone result")
+                );
+            }
+            return AssignmentPipelineAllZoneSearchResult{
+                  .input                         = std::move(input.input)
+                , .vehicle_journey_item_capacity = std::move(input.vehicle_journey_item_capacity)
+                , .network                       = std::move(network)
+                , .search                        = std::move(*search_step.all_zone_result)
+                , .execution                     = input.execution
+                , .skim_config                   = input.skim_matrix
+                , .capacity_aware                =
+                      make_capacity_aware_assignment_disabled_diagnostics(
+                          input.capacity_aware_assignment.penalty_policy
+                      )
+            };
+        }
 
         if (capacity_aware_search_enabled(input)) {
             MATHFP_TRY_LET(

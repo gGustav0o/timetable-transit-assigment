@@ -97,6 +97,8 @@ namespace timetable::domain::assignment::projection {
             switch (mode) {
             case AssignmentOutputMode::Calculated:
                 return "calculated";
+            case AssignmentOutputMode::AllZoneSearch:
+                return "all_zone_search";
             case AssignmentOutputMode::AssignmentDisabled:
                 return "assignment_disabled";
             }

@@ -25,6 +25,10 @@ namespace timetable::app {
         constexpr std::string_view kFlagFileShort    = "-f";
 
         constexpr std::string_view kDefaultPairDataDir = "data/test";
+        constexpr std::string_view kDefaultSegmentsPath =
+            "7064/connection_segments_7064.csv";
+        constexpr std::string_view kLegacySegmentsPath =
+            "connection_segments_input.csv";
 
         std::string usage() {
             return "Usage:\n"
@@ -32,7 +36,7 @@ namespace timetable::app {
                 "  timetable-transit-assigment --data-dir <path>      [deprecated compatibility path]\n"
                 "  timetable-transit-assigment --data-file <path>     [deprecated compatibility path]\n"
                 "Default:\n"
-                "  without arguments the app searches upward for data/test/connection_segments_input.csv\n"
+                "  without arguments the app searches upward for data/test/7064/connection_segments_7064.csv\n"
                 "Current scope:\n"
                 "  pair-file input only; params.txt supplies supported runtime params when present\n"
                 "Aliases:\n"
@@ -133,10 +137,12 @@ namespace timetable::app {
         }
 
         bool is_pair_data_dir(const std::filesystem::path& path) {
-            const auto segments = path / "connection_segments_input.csv";
+            const auto default_segments = path / kDefaultSegmentsPath;
+            const auto legacy_segments  = path / kLegacySegmentsPath;
             return std::filesystem::exists(path)
                 && std::filesystem::is_directory(path)
-                && std::filesystem::exists(segments);
+                && (std::filesystem::exists(default_segments)
+                    || std::filesystem::exists(legacy_segments));
         }
 
         mathfp::Expected<std::filesystem::path> find_default_pair_data_dir() {
@@ -154,7 +160,8 @@ namespace timetable::app {
             return mathfp::unexpected(
                 mathfp::invalid_arg("default pair data dir not found")
                 .ctx("path"    , std::string(kDefaultPairDataDir))
-                .ctx("required", "connection_segments_input.csv"));
+                .ctx("preferred", std::string(kDefaultSegmentsPath))
+                .ctx("fallback", std::string(kLegacySegmentsPath)));
         }
 
         mathfp::Expected<CliInput> parse_args(int argc, char** argv) {

@@ -11,6 +11,7 @@
 #include <optional>
 #include <queue>
 #include <span>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -28,6 +29,7 @@
 #include "timetable/domain/assignment/search_cost.hpp"
 #include "timetable/domain/assignment/search_pruning.hpp"
 #include "timetable/domain/assignment/search_pruning_diagnostics.hpp"
+#include "timetable/domain/assignment/search_time_domain_diagnostics.hpp"
 #include "timetable/domain/assignment/validation.hpp"
 #include "timetable/domain/impedance.hpp"
 #include "timetable/domain/assignment/search/branch_state.hpp"
@@ -178,29 +180,44 @@ namespace timetable::domain::assignment {
         using NodeMetricMap = std::unordered_map<SearchNodeKey, NodeMetricSet, SearchNodeKeyHash>;
         using BranchArena       = std::vector<SearchBranch>;
 
+        enum class SearchProjectionSlotKind : std::uint8_t {
+              DemandTask
+            , CompletionTarget
+        };
+
+        struct SearchProjectionSlot final {
+            SearchProjectionSlotKind                 kind{ SearchProjectionSlotKind::DemandTask };
+            ZoneId                                   origin{};
+            ZoneId                                   destination{};
+            std::optional<IntervalId>                interval{};
+            std::optional<SearchTaskRef>             task_ref{};
+            const SearchTask*                        task{};
+            std::optional<std::size_t>               result_index{};
+            std::optional<SearchCompletionTargetRef> completion_target{};
+        };
+
         /**
-         * @brief Retained pruning state for exactly one SearchTask.
+         * @brief Retained pruning and complete-connection state for one projection slot.
          *
-         * Dominance and approximate tolerance are meaningful only relative to
-         * one OD-interval task: the state-local minima of impedance, journey
-         * time and transfer count are induced by that task's destination and
-         * first-boarding time domain. This object must therefore never be
-         * shared between tasks, even when tasks have the same origin.
+         * The slot, not the tree, is the mathematical unit of retention:
+         * DemandTasks retain OD-interval alternatives, while CompletionTargets
+         * retain all-zone alternatives for a target destination. Sharing this
+         * state between slots would mix dominance domains.
          */
-        struct SearchTaskRetention final {
-            SearchTaskRef task{};
+        struct SearchProjectionRetention final {
+            SearchProjectionSlot slot{};
             NodeMetricMap known_metrics{};
             CompleteConnectionRetention complete_connections{};
         };
 
-        struct BatchTaskRef final {
-            const SearchTask* task{};
-            std::size_t       result_index{};
+        struct SearchSlotResult final {
+            SearchProjectionSlot          slot{};
+            std::vector<SearchConnection> connections{};
         };
 
         struct SearchBatchKey final {
             ZoneId                        origin{};
-            IntervalId                    interval{};
+            std::optional<IntervalId>      interval{};
             std::vector<SearchTimeWindow> departure_windows{};
         };
 
@@ -211,8 +228,11 @@ namespace timetable::domain::assignment {
             if (lhs.origin != rhs.origin) {
                 return lhs.origin < rhs.origin;
             }
-            if (lhs.interval != rhs.interval) {
-                return lhs.interval < rhs.interval;
+            if (lhs.interval.has_value() != rhs.interval.has_value()) {
+                return !lhs.interval.has_value() && rhs.interval.has_value();
+            }
+            if (lhs.interval.has_value() && *lhs.interval != *rhs.interval) {
+                return *lhs.interval < *rhs.interval;
             }
             const auto common_size = std::min(
                   lhs.departure_windows.size()
@@ -230,10 +250,20 @@ namespace timetable::domain::assignment {
         }
 
         struct SearchBatch final {
-            SearchBatchKey            key{};
-            const SearchTimeDomain*   departure_domain{};
-            std::vector<BatchTaskRef> tasks{};
+            SearchBatchKey                         key{};
+            const SearchTimeDomain*                departure_domain{};
+            std::vector<SearchCompletionTarget>    completion_targets{};
+            std::vector<SearchProjectionSlot>      projection_slots{};
         };
+
+        [[nodiscard]] std::string format_batch_interval(
+            const std::optional<IntervalId>& interval
+        ) {
+            if (!interval.has_value()) {
+                return "period";
+            }
+            return std::to_string(interval->get());
+        }
 
         struct ResidualReachabilityKey final {
             EndpointKey       current_physical{};
@@ -326,7 +356,7 @@ namespace timetable::domain::assignment {
         };
 
         constexpr std::size_t kTaskProgressStep    = 10;
-        constexpr std::size_t kSearchHeartbeatStep = 100'000;
+        constexpr std::size_t kSearchHeartbeatStep = 10'000;
         constexpr std::size_t kSearchWallClockSuccessorCheckStep = 16'384;
         constexpr std::size_t kInitialTaskBranchReserve = 4'096;
         constexpr auto kSearchWallClockHeartbeatInterval =
@@ -1050,15 +1080,15 @@ namespace timetable::domain::assignment {
 
         [[nodiscard]] ResidualReachability build_residual_reachability(
               const ResidualReverseGraph& graph
-            , std::span<const BatchTaskRef> tasks
+            , std::span<const SearchCompletionTarget> targets
             , TransferCount               max_transfers
             , const SearchImpedance&      impedance
             , double                      fare_scale
         ) {
             ResidualReachability reachability;
 
-            for (const auto& task_ref : tasks) {
-                const auto destination = task_ref.task->destination;
+            for (const auto& target : targets) {
+                const auto destination = target.destination;
                 if (reachability.destinations.contains(destination)) {
                     continue;
                 }
@@ -1419,15 +1449,23 @@ namespace timetable::domain::assignment {
 
         [[nodiscard]] RelaxedSuffixState relaxed_suffix_state(
               const SearchBranch&   branch
-            , const SearchTask&     task
+            , ZoneId                destination
             , const TransferLimits& limits
         ) noexcept {
             return RelaxedSuffixState{
                   .current_physical    = branch.trace.current_physical
-                , .destination         = task.destination
-                , .phase               = search_branch_phase(branch, task.destination)
+                , .destination         = destination
+                , .phase               = search_branch_phase(branch, destination)
                 , .remaining_transfers = remaining_transfer_budget(branch, limits)
             };
+        }
+
+        [[nodiscard]] RelaxedSuffixState relaxed_suffix_state(
+              const SearchBranch&   branch
+            , const SearchTask&     task
+            , const TransferLimits& limits
+        ) noexcept {
+            return relaxed_suffix_state(branch, task.destination, limits);
         }
 
         bool first_timed_departure_allowed(
@@ -1472,7 +1510,7 @@ namespace timetable::domain::assignment {
         }
 
         void insert_pruning_metrics(
-              SearchTaskRetention&              retention
+              SearchProjectionRetention&        retention
             , const SearchPruningExecutionPlan& pruning_execution
             , SearchNodeKey                     node
             , PartialPruningMetrics             metrics
@@ -1672,7 +1710,7 @@ namespace timetable::domain::assignment {
 
         [[nodiscard]] mathfp::Expected<SuffixLowerBoundPruningDecision> evaluate_suffix_lower_bound_pruning(
               const SearchBranch&                branch
-            , const SearchTask&                  task
+            , ZoneId                             destination
             , const ResidualReachability&        reachability
             , const CompleteConnectionRetention& complete_retention
             , const SearchParams&                params
@@ -1684,13 +1722,13 @@ namespace timetable::domain::assignment {
                 return SuffixLowerBoundPruningDecision{ .feasible = true };
             }
 
-            const auto destination_it = reachability.destinations.find(task.destination);
+            const auto destination_it = reachability.destinations.find(destination);
             if (destination_it == reachability.destinations.end()) {
                 return SuffixLowerBoundPruningDecision{ .feasible = true };
             }
 
             const auto state = residual_reachability_key(
-                relaxed_suffix_state(branch, task, params.transfers)
+                relaxed_suffix_state(branch, destination, params.transfers)
             );
             const auto lower_bound_it = destination_it->second.suffix_lower_bounds.find(state);
             if (lower_bound_it == destination_it->second.suffix_lower_bounds.end()) {
@@ -1977,14 +2015,14 @@ namespace timetable::domain::assignment {
 
         bool is_active_batch_destination(
               EndpointKey                       endpoint
-            , std::span<const std::size_t>      active_tasks
-            , std::span<const BatchTaskRef>     batch_tasks
+            , std::span<const std::size_t>      active_targets
+            , std::span<const SearchCompletionTarget> batch_targets
         ) noexcept {
             if (endpoint.kind != EndpointKind::Zone) {
                 return false;
             }
-            for (const auto task_pos : active_tasks) {
-                if (batch_tasks[task_pos].task->destination.get() == endpoint.id) {
+            for (const auto target_pos : active_targets) {
+                if (batch_targets[target_pos].destination.get() == endpoint.id) {
                     return true;
                 }
             }
@@ -1993,8 +2031,8 @@ namespace timetable::domain::assignment {
 
         bool is_batch_admissible_walk_successor(
               ZoneId                         origin
-            , std::span<const std::size_t>   active_tasks
-            , std::span<const BatchTaskRef>  batch_tasks
+            , std::span<const std::size_t>   active_targets
+            , std::span<const SearchCompletionTarget> batch_targets
             , const SearchBranch&            branch
             , const RouteSegment&            route_segment
         ) noexcept {
@@ -2015,7 +2053,7 @@ namespace timetable::domain::assignment {
                 return false;
             }
             if (next_physical.kind == EndpointKind::Zone) {
-                return is_active_batch_destination(next_physical, active_tasks, batch_tasks);
+                return is_active_batch_destination(next_physical, active_targets, batch_targets);
             }
             return true;
         }
@@ -2263,7 +2301,7 @@ namespace timetable::domain::assignment {
         [[nodiscard]] mathfp::Expected<CapacityExposure> timed_successor_capacity_exposure(
               const ConnectionSegment& segment
             , const RouteSegment&      route_segment
-            , IntervalId               interval
+            , std::optional<IntervalId> interval
             , const SearchCostContext& search_cost
         ) {
             switch (search_cost.mode) {
@@ -2271,9 +2309,14 @@ namespace timetable::domain::assignment {
                     return CapacityExposure{ Time{ 0.0 } };
 
                 case SearchCostMode::CapacityAware:
+                    if (!interval.has_value()) {
+                        return mathfp::unexpected(
+                            mathfp::invalid_arg("capacity-aware origin-period search requires task-indexed interval exposure")
+                        );
+                    }
                     return search_capacity_exposure(
                           make_ride_leg(segment, route_segment)
-                        , interval
+                        , *interval
                         , search_cost.capacity
                     );
             }
@@ -2320,7 +2363,7 @@ namespace timetable::domain::assignment {
             , std::size_t              branch_index
             , const ConnectionSegment& segment
             , const RouteSegment&      route_segment
-            , IntervalId               interval
+            , std::optional<IntervalId> interval
             , const SearchCostContext& search_cost
         ) {
             MATHFP_TRY_LET(
@@ -2355,7 +2398,7 @@ namespace timetable::domain::assignment {
             , const SearchBranch&        branch
             , const PreprocessedNetwork& network
             , const ConnectionSegment&   successor
-            , IntervalId                  interval
+            , std::optional<IntervalId>   interval
             , const SearchCostContext&    search_cost
         ) {
             const auto& route_segment = route_segment_at(network, successor.route_segment);
@@ -2392,8 +2435,8 @@ namespace timetable::domain::assignment {
         void for_each_successor(
               const PreprocessedNetwork& network
             , ZoneId                      origin
-            , std::span<const std::size_t> active_tasks
-            , std::span<const BatchTaskRef> batch_tasks
+            , std::span<const std::size_t> active_targets
+            , std::span<const SearchCompletionTarget> batch_targets
             , const SearchBranch&        branch
             , const TransferLimits&      limits
             , const SearchTimeDomain*    first_departure_domain
@@ -2411,8 +2454,8 @@ namespace timetable::domain::assignment {
                 const auto& route_segment = route_segment_at(network, connection.route_segment);
                 if (is_batch_admissible_walk_successor(
                       origin
-                    , active_tasks
-                    , batch_tasks
+                    , active_targets
+                    , batch_targets
                     , branch
                     , route_segment
                 )) {
@@ -2479,7 +2522,7 @@ namespace timetable::domain::assignment {
 
         mathfp::Expected<SearchPruningDecision> retain_branch(
               const SearchBranch&               branch
-            , SearchTaskRetention&              retention
+            , SearchProjectionRetention&        retention
             , const SearchParams&               params
             , const SearchCostContext&          search_cost
             , const SearchPruningExecutionPlan& pruning_execution
@@ -2555,7 +2598,7 @@ namespace timetable::domain::assignment {
         }
 
         [[nodiscard]] std::size_t retained_connection_count(
-            std::span<const SearchTaskRetention> retentions
+            std::span<const SearchProjectionRetention> retentions
         ) noexcept {
             std::size_t total = 0;
             for (const auto& retention : retentions) {
@@ -2570,19 +2613,56 @@ namespace timetable::domain::assignment {
         };
 
         [[nodiscard]] std::vector<std::size_t> all_batch_task_positions(
-            std::span<const BatchTaskRef> tasks
+            std::span<const SearchProjectionSlot> slots
         ) {
             std::vector<std::size_t> positions;
-            positions.reserve(tasks.size());
-            for (std::size_t i = 0; i < tasks.size(); ++i) {
+            positions.reserve(slots.size());
+            for (std::size_t i = 0; i < slots.size(); ++i) {
                 positions.push_back(i);
             }
             return positions;
         }
 
+        [[nodiscard]] std::vector<std::size_t> all_batch_target_positions(
+            std::span<const SearchCompletionTarget> targets
+        ) {
+            std::vector<std::size_t> positions;
+            positions.reserve(targets.size());
+            for (std::size_t i = 0; i < targets.size(); ++i) {
+                positions.push_back(i);
+            }
+            return positions;
+        }
+
+        [[nodiscard]] std::vector<std::size_t> filter_target_positions_by_reachability(
+              std::span<const std::size_t>                 target_positions
+            , std::span<const SearchCompletionTarget>       targets
+            , const ResidualReachability&                  reachability
+            , const SearchBranch&                          branch
+            , const TransferLimits&                        limits
+        ) {
+            std::vector<std::size_t> reachable;
+            reachable.reserve(target_positions.size());
+            for (const auto target_pos : target_positions) {
+                const auto decision = evaluate_residual_reachability(
+                      reachability
+                    , relaxed_suffix_state(
+                          branch
+                        , targets[target_pos].destination
+                        , limits
+                      )
+                    , limits.max_transfers
+                );
+                if (decision.feasible) {
+                    reachable.push_back(target_pos);
+                }
+            }
+            return reachable;
+        }
+
         [[nodiscard]] ReachabilityTaskFilter filter_task_positions_by_reachability(
               std::span<const std::size_t>  task_positions
-            , std::span<const BatchTaskRef> tasks
+            , std::span<const SearchProjectionSlot> slots
             , const ResidualReachability&   reachability
             , const SearchBranch&           branch
             , const TransferLimits&         limits
@@ -2593,7 +2673,11 @@ namespace timetable::domain::assignment {
             for (const auto task_pos : task_positions) {
                 const auto decision = evaluate_residual_reachability(
                       reachability
-                    , relaxed_suffix_state(branch, *tasks[task_pos].task, limits)
+                    , relaxed_suffix_state(
+                          branch
+                        , slots[task_pos].destination
+                        , limits
+                      )
                     , limits.max_transfers
                 );
                 if (decision.feasible) {
@@ -2641,7 +2725,7 @@ namespace timetable::domain::assignment {
         [[nodiscard]] std::vector<std::size_t> matching_complete_tasks(
               const SearchBranch&              branch
             , std::span<const std::size_t>      active_tasks
-            , std::span<const BatchTaskRef>     batch_tasks
+            , std::span<const SearchProjectionSlot> batch_tasks
         ) {
             std::vector<std::size_t> matches;
             if (!branch.metrics.departure.has_value()
@@ -2650,46 +2734,96 @@ namespace timetable::domain::assignment {
             }
 
             for (const auto task_pos : active_tasks) {
-                if (batch_tasks[task_pos].task->destination.get() == branch.trace.current_physical.id) {
+                if (batch_tasks[task_pos].destination.get()
+                    == branch.trace.current_physical.id) {
                     matches.push_back(task_pos);
                 }
             }
             return matches;
         }
 
-        mathfp::Expected<mathfp::Unit> retain_complete_for_task(
+        [[nodiscard]] bool matches_completion_target(
+              const SearchBranch&                       branch
+            , std::span<const std::size_t>               active_targets
+            , std::span<const SearchCompletionTarget>    batch_targets
+        ) noexcept {
+            if (!branch.metrics.departure.has_value()
+                || branch.trace.current_physical.kind != EndpointKind::Zone) {
+                return false;
+            }
+
+            for (const auto target_pos : active_targets) {
+                if (batch_targets[target_pos].destination.get()
+                    == branch.trace.current_physical.id) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        [[nodiscard]] mathfp::Expected<IntervalId> complete_retention_interval(
+              const SearchProjectionSlot& slot
+            , const SearchCostContext&    search_cost
+        ) {
+            if (slot.interval.has_value()) {
+                return *slot.interval;
+            }
+            if (search_cost.mode != SearchCostMode::BaseOnly) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("completion-target projection currently requires base search cost")
+                        .ctx("origin", slot.origin.get())
+                        .ctx("destination", slot.destination.get())
+                );
+            }
+            return IntervalId{ 0 };
+        }
+
+        mathfp::Expected<mathfp::Unit> retain_complete_for_slot(
               const SearchBranch&        branch
             , const PreprocessedNetwork& network
             , const SearchParams&        params
             , const SearchCostContext&   search_cost
-            , const SearchTask&          task
+            , const SearchProjectionSlot& slot
             , const AssignmentPeriodConfig& assignment_period
             , const ConnectionAdmissibilityConfig& admissibility_config
             , const CompleteConnectionDominanceConfig& dominance_config
-            , SearchTaskRetention&       retention
+            , SearchProjectionRetention& retention
             , TaskSearchStats&           stats
         ) {
             MATHFP_TRY_LET(
                   std::optional<SearchConnection>
                 , complete
-                , complete_connection(branch, network, params.transfers, task.destination)
+                , complete_connection(branch, network, params.transfers, slot.destination)
             );
             if (complete.has_value()) {
                 ++stats.completed_connections;
-                if (!connection_admissible_for_assignment_period(
-                      metrics_of(*complete)
-                    , task.interval
-                    , assignment_period
-                    , admissibility_config
-                )) {
-                    ++stats.rejected_complete_admissibility;
-                    return mathfp::kUnit;
+                if (slot.kind == SearchProjectionSlotKind::DemandTask) {
+                    const auto* task = slot.task;
+                    if (task == nullptr) {
+                        return mathfp::unexpected(
+                            mathfp::internal_error("demand projection slot has no task while retaining complete connection")
+                        );
+                    }
+                    if (!connection_admissible_for_assignment_period(
+                          metrics_of(*complete)
+                        , task->interval
+                        , assignment_period
+                        , admissibility_config
+                    )) {
+                        ++stats.rejected_complete_admissibility;
+                        return mathfp::kUnit;
+                    }
                 }
+                MATHFP_TRY_LET(
+                      IntervalId
+                    , interval
+                    , complete_retention_interval(slot, search_cost)
+                );
                 const auto retention_decision = retain_exact_complete_connection(
                       retention.complete_connections
                     , std::move(*complete)
                     , search_cost
-                    , task.interval.id
+                    , interval
                     , dominance_config
                 );
                 if (!retention_decision) {
@@ -2703,7 +2837,7 @@ namespace timetable::domain::assignment {
             return mathfp::kUnit;
         }
 
-        mathfp::Expected<mathfp::Unit> search_batch_connections(
+        mathfp::Expected<std::vector<SearchSlotResult>> search_batch_connections(
               const SearchBatch&                 batch
             , const PreprocessedNetwork&        network
             , const ResidualReverseGraph&        reverse_graph
@@ -2717,28 +2851,59 @@ namespace timetable::domain::assignment {
             , SearchDiagnosticsContext          diagnostics
             , std::size_t                       batch_index
             , std::size_t                       batch_count
-            , std::vector<SearchTaskResult>&    result_slots
         ) {
             using timetable::infra::LogLevel;
             using timetable::infra::progress::log;
             using timetable::infra::progress::status;
 
-            std::vector<SearchTaskRetention> retentions;
-            retentions.reserve(batch.tasks.size());
-            for (const auto& task_ref : batch.tasks) {
-                retentions.push_back(SearchTaskRetention{ .task = task_ref.task->index });
+            if (batch.completion_targets.empty()) {
+                log(
+                    fmt::format(
+                          "search batch skipped: origin={} interval={} has no completion targets"
+                        , batch.key.origin.get()
+                        , format_batch_interval(batch.key.interval)
+                    )
+                    , LogLevel::Info
+                );
+                return std::vector<SearchSlotResult>{};
+            }
+            if (batch.projection_slots.empty()) {
+                log(
+                    fmt::format(
+                          "search batch skipped: origin={} interval={} has no projection tasks"
+                        , batch.key.origin.get()
+                        , format_batch_interval(batch.key.interval)
+                    )
+                    , LogLevel::Info
+                );
+                return std::vector<SearchSlotResult>{};
+            }
+
+            std::vector<SearchProjectionRetention> retentions;
+            retentions.reserve(batch.projection_slots.size());
+            for (const auto& slot : batch.projection_slots) {
+                retentions.push_back(SearchProjectionRetention{ .slot = slot });
             }
 
             TaskSearchStats                   stats;
-            std::vector<TaskSearchStats>      task_stats(batch.tasks.size());
+            std::vector<TaskSearchStats>      task_stats(batch.projection_slots.size());
             BranchArena                       branches;
             std::vector<std::vector<std::size_t>> branch_active_tasks;
+            std::vector<std::vector<std::size_t>> branch_active_targets;
             const SearchTimeDomain*           first_departure_domain = batch.departure_domain;
             const auto                        batch_task_span =
-                std::span<const BatchTaskRef>{ batch.tasks.data(), batch.tasks.size() };
+                std::span<const SearchProjectionSlot>{
+                      batch.projection_slots.data()
+                    , batch.projection_slots.size()
+                };
+            const auto                        batch_target_span =
+                std::span<const SearchCompletionTarget>{
+                      batch.completion_targets.data()
+                    , batch.completion_targets.size()
+                };
             const auto                        reachability = build_residual_reachability(
                   reverse_graph
-                , batch_task_span
+                , batch_target_span
                 , params.transfers.max_transfers
                 , search_cost.impedance
                 , search_cost.fare_scale
@@ -2750,6 +2915,7 @@ namespace timetable::domain::assignment {
 
             branches.reserve(kInitialTaskBranchReserve);
             branch_active_tasks.reserve(kInitialTaskBranchReserve);
+            branch_active_targets.reserve(kInitialTaskBranchReserve);
 
             std::deque<std::size_t> current_frontier;
             std::deque<std::size_t> next_frontier;
@@ -2780,6 +2946,17 @@ namespace timetable::domain::assignment {
                 }
             );
             const auto root_task_positions = all_batch_task_positions(batch_task_span);
+            const auto root_target_positions = all_batch_target_positions(batch_target_span);
+            auto root_reachable_targets = filter_target_positions_by_reachability(
+                  std::span<const std::size_t>{
+                      root_target_positions.data()
+                    , root_target_positions.size()
+                  }
+                , batch_target_span
+                , reachability
+                , branches.back()
+                , params.transfers
+            );
             auto root_reachability = filter_task_positions_by_reachability(
                   std::span<const std::size_t>{
                       root_task_positions.data()
@@ -2799,16 +2976,18 @@ namespace timetable::domain::assignment {
                 , stats
             );
             branch_active_tasks.push_back(std::move(root_reachability.reachable));
+            branch_active_targets.push_back(std::move(root_reachable_targets));
             current_frontier.push_back(0);
 
             status(
                 fmt::format(
-                      "search: batch {}/{} origin={} interval={} tasks={} capacity_iteration={} frontier={} found={}"
+                      "search: batch {}/{} origin={} interval={} tasks={} targets={} capacity_iteration={} frontier={} found={}"
                     , batch_index + 1
                     , batch_count
                     , batch.key.origin.get()
-                    , batch.key.interval.get()
-                    , batch.tasks.size()
+                    , format_batch_interval(batch.key.interval)
+                    , batch.projection_slots.size()
+                    , batch.completion_targets.size()
                     , diagnostics.capacity_iteration
                     , current_frontier.size()
                     , retained_connection_count(retentions)
@@ -2832,13 +3011,14 @@ namespace timetable::domain::assignment {
                     log(
                         fmt::format(
                               "search wall heartbeat: batch={:>8} origin={:>4} interval={:>4}"
-                              " tasks={:>5} capacity_iteration={:>4} stage={} branch={} elapsed_ms={}"
+                              " tasks={:>5} targets={:>5} capacity_iteration={:>4} stage={} branch={} elapsed_ms={}"
                               " expanded={:>8} generated={:>8} accepted={:>8} found={:>8}"
                               " frontier={}/{}"
                             , static_cast<std::int64_t>(batch_index)
                             , batch.key.origin.get()
-                            , batch.key.interval.get()
-                            , batch.tasks.size()
+                            , format_batch_interval(batch.key.interval)
+                            , batch.projection_slots.size()
+                            , batch.completion_targets.size()
                             , diagnostics.capacity_iteration
                             , stage
                             , static_cast<std::int64_t>(branch_index)
@@ -2870,17 +3050,22 @@ namespace timetable::domain::assignment {
                       branch_active_tasks[branch_index].data()
                     , branch_active_tasks[branch_index].size()
                 };
+                const auto active_targets = std::span<const std::size_t>{
+                      branch_active_targets[branch_index].data()
+                    , branch_active_targets[branch_index].size()
+                };
                 ++stats.expanded_branches;
 
                 if ((stats.expanded_branches % kSearchHeartbeatStep) == 0) {
                     status(
                         fmt::format(
-                              "search: batch {}/{} origin={} interval={} tasks={} capacity_iteration={} expanded={} accepted={} found={} frontier={}/{}"
+                              "search: batch {}/{} origin={} interval={} tasks={} targets={} capacity_iteration={} expanded={} accepted={} found={} frontier={}/{}"
                             , batch_index + 1
                             , batch_count
                             , batch.key.origin.get()
-                            , batch.key.interval.get()
-                            , batch.tasks.size()
+                            , format_batch_interval(batch.key.interval)
+                            , batch.projection_slots.size()
+                            , batch.completion_targets.size()
                             , diagnostics.capacity_iteration
                             , stats.expanded_branches
                             , stats.accepted_branches
@@ -2891,15 +3076,16 @@ namespace timetable::domain::assignment {
                     );
                     log(
                         fmt::format(
-                              "search heartbeat: batch={:>8} origin={:>4} interval={:>4} tasks={:>5} capacity_iteration={:>4} expanded={:>8} generated={:>8}"
+                              "search heartbeat: batch={:>8} origin={:>4} interval={:>4} tasks={:>5} targets={:>5} capacity_iteration={:>4} expanded={:>8} generated={:>8}"
                               " accepted={:>8} found={:>8} rejected(time_domain/feasibility/reboarding/cycles/limit/reachability/dominance)={}/{}/{}/{}/{}/{}/{}"
                               " lower_bound_pruned={}"
                               " pruning(exact/approx/inserted/skipped)={}/{}/{}/{}"
                               " frontier={}/{}"
                             , static_cast<std::int64_t>(batch_index)
                             , batch.key.origin.get()
-                            , batch.key.interval.get()
-                            , batch.tasks.size()
+                            , format_batch_interval(batch.key.interval)
+                            , batch.projection_slots.size()
+                            , batch.completion_targets.size()
                             , diagnostics.capacity_iteration
                             , stats.expanded_branches
                             , stats.generated_successors
@@ -2928,7 +3114,7 @@ namespace timetable::domain::assignment {
                     );
                 }
 
-                if (active_tasks.empty()
+                if (active_targets.empty()
                     || (branch.trace.current_physical.kind == EndpointKind::Zone
                         && branch.metrics.departure.has_value())) {
                     continue;
@@ -2938,8 +3124,8 @@ namespace timetable::domain::assignment {
                 for_each_successor(
                       network
                     , batch.key.origin
-                    , active_tasks
-                    , batch_task_span
+                    , active_targets
+                    , batch_target_span
                     , branch
                     , params.transfers
                     , first_departure_domain
@@ -3010,20 +3196,25 @@ namespace timetable::domain::assignment {
                         return;
                     }
 
-                    const auto complete_task_positions = matching_complete_tasks(
+                    const auto completed_target = matches_completion_target(
                           *candidate
-                        , active_tasks
-                        , batch_task_span
+                        , active_targets
+                        , batch_target_span
                     );
-                    if (!complete_task_positions.empty()) {
+                    if (completed_target) {
+                        const auto complete_task_positions = matching_complete_tasks(
+                              *candidate
+                            , active_tasks
+                            , batch_task_span
+                        );
                         for (const auto task_pos : complete_task_positions) {
                             const auto completed_before = task_stats[task_pos].completed_connections;
-                            auto complete_result = retain_complete_for_task(
+                            auto complete_result = retain_complete_for_slot(
                                   *candidate
                                 , network
                                 , params
                                 , search_cost
-                                , *batch.tasks[task_pos].task
+                                , batch.projection_slots[task_pos]
                                 , assignment_period
                                 , admissibility_config
                                 , complete_connection_dominance
@@ -3047,6 +3238,18 @@ namespace timetable::domain::assignment {
                         return;
                     }
 
+                    auto next_active_targets = filter_target_positions_by_reachability(
+                          active_targets
+                        , batch_target_span
+                        , reachability
+                        , *candidate
+                        , params.transfers
+                    );
+                    if (next_active_targets.empty()) {
+                        ++stats.rejected_reachability;
+                        return;
+                    }
+
                     const auto reachable_tasks = filter_task_positions_by_reachability(
                           active_tasks
                         , batch_task_span
@@ -3062,9 +3265,6 @@ namespace timetable::domain::assignment {
                         , task_stats
                         , stats
                     );
-                    if (reachable_tasks.reachable.empty()) {
-                        return;
-                    }
 
                     std::vector<std::size_t> next_active_tasks;
                     next_active_tasks.reserve(reachable_tasks.reachable.size());
@@ -3073,7 +3273,7 @@ namespace timetable::domain::assignment {
                     for (const auto task_pos : reachable_tasks.reachable) {
                         auto lower_bound_decision = evaluate_suffix_lower_bound_pruning(
                               *candidate
-                            , *batch.tasks[task_pos].task
+                            , batch.projection_slots[task_pos].destination
                             , reachability
                             , retentions[task_pos].complete_connections
                             , params
@@ -3135,6 +3335,7 @@ namespace timetable::domain::assignment {
                     const auto same_level =
                         is_walk_connection(successor) || !branch.metrics.departure.has_value();
                     branches.push_back(std::move(*candidate));
+                    branch_active_targets.push_back(std::move(next_active_targets));
                     branch_active_tasks.push_back(std::move(next_active_tasks));
                     const auto candidate_index = branches.size() - 1;
                     if (same_level) {
@@ -3146,41 +3347,57 @@ namespace timetable::domain::assignment {
                 MATHFP_TRY(std::move(successor_error));
             }
 
+            std::vector<SearchSlotResult> slot_results;
+            slot_results.reserve(batch.projection_slots.size());
             std::size_t batch_final_found = 0;
             std::size_t batch_retained_before_tolerance = 0;
-            for (std::size_t task_pos = 0; task_pos < batch.tasks.size(); ++task_pos) {
-                auto& task_result = result_slots[batch.tasks[task_pos].result_index];
+            for (std::size_t task_pos = 0; task_pos < batch.projection_slots.size(); ++task_pos) {
+                const auto& slot = batch.projection_slots[task_pos];
                 auto& retention   = retentions[task_pos];
                 const auto before_tolerance = retention.complete_connections.alternatives.size();
-                task_result.connections = finalize_complete_connection_retention(
+                auto connections = finalize_complete_connection_retention(
                       retention.complete_connections
                     , params.choice_tolerances
                     , choice_config.rollout_stage
                 );
                 task_stats[task_pos].rejected_complete_tolerance =
-                    before_tolerance - task_result.connections.size();
+                    before_tolerance - connections.size();
                 stats.rejected_complete_admissibility += task_stats[task_pos].rejected_complete_admissibility;
                 stats.rejected_complete_dominance += task_stats[task_pos].rejected_complete_dominance;
                 stats.removed_complete_dominated  += task_stats[task_pos].removed_complete_dominated;
                 stats.rejected_complete_tolerance += task_stats[task_pos].rejected_complete_tolerance;
-                batch_final_found += task_result.connections.size();
+                batch_final_found += connections.size();
                 batch_retained_before_tolerance += before_tolerance;
+                slot_results.push_back(
+                    SearchSlotResult{
+                          .slot = slot
+                        , .connections = std::move(connections)
+                    }
+                );
                 MATHFP_TRY(validate_reachability_rejection_stats(task_stats[task_pos]));
                 MATHFP_TRY(validate_suffix_lower_bound_rejection_stats(task_stats[task_pos]));
 
                 log(
                     fmt::format(
-                          "search batch task done: batch={}/{} task={} origin={} destination={} interval={} found={:>8}"
+                          "search batch projection done: batch={}/{} slot={} kind={} task={} origin={} destination={} interval={} found={:>8}"
                           " retained_complete={:>8} complete_rejected(admissibility/dominance/tolerance)={}/{}/{} complete_removed_dominated={}"
                           " reachability_pruned={} reachability_detail(phase/budget/unreachable)={}/{}/{}"
                           " lower_bound_pruned={} lower_bound_detail(exact/imp/jt/nt)={}/{}/{}/{}"
                         , batch_index + 1
                         , batch_count
-                        , task_result.task.index.get()
-                        , task_result.task.origin.get()
-                        , task_result.task.destination.get()
-                        , task_result.task.interval.id.get()
-                        , task_result.connections.size()
+                        , static_cast<std::int64_t>(task_pos)
+                        , slot.kind == SearchProjectionSlotKind::DemandTask
+                            ? "demand_task"
+                            : "completion_target"
+                        , slot.task_ref.has_value()
+                            ? std::to_string(slot.task_ref->get())
+                            : std::string{"<none>"}
+                        , slot.origin.get()
+                        , slot.destination.get()
+                        , slot.interval.has_value()
+                            ? std::to_string(slot.interval->get())
+                            : std::string{"<none>"}
+                        , slot_results.back().connections.size()
                         , before_tolerance
                         , task_stats[task_pos].rejected_complete_admissibility
                         , task_stats[task_pos].rejected_complete_dominance
@@ -3213,8 +3430,8 @@ namespace timetable::domain::assignment {
                     , batch_index + 1
                     , batch_count
                     , batch.key.origin.get()
-                    , batch.key.interval.get()
-                    , batch.tasks.size()
+                    , format_batch_interval(batch.key.interval)
+                    , batch.projection_slots.size()
                     , batch_final_found
                     , stats.completed_connections
                     , batch_retained_before_tolerance
@@ -3250,7 +3467,7 @@ namespace timetable::domain::assignment {
                 , LogLevel::Info
             );
 
-            return mathfp::kUnit;
+            return slot_results;
         }
 
     }  // namespace
@@ -3312,9 +3529,367 @@ namespace timetable::domain::assignment {
         return tasks;
     }
 
+    std::vector<SearchCompletionTarget> make_search_completion_targets(
+        const std::map<ZoneId, bool>& destinations
+    ) {
+        std::vector<SearchCompletionTarget> targets;
+        targets.reserve(destinations.size());
+        for (const auto& [destination, _] : destinations) {
+            targets.push_back(
+                SearchCompletionTarget{
+                      .index = SearchCompletionTargetRef{
+                          static_cast<std::int64_t>(targets.size())
+                      }
+                    , .destination = destination
+                }
+            );
+        }
+        return targets;
+    }
+
+    mathfp::Expected<std::vector<SearchTreeJob>> build_origin_period_search_tree_jobs(
+          std::span<const SearchTask> tasks
+        , const SearchTimeDomain&     period_domain
+    ) {
+        MATHFP_TRY(validate_search_time_domain(period_domain));
+
+        struct MutableOriginJob final {
+            std::vector<SearchTaskRef> projection_tasks{};
+            std::map<ZoneId, bool>     completion_destinations{};
+        };
+
+        std::map<ZoneId, MutableOriginJob> grouped;
+        for (const auto& task : tasks) {
+            auto& job = grouped[task.origin];
+            job.projection_tasks.push_back(task.index);
+            job.completion_destinations.emplace(task.destination, true);
+        }
+
+        std::vector<SearchTreeJob> jobs;
+        jobs.reserve(grouped.size());
+        for (auto& [origin, job] : grouped) {
+            jobs.push_back(
+                SearchTreeJob{
+                      .index = SearchTreeJobRef{ static_cast<std::int64_t>(jobs.size()) }
+                    , .origin = origin
+                    , .departure_domain = period_domain
+                    , .completion_targets = make_search_completion_targets(
+                          job.completion_destinations
+                      )
+                    , .projection_tasks = std::move(job.projection_tasks)
+                }
+            );
+        }
+
+        return jobs;
+    }
+
+    mathfp::Expected<std::vector<SearchTreeJob>> build_origin_period_search_tree_jobs(
+          std::span<const SearchTask>       tasks
+        , const SearchTimeDomainExecution&  execution
+        , SearchDestinationScope            destination_scope
+        , std::span<const Zone>             declared_zones
+    ) {
+        MATHFP_TRY(validate_search_time_domain_execution(execution));
+        std::map<ZoneId, mathfp::Unit> declared_destination_ids;
+        for (const auto& zone : declared_zones) {
+            const auto [_, inserted] = declared_destination_ids.emplace(
+                  zone.id
+                , mathfp::kUnit
+            );
+            if (!inserted) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("origin-period search contains duplicate declared destination zone")
+                        .ctx("zone", zone.id.get())
+                );
+            }
+        }
+
+        struct MutableOriginJob final {
+            std::vector<SearchTaskRef> projection_tasks{};
+            std::map<ZoneId, bool>     completion_destinations{};
+        };
+
+        std::map<ZoneId, MutableOriginJob> grouped;
+        for (const auto& task : tasks) {
+            auto& job = grouped[task.origin];
+            if (destination_scope == SearchDestinationScope::DeclaredZones
+                && !declared_destination_ids.contains(task.destination)) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("origin-period search task references destination outside declared destination scope")
+                        .ctx("destination", task.destination.get())
+                        .ctx("task", task.index.get())
+                );
+            }
+            job.projection_tasks.push_back(task.index);
+            job.completion_destinations.emplace(task.destination, true);
+        }
+
+        switch (destination_scope) {
+            case SearchDestinationScope::DemandDestinations:
+                break;
+
+            case SearchDestinationScope::DeclaredZones:
+                if (declared_destination_ids.empty()) {
+                    return mathfp::unexpected(
+                        mathfp::invalid_arg("origin-period search with declared destination scope requires declared zones")
+                    );
+                }
+                for (auto& entry : grouped) {
+                    auto& job = entry.second;
+                    for (const auto& [destination, _] : declared_destination_ids) {
+                        job.completion_destinations.emplace(destination, true);
+                    }
+                }
+                break;
+        }
+
+        std::vector<SearchTreeJob> jobs;
+        jobs.reserve(grouped.size());
+        for (auto& [origin, job] : grouped) {
+            const auto* domain = find_origin_search_time_domain(execution, origin);
+            if (domain == nullptr) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("origin-period search has no executable search-time domain for active origin")
+                        .ctx("origin", origin.get())
+                        .ctx("source_mode", std::string(to_string(execution.source_mode)))
+                        .ctx("adaptation", std::string(to_string(execution.adaptation)))
+                );
+            }
+            jobs.push_back(
+                SearchTreeJob{
+                      .index = SearchTreeJobRef{ static_cast<std::int64_t>(jobs.size()) }
+                    , .origin = origin
+                    , .departure_domain = *domain
+                    , .completion_targets = make_search_completion_targets(
+                          job.completion_destinations
+                      )
+                    , .projection_tasks = std::move(job.projection_tasks)
+                }
+            );
+        }
+
+        return jobs;
+    }
+
+    mathfp::Expected<std::vector<SearchTreeJob>> build_origin_period_search_tree_jobs(
+          std::span<const SearchTask>       tasks
+        , const SearchTimeDomainExecution&  execution
+    ) {
+        return build_origin_period_search_tree_jobs(
+              tasks
+            , execution
+            , SearchDestinationScope::DemandDestinations
+            , std::span<const Zone>{}
+        );
+    }
+
+    mathfp::Expected<std::vector<SearchTreeJob>> build_declared_origin_period_search_tree_jobs(
+          std::span<const Zone>             declared_zones
+        , std::span<const SearchTask>       tasks
+        , const SearchTimeDomainExecution&  execution
+        , SearchDestinationScope            destination_scope
+    ) {
+        MATHFP_TRY(validate_search_time_domain_execution(execution));
+
+        struct MutableOriginJob final {
+            std::vector<SearchTaskRef> projection_tasks{};
+            std::map<ZoneId, bool>     completion_destinations{};
+        };
+
+        std::map<ZoneId, MutableOriginJob> grouped;
+        for (const auto& zone : declared_zones) {
+            const auto [_, inserted] = grouped.emplace(zone.id, MutableOriginJob{});
+            if (!inserted) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("declared origin-period search contains duplicate zone")
+                        .ctx("zone", zone.id.get())
+                );
+            }
+        }
+
+        switch (destination_scope) {
+            case SearchDestinationScope::DemandDestinations:
+                break;
+
+            case SearchDestinationScope::DeclaredZones:
+                for (auto& entry : grouped) {
+                    auto& job = entry.second;
+                    for (const auto& zone : declared_zones) {
+                        job.completion_destinations.emplace(zone.id, true);
+                    }
+                }
+                break;
+        }
+
+        for (const auto& task : tasks) {
+            auto it = grouped.find(task.origin);
+            if (it == grouped.end()) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("declared origin-period search task references origin outside declared zones")
+                        .ctx("origin", task.origin.get())
+                        .ctx("task", task.index.get())
+                    );
+            }
+            if (destination_scope == SearchDestinationScope::DeclaredZones
+                && !grouped.contains(task.destination)) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("declared origin-period search task references destination outside declared zones")
+                        .ctx("destination", task.destination.get())
+                        .ctx("task", task.index.get())
+                );
+            }
+            auto& job = it->second;
+            job.projection_tasks.push_back(task.index);
+            job.completion_destinations.emplace(task.destination, true);
+        }
+
+        std::vector<SearchTreeJob> jobs;
+        jobs.reserve(grouped.size());
+        for (auto& [origin, job] : grouped) {
+            const auto* domain = find_origin_search_time_domain(execution, origin);
+            if (domain == nullptr) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("declared origin-period search has no executable search-time domain for origin")
+                        .ctx("origin", origin.get())
+                        .ctx("source_mode", std::string(to_string(execution.source_mode)))
+                        .ctx("adaptation", std::string(to_string(execution.adaptation)))
+                );
+            }
+
+            jobs.push_back(
+                SearchTreeJob{
+                      .index = SearchTreeJobRef{ static_cast<std::int64_t>(jobs.size()) }
+                    , .origin = origin
+                    , .departure_domain = *domain
+                    , .completion_targets = make_search_completion_targets(
+                          job.completion_destinations
+                      )
+                    , .projection_tasks = std::move(job.projection_tasks)
+                }
+            );
+        }
+
+        return jobs;
+    }
+
     namespace {
 
-        std::vector<SearchBatch> build_search_batches(
+        [[nodiscard]] SearchProjectionSlot make_demand_task_projection_slot(
+              const SearchTask& task
+            , std::size_t       result_index
+        ) noexcept {
+            return SearchProjectionSlot{
+                  .kind         = SearchProjectionSlotKind::DemandTask
+                , .origin       = task.origin
+                , .destination  = task.destination
+                , .interval     = task.interval.id
+                , .task_ref     = task.index
+                , .task         = &task
+                , .result_index = result_index
+            };
+        }
+
+        mathfp::Expected<std::vector<SearchProjectionSlot>> build_demand_projection_slots(
+            std::span<const SearchTask> tasks
+        ) {
+            std::vector<SearchProjectionSlot> slots;
+            slots.reserve(tasks.size());
+            std::map<SearchTaskRef, mathfp::Unit> seen;
+            for (std::size_t i = 0; i < tasks.size(); ++i) {
+                const auto [_, inserted] = seen.emplace(tasks[i].index, mathfp::kUnit);
+                if (!inserted) {
+                    return mathfp::unexpected(
+                        mathfp::invalid_arg("duplicate search task ref while building demand projection slots")
+                            .ctx("task", tasks[i].index.get())
+                    );
+                }
+                slots.push_back(make_demand_task_projection_slot(tasks[i], i));
+            }
+            return slots;
+        }
+
+        [[nodiscard]] std::vector<SearchProjectionSlot> build_completion_target_projection_slots(
+            const SearchTreeJob& job
+        ) {
+            std::vector<SearchProjectionSlot> slots;
+            slots.reserve(job.completion_targets.size());
+            for (const auto& target : job.completion_targets) {
+                slots.push_back(
+                    SearchProjectionSlot{
+                          .kind              = SearchProjectionSlotKind::CompletionTarget
+                        , .origin            = job.origin
+                        , .destination       = target.destination
+                        , .interval          = std::nullopt
+                        , .task              = nullptr
+                        , .result_index      = std::nullopt
+                        , .completion_target = target.index
+                    }
+                );
+            }
+            return slots;
+        }
+
+        mathfp::Expected<std::vector<SearchBatch>> build_origin_period_search_batches(
+              std::span<const SearchTask>      tasks
+            , std::span<const SearchTreeJob>   tree_jobs
+            , SearchResultProjection           result_projection
+        ) {
+            std::map<SearchTaskRef, SearchProjectionSlot> slot_by_task;
+            if (result_projection == SearchResultProjection::DemandTasks) {
+                MATHFP_TRY_LET(
+                      std::vector<SearchProjectionSlot>
+                    , demand_slots
+                    , build_demand_projection_slots(tasks)
+                );
+                for (const auto& slot : demand_slots) {
+                    slot_by_task.emplace(*slot.task_ref, slot);
+                }
+            }
+
+            std::vector<SearchBatch> batches;
+            batches.reserve(tree_jobs.size());
+            for (const auto& job : tree_jobs) {
+                SearchBatch batch{
+                      .key = SearchBatchKey{
+                            .origin = job.origin
+                          , .interval = std::nullopt
+                          , .departure_windows = job.departure_domain.windows
+                      }
+                    , .departure_domain = &job.departure_domain
+                    , .completion_targets = {}
+                    , .projection_slots = {}
+                };
+                batch.completion_targets = job.completion_targets;
+                switch (result_projection) {
+                    case SearchResultProjection::DemandTasks:
+                        batch.projection_slots.reserve(job.projection_tasks.size());
+                        for (const auto task_ref : job.projection_tasks) {
+                            const auto it = slot_by_task.find(task_ref);
+                            if (it == slot_by_task.end()) {
+                                return mathfp::unexpected(
+                                    mathfp::internal_error("origin-period search tree job references unknown search task")
+                                        .ctx("job", job.index.get())
+                                        .ctx("origin", job.origin.get())
+                                        .ctx("task", task_ref.get())
+                                );
+                            }
+                            batch.projection_slots.push_back(it->second);
+                        }
+                        break;
+
+                    case SearchResultProjection::CompletionTargets:
+                        batch.projection_slots =
+                            build_completion_target_projection_slots(job);
+                        break;
+                    }
+                batches.push_back(std::move(batch));
+            }
+
+            return batches;
+        }
+
+        std::vector<SearchBatch> build_interval_local_search_batches(
             std::span<const SearchTask> tasks
         ) {
             std::vector<SearchBatch> batches;
@@ -3334,20 +3909,388 @@ namespace timetable::domain::assignment {
                         SearchBatch{
                               .key              = std::move(key)
                             , .departure_domain = &task.departure_domain
-                            , .tasks            = {}
+                            , .completion_targets = {
+                                  SearchCompletionTarget{
+                                        .index = SearchCompletionTargetRef{ 0 }
+                                      , .destination = task.destination
+                                  }
+                              }
+                            , .projection_slots = {}
                         }
                     );
+                } else {
+                    auto& targets = batches[it->second].completion_targets;
+                    const auto exists = std::any_of(
+                          targets.begin()
+                        , targets.end()
+                        , [&](const SearchCompletionTarget& target) {
+                            return target.destination == task.destination;
+                        }
+                    );
+                    if (!exists) {
+                        targets.push_back(
+                            SearchCompletionTarget{
+                                  .index = SearchCompletionTargetRef{
+                                      static_cast<std::int64_t>(targets.size())
+                                  }
+                                , .destination = task.destination
+                            }
+                        );
+                    }
                 }
 
-                batches[it->second].tasks.push_back(
-                    BatchTaskRef{
-                          .task         = &task
-                        , .result_index = i
-                    }
+                batches[it->second].projection_slots.push_back(
+                    make_demand_task_projection_slot(task, i)
                 );
             }
 
             return batches;
+        }
+
+        [[nodiscard]] std::size_t active_demand_origin_count(
+            std::span<const SearchTask> tasks
+        ) {
+            std::map<ZoneId, mathfp::Unit> origins;
+            for (const auto& task : tasks) {
+                origins.emplace(task.origin, mathfp::kUnit);
+            }
+            return origins.size();
+        }
+
+        [[nodiscard]] std::size_t search_origin_count(
+            std::span<const SearchBatch> batches
+        ) {
+            std::map<ZoneId, mathfp::Unit> origins;
+            for (const auto& batch : batches) {
+                origins.emplace(batch.key.origin, mathfp::kUnit);
+            }
+            return origins.size();
+        }
+
+        [[nodiscard]] std::size_t expected_search_tree_count(
+              SearchOriginScope          origin_scope
+            , std::size_t                declared_zone_count
+            , std::span<const SearchTask> tasks
+        ) {
+            switch (origin_scope) {
+                case SearchOriginScope::ActiveDemandOrigins:
+                    return active_demand_origin_count(tasks);
+
+                case SearchOriginScope::DeclaredZones:
+                    return declared_zone_count;
+            }
+            return declared_zone_count;
+        }
+
+        [[nodiscard]] std::int64_t signed_count_delta(
+              std::size_t actual
+            , std::size_t expected
+        ) noexcept {
+            return static_cast<std::int64_t>(actual)
+                 - static_cast<std::int64_t>(expected);
+        }
+
+        mathfp::Expected<mathfp::Unit> validate_search_execution_projection_contract(
+            const SearchExecutionConfig& config
+        ) {
+            if (config.mode == SearchExecutionMode::IntervalLocal
+                && config.result_projection != SearchResultProjection::DemandTasks) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("interval-local search supports only demand-task projection")
+                        .ctx("result_projection", std::string(to_string(config.result_projection)))
+                );
+            }
+            if (config.result_projection == SearchResultProjection::CompletionTargets
+                && config.mode != SearchExecutionMode::OriginPeriod) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("completion-target projection requires origin-period search")
+                        .ctx("execution_mode", std::string(to_string(config.mode)))
+                );
+            }
+            return mathfp::kUnit;
+        }
+
+        mathfp::Expected<SearchTimeDomainSummary> summarize_batch_search_domains(
+            std::span<const SearchBatch> batches
+        ) {
+            std::vector<SearchTimeWindow> windows;
+            for (const auto& batch : batches) {
+                if (batch.departure_domain == nullptr) {
+                    continue;
+                }
+                windows.insert(
+                      windows.end()
+                    , batch.departure_domain->windows.begin()
+                    , batch.departure_domain->windows.end()
+                );
+            }
+            if (windows.empty()) {
+                return SearchTimeDomainSummary{};
+            }
+            MATHFP_TRY_LET(
+                  SearchTimeDomain
+                , domain
+                , make_search_time_domain(std::move(windows))
+            );
+            return summarize(domain);
+        }
+
+        struct SearchBatchExecutionDiagnostics final {
+            std::size_t completion_target_count{};
+            std::size_t projection_task_count{};
+            std::size_t zero_completion_target_tree_count{};
+            std::size_t zero_projection_task_tree_count{};
+            std::size_t max_completion_targets_per_tree{};
+            std::size_t max_projection_tasks_per_tree{};
+        };
+
+        [[nodiscard]] SearchBatchExecutionDiagnostics summarize_search_batches(
+            std::span<const SearchBatch> batches
+        ) noexcept {
+            SearchBatchExecutionDiagnostics summary{};
+            for (const auto& batch : batches) {
+                summary.completion_target_count += batch.completion_targets.size();
+                summary.projection_task_count   += batch.projection_slots.size();
+                if (batch.completion_targets.empty()) {
+                    ++summary.zero_completion_target_tree_count;
+                }
+                if (batch.projection_slots.empty()) {
+                    ++summary.zero_projection_task_tree_count;
+                }
+                summary.max_completion_targets_per_tree = std::max(
+                      summary.max_completion_targets_per_tree
+                    , batch.completion_targets.size()
+                );
+                summary.max_projection_tasks_per_tree = std::max(
+                      summary.max_projection_tasks_per_tree
+                    , batch.projection_slots.size()
+                );
+            }
+            return summary;
+        }
+
+        mathfp::Expected<mathfp::Unit> validate_search_batch_projection_contract(
+              std::span<const SearchBatch> batches
+            , SearchExecutionMode          execution_mode
+            , SearchResultProjection       result_projection
+            , std::span<const SearchTask>  tasks
+        ) {
+            for (std::size_t batch_pos = 0; batch_pos < batches.size(); ++batch_pos) {
+                const auto& batch = batches[batch_pos];
+                if (batch.departure_domain == nullptr) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("search batch has no departure domain")
+                            .ctx("batch", static_cast<std::int64_t>(batch_pos))
+                            .ctx("origin", batch.key.origin.get())
+                    );
+                }
+
+                switch (execution_mode) {
+                    case SearchExecutionMode::IntervalLocal:
+                        if (!batch.key.interval.has_value()) {
+                            return mathfp::unexpected(
+                                mathfp::internal_error("interval-local search batch has no interval key")
+                                    .ctx("batch", static_cast<std::int64_t>(batch_pos))
+                                    .ctx("origin", batch.key.origin.get())
+                            );
+                        }
+                        break;
+
+                    case SearchExecutionMode::OriginPeriod:
+                        if (batch.key.interval.has_value()) {
+                            return mathfp::unexpected(
+                                mathfp::internal_error("origin-period search batch unexpectedly has interval key")
+                                    .ctx("batch", static_cast<std::int64_t>(batch_pos))
+                                    .ctx("origin", batch.key.origin.get())
+                                    .ctx("interval", batch.key.interval->get())
+                            );
+                        }
+                        break;
+                }
+
+                std::map<ZoneId, mathfp::Unit> target_destinations;
+                for (std::size_t target_pos = 0; target_pos < batch.completion_targets.size(); ++target_pos) {
+                    const auto& target = batch.completion_targets[target_pos];
+                    if (target.index.get() != static_cast<std::int64_t>(target_pos)) {
+                        return mathfp::unexpected(
+                            mathfp::internal_error("search completion target index does not match its position")
+                                .ctx("batch", static_cast<std::int64_t>(batch_pos))
+                                .ctx("target_position", static_cast<std::int64_t>(target_pos))
+                                .ctx("target_index", target.index.get())
+                        );
+                    }
+                    const auto [_, inserted] = target_destinations.emplace(
+                          target.destination
+                        , mathfp::kUnit
+                    );
+                    if (!inserted) {
+                        return mathfp::unexpected(
+                            mathfp::internal_error("search batch contains duplicate completion target destination")
+                                .ctx("batch", static_cast<std::int64_t>(batch_pos))
+                                .ctx("origin", batch.key.origin.get())
+                                .ctx("destination", target.destination.get())
+                        );
+                    }
+                }
+
+                for (std::size_t task_pos = 0; task_pos < batch.projection_slots.size(); ++task_pos) {
+                    const auto& slot = batch.projection_slots[task_pos];
+                    if (slot.origin != batch.key.origin) {
+                        return mathfp::unexpected(
+                            mathfp::internal_error("search projection slot origin does not match tree origin")
+                                .ctx("batch", static_cast<std::int64_t>(batch_pos))
+                                .ctx("tree_origin", batch.key.origin.get())
+                                .ctx("slot_origin", slot.origin.get())
+                        );
+                    }
+                    if (!target_destinations.contains(slot.destination)) {
+                        return mathfp::unexpected(
+                            mathfp::internal_error("search projection slot has no matching completion target")
+                                .ctx("batch", static_cast<std::int64_t>(batch_pos))
+                                .ctx("origin", slot.origin.get())
+                                .ctx("destination", slot.destination.get())
+                        );
+                    }
+
+                    switch (result_projection) {
+                        case SearchResultProjection::DemandTasks: {
+                            if (slot.kind != SearchProjectionSlotKind::DemandTask
+                                || slot.task == nullptr
+                                || !slot.result_index.has_value()
+                                || !slot.task_ref.has_value()) {
+                                return mathfp::unexpected(
+                                    mathfp::internal_error("demand projection slot has invalid task payload")
+                                        .ctx("batch", static_cast<std::int64_t>(batch_pos))
+                                        .ctx("slot_position", static_cast<std::int64_t>(task_pos))
+                                );
+                            }
+                            if (*slot.result_index >= tasks.size()) {
+                                return mathfp::unexpected(
+                                    mathfp::internal_error("demand projection slot result index is out of range")
+                                        .ctx("batch", static_cast<std::int64_t>(batch_pos))
+                                        .ctx("slot_position", static_cast<std::int64_t>(task_pos))
+                                        .ctx("result_index", static_cast<std::int64_t>(*slot.result_index))
+                                        .ctx("task_count", static_cast<std::int64_t>(tasks.size()))
+                                );
+                            }
+                            const auto& task = *slot.task;
+                            if (*slot.task_ref != task.index) {
+                                return mathfp::unexpected(
+                                    mathfp::internal_error("search projection slot task ref disagrees with task payload")
+                                        .ctx("batch", static_cast<std::int64_t>(batch_pos))
+                                        .ctx("task_position", static_cast<std::int64_t>(task_pos))
+                                        .ctx("slot_task", slot.task_ref->get())
+                                        .ctx("task", task.index.get())
+                                );
+                            }
+                            if (slot.origin != task.origin || slot.destination != task.destination) {
+                                return mathfp::unexpected(
+                                    mathfp::internal_error("search projection slot OD disagrees with task payload")
+                                        .ctx("batch", static_cast<std::int64_t>(batch_pos))
+                                        .ctx("task", task.index.get())
+                                );
+                            }
+                            if (execution_mode == SearchExecutionMode::IntervalLocal
+                                && task.interval.id != *batch.key.interval) {
+                                return mathfp::unexpected(
+                                    mathfp::internal_error("interval-local projection task interval does not match batch interval")
+                                        .ctx("batch", static_cast<std::int64_t>(batch_pos))
+                                        .ctx("task", task.index.get())
+                                        .ctx("batch_interval", batch.key.interval->get())
+                                        .ctx("task_interval", task.interval.id.get())
+                                );
+                            }
+                            break;
+                        }
+
+                        case SearchResultProjection::CompletionTargets:
+                            if (slot.kind != SearchProjectionSlotKind::CompletionTarget
+                                || !slot.completion_target.has_value()
+                                || slot.task != nullptr
+                                || slot.task_ref.has_value()
+                                || slot.result_index.has_value()) {
+                                return mathfp::unexpected(
+                                    mathfp::internal_error("completion-target projection slot has invalid payload")
+                                        .ctx("batch", static_cast<std::int64_t>(batch_pos))
+                                        .ctx("slot_position", static_cast<std::int64_t>(task_pos))
+                                );
+                            }
+                            break;
+                    }
+                }
+            }
+
+            return mathfp::kUnit;
+        }
+
+        [[nodiscard]] std::size_t search_slot_connection_count(
+            std::span<const SearchSlotResult> results
+        ) noexcept {
+            std::size_t total = 0;
+            for (const auto& result : results) {
+                total += result.connections.size();
+            }
+            return total;
+        }
+
+        [[nodiscard]] ConnectionSearchResult materialize_demand_task_search_result(
+              std::span<const SearchTask>       tasks
+            , std::vector<SearchSlotResult>     slot_results
+        ) {
+            ConnectionSearchResult result;
+            result.task_results.reserve(tasks.size());
+            for (const auto& task : tasks) {
+                result.task_results.push_back(
+                    SearchTaskResult{
+                          .task        = task
+                        , .connections = {}
+                    }
+                );
+            }
+
+            for (auto& slot_result : slot_results) {
+                if (slot_result.slot.kind != SearchProjectionSlotKind::DemandTask
+                    || !slot_result.slot.result_index.has_value()) {
+                    continue;
+                }
+                result.task_results[*slot_result.slot.result_index].connections =
+                    std::move(slot_result.connections);
+            }
+            return result;
+        }
+
+        [[nodiscard]] AllZoneConnectionSearchResult materialize_all_zone_search_result(
+            std::vector<SearchSlotResult> slot_results
+        ) {
+            std::map<ZoneId, std::map<ZoneId, std::vector<SearchConnection>>> grouped;
+            for (auto& slot_result : slot_results) {
+                if (slot_result.slot.kind != SearchProjectionSlotKind::CompletionTarget) {
+                    continue;
+                }
+                grouped[slot_result.slot.origin][slot_result.slot.destination] =
+                    std::move(slot_result.connections);
+            }
+
+            AllZoneConnectionSearchResult result;
+            result.tree_results.reserve(grouped.size());
+            for (auto& [origin, targets] : grouped) {
+                AllZoneTreeResult tree{
+                      .origin = origin
+                    , .target_results = {}
+                };
+                tree.target_results.reserve(targets.size());
+                for (auto& [destination, connections] : targets) {
+                    tree.target_results.push_back(
+                        AllZoneTargetResult{
+                              .origin      = origin
+                            , .destination = destination
+                            , .connections = std::move(connections)
+                        }
+                    );
+                }
+                result.tree_results.push_back(std::move(tree));
+            }
+            return result;
         }
 
     }  // namespace
@@ -3372,6 +4315,18 @@ namespace timetable::domain::assignment {
         std::size_t total = 0;
         for (const auto& task_result : result.task_results) {
             total += task_result.connections.size();
+        }
+        return total;
+    }
+
+    std::size_t search_connection_count(
+        const AllZoneConnectionSearchResult& result
+    ) noexcept {
+        std::size_t total = 0;
+        for (const auto& tree_result : result.tree_results) {
+            for (const auto& target_result : tree_result.target_results) {
+                total += target_result.connections.size();
+            }
         }
         return total;
     }
@@ -3469,6 +4424,7 @@ namespace timetable::domain::assignment {
     mathfp::Expected<ConnectionSearchResult> search_connections_branch_and_bound(
           const PreprocessedNetwork& network
         , std::span<const SearchTask> tasks
+        , SearchExecutionRequest     execution
         , const SearchParams&        params
         , const SearchCostContext&   search_cost
         , const ChoiceConfig&         choice_config
@@ -3483,6 +4439,14 @@ namespace timetable::domain::assignment {
         using timetable::infra::progress::log;
         using timetable::infra::progress::status;
 
+        const auto execution_mode = execution.config.mode;
+        MATHFP_TRY(validate_search_execution_projection_contract(execution.config));
+        if (execution.config.result_projection != SearchResultProjection::DemandTasks) {
+            return mathfp::unexpected(
+                mathfp::invalid_arg("ConnectionSearchResult search currently supports only DemandTasks result projection")
+                    .ctx("result_projection", std::string(to_string(execution.config.result_projection)))
+            );
+        }
         MATHFP_TRY(validate_assignment_period_config(assignment_period));
         MATHFP_TRY(validate_connection_admissibility_config(admissibility_config));
         MATHFP_TRY(validate_complete_connection_dominance_config(
@@ -3494,10 +4458,11 @@ namespace timetable::domain::assignment {
         log(
             fmt::format(
                 "search input: route_segments = {:>8}  connection_segments = {:>8}"
-                "  tasks = {:>8}  max_transfers = {}"
+                "  tasks = {:>8}  execution_mode = {}  max_transfers = {}"
                 , network.route_segments     .size()
                 , network.connection_segments.size()
                 , tasks.size()
+                , to_string(execution_mode)
                 , params.transfers.max_transfers.get()
             )
             , LogLevel::Info
@@ -3515,17 +4480,6 @@ namespace timetable::domain::assignment {
             )
             , LogLevel::Info
         );
-
-        ConnectionSearchResult result;
-        result.task_results.reserve(tasks.size());
-        for (const auto& task : tasks) {
-            result.task_results.push_back(
-                SearchTaskResult{
-                      .task        = task
-                    , .connections = {}
-                }
-            );
-        }
 
         MATHFP_TRY_LET(
               SearchPruningExecutionPlan
@@ -3546,9 +4500,10 @@ namespace timetable::domain::assignment {
 
         log(
             fmt::format(
-                "search setup: tasks = {:>8}  fare_scale = {:.6f}  time_domain = task"
+                "search setup: tasks = {:>8}  fare_scale = {:.6f}  execution_mode = {}"
                 , tasks.size()
                 , search_cost.fare_scale
+                , to_string(execution_mode)
             )
             , LogLevel::Info
         );
@@ -3556,37 +4511,146 @@ namespace timetable::domain::assignment {
             format_search_pruning_execution_summary(summarize(effective_pruning_execution))
             , LogLevel::Info
         );
+        log(
+              "search projection contract: partial pruning and complete-connection dominance are retained per projection slot"
+            , LogLevel::Info
+        );
 
         if (tasks.empty()) {
             status("search: no positive-demand search tasks available");
         }
 
-        const auto batches = build_search_batches(tasks);
+        std::vector<SearchTreeJob> origin_period_tree_jobs;
+        std::vector<SearchBatch>   batches;
+        if (execution_mode == SearchExecutionMode::OriginPeriod) {
+            if (search_cost.mode != SearchCostMode::BaseOnly) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("origin-period search currently supports only base search cost")
+                        .ctx("search_cost_mode", std::string(to_string(search_cost.mode)))
+                );
+            }
+            if (execution.time_domain_execution == nullptr) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("origin-period search requires SearchTimeDomainExecution")
+                );
+            }
+            mathfp::Expected<std::vector<SearchTreeJob>> tree_jobs_result =
+                execution.config.origin_scope == SearchOriginScope::DeclaredZones
+                    ? build_declared_origin_period_search_tree_jobs(
+                          execution.declared_zones
+                        , tasks
+                        , *execution.time_domain_execution
+                        , execution.config.destination_scope
+                      )
+                    : build_origin_period_search_tree_jobs(
+                          tasks
+                        , *execution.time_domain_execution
+                        , execution.config.destination_scope
+                        , execution.declared_zones
+                      );
+            if (!tree_jobs_result) {
+                return mathfp::unexpected(std::move(tree_jobs_result.error()));
+            }
+            auto tree_jobs = std::move(*tree_jobs_result);
+            origin_period_tree_jobs = std::move(tree_jobs);
+            MATHFP_TRY_LET(
+                  std::vector<SearchBatch>
+                , origin_batches
+                , build_origin_period_search_batches(
+                      tasks
+                    , origin_period_tree_jobs
+                    , execution.config.result_projection
+                )
+            );
+            batches = std::move(origin_batches);
+            log(
+                fmt::format(
+                    "search tree jobs: mode={} jobs = {:>8}  tasks = {:>8}"
+                    , to_string(execution_mode)
+                    , origin_period_tree_jobs.size()
+                    , tasks.size()
+                )
+                , LogLevel::Info
+            );
+        } else {
+            batches = build_interval_local_search_batches(tasks);
+        }
+        MATHFP_TRY(validate_search_batch_projection_contract(
+              batches
+            , execution_mode
+            , execution.config.result_projection
+            , tasks
+        ));
+
         const auto residual_reverse_graph = build_residual_reverse_graph(
               network.route_segments
             , network.connection_segments
         );
+        const auto batch_execution_diagnostics = summarize_search_batches(batches);
+        const auto expected_tree_count = expected_search_tree_count(
+              execution.config.origin_scope
+            , diagnostics.declared_zone_count
+            , tasks
+        );
+        MATHFP_TRY_LET(
+              SearchTimeDomainSummary
+            , search_domain_summary
+            , summarize_batch_search_domains(batches)
+        );
         log(
             fmt::format(
-                "search batching: batches = {:>8}  tasks = {:>8}"
+                "search batching: mode={} batches = {:>8}  tasks = {:>8}"
+                , to_string(execution_mode)
                 , batches.size()
                 , tasks.size()
             )
             , LogLevel::Info
         );
+        log(
+            fmt::format(
+                  "search diagnostics: search_execution_mode={} origin_scope={} time_domain_source={} destination_scope={} result_projection={}"
+                  " tree_count={} expected_tree_count={} tree_count_delta={} search_origin_count={} declared_zone_count={} declared_zone_request_count={}"
+                  " active_demand_origin_count={} completion_target_count={} projection_slot_count={}"
+                  " zero_completion_target_tree_count={} zero_projection_task_tree_count={}"
+                  " max_completion_targets_per_tree={} max_projection_tasks_per_tree={}"
+                  " search_domain_summary=\"{}\""
+                , to_string(execution_mode)
+                , to_string(execution.config.origin_scope)
+                , to_string(execution.config.time_domain_source)
+                , to_string(execution.config.destination_scope)
+                , to_string(execution.config.result_projection)
+                , batches.size()
+                , expected_tree_count
+                , signed_count_delta(batches.size(), expected_tree_count)
+                , search_origin_count(batches)
+                , diagnostics.declared_zone_count
+                , execution.declared_zones.size()
+                , active_demand_origin_count(tasks)
+                , batch_execution_diagnostics.completion_target_count
+                , batch_execution_diagnostics.projection_task_count
+                , batch_execution_diagnostics.zero_completion_target_tree_count
+                , batch_execution_diagnostics.zero_projection_task_tree_count
+                , batch_execution_diagnostics.max_completion_targets_per_tree
+                , batch_execution_diagnostics.max_projection_tasks_per_tree
+                , format_search_time_domain_summary(search_domain_summary)
+            )
+            , LogLevel::Info
+        );
 
+        std::vector<SearchSlotResult> slot_results;
         for (std::size_t i = 0; i < batches.size(); ++i) {
             const auto& batch = batches[i];
-            const auto total_found = search_connection_count(result);
+            const auto total_found = search_slot_connection_count(slot_results);
             if (i == 0 || (i % kTaskProgressStep) == 0 || (i + 1) == batches.size()) {
                 status(
                     fmt::format(
-                          "search: batch {}/{} origin={} interval={} tasks={} capacity_iteration={} total_found={}"
+                          "search: batch {}/{} origin={} interval={} tasks={} targets={} capacity_iteration={} total_found={}"
                         , i + 1
                         , batches.size()
                         , batch.key.origin.get()
-                        , batch.key.interval.get()
-                        , batch.tasks.size()
+                        , format_batch_interval(batch.key.interval)
+                        , batch.projection_slots.size()
+                        , batch.completion_targets.size()
                         , diagnostics.capacity_iteration
                         , total_found
                     )
@@ -3594,19 +4658,22 @@ namespace timetable::domain::assignment {
             }
             log(
                 fmt::format(
-                      "search batch start: {}/{} origin={} interval={} tasks={} capacity_iteration={} cumulative_found={}"
+                      "search batch start: {}/{} origin={} interval={} tasks={} targets={} capacity_iteration={} cumulative_found={}"
                     , i + 1
                     , batches.size()
                     , batch.key.origin.get()
-                    , batch.key.interval.get()
-                    , batch.tasks.size()
+                    , format_batch_interval(batch.key.interval)
+                    , batch.projection_slots.size()
+                    , batch.completion_targets.size()
                     , diagnostics.capacity_iteration
                     , total_found
                 )
                 , LogLevel::Info
             );
-            MATHFP_TRY(
-                search_batch_connections(
+            MATHFP_TRY_LET(
+                  std::vector<SearchSlotResult>
+                , batch_slot_results
+                , search_batch_connections(
                       batch
                     , network
                     , residual_reverse_graph
@@ -3620,11 +4687,19 @@ namespace timetable::domain::assignment {
                     , diagnostics
                     , i
                     , batches.size()
-                    , result.task_results
                 )
+            );
+            slot_results.insert(
+                  slot_results.end()
+                , std::make_move_iterator(batch_slot_results.begin())
+                , std::make_move_iterator(batch_slot_results.end())
             );
         }
 
+        auto result = materialize_demand_task_search_result(
+              tasks
+            , std::move(slot_results)
+        );
         log(
             fmt::format(
                   "search result: tasks = {:>8}  connections = {:>8}"
@@ -3635,6 +4710,220 @@ namespace timetable::domain::assignment {
         );
         both("search: branch-and-bound done");
         return result;
+    }
+
+    mathfp::Expected<AllZoneConnectionSearchResult> search_all_zone_connections_branch_and_bound(
+          const PreprocessedNetwork& network
+        , std::span<const SearchTask> tasks
+        , SearchExecutionRequest     execution
+        , const SearchParams&        params
+        , const SearchCostContext&   search_cost
+        , const ChoiceConfig&         choice_config
+        , const AssignmentPeriodConfig& assignment_period
+        , const ConnectionAdmissibilityConfig& admissibility_config
+        , const SearchPruningExecutionPlan* pruning_execution
+        , const CompleteConnectionDominanceConfig& complete_connection_dominance
+        , SearchDiagnosticsContext diagnostics
+    ) {
+        using timetable::infra::LogLevel;
+        using timetable::infra::progress::both;
+        using timetable::infra::progress::log;
+        using timetable::infra::progress::status;
+
+        MATHFP_TRY(validate_search_execution_projection_contract(execution.config));
+        if (execution.config.result_projection != SearchResultProjection::CompletionTargets) {
+            return mathfp::unexpected(
+                mathfp::invalid_arg("AllZoneConnectionSearchResult search requires CompletionTargets result projection")
+                    .ctx("result_projection", std::string(to_string(execution.config.result_projection)))
+            );
+        }
+        if (execution.config.mode != SearchExecutionMode::OriginPeriod) {
+            return mathfp::unexpected(
+                mathfp::invalid_arg("all-zone search requires origin-period execution")
+                    .ctx("execution_mode", std::string(to_string(execution.config.mode)))
+            );
+        }
+        if (search_cost.mode != SearchCostMode::BaseOnly) {
+            return mathfp::unexpected(
+                mathfp::invalid_arg("all-zone completion-target search currently supports only base search cost")
+                    .ctx("search_cost_mode", std::string(to_string(search_cost.mode)))
+            );
+        }
+        if (execution.time_domain_execution == nullptr) {
+            return mathfp::unexpected(
+                mathfp::invalid_arg("all-zone origin-period search requires SearchTimeDomainExecution")
+            );
+        }
+
+        MATHFP_TRY(validate_assignment_period_config(assignment_period));
+        MATHFP_TRY(validate_connection_admissibility_config(admissibility_config));
+        MATHFP_TRY(validate_complete_connection_dominance_config(
+            complete_connection_dominance
+        ));
+        MATHFP_TRY(validate_search_cost_context(search_cost));
+
+        both("search: all-zone branch-and-bound");
+        log(
+              "all-zone projection contract: partial pruning and complete-connection dominance are retained per completion-target slot"
+            , LogLevel::Info
+        );
+        MATHFP_TRY_LET(
+              SearchPruningExecutionPlan
+            , default_pruning_execution
+            , plan_search_pruning_execution(
+                  SearchPruningModelConfig{
+                      .requested_state_space =
+                          SearchPruningStateSpace::CurrentPhysicalOccurrenceAndTransferContext
+                  }
+                , SearchPruningRolloutStage::Disabled
+                , params.search_tolerances
+            )
+        );
+        const auto& effective_pruning_execution =
+            pruning_execution != nullptr
+                ? *pruning_execution
+                : default_pruning_execution;
+
+        mathfp::Expected<std::vector<SearchTreeJob>> tree_jobs_result =
+            execution.config.origin_scope == SearchOriginScope::DeclaredZones
+                ? build_declared_origin_period_search_tree_jobs(
+                      execution.declared_zones
+                    , tasks
+                    , *execution.time_domain_execution
+                    , execution.config.destination_scope
+                  )
+                : build_origin_period_search_tree_jobs(
+                      tasks
+                    , *execution.time_domain_execution
+                    , execution.config.destination_scope
+                    , execution.declared_zones
+                  );
+        if (!tree_jobs_result) {
+            return mathfp::unexpected(std::move(tree_jobs_result.error()));
+        }
+        auto tree_jobs = std::move(*tree_jobs_result);
+        MATHFP_TRY_LET(
+              std::vector<SearchBatch>
+            , batches
+            , build_origin_period_search_batches(
+                  tasks
+                , tree_jobs
+                , execution.config.result_projection
+            )
+        );
+        MATHFP_TRY(validate_search_batch_projection_contract(
+              batches
+            , execution.config.mode
+            , execution.config.result_projection
+            , tasks
+        ));
+
+        const auto residual_reverse_graph = build_residual_reverse_graph(
+              network.route_segments
+            , network.connection_segments
+        );
+        const auto batch_execution_diagnostics = summarize_search_batches(batches);
+        const auto expected_tree_count = expected_search_tree_count(
+              execution.config.origin_scope
+            , diagnostics.declared_zone_count
+            , tasks
+        );
+        log(
+            fmt::format(
+                  "all-zone search comparison diagnostics: trees={} expected_trees={} tree_count_delta={} batches={} targets={} projection_slots={}"
+                , tree_jobs.size()
+                , expected_tree_count
+                , signed_count_delta(tree_jobs.size(), expected_tree_count)
+                , batches.size()
+                , batch_execution_diagnostics.completion_target_count
+                , batch_execution_diagnostics.projection_task_count
+            )
+            , LogLevel::Info
+        );
+
+        std::vector<SearchSlotResult> slot_results;
+        for (std::size_t i = 0; i < batches.size(); ++i) {
+            const auto& batch = batches[i];
+            if (i == 0 || (i % kTaskProgressStep) == 0 || (i + 1) == batches.size()) {
+                status(
+                    fmt::format(
+                          "all-zone search: batch {}/{} origin={} targets={} projection_slots={} total_found={}"
+                        , i + 1
+                        , batches.size()
+                        , batch.key.origin.get()
+                        , batch.completion_targets.size()
+                        , batch.projection_slots.size()
+                        , search_slot_connection_count(slot_results)
+                    )
+                );
+            }
+            MATHFP_TRY_LET(
+                  std::vector<SearchSlotResult>
+                , batch_slot_results
+                , search_batch_connections(
+                      batch
+                    , network
+                    , residual_reverse_graph
+                    , params
+                    , search_cost
+                    , choice_config
+                    , assignment_period
+                    , admissibility_config
+                    , effective_pruning_execution
+                    , complete_connection_dominance
+                    , diagnostics
+                    , i
+                    , batches.size()
+                )
+            );
+            slot_results.insert(
+                  slot_results.end()
+                , std::make_move_iterator(batch_slot_results.begin())
+                , std::make_move_iterator(batch_slot_results.end())
+            );
+        }
+
+        auto result = materialize_all_zone_search_result(std::move(slot_results));
+        log(
+            fmt::format(
+                  "all-zone search result: trees = {:>8}  expected_trees = {:>8}  connections = {:>8}"
+                , result.tree_results.size()
+                , expected_tree_count
+                , search_connection_count(result)
+            )
+            , LogLevel::Info
+        );
+        both("search: all-zone branch-and-bound done");
+        return result;
+    }
+
+    mathfp::Expected<ConnectionSearchResult> search_connections_branch_and_bound(
+          const PreprocessedNetwork& network
+        , std::span<const SearchTask> tasks
+        , const SearchParams&        params
+        , const SearchCostContext&   search_cost
+        , const ChoiceConfig&         choice_config
+        , const AssignmentPeriodConfig& assignment_period
+        , const ConnectionAdmissibilityConfig& admissibility_config
+        , const SearchPruningExecutionPlan* pruning_execution
+        , const CompleteConnectionDominanceConfig& complete_connection_dominance
+        , SearchDiagnosticsContext diagnostics
+    ) {
+        return search_connections_branch_and_bound(
+              network
+            , tasks
+            , SearchExecutionRequest{
+                  .config = make_interval_local_search_execution_config()
+              }
+            , params
+            , search_cost
+            , choice_config
+            , assignment_period
+            , admissibility_config
+            , pruning_execution
+            , complete_connection_dominance
+            , diagnostics
+        );
     }
 
     mathfp::Expected<ConnectionSearchResult> search_connections_branch_and_bound(
@@ -3651,6 +4940,65 @@ namespace timetable::domain::assignment {
         return search_connections_branch_and_bound(
               network
             , tasks
+            , params
+            , search_cost
+            , choice_config
+            , assignment_period
+            , admissibility_config
+            , pruning_execution
+            , CompleteConnectionDominanceConfig{}
+            , diagnostics
+        );
+    }
+
+    mathfp::Expected<ConnectionSearchResult> search_connections_branch_and_bound(
+          const PreprocessedNetwork& network
+        , std::span<const SearchTask> tasks
+        , SearchExecutionMode        execution_mode
+        , const SearchParams&        params
+        , const SearchCostContext&   search_cost
+        , const ChoiceConfig&         choice_config
+        , const AssignmentPeriodConfig& assignment_period
+        , const ConnectionAdmissibilityConfig& admissibility_config
+        , const SearchPruningExecutionPlan* pruning_execution
+        , const CompleteConnectionDominanceConfig& complete_connection_dominance
+        , SearchDiagnosticsContext diagnostics
+    ) {
+        return search_connections_branch_and_bound(
+              network
+            , tasks
+            , SearchExecutionRequest{
+                  .config = make_search_execution_config(execution_mode)
+              }
+            , params
+            , search_cost
+            , choice_config
+            , assignment_period
+            , admissibility_config
+            , pruning_execution
+            , complete_connection_dominance
+            , diagnostics
+        );
+    }
+
+    mathfp::Expected<ConnectionSearchResult> search_connections_branch_and_bound(
+          const PreprocessedNetwork& network
+        , std::span<const SearchTask> tasks
+        , SearchExecutionMode        execution_mode
+        , const SearchParams&        params
+        , const SearchCostContext&   search_cost
+        , const ChoiceConfig&         choice_config
+        , const AssignmentPeriodConfig& assignment_period
+        , const ConnectionAdmissibilityConfig& admissibility_config
+        , const SearchPruningExecutionPlan* pruning_execution
+        , SearchDiagnosticsContext diagnostics
+    ) {
+        return search_connections_branch_and_bound(
+              network
+            , tasks
+            , SearchExecutionRequest{
+                  .config = make_search_execution_config(execution_mode)
+              }
             , params
             , search_cost
             , choice_config

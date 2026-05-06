@@ -123,6 +123,8 @@ namespace timetable::infra {
             switch (mode) {
                 case timetable::domain::AssignmentOutputMode::Calculated:
                     return "calculated";
+                case timetable::domain::AssignmentOutputMode::AllZoneSearch:
+                    return "all_zone_search";
                 case timetable::domain::AssignmentOutputMode::AssignmentDisabled:
                     return "assignment_disabled";
             }

@@ -220,6 +220,23 @@ namespace timetable::domain::assignment::detail {
             };
         }
 
+        AssignmentOutput::Summary build_all_zone_search_output_summary(
+            const AllZoneConnectionSearchResult& search_result
+        ) {
+            std::size_t target_count = 0;
+            for (const auto& tree : search_result.tree_results) {
+                target_count += tree.target_results.size();
+            }
+            return AssignmentOutput::Summary{
+                  .od_count                 = target_count
+                , .search_connection_count = search_connection_count(search_result)
+                , .chosen_connection_count = 0
+                , .demand_share_count      = 0
+                , .total_demand_passengers = 0.0
+                , .assigned_passengers     = 0.0
+            };
+        }
+
         mathfp::Expected<VehicleJourneyItemOverloadAssessment> build_vehicle_journey_item_overload_assessment_output(
               const DemandSplitResult&               split_result
             , const std::vector<TimeInterval>&        intervals
@@ -559,6 +576,58 @@ namespace timetable::domain::assignment::detail {
         }
 
         output.summary.od_count = output.od_results.size();
+        MATHFP_TRY(validate_output_summary_semantics(output));
+        return output;
+    }
+
+    mathfp::Expected<AssignmentOutput> build_all_zone_search_output_impl(
+          const InputModel&
+        , const AllZoneConnectionSearchResult&   search_result
+        , const VehicleJourneyItemCapacityInput& vehicle_journey_item_capacity
+        , const AssignmentExecutionConfig&        execution
+        , const SkimMatrixConfig&                skim_config
+        , const CapacityAwareAssignmentDiagnostics& capacity_aware
+    ) {
+        MATHFP_TRY(validate_capacity_aware_assignment_diagnostics(capacity_aware));
+        MATHFP_TRY(validate_assignment_execution_config(execution));
+        MATHFP_TRY(validate_vehicle_journey_item_capacity_input(
+            vehicle_journey_item_capacity
+        ));
+        MATHFP_TRY(validate_skim_matrix_config(skim_config));
+
+        AssignmentOutput output{
+              .mode        = AssignmentOutputMode::AllZoneSearch
+            , .summary     = build_all_zone_search_output_summary(search_result)
+            , .od_results  = {}
+            , .loads       = AssignmentLoads{}
+            , .vehicle_journey_item_loads =
+                  make_skipped_assignment_disabled_vehicle_journey_item_overload_assessment()
+            , .skim_matrix = AssignmentSkimMatrix{
+                  .status = skim_config.enabled
+                      ? AssignmentSkimMatrixStatus::SkippedAssignmentDisabled
+                      : AssignmentSkimMatrixStatus::DisabledByConfig
+              }
+            , .capacity_aware = capacity_aware
+        };
+        output.od_results.reserve(output.summary.od_count);
+
+        for (const auto& tree : search_result.tree_results) {
+            for (const auto& target : tree.target_results) {
+                output.od_results.push_back(
+                    AssignmentOdResult{
+                          .origin                  = target.origin
+                        , .destination             = target.destination
+                        , .search_connection_count = target.connections.size()
+                        , .chosen_connection_count = 0
+                        , .total_demand_passengers = 0.0
+                        , .assigned_passengers     = 0.0
+                        , .connections             = {}
+                        , .intervals               = {}
+                    }
+                );
+            }
+        }
+
         MATHFP_TRY(validate_output_summary_semantics(output));
         return output;
     }

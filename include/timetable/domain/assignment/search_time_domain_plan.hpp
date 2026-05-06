@@ -8,6 +8,8 @@
 #include <mathfp/core/expected.hpp>
 
 #include "timetable/enum_string.hpp"
+#include "timetable/domain/assignment/assignment_period.hpp"
+#include "timetable/domain/assignment/search_execution_config.hpp"
 #include "timetable/domain/assignment/search_time_domain_execution.hpp"
 
 namespace timetable::domain::assignment {
@@ -134,6 +136,19 @@ namespace timetable::domain::assignment {
         , SearchArchitecture              architecture
         , SearchTimeDomainRolloutStage    rollout_stage
         , SearchWindowMode                requested_mode
+    );
+
+    /**
+     * @brief Build an executable full-period origin-wide time domain.
+     *
+     * Unlike demand-induced preparation, this builder uses declared model
+     * intervals or an explicit service day and therefore does not depend on
+     * demand matrix intervals being active.
+     */
+    mathfp::Expected<SearchTimeDomainExecution> prepare_full_period_search_time_domain_execution(
+          const InputModel&              input
+        , SearchTimeDomainSource         source
+        , const AssignmentPeriodConfig&  assignment_period
     );
 
 }  // namespace timetable::domain::assignment

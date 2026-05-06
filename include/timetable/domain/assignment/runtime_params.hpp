@@ -5,6 +5,7 @@
 #include "timetable/domain/assignment/complete_connection_retention.hpp"
 #include "timetable/domain/assignment/connection_admissibility.hpp"
 #include "timetable/domain/assignment/execution_config.hpp"
+#include "timetable/domain/assignment/search_execution_config.hpp"
 #include "timetable/domain/assignment/search_pruning_config.hpp"
 #include "timetable/domain/assignment/skim_config.hpp"
 #include "timetable/domain/params.hpp"
@@ -33,6 +34,7 @@ namespace timetable::domain {
         SearchParams                         search{};
         assignment::AssignmentExecutionConfig execution{};
         assignment::CompleteConnectionDominanceConfig complete_connection_dominance{};
+        assignment::SearchExecutionConfig    search_execution{};
         assignment::SearchPruningConfig      search_pruning{};
         assignment::SkimMatrixConfig         skim_matrix{};
         assignment::AssignmentPeriodConfig   assignment_period{};
