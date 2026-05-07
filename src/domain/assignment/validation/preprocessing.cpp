@@ -241,7 +241,7 @@ namespace timetable::domain::assignment {
             );
         }
 
-        constexpr auto kOffsetSpecCount = std::size_t{ 5 };
+        constexpr auto kOffsetSpecCount = std::size_t{ 8 };
         const std::array<OffsetValidationSpec, kOffsetSpecCount> offset_specs{{
               OffsetValidationSpec{
                     .offsets      = network.route_index.line_offsets
@@ -272,6 +272,24 @@ namespace timetable::domain::assignment {
                   , .bucket_count = network.connection_index.walk_buckets.size()
                   , .order_count  = network.connection_index.walk_order.size()
                   , .name         = "connection_index.walk"
+              }
+            , OffsetValidationSpec{
+                    .offsets      = network.connection_index.access_walk_offsets
+                  , .bucket_count = network.connection_index.access_walk_buckets.size()
+                  , .order_count  = network.connection_index.access_walk_order.size()
+                  , .name         = "connection_index.access_walk"
+              }
+            , OffsetValidationSpec{
+                    .offsets      = network.connection_index.transfer_walk_offsets
+                  , .bucket_count = network.connection_index.transfer_walk_buckets.size()
+                  , .order_count  = network.connection_index.transfer_walk_order.size()
+                  , .name         = "connection_index.transfer_walk"
+              }
+            , OffsetValidationSpec{
+                    .offsets      = network.connection_index.egress_walk_offsets
+                  , .bucket_count = network.connection_index.egress_walk_buckets.size()
+                  , .order_count  = network.connection_index.egress_walk_order.size()
+                  , .name         = "connection_index.egress_walk"
               }
         }};
         MATHFP_TRY(detail::validation::validate_each_index(
@@ -309,6 +327,17 @@ namespace timetable::domain::assignment {
                 mathfp::internal_error("boarding index size does not match timed connection count")
                     .ctx("boarding_count", static_cast<std::int64_t>(network.connection_index.boarding_order.size()))
                     .ctx("timed_count"   , static_cast<std::int64_t>(network.connection_index.timed_order   .size()))
+            );
+        }
+        const auto classified_walk_count =
+              network.connection_index.access_walk_order.size()
+            + network.connection_index.transfer_walk_order.size()
+            + network.connection_index.egress_walk_order.size();
+        if (classified_walk_count > network.connection_index.walk_order.size()) {
+            return mathfp::unexpected(
+                mathfp::internal_error("walk split index exceeds total walk connection count")
+                    .ctx("classified_walk_count", static_cast<std::int64_t>(classified_walk_count))
+                    .ctx("walk_count", static_cast<std::int64_t>(network.connection_index.walk_order.size()))
             );
         }
 

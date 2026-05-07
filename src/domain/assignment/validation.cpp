@@ -588,6 +588,24 @@ namespace timetable::domain::assignment {
             , network.connection_index.walk_order.size()
             , "connection_index.walk"
         ));
+        MATHFP_TRY(validate_index_offsets(
+              network.connection_index.access_walk_offsets
+            , network.connection_index.access_walk_buckets.size()
+            , network.connection_index.access_walk_order.size()
+            , "connection_index.access_walk"
+        ));
+        MATHFP_TRY(validate_index_offsets(
+              network.connection_index.transfer_walk_offsets
+            , network.connection_index.transfer_walk_buckets.size()
+            , network.connection_index.transfer_walk_order.size()
+            , "connection_index.transfer_walk"
+        ));
+        MATHFP_TRY(validate_index_offsets(
+              network.connection_index.egress_walk_offsets
+            , network.connection_index.egress_walk_buckets.size()
+            , network.connection_index.egress_walk_order.size()
+            , "connection_index.egress_walk"
+        ));
 
         if (network.route_index.line_order.size() + network.route_index.walk_order.size()
             != network.route_segments.size()) {
@@ -612,6 +630,17 @@ namespace timetable::domain::assignment {
                 mathfp::internal_error("boarding index size does not match timed connection count")
                     .ctx("boarding_count", static_cast<std::int64_t>(network.connection_index.boarding_order.size()))
                     .ctx("timed_count"   , static_cast<std::int64_t>(network.connection_index.timed_order.size()))
+            );
+        }
+        const auto classified_walk_count =
+              network.connection_index.access_walk_order.size()
+            + network.connection_index.transfer_walk_order.size()
+            + network.connection_index.egress_walk_order.size();
+        if (classified_walk_count > network.connection_index.walk_order.size()) {
+            return mathfp::unexpected(
+                mathfp::internal_error("walk split index exceeds total walk connection count")
+                    .ctx("classified_walk_count", static_cast<std::int64_t>(classified_walk_count))
+                    .ctx("walk_count", static_cast<std::int64_t>(network.connection_index.walk_order.size()))
             );
         }
 

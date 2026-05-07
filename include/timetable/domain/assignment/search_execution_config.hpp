@@ -221,6 +221,10 @@ namespace timetable::domain::assignment {
      * article, or independently for each projection slot, as in the conservative
      * legacy implementation.
      *
+     * validate_phase_invariants is a diagnostic switch. It enables expensive
+     * per-branch checks of the phase automaton invariants and must not change
+     * the mathematical search contract or the set of admissible branches.
+     *
      * DemandTasks contract:
      * - origins: configured by origin_scope;
      * - time horizon: configured by time_domain_source;
@@ -244,6 +248,7 @@ namespace timetable::domain::assignment {
         SearchPartialRetentionScope partial_retention_scope{
             SearchPartialRetentionScope::TreeGlobal
         };
+        bool validate_phase_invariants{ false };
     };
 
     [[nodiscard]] inline constexpr SearchExecutionConfig make_interval_local_search_execution_config(
@@ -255,6 +260,7 @@ namespace timetable::domain::assignment {
             , .destination_scope  = SearchDestinationScope::DemandDestinations
             , .result_projection  = SearchResultProjection::DemandTasks
             , .partial_retention_scope = SearchPartialRetentionScope::ProjectionSlotLocal
+            , .validate_phase_invariants = false
         };
     }
 
@@ -267,6 +273,7 @@ namespace timetable::domain::assignment {
             , .destination_scope  = SearchDestinationScope::DeclaredZones
             , .result_projection  = SearchResultProjection::DemandTasks
             , .partial_retention_scope = SearchPartialRetentionScope::ProjectionSlotLocal
+            , .validate_phase_invariants = false
         };
     }
 
@@ -279,6 +286,7 @@ namespace timetable::domain::assignment {
             , .destination_scope  = SearchDestinationScope::DemandDestinations
             , .result_projection  = SearchResultProjection::DemandTasks
             , .partial_retention_scope = SearchPartialRetentionScope::ProjectionSlotLocal
+            , .validate_phase_invariants = false
         };
     }
 
@@ -291,6 +299,7 @@ namespace timetable::domain::assignment {
             , .destination_scope  = SearchDestinationScope::DeclaredZones
             , .result_projection  = SearchResultProjection::CompletionTargets
             , .partial_retention_scope = SearchPartialRetentionScope::TreeGlobal
+            , .validate_phase_invariants = false
         };
     }
 

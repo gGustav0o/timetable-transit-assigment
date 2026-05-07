@@ -324,7 +324,8 @@ namespace timetable::domain::assignment {
                     "         walk_route_order = {:>8}  walk_route_buckets    = {:>6}\n"
                     "         timed_order      = {:>8}  timed_buckets         = {:>6}\n"
                     "         boarding_order   = {:>8}  boarding_stop_buckets = {:>6}\n"
-                    "         walk_order       = {:>8}  walk_buckets          = {:>6}"
+                    "         walk_order       = {:>8}  walk_buckets          = {:>6}\n"
+                    "         walk_split(access/transfer/egress) = {:>8}/{:>8}/{:>8}"
                     , route_index      .line_order          .size()
                     , route_index      .line_buckets        .size()
                     , route_index      .walk_order          .size()
@@ -335,6 +336,9 @@ namespace timetable::domain::assignment {
                     , connection_index.boarding_stop_buckets.size()
                     , connection_index.walk_order           .size()
                     , connection_index.walk_buckets         .size()
+                    , connection_index.access_walk_order    .size()
+                    , connection_index.transfer_walk_order  .size()
+                    , connection_index.egress_walk_order    .size()
                 )
                 , LogLevel::Info
             );

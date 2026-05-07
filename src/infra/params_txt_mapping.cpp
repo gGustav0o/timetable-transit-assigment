@@ -800,6 +800,36 @@ namespace timetable::infra::params_txt::detail {
             );
         }
 
+        mathfp::Expected<std::optional<bool>> optional_bool_like_at(
+              const Object&    obj
+            , std::string_view key
+            , std::string_view path
+        ) {
+            const auto it = obj.find(std::string(key));
+            if (it == obj.end()) {
+                return std::nullopt;
+            }
+            if (const auto* value = std::get_if<bool>(&it->second.data)) {
+                return *value;
+            }
+            if (const auto* value = std::get_if<double>(&it->second.data)) {
+                MATHFP_TRY_LET(
+                      bool
+                    , parsed
+                    , parse_numeric_bool(
+                          *value
+                        , std::string(path) + "." + std::string(key)
+                      )
+                );
+                return parsed;
+            }
+            return mathfp::unexpected(
+                mathfp::invalid_arg("expected optional bool or numeric bool encoded as 0 or 1")
+                    .ctx("path", std::string(path))
+                    .ctx("key" , std::string(key))
+            );
+        }
+
         mathfp::Expected<const Object*> optional_object_at(
               const Object&    obj
             , std::string_view key
@@ -940,30 +970,78 @@ namespace timetable::infra::params_txt::detail {
                 return make_all_zone_origin_period_search_execution_config();
             }
 
-            MATHFP_TRY_LET(std::string, mode_token, string_at(
-                *obj, "mode", "root.searchExecution"
-            ));
-            MATHFP_TRY_LET(std::string, origin_scope_token, string_at(
-                *obj, "originScope", "root.searchExecution"
-            ));
-            MATHFP_TRY_LET(std::string, time_domain_source_token, string_at(
-                *obj, "timeDomainSource", "root.searchExecution"
-            ));
-            MATHFP_TRY_LET(std::string, destination_scope_token, string_at(
-                *obj, "destinationScope", "root.searchExecution"
-            ));
-            MATHFP_TRY_LET(std::string, result_projection_token, string_at(
-                *obj, "resultProjection", "root.searchExecution"
-            ));
+            MATHFP_TRY_LET(
+                  std::optional<std::string>
+                , mode_token
+                , optional_string_at(*obj, "mode", "root.searchExecution")
+            );
+            auto config = make_all_zone_origin_period_search_execution_config();
+            if (mode_token.has_value()) {
+                MATHFP_TRY_LET(
+                      SearchExecutionMode
+                    , parsed_mode
+                    , parse_search_execution_mode_token(*mode_token)
+                );
+                config = make_search_execution_config(parsed_mode);
+            }
 
-            MATHFP_TRY_LET(SearchExecutionMode, mode, parse_search_execution_mode_token(mode_token));
-            MATHFP_TRY_LET(SearchOriginScope, origin_scope, parse_search_origin_scope_token(origin_scope_token));
-            MATHFP_TRY_LET(SearchTimeDomainSource, time_domain_source, parse_search_time_domain_source_token(time_domain_source_token));
-            MATHFP_TRY_LET(SearchDestinationScope, destination_scope, parse_search_destination_scope_token(destination_scope_token));
-            MATHFP_TRY_LET(SearchResultProjection, result_projection, parse_search_result_projection_token(result_projection_token));
+            MATHFP_TRY_LET(
+                  std::optional<std::string>
+                , origin_scope_token
+                , optional_string_at(*obj, "originScope", "root.searchExecution")
+            );
+            if (origin_scope_token.has_value()) {
+                MATHFP_TRY_LET(
+                      SearchOriginScope
+                    , parsed_scope
+                    , parse_search_origin_scope_token(*origin_scope_token)
+                );
+                config.origin_scope = parsed_scope;
+            }
 
-            auto partial_retention_scope =
-                default_partial_retention_scope_for_projection(result_projection);
+            MATHFP_TRY_LET(
+                  std::optional<std::string>
+                , time_domain_source_token
+                , optional_string_at(*obj, "timeDomainSource", "root.searchExecution")
+            );
+            if (time_domain_source_token.has_value()) {
+                MATHFP_TRY_LET(
+                      SearchTimeDomainSource
+                    , parsed_source
+                    , parse_search_time_domain_source_token(*time_domain_source_token)
+                );
+                config.time_domain_source = parsed_source;
+            }
+
+            MATHFP_TRY_LET(
+                  std::optional<std::string>
+                , destination_scope_token
+                , optional_string_at(*obj, "destinationScope", "root.searchExecution")
+            );
+            if (destination_scope_token.has_value()) {
+                MATHFP_TRY_LET(
+                      SearchDestinationScope
+                    , parsed_scope
+                    , parse_search_destination_scope_token(*destination_scope_token)
+                );
+                config.destination_scope = parsed_scope;
+            }
+
+            MATHFP_TRY_LET(
+                  std::optional<std::string>
+                , result_projection_token
+                , optional_string_at(*obj, "resultProjection", "root.searchExecution")
+            );
+            if (result_projection_token.has_value()) {
+                MATHFP_TRY_LET(
+                      SearchResultProjection
+                    , parsed_projection
+                    , parse_search_result_projection_token(*result_projection_token)
+                );
+                config.result_projection = parsed_projection;
+                config.partial_retention_scope =
+                    default_partial_retention_scope_for_projection(parsed_projection);
+            }
             MATHFP_TRY_LET(
                   std::optional<std::string>
                 , partial_retention_scope_token
@@ -981,17 +1059,23 @@ namespace timetable::infra::params_txt::detail {
                           *partial_retention_scope_token
                       )
                 );
-                partial_retention_scope = parsed_scope;
+                config.partial_retention_scope = parsed_scope;
             }
 
-            return SearchExecutionConfig{
-                  .mode               = mode
-                , .origin_scope       = origin_scope
-                , .time_domain_source = time_domain_source
-                , .destination_scope  = destination_scope
-                , .result_projection  = result_projection
-                , .partial_retention_scope = partial_retention_scope
-            };
+            MATHFP_TRY_LET(
+                  std::optional<bool>
+                , validate_phase_invariants
+                , optional_bool_like_at(
+                      *obj
+                    , "validatePhaseInvariants"
+                    , "root.searchExecution"
+                  )
+            );
+            if (validate_phase_invariants.has_value()) {
+                config.validate_phase_invariants = *validate_phase_invariants;
+            }
+
+            return config;
         }
 
         mathfp::Expected<timetable::domain::assignment::AssignmentExecutionConfig> parse_assignment_execution_config(

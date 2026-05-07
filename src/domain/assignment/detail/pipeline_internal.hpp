@@ -216,7 +216,9 @@ namespace timetable::domain::assignment::detail {
             )
         );
         SearchDiagnosticsContext search_diagnostics = diagnostics;
-        search_diagnostics.declared_zone_count = input.input.zones.size();
+        search_diagnostics.declared_zone_count          = input.input.zones.size();
+        search_diagnostics.validate_phase_invariants =
+            input.search_execution.validate_phase_invariants;
         const auto execution_request = SearchExecutionRequest{
               .config = input.search_execution
             , .time_domain_execution = search_time_domain_execution.has_value()

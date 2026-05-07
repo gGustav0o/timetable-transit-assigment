@@ -25,6 +25,7 @@
   - searchPara.allowDominanceForEquivalentConnections — подключен как флаг partial-search retention между эквивалентными состояниями поиска.
   - searchPara.deactivateDominanceOfDirectConnections — подключен как флаг complete-connection dominance: прямое полное соединение не может доминировать другие complete connections и suffix lower-bound candidates.
   - searchExecution.partialRetentionScope — необязательный ключ режима partial-retention: tree_global задает целевую article-like реализацию с общей pruning-памятью дерева, projection_slot_local сохраняет прежний консервативный per-projection-slot режим.
+  - searchExecution.validatePhaseInvariants — необязательный диагностический флаг: при True включает дорогую проверку фазовых инвариантов каждой принятой ветви; при отсутствии ключа используется False.
   - veh_journey_item_cap.csv — подключен как необязательный вход провозной способности vehicle journey items для post-assignment overload assessment.
   - compile-time runtime override policy — подключена как отдельный верхнеуровневый слой после загрузки входа и до запуска assignment pipeline; применяется только если сборка выполнена с TIMETABLE_ENABLE_RUNTIME_OVERRIDES.
 
@@ -156,6 +157,16 @@
   - при отсутствии ключа CompletionTargets по умолчанию использует tree_global, DemandTasks по умолчанию использует projection_slot_local;
   - текущая реализация разрешает tree_global только для CompletionTargets, чтобы не смешивать article-like all-zone enumeration с OD-assignment projection без отдельного доказательства корректности;
   - для CompletionTargets после destination-specific suffix lower-bound pruning активные completion targets дополнительно сужаются до оставшихся projection slots, поскольку target и projection slot взаимно однозначны.
+  - all-zone CompletionTargets использует count-only result sink: после финализации retention/tolerance для target сохраняется только число найденных полных соединений, а материализованные SearchConnection освобождаются; это не меняет поиск, dominance или итоговые счетчики output.
+
+Семантика searchExecution.validatePhaseInvariants:
+
+  - параметр относится к диагностике SearchExecutionConfig и не меняет множество допустимых переходов, pruning, dominance, lower-bound отсечения или materialization результата;
+  - при True общий branch-and-bound цикл проверяет фазовые инварианты корневой ветви и каждого принятого кандидата после расширения;
+  - при False эти проверки не выполняются, что является производительным режимом по умолчанию для больших all-zone запусков;
+  - ключ может задаваться как булево значение True/False или как числовое 1/0;
+  - если блок searchExecution отсутствует, используется all-zone/VISUM-like дефолт и validatePhaseInvariants = False;
+  - если блок searchExecution присутствует частично, неуказанные поля берутся из дефолтного searchExecution режима.
 
 Формализованы как отдельная доменная политика complete-connection dominance
 

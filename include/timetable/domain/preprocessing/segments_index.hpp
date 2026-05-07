@@ -73,6 +73,18 @@ namespace timetable::domain::preprocessing {
         std::vector<ConnectionSegmentId> walk_order{};
         std::vector<EndpointKey>         walk_buckets{};
         std::vector<std::size_t>         walk_offsets{};
+
+        std::vector<ConnectionSegmentId> access_walk_order{};
+        std::vector<EndpointKey>         access_walk_buckets{};
+        std::vector<std::size_t>         access_walk_offsets{};
+
+        std::vector<ConnectionSegmentId> transfer_walk_order{};
+        std::vector<EndpointKey>         transfer_walk_buckets{};
+        std::vector<std::size_t>         transfer_walk_offsets{};
+
+        std::vector<ConnectionSegmentId> egress_walk_order{};
+        std::vector<EndpointKey>         egress_walk_buckets{};
+        std::vector<std::size_t>         egress_walk_offsets{};
     };
 
     /**
@@ -87,6 +99,9 @@ namespace timetable::domain::preprocessing {
         std::span<const RouteSegmentId>      walk_route{};
         std::span<const ConnectionSegmentId> timed_connections{};
         std::span<const ConnectionSegmentId> walk_connections{};
+        std::span<const ConnectionSegmentId> access_walk_connections{};
+        std::span<const ConnectionSegmentId> transfer_walk_connections{};
+        std::span<const ConnectionSegmentId> egress_walk_connections{};
     };
 
     /**

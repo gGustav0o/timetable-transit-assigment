@@ -156,6 +156,9 @@ namespace timetable::domain::assignment {
     struct AllZoneTargetResult final {
         ZoneId                        origin{};
         ZoneId                        destination{};
+        // Count is authoritative for streaming/count-only all-zone sinks; the
+        // connection vector is optional materialized payload.
+        std::size_t                   connection_count{};
         std::vector<SearchConnection> connections{};
     };
 
@@ -178,6 +181,7 @@ namespace timetable::domain::assignment {
     struct SearchDiagnosticsContext final {
         std::int32_t capacity_iteration{};
         std::size_t  declared_zone_count{};
+        bool         validate_phase_invariants{};
     };
 
     mathfp::Expected<std::vector<SearchTask>> build_search_tasks(
@@ -211,6 +215,10 @@ namespace timetable::domain::assignment {
 
     [[nodiscard]] std::size_t search_connection_count(
         const AllZoneConnectionSearchResult& result
+    ) noexcept;
+
+    [[nodiscard]] std::size_t all_zone_target_connection_count(
+        const AllZoneTargetResult& target
     ) noexcept;
 
     mathfp::Expected<SearchConnection> make_search_connection(

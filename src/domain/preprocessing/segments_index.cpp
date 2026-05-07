@@ -391,6 +391,28 @@ namespace timetable::domain::preprocessing {
             return data;
         }
 
+        template <typename Predicate>
+        WalkConnectionIndexData fill_walk_connection_index_if(
+              const std::vector<ConnectionSegRef>& walk_refs
+            , Predicate&&                          predicate
+        ) {
+            WalkConnectionIndexData data;
+            data.order.reserve(walk_refs.size());
+            std::vector<ConnectionSegRef> selected;
+            selected.reserve(walk_refs.size());
+            for (const auto& ref : walk_refs) {
+                if (predicate(*ref.route)) {
+                    selected.push_back(ref);
+                    data.order.push_back(ref.id);
+                }
+            }
+            data.bucket_index = build_buckets<std::vector<ConnectionSegRef>, EndpointKey>(
+                  selected
+                , [](const ConnectionSegRef& ref) { return physical_from_key(*ref.route); }
+            );
+            return data;
+        }
+
         template <class Key>
         std::optional<std::size_t> find_bucket_impl(
               std::span<const Key> buckets
@@ -477,6 +499,27 @@ namespace timetable::domain::preprocessing {
         auto timed_index    = fill_timed_connection_index(refs.timed);
         auto boarding_index = fill_boarding_connection_index(refs.timed);
         auto walk_index     = fill_walk_connection_index(refs.walk);
+        auto access_walk_index = fill_walk_connection_index_if(
+              refs.walk
+            , [](const RouteSegment& segment) {
+                  return physical_from_key(segment).kind == EndpointKind::Zone
+                      && physical_to_key(segment).kind == EndpointKind::Stop;
+              }
+        );
+        auto transfer_walk_index = fill_walk_connection_index_if(
+              refs.walk
+            , [](const RouteSegment& segment) {
+                  return physical_from_key(segment).kind == EndpointKind::Stop
+                      && physical_to_key(segment).kind == EndpointKind::Stop;
+              }
+        );
+        auto egress_walk_index = fill_walk_connection_index_if(
+              refs.walk
+            , [](const RouteSegment& segment) {
+                  return physical_from_key(segment).kind == EndpointKind::Stop
+                      && physical_to_key(segment).kind == EndpointKind::Zone;
+              }
+        );
 
         ConnectionSegmentIndex index{
               .timed_order           = std::move(timed_index.order)
@@ -490,19 +533,32 @@ namespace timetable::domain::preprocessing {
             , .walk_order            = std::move(walk_index.order)
             , .walk_buckets          = std::move(walk_index.bucket_index.buckets)
             , .walk_offsets          = std::move(walk_index.bucket_index.offsets)
+            , .access_walk_order     = std::move(access_walk_index.order)
+            , .access_walk_buckets   = std::move(access_walk_index.bucket_index.buckets)
+            , .access_walk_offsets   = std::move(access_walk_index.bucket_index.offsets)
+            , .transfer_walk_order   = std::move(transfer_walk_index.order)
+            , .transfer_walk_buckets = std::move(transfer_walk_index.bucket_index.buckets)
+            , .transfer_walk_offsets = std::move(transfer_walk_index.bucket_index.offsets)
+            , .egress_walk_order     = std::move(egress_walk_index.order)
+            , .egress_walk_buckets   = std::move(egress_walk_index.bucket_index.buckets)
+            , .egress_walk_offsets   = std::move(egress_walk_index.bucket_index.offsets)
         };
 
         log(
             fmt::format(
                 "connection index: timed_order = {:>8}  timed_buckets = {:>6}\n"
                 "                  boarding_order = {:>8}  boarding_stop_buckets = {:>6}\n"
-                "                  walk_order = {:>8}  walk_buckets  = {:>6}"
+                "                  walk_order = {:>8}  walk_buckets  = {:>6}\n"
+                "                  walk_split(access/transfer/egress) = {:>8}/{:>8}/{:>8}"
                 , index.timed_order.size()
                 , index.timed_buckets.size()
                 , index.boarding_order.size()
                 , index.boarding_stop_buckets.size()
                 , index.walk_order.size()
                 , index.walk_buckets.size()
+                , index.access_walk_order.size()
+                , index.transfer_walk_order.size()
+                , index.egress_walk_order.size()
             )
             , LogLevel::Info
         );
@@ -556,6 +612,36 @@ namespace timetable::domain::preprocessing {
             out.walk_connections = std::span<const ConnectionSegmentId>(
                   connection_index.walk_order.data() + start
                 , end -                                start
+            );
+        }
+
+        if (auto idx = find_bucket(connection_index.access_walk_buckets, physical_from)) {
+            const auto i     = *idx;
+            const auto start = connection_index.access_walk_offsets[i];
+            const auto end   = connection_index.access_walk_offsets[i + 1];
+            out.access_walk_connections = std::span<const ConnectionSegmentId>(
+                  connection_index.access_walk_order.data() + start
+                , end -                                       start
+            );
+        }
+
+        if (auto idx = find_bucket(connection_index.transfer_walk_buckets, physical_from)) {
+            const auto i     = *idx;
+            const auto start = connection_index.transfer_walk_offsets[i];
+            const auto end   = connection_index.transfer_walk_offsets[i + 1];
+            out.transfer_walk_connections = std::span<const ConnectionSegmentId>(
+                  connection_index.transfer_walk_order.data() + start
+                , end -                                         start
+            );
+        }
+
+        if (auto idx = find_bucket(connection_index.egress_walk_buckets, physical_from)) {
+            const auto i     = *idx;
+            const auto start = connection_index.egress_walk_offsets[i];
+            const auto end   = connection_index.egress_walk_offsets[i + 1];
+            out.egress_walk_connections = std::span<const ConnectionSegmentId>(
+                  connection_index.egress_walk_order.data() + start
+                , end -                                      start
             );
         }
 

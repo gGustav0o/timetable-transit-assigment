@@ -617,7 +617,7 @@ namespace timetable::domain::assignment::detail {
                     AssignmentOdResult{
                           .origin                  = target.origin
                         , .destination             = target.destination
-                        , .search_connection_count = target.connections.size()
+                        , .search_connection_count = all_zone_target_connection_count(target)
                         , .chosen_connection_count = 0
                         , .total_demand_passengers = 0.0
                         , .assigned_passengers     = 0.0

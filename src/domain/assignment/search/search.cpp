@@ -14,6 +14,7 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <queue>
 #include <span>
@@ -708,7 +709,7 @@ namespace timetable::domain::assignment {
         constexpr std::size_t kSearchHeartbeatStep = 10'000;
         constexpr std::size_t kSearchWallClockSuccessorCheckStep = 16'384;
         constexpr std::size_t kInitialTaskBranchReserve = 4'096;
-        constexpr std::size_t kAllZoneMaxParallelBatches = 1;
+        constexpr std::size_t kAllZoneMaxParallelBatches = 4;
         constexpr auto kSearchWallClockHeartbeatInterval =
             std::chrono::seconds{ 30 };
 
@@ -3062,21 +3063,39 @@ namespace timetable::domain::assignment {
                 , branch.trace.current_physical
             );
 
-            for (const auto connection_id : lookup.walk_connections) {
-                const auto& connection = connection_segment_at(network, connection_id);
-                const auto& route_segment = route_segment_at(network, connection.route_segment);
-                if (auto transition = admissible_walk_extension_transition(
-                      origin
-                    , active_targets
-                    , batch_targets
-                    , branch
-                    , route_segment
-                )) {
-                    visitor(connection_id, std::optional<WalkExtensionTransition>{ *transition });
-                } else if (branch.trace.phase == SearchBranchPhase::BeforeFirstBoarding
-                    || branch.trace.phase == SearchBranchPhase::AfterTransferWalk) {
-                    walk_rejection_visitor(connection_id);
+            auto visit_walk_connections = [&](std::span<const ConnectionSegmentId> connections) {
+                for (const auto connection_id : connections) {
+                    const auto& connection = connection_segment_at(network, connection_id);
+                    const auto& route_segment = route_segment_at(network, connection.route_segment);
+                    if (auto transition = admissible_walk_extension_transition(
+                          origin
+                        , active_targets
+                        , batch_targets
+                        , branch
+                        , route_segment
+                    )) {
+                        visitor(connection_id, std::optional<WalkExtensionTransition>{ *transition });
+                    }
                 }
+            };
+
+            switch (branch.trace.phase) {
+                case SearchBranchPhase::AtOrigin:
+                    visit_walk_connections(lookup.access_walk_connections);
+                    break;
+
+                case SearchBranchPhase::AfterTimedRide:
+                    visit_walk_connections(lookup.transfer_walk_connections);
+                    visit_walk_connections(lookup.egress_walk_connections);
+                    break;
+
+                case SearchBranchPhase::BeforeFirstBoarding:
+                case SearchBranchPhase::AfterTransferWalk:
+                    walk_rejection_visitor(lookup.walk_connections.size());
+                    break;
+
+                case SearchBranchPhase::Completed:
+                    break;
             }
 
             for_each_timed_successor(
@@ -3466,9 +3485,111 @@ namespace timetable::domain::assignment {
             std::vector<RejectedReachabilityTask> unreachable{};
         };
 
+        struct CompactReachabilityReasons final {
+            static constexpr std::size_t inline_capacity = FixedActiveMask::max_size;
+            static constexpr std::size_t bits_per_reason = 2u;
+            static constexpr std::size_t reasons_per_word = 64u / bits_per_reason;
+            static constexpr std::size_t inline_word_count =
+                (inline_capacity + reasons_per_word - 1u) / reasons_per_word;
+
+            std::size_t size{};
+            std::array<std::uint64_t, inline_word_count> inline_words{};
+            std::vector<std::uint64_t> heap_words{};
+
+            CompactReachabilityReasons() = default;
+
+            explicit CompactReachabilityReasons(
+                  std::size_t                 element_count
+                , ReachabilityRejectionReason initial_reason
+            )
+                : size{ element_count }
+            {
+                if (!uses_inline_storage()) {
+                    heap_words.assign(word_count(), 0u);
+                }
+                for (std::size_t i = 0; i < size; ++i) {
+                    set(i, initial_reason);
+                }
+            }
+
+            [[nodiscard]] bool uses_inline_storage() const noexcept {
+                return size <= inline_capacity;
+            }
+
+            [[nodiscard]] std::size_t word_count() const noexcept {
+                return (size + reasons_per_word - 1u) / reasons_per_word;
+            }
+
+            [[nodiscard]] std::uint64_t word(std::size_t index) const noexcept {
+                return uses_inline_storage()
+                    ? inline_words[index]
+                    : heap_words[index];
+            }
+
+            [[nodiscard]] std::uint64_t& word(std::size_t index) noexcept {
+                return uses_inline_storage()
+                    ? inline_words[index]
+                    : heap_words[index];
+            }
+
+            [[nodiscard]] static std::uint64_t reason_code(
+                ReachabilityRejectionReason reason
+            ) noexcept {
+                switch (reason) {
+                    case ReachabilityRejectionReason::Phase:
+                        return 0u;
+                    case ReachabilityRejectionReason::TransferBudget:
+                        return 1u;
+                    case ReachabilityRejectionReason::UnreachableDestination:
+                        return 2u;
+                }
+                return 2u;
+            }
+
+            [[nodiscard]] static ReachabilityRejectionReason reason_from_code(
+                std::uint64_t code
+            ) noexcept {
+                switch (code) {
+                    case 0u:
+                        return ReachabilityRejectionReason::Phase;
+                    case 1u:
+                        return ReachabilityRejectionReason::TransferBudget;
+                    case 2u:
+                    default:
+                        return ReachabilityRejectionReason::UnreachableDestination;
+                }
+            }
+
+            [[nodiscard]] ReachabilityRejectionReason get(
+                std::size_t index
+            ) const noexcept {
+                const auto word_index = index / reasons_per_word;
+                const auto bit_offset = (index % reasons_per_word) * bits_per_reason;
+                return reason_from_code(
+                    (word(word_index) >> bit_offset) & std::uint64_t{ 0b11 }
+                );
+            }
+
+            void set(
+                  std::size_t                 index
+                , ReachabilityRejectionReason reason
+            ) noexcept {
+                if (index >= size) {
+                    return;
+                }
+                const auto word_index = index / reasons_per_word;
+                const auto bit_offset = (index % reasons_per_word) * bits_per_reason;
+                const auto mask = std::uint64_t{ 0b11 } << bit_offset;
+                auto& target_word = word(word_index);
+                target_word =
+                    (target_word & ~mask)
+                    | (reason_code(reason) << bit_offset);
+            }
+        };
+
         struct ReachabilityMaskEntry final {
             ActiveIndexSet reachable{};
-            std::vector<ReachabilityRejectionReason> rejection_reasons{};
+            CompactReachabilityReasons rejection_reasons{};
         };
 
         [[nodiscard]] bool completion_target_projection_slots(
@@ -3514,10 +3635,10 @@ namespace timetable::domain::assignment {
         ) {
             ReachabilityMaskEntry result{
                   .reachable = ActiveIndexSet{ targets.size() }
-                , .rejection_reasons = std::vector<ReachabilityRejectionReason>(
+                , .rejection_reasons = CompactReachabilityReasons{
                       targets.size()
                     , ReachabilityRejectionReason::UnreachableDestination
-                  )
+                  }
             };
             for (std::size_t target_pos = 0; target_pos < targets.size(); ++target_pos) {
                 const auto decision = evaluate_residual_reachability(
@@ -3528,7 +3649,10 @@ namespace timetable::domain::assignment {
                 if (decision.feasible) {
                     result.reachable.set(target_pos);
                 } else {
-                    result.rejection_reasons[target_pos] = decision.rejection_reason;
+                    result.rejection_reasons.set(
+                          target_pos
+                        , decision.rejection_reason
+                    );
                 }
             }
             return result;
@@ -3542,10 +3666,10 @@ namespace timetable::domain::assignment {
         ) {
             ReachabilityMaskEntry result{
                   .reachable = ActiveIndexSet{ slots.size() }
-                , .rejection_reasons = std::vector<ReachabilityRejectionReason>(
+                , .rejection_reasons = CompactReachabilityReasons{
                       slots.size()
                     , ReachabilityRejectionReason::UnreachableDestination
-                  )
+                  }
             };
             for (std::size_t task_pos = 0; task_pos < slots.size(); ++task_pos) {
                 const auto decision = evaluate_residual_reachability(
@@ -3556,7 +3680,10 @@ namespace timetable::domain::assignment {
                 if (decision.feasible) {
                     result.reachable.set(task_pos);
                 } else {
-                    result.rejection_reasons[task_pos] = decision.rejection_reason;
+                    result.rejection_reasons.set(
+                          task_pos
+                        , decision.rejection_reason
+                    );
                 }
             }
             return result;
@@ -3567,6 +3694,7 @@ namespace timetable::domain::assignment {
             std::span<const SearchCompletionTarget> targets;
             std::span<const SearchProjectionSlot>   slots;
             TransferCount                           max_transfers;
+            bool                                    unified_completion_targets{};
             std::unordered_map<
                   ResidualReachabilityKey
                 , ReachabilityMaskEntry
@@ -3601,6 +3729,9 @@ namespace timetable::domain::assignment {
             const ReachabilityMaskEntry& slot_entry(
                 const ResidualReachabilityKey& key
             ) {
+                if (unified_completion_targets) {
+                    return target_entry(key);
+                }
                 const auto existing = slot_masks.find(key);
                 if (existing != slot_masks.end()) {
                     return existing->second;
@@ -3643,7 +3774,7 @@ namespace timetable::domain::assignment {
             };
             auto result = ReachabilityRejectionReason::Phase;
             target_positions.for_each_index([&](std::size_t target_pos) {
-                const auto reason = reachability_entry.rejection_reasons[target_pos];
+                const auto reason = reachability_entry.rejection_reasons.get(target_pos);
                 if (priority(reason) > priority(result)) {
                     result = reason;
                 }
@@ -3664,7 +3795,7 @@ namespace timetable::domain::assignment {
                     result.unreachable.push_back(
                         RejectedReachabilityTask{
                               .task_position = task_pos
-                            , .reason        = reachability_entry.rejection_reasons[task_pos]
+                            , .reason        = reachability_entry.rejection_reasons.get(task_pos)
                         }
                     );
                 }
@@ -3901,6 +4032,31 @@ namespace timetable::domain::assignment {
                         .ctx("mask_capacity", static_cast<std::int64_t>(FixedActiveMask::max_size))
                 );
             }
+            if (target_projection_slots) {
+                if (batch.projection_slots.size() != batch.completion_targets.size()) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("completion-target projection size disagrees with target count")
+                            .ctx("origin", batch.key.origin.get())
+                            .ctx("projection_slots", static_cast<std::int64_t>(batch.projection_slots.size()))
+                            .ctx("completion_targets", static_cast<std::int64_t>(batch.completion_targets.size()))
+                    );
+                }
+                for (std::size_t target_pos = 0; target_pos < batch.projection_slots.size(); ++target_pos) {
+                    const auto& slot = batch.projection_slots[target_pos];
+                    const auto& target = batch.completion_targets[target_pos];
+                    if (!slot.completion_target.has_value()
+                        || slot.completion_target->get() != static_cast<std::int64_t>(target_pos)
+                        || slot.destination != target.destination) {
+                        return mathfp::unexpected(
+                            mathfp::internal_error("completion-target projection slot cannot share reachability mask with target")
+                                .ctx("origin", batch.key.origin.get())
+                                .ctx("position", static_cast<std::int64_t>(target_pos))
+                                .ctx("slot_destination", slot.destination.get())
+                                .ctx("target_destination", target.destination.get())
+                        );
+                    }
+                }
+            }
             const auto                        reachability = build_residual_reachability(
                   reverse_graph
                 , batch_target_span
@@ -3917,6 +4073,7 @@ namespace timetable::domain::assignment {
                 , .targets        = batch_target_span
                 , .slots          = batch_task_span
                 , .max_transfers  = params.transfers.max_transfers
+                , .unified_completion_targets = target_projection_slots
             };
 
             std::deque<std::size_t> current_frontier;
@@ -3948,9 +4105,11 @@ namespace timetable::domain::assignment {
                   }
               }
             );
-            MATHFP_TRY(validate_search_branch_phase_invariants(
-                branch_at(branches, root_branch_index)
-            ));
+            if (diagnostics.validate_phase_invariants) {
+                MATHFP_TRY(validate_search_branch_phase_invariants(
+                    branch_at(branches, root_branch_index)
+                ));
+            }
             const auto root_reachability_key = reachability_mask_key(
                   branch_at(branches, root_branch_index)
                 , params.transfers
@@ -4290,12 +4449,14 @@ namespace timetable::domain::assignment {
                         ++stats.rejected_cycles;
                         return;
                     }
-                    if (auto invariant_result = validate_search_branch_phase_invariants(*candidate);
-                        !invariant_result) {
-                        successor_error = mathfp::unexpected(
-                            std::move(invariant_result.error())
-                        );
-                        return;
+                    if (diagnostics.validate_phase_invariants) {
+                        if (auto invariant_result = validate_search_branch_phase_invariants(*candidate);
+                            !invariant_result) {
+                            successor_error = mathfp::unexpected(
+                                std::move(invariant_result.error())
+                            );
+                            return;
+                        }
                     }
 
                     if (candidate->metrics.transfers > params.transfers.max_transfers) {
@@ -4521,8 +4682,8 @@ namespace timetable::domain::assignment {
                         increment_phase_stats(next_frontier_by_phase, candidate_phase);
                     }
                 }
-                    , [&](ConnectionSegmentId) {
-                          ++stats.rejected_consecutive_walk;
+                    , [&](std::size_t rejected_walk_count) {
+                          stats.rejected_consecutive_walk += rejected_walk_count;
                       }
                 );
                 release_branch_if_closed(
@@ -5497,41 +5658,60 @@ namespace timetable::domain::assignment {
             return result;
         }
 
-        [[nodiscard]] AllZoneConnectionSearchResult materialize_all_zone_search_result(
-            std::vector<SearchSlotResult> slot_results
-        ) {
-            std::map<ZoneId, std::map<ZoneId, std::vector<SearchConnection>>> grouped;
-            for (auto& slot_result : slot_results) {
-                if (slot_result.slot.kind != SearchProjectionSlotKind::CompletionTarget) {
-                    continue;
+        struct CountOnlyAllZoneSearchResultSink final {
+            std::mutex mutex{};
+            std::map<ZoneId, std::map<ZoneId, std::size_t>> counts{};
+
+            mathfp::Expected<mathfp::Unit> accept(
+                std::vector<SearchSlotResult> slot_results
+            ) {
+                std::lock_guard lock{ mutex };
+                for (auto& slot_result : slot_results) {
+                    if (slot_result.slot.kind != SearchProjectionSlotKind::CompletionTarget) {
+                        continue;
+                    }
+                    counts[slot_result.slot.origin][slot_result.slot.destination] =
+                        slot_result.connections.size();
                 }
-                grouped[slot_result.slot.origin][slot_result.slot.destination] =
-                    std::move(slot_result.connections);
+                return mathfp::kUnit;
             }
 
-            AllZoneConnectionSearchResult result;
-            result.tree_results.reserve(grouped.size());
-            for (auto& [origin, targets] : grouped) {
-                AllZoneTreeResult tree{
-                      .origin = origin
-                    , .target_results = {}
-                };
-                tree.target_results.reserve(targets.size());
-                for (auto& [destination, connections] : targets) {
-                    tree.target_results.push_back(
-                        AllZoneTargetResult{
-                              .origin      = origin
-                            , .destination = destination
-                            , .connections = std::move(connections)
-                        }
-                    );
+            [[nodiscard]] AllZoneConnectionSearchResult materialize() {
+                std::lock_guard lock{ mutex };
+                AllZoneConnectionSearchResult result;
+                result.tree_results.reserve(counts.size());
+                for (const auto& [origin, targets] : counts) {
+                    AllZoneTreeResult tree{
+                          .origin = origin
+                        , .target_results = {}
+                    };
+                    tree.target_results.reserve(targets.size());
+                    for (const auto& [destination, connection_count] : targets) {
+                        tree.target_results.push_back(
+                            AllZoneTargetResult{
+                                  .origin           = origin
+                                , .destination      = destination
+                                , .connection_count = connection_count
+                                , .connections      = {}
+                            }
+                        );
+                    }
+                    result.tree_results.push_back(std::move(tree));
                 }
-                result.tree_results.push_back(std::move(tree));
+                return result;
             }
-            return result;
-        }
+        };
 
     }  // namespace
+
+    std::size_t all_zone_target_connection_count(
+        const AllZoneTargetResult& target
+    ) noexcept {
+        if (target.connection_count == 0u && !target.connections.empty()) {
+            return target.connections.size();
+        }
+        return target.connection_count;
+    }
 
     std::vector<const SearchConnection*> search_connection_ptrs(
         const ConnectionSearchResult& result
@@ -5563,7 +5743,7 @@ namespace timetable::domain::assignment {
         std::size_t total = 0;
         for (const auto& tree_result : result.tree_results) {
             for (const auto& target_result : tree_result.target_results) {
-                total += target_result.connections.size();
+                total += all_zone_target_connection_count(target_result);
             }
         }
         return total;
@@ -5850,7 +6030,7 @@ namespace timetable::domain::assignment {
         );
         log(
             fmt::format(
-                  "search diagnostics: search_execution_mode={} origin_scope={} time_domain_source={} destination_scope={} result_projection={} partial_retention_scope={}"
+                  "search diagnostics: search_execution_mode={} origin_scope={} time_domain_source={} destination_scope={} result_projection={} partial_retention_scope={} phase_invariant_validation={}"
                   " tree_count={} expected_tree_count={} tree_count_delta={} search_origin_count={} declared_zone_count={} declared_zone_request_count={}"
                   " active_demand_origin_count={} completion_target_count={} projection_slot_count={}"
                   " zero_completion_target_tree_count={} zero_projection_task_tree_count={}"
@@ -5862,6 +6042,7 @@ namespace timetable::domain::assignment {
                 , to_string(execution.config.destination_scope)
                 , to_string(execution.config.result_projection)
                 , to_string(execution.config.partial_retention_scope)
+                , diagnostics.validate_phase_invariants ? "on" : "off"
                 , batches.size()
                 , expected_tree_count
                 , signed_count_delta(batches.size(), expected_tree_count)
@@ -6077,7 +6258,7 @@ namespace timetable::domain::assignment {
         );
         log(
             fmt::format(
-                  "all-zone search comparison diagnostics: trees={} expected_trees={} tree_count_delta={} batches={} targets={} projection_slots={} partial_retention_scope={}"
+                  "all-zone search comparison diagnostics: trees={} expected_trees={} tree_count_delta={} batches={} targets={} projection_slots={} partial_retention_scope={} phase_invariant_validation={} result_sink=count_only"
                 , tree_jobs.size()
                 , expected_tree_count
                 , signed_count_delta(tree_jobs.size(), expected_tree_count)
@@ -6085,6 +6266,7 @@ namespace timetable::domain::assignment {
                 , batch_execution_diagnostics.completion_target_count
                 , batch_execution_diagnostics.projection_task_count
                 , to_string(execution.config.partial_retention_scope)
+                , diagnostics.validate_phase_invariants ? "on" : "off"
             )
             , LogLevel::Info
         );
@@ -6100,10 +6282,10 @@ namespace timetable::domain::assignment {
             , LogLevel::Info
         );
 
-        std::vector<std::vector<SearchSlotResult>> batch_slot_results(batches.size());
         std::atomic<std::size_t> next_batch{ 0u };
         std::atomic<std::size_t> completed_batches{ 0u };
         std::atomic<std::size_t> found_connections{ 0u };
+        CountOnlyAllZoneSearchResultSink result_sink;
         std::vector<std::future<mathfp::Expected<mathfp::Unit>>> workers;
         workers.reserve(worker_count);
 
@@ -6166,7 +6348,7 @@ namespace timetable::domain::assignment {
                                     search_slot_connection_count(results)
                                   , std::memory_order_relaxed
                               );
-                              batch_slot_results[i] = std::move(results);
+                              MATHFP_TRY(result_sink.accept(std::move(results)));
                               completed_batches.fetch_add(1u, std::memory_order_relaxed);
                           }
                       }
@@ -6178,16 +6360,7 @@ namespace timetable::domain::assignment {
             MATHFP_TRY(worker.get());
         }
 
-        std::vector<SearchSlotResult> slot_results;
-        for (auto& results : batch_slot_results) {
-            slot_results.insert(
-                  slot_results.end()
-                , std::make_move_iterator(results.begin())
-                , std::make_move_iterator(results.end())
-            );
-        }
-
-        auto result = materialize_all_zone_search_result(std::move(slot_results));
+        auto result = result_sink.materialize();
         log(
             fmt::format(
                   "all-zone search result: trees = {:>8}  expected_trees = {:>8}  connections = {:>8}"
