@@ -328,6 +328,12 @@ namespace timetable::domain::assignment {
         , SearchPruningMetrics      metrics
     );
 
+    void insert_exact_pruning_metrics_in_place(
+          const ExactPruningPolicy& exact_policy
+        , SearchPruningMetricSet&   metric_set
+        , SearchPruningMetrics      metrics
+    );
+
     SearchPruningMetricSet insert_exact_pruning_metrics(
           SearchPruningMetricSet metric_set
         , SearchPruningMetrics   metrics
@@ -371,6 +377,12 @@ namespace timetable::domain::assignment {
     SearchPruningMetricSet insert_search_pruning_metrics(
           const SearchPruningExecutionPlan& execution
         , SearchPruningMetricSet            metric_set
+        , SearchPruningMetrics              metrics
+    );
+
+    void insert_search_pruning_metrics_in_place(
+          const SearchPruningExecutionPlan& execution
+        , SearchPruningMetricSet&           metric_set
         , SearchPruningMetrics              metrics
     );
 

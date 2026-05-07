@@ -393,6 +393,11 @@ namespace timetable::domain::assignment {
             std::optional<SearchCompletionTargetRef> completion_target{};
         };
 
+        struct CompactCompleteConnectionRetention final {
+            std::vector<std::vector<ConnectionSegmentId>> traces{};
+            std::vector<CompleteConnectionMetrics>        metrics{};
+        };
+
         /**
          * @brief Retained complete-connection state for one projection slot.
          *
@@ -406,6 +411,7 @@ namespace timetable::domain::assignment {
             SearchProjectionSlot slot{};
             NodeMetricMap known_metrics{};
             CompleteConnectionRetention complete_connections{};
+            CompactCompleteConnectionRetention compact_complete_connections{};
         };
 
         struct TreePartialRetention final {
@@ -414,6 +420,7 @@ namespace timetable::domain::assignment {
 
         struct SearchSlotResult final {
             SearchProjectionSlot          slot{};
+            std::size_t                   connection_count{};
             std::vector<SearchConnection> connections{};
         };
 
@@ -617,6 +624,14 @@ namespace timetable::domain::assignment {
                 return true;
             }
 
+            [[nodiscard]] std::size_t active_count() const noexcept {
+                std::size_t count = 0;
+                for (std::size_t i = 0; i < word_count(); ++i) {
+                    count += static_cast<std::size_t>(std::popcount(word(i)));
+                }
+                return count;
+            }
+
             [[nodiscard]] bool contains(std::size_t index) const noexcept {
                 return index < size
                     && (word(index / word_bits)
@@ -668,6 +683,30 @@ namespace timetable::domain::assignment {
                     }
                 }
             }
+
+            template <typename Visitor>
+            void for_each_difference_index(
+                  const ActiveIndexSet& rhs
+                , Visitor&&             visit
+            ) const {
+                auto&& visitor = visit;
+                const auto lhs_words = word_count();
+                const auto rhs_words = rhs.word_count();
+                for (std::size_t word_index = 0; word_index < lhs_words; ++word_index) {
+                    const auto rhs_word = word_index < rhs_words
+                        ? rhs.word(word_index)
+                        : std::uint64_t{ 0 };
+                    auto bits = word(word_index) & ~rhs_word;
+                    while (bits != 0u) {
+                        const auto bit = static_cast<std::size_t>(std::countr_zero(bits));
+                        const auto index = word_index * word_bits + bit;
+                        if (index < size) {
+                            visitor(index);
+                        }
+                        bits &= bits - 1u;
+                    }
+                }
+            }
         };
 
         struct FixedActiveMask final {
@@ -706,7 +745,7 @@ namespace timetable::domain::assignment {
         };
 
         constexpr std::size_t kTaskProgressStep    = 10;
-        constexpr std::size_t kSearchHeartbeatStep = 10'000;
+        constexpr std::size_t kSearchHeartbeatStep = 100'000;
         constexpr std::size_t kSearchWallClockSuccessorCheckStep = 16'384;
         constexpr std::size_t kInitialTaskBranchReserve = 4'096;
         constexpr std::size_t kAllZoneMaxParallelBatches = 4;
@@ -1929,9 +1968,9 @@ namespace timetable::domain::assignment {
             , PartialPruningMetrics             metrics
         ) {
             auto& known = known_metrics[node];
-            known = insert_search_pruning_metrics(
+            insert_search_pruning_metrics_in_place(
                   pruning_execution
-                , std::move(known)
+                , known
                 , std::move(metrics)
             );
         }
@@ -1971,6 +2010,32 @@ namespace timetable::domain::assignment {
                 summary.min_transfers = std::min(
                       summary.min_transfers
                     , static_cast<double>(alternative.metrics.transfers.get())
+                );
+            }
+            return summary;
+        }
+
+        [[nodiscard]] CompleteConnectionMetricSummary summarize_complete_metrics(
+            const CompactCompleteConnectionRetention& retention
+        ) noexcept {
+            CompleteConnectionMetricSummary summary{
+                  .min_impedance    = std::numeric_limits<double>::infinity()
+                , .min_journey_time = std::numeric_limits<double>::infinity()
+                , .min_transfers    = std::numeric_limits<double>::infinity()
+                , .empty            = retention.metrics.empty()
+            };
+            for (const auto& metrics : retention.metrics) {
+                summary.min_impedance = std::min(
+                      summary.min_impedance
+                    , metrics.impedance
+                );
+                summary.min_journey_time = std::min(
+                      summary.min_journey_time
+                    , metrics.journey_time.value()
+                );
+                summary.min_transfers = std::min(
+                      summary.min_transfers
+                    , static_cast<double>(metrics.transfers.get())
                 );
             }
             return summary;
@@ -2176,6 +2241,76 @@ namespace timetable::domain::assignment {
                 if (complete_connection_dominates_completion_lower_bound(
                       dominance_config
                     , complete.metrics
+                    , lower_bound
+                )) {
+                    return SuffixLowerBoundPruningDecision{
+                          .feasible = false
+                        , .rejection_reason = SuffixLowerBoundRejectionReason::ExactDominance
+                    };
+                }
+            }
+
+            if (choice_config.rollout_stage != ChoiceRolloutStage::ExactAndApproximate) {
+                return SuffixLowerBoundPruningDecision{ .feasible = true };
+            }
+
+            auto reason = SuffixLowerBoundRejectionReason::ToleranceImpedance;
+            if (violates_complete_tolerance_lower_bound(
+                  lower_bound
+                , summarize_complete_metrics(complete_retention)
+                , params.choice_tolerances
+                , reason
+            )) {
+                return SuffixLowerBoundPruningDecision{
+                      .feasible = false
+                    , .rejection_reason = reason
+                };
+            }
+
+            return SuffixLowerBoundPruningDecision{ .feasible = true };
+        }
+
+        [[nodiscard]] mathfp::Expected<SuffixLowerBoundPruningDecision> evaluate_suffix_lower_bound_pruning(
+              const SearchBranch&                       branch
+            , ZoneId                                    destination
+            , const ResidualReachability&               reachability
+            , const CompactCompleteConnectionRetention& complete_retention
+            , const SearchParams&                       params
+            , const SearchCostContext&                  search_cost
+            , const ChoiceConfig&                       choice_config
+            , const CompleteConnectionDominanceConfig&  dominance_config
+        ) {
+            if (complete_retention.metrics.empty()) {
+                return SuffixLowerBoundPruningDecision{ .feasible = true };
+            }
+
+            const auto destination_it = reachability.destinations.find(destination);
+            if (destination_it == reachability.destinations.end()) {
+                return SuffixLowerBoundPruningDecision{ .feasible = true };
+            }
+
+            const auto state = residual_reachability_key(
+                relaxed_suffix_state(branch, destination, params.transfers)
+            );
+            const auto lower_bound_it = destination_it->second.suffix_lower_bounds.find(state);
+            if (lower_bound_it == destination_it->second.suffix_lower_bounds.end()) {
+                return SuffixLowerBoundPruningDecision{ .feasible = true };
+            }
+
+            MATHFP_TRY_LET(
+                  CompletionMetricLowerBound
+                , lower_bound
+                , completion_metric_lower_bound(
+                      branch
+                    , lower_bound_it->second
+                    , search_cost
+                )
+            );
+
+            for (const auto& complete : complete_retention.metrics) {
+                if (complete_connection_dominates_completion_lower_bound(
+                      dominance_config
+                    , complete
                     , lower_bound
                 )) {
                     return SuffixLowerBoundPruningDecision{
@@ -3283,6 +3418,143 @@ namespace timetable::domain::assignment {
             return std::optional<SearchConnection>{ std::move(connection) };
         }
 
+        [[nodiscard]] bool complete_branch_can_finish(
+              const SearchBranch&        branch
+            , const PreprocessedNetwork& network
+            , const TransferLimits&      limits
+            , ZoneId                     destination
+        ) {
+            if (!is_complete_connection(branch, destination)) {
+                return false;
+            }
+
+            if (!limits.allow_end_wait
+                && branch.trace.last_timed_segment != nullptr
+                && branch.trace.incoming_segment.has_value()) {
+                const auto& last_segment = connection_segment_at(
+                      network
+                    , branch.trace.incoming_segment.value()
+                );
+                if (is_walk_connection(last_segment)) {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        [[nodiscard]] mathfp::Expected<CompleteConnectionMetrics>
+        complete_connection_metrics_from_branch(
+              const SearchBranch&       branch
+            , const SearchCostContext&  search_cost
+        ) {
+            if (!branch.metrics.departure.has_value()
+                || !branch.metrics.current_time.has_value()) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("completed branch metrics miss departure or arrival")
+                        .ctx("origin", branch.trace.origin.get())
+                );
+            }
+
+            const auto components = SearchCostComponents{
+                  .base = partial_impedance_components(branch.metrics)
+                , .capacity_exposure = branch.metrics.capacity_exposure
+            };
+            MATHFP_TRY_LET(
+                  double
+                , impedance
+                , search_impedance(components, search_cost)
+            );
+            return CompleteConnectionMetrics{
+                  .departure   = *branch.metrics.departure
+                , .arrival     = *branch.metrics.current_time
+                , .journey_time = partial_journey_time(branch.metrics)
+                , .transfers    = branch.metrics.transfers
+                , .impedance    = impedance
+            };
+        }
+
+        [[nodiscard]] std::size_t finalize_compact_complete_connection_count(
+              const CompactCompleteConnectionRetention& retention
+            , const ChoiceTolerances&                   tolerances
+            , ChoiceRolloutStage                        rollout_stage
+        ) noexcept {
+            if (rollout_stage == ChoiceRolloutStage::ExactOnly) {
+                return retention.metrics.size();
+            }
+
+            const auto summary = summarize_complete_metrics(retention);
+            std::size_t count = 0;
+            for (const auto& metrics : retention.metrics) {
+                if (within_complete_connection_tolerances(
+                      metrics
+                    , summary
+                    , tolerances
+                )) {
+                    ++count;
+                }
+            }
+            return count;
+        }
+
+        mathfp::Expected<CompleteConnectionRetentionDecision>
+        retain_exact_compact_complete_connection(
+              CompactCompleteConnectionRetention& retention
+            , const BranchArena&                  branches
+            , const SearchBranch&                 branch
+            , CompleteConnectionMetrics           metrics
+            , const CompleteConnectionDominanceConfig& dominance_config
+        ) {
+            for (const auto& known : retention.metrics) {
+                if (complete_connection_dominates(
+                      dominance_config
+                    , known
+                    , metrics
+                )) {
+                    return CompleteConnectionRetentionDecision{
+                          .accepted          = false
+                        , .removed_dominated = 0
+                    };
+                }
+            }
+
+            auto trace = branch_connection_segments(branches, branch);
+            for (const auto& known : retention.traces) {
+                if (known == trace) {
+                    return CompleteConnectionRetentionDecision{
+                          .accepted          = false
+                        , .removed_dominated = 0
+                    };
+                }
+            }
+
+            const auto before = retention.metrics.size();
+            std::size_t write = 0;
+            for (std::size_t read = 0; read < retention.metrics.size(); ++read) {
+                if (complete_connection_dominates(
+                      dominance_config
+                    , metrics
+                    , retention.metrics[read]
+                )) {
+                    continue;
+                }
+                if (write != read) {
+                    retention.metrics[write] = retention.metrics[read];
+                    retention.traces[write]  = std::move(retention.traces[read]);
+                }
+                ++write;
+            }
+            retention.metrics.resize(write);
+            retention.traces.resize(write);
+            const auto removed = before - retention.metrics.size();
+            retention.metrics.push_back(metrics);
+            retention.traces.push_back(std::move(trace));
+            return CompleteConnectionRetentionDecision{
+                  .accepted          = true
+                , .removed_dominated = removed
+            };
+        }
+
         mathfp::Expected<SearchPruningDecision> retain_branch(
               const SearchBranch&               branch
             , NodeMetricMap&                    known_metrics
@@ -3412,6 +3684,7 @@ namespace timetable::domain::assignment {
             std::size_t total = 0;
             for (const auto& retention : retentions) {
                 total += retention.complete_connections.alternatives.size();
+                total += retention.compact_complete_connections.metrics.size();
             }
             return total;
         }
@@ -3441,12 +3714,17 @@ namespace timetable::domain::assignment {
             const auto pruning_nodes = tree_retention.known_metrics.size();
             const auto pruning_buckets = tree_retention.known_metrics.bucket_count();
             const auto live_branches = branches.size() - released_branches;
+            std::size_t compact_complete_metrics = 0;
+            for (const auto& retention : retentions) {
+                compact_complete_metrics += retention.compact_complete_connections.metrics.size();
+            }
             const auto approximate_direct_bytes =
                   branches.size() * sizeof(BranchSlot)
                 + live_branches * sizeof(SearchBranch)
                 + projection_state_count * projection_state_size
                 + pruning_nodes * sizeof(NodeMetricMap::value_type)
-                + pruning_buckets * sizeof(void*);
+                + pruning_buckets * sizeof(void*)
+                + compact_complete_metrics * sizeof(CompleteConnectionMetrics);
             return SearchStorageDiagnostics{
                   .branch_slots = branches.size()
                 , .live_branches = live_branches
@@ -3773,7 +4051,7 @@ namespace timetable::domain::assignment {
                 return 0;
             };
             auto result = ReachabilityRejectionReason::Phase;
-            target_positions.for_each_index([&](std::size_t target_pos) {
+            target_positions.for_each_difference_index(reachability_entry.reachable, [&](std::size_t target_pos) {
                 const auto reason = reachability_entry.rejection_reasons.get(target_pos);
                 if (priority(reason) > priority(result)) {
                     result = reason;
@@ -3789,16 +4067,16 @@ namespace timetable::domain::assignment {
             ReachabilityTaskFilter result{
                   .reachable = task_positions.intersect(reachability_entry.reachable)
             };
-            result.unreachable.reserve(task_positions.size);
-            task_positions.for_each_index([&](std::size_t task_pos) {
-                if (!reachability_entry.reachable.contains(task_pos)) {
-                    result.unreachable.push_back(
-                        RejectedReachabilityTask{
-                              .task_position = task_pos
-                            , .reason        = reachability_entry.rejection_reasons.get(task_pos)
-                        }
-                    );
-                }
+            const auto active_count = task_positions.active_count();
+            const auto reachable_count = result.reachable.active_count();
+            result.unreachable.reserve(active_count - reachable_count);
+            task_positions.for_each_difference_index(reachability_entry.reachable, [&](std::size_t task_pos) {
+                result.unreachable.push_back(
+                    RejectedReachabilityTask{
+                          .task_position = task_pos
+                        , .reason        = reachability_entry.rejection_reasons.get(task_pos)
+                    }
+                );
             });
             return result;
         }
@@ -3871,6 +4149,16 @@ namespace timetable::domain::assignment {
             return matches;
         }
 
+        [[nodiscard]] std::map<ZoneId, std::size_t> completion_target_position_by_destination(
+            std::span<const SearchCompletionTarget> batch_targets
+        ) {
+            std::map<ZoneId, std::size_t> positions;
+            for (std::size_t target_pos = 0; target_pos < batch_targets.size(); ++target_pos) {
+                positions[batch_targets[target_pos].destination] = target_pos;
+            }
+            return positions;
+        }
+
         [[nodiscard]] mathfp::Expected<IntervalId> complete_retention_interval(
               const SearchProjectionSlot& slot
             , const SearchCostContext&    search_cost
@@ -3901,6 +4189,42 @@ namespace timetable::domain::assignment {
             , SearchProjectionRetention& retention
             , TaskSearchStats&           stats
         ) {
+            if (slot.kind == SearchProjectionSlotKind::CompletionTarget) {
+                if (!complete_branch_can_finish(
+                      branch
+                    , network
+                    , params.transfers
+                    , slot.destination
+                )) {
+                    return mathfp::kUnit;
+                }
+
+                ++stats.completed_connections;
+                MATHFP_TRY_LET(
+                      CompleteConnectionMetrics
+                    , metrics
+                    , complete_connection_metrics_from_branch(
+                          branch
+                        , search_cost
+                      )
+                );
+                const auto retention_decision = retain_exact_compact_complete_connection(
+                      retention.compact_complete_connections
+                    , branches
+                    , branch
+                    , metrics
+                    , dominance_config
+                );
+                if (!retention_decision) {
+                    return mathfp::unexpected(std::move(retention_decision.error()));
+                }
+                stats.removed_complete_dominated += retention_decision->removed_dominated;
+                if (!retention_decision->accepted) {
+                    ++stats.rejected_complete_dominance;
+                }
+                return mathfp::kUnit;
+            }
+
             MATHFP_TRY_LET(
                   std::optional<SearchConnection>
                 , complete
@@ -4023,6 +4347,9 @@ namespace timetable::domain::assignment {
                 };
             const auto target_projection_slots =
                 completion_target_projection_slots(batch_task_span);
+            const auto target_positions_by_destination = target_projection_slots
+                ? completion_target_position_by_destination(batch_target_span)
+                : std::map<ZoneId, std::size_t>{};
             if (target_projection_slots
                 && batch.projection_slots.size() > FixedActiveMask::max_size) {
                 return mathfp::unexpected(
@@ -4464,17 +4791,34 @@ namespace timetable::domain::assignment {
                         return;
                     }
 
-                    const auto completed_target = matches_completion_target(
-                          *candidate
-                        , active_targets
-                        , batch_target_span
-                    );
-                    if (completed_target) {
-                        const auto complete_task_positions = matching_complete_tasks(
-                              *candidate
-                            , active_tasks
-                            , batch_task_span
+                    std::vector<std::size_t> complete_task_positions;
+                    bool completed_target = false;
+                    if (target_projection_slots
+                        && candidate->metrics.departure.has_value()
+                        && candidate->trace.current_physical.kind == EndpointKind::Zone) {
+                        const auto position_it = target_positions_by_destination.find(
+                            ZoneId{ candidate->trace.current_physical.id }
                         );
+                        if (position_it != target_positions_by_destination.end()
+                            && active_targets.contains(position_it->second)) {
+                            completed_target = true;
+                            complete_task_positions.push_back(position_it->second);
+                        }
+                    } else {
+                        completed_target = matches_completion_target(
+                              *candidate
+                            , active_targets
+                            , batch_target_span
+                        );
+                        if (completed_target) {
+                            complete_task_positions = matching_complete_tasks(
+                                  *candidate
+                                , active_tasks
+                                , batch_task_span
+                            );
+                        }
+                    }
+                    if (completed_target) {
                         bool retained_complete = false;
                         for (const auto task_pos : complete_task_positions) {
                             const auto completed_before = task_stats[task_pos].completed_connections;
@@ -4572,21 +4916,32 @@ namespace timetable::domain::assignment {
 
                     ActiveIndexSet next_active_tasks{ batch.projection_slots.size() };
                     std::vector<RejectedSuffixLowerBoundTask> lower_bound_rejected_tasks;
-                    lower_bound_rejected_tasks.reserve(reachable_tasks.reachable.size);
+                    lower_bound_rejected_tasks.reserve(reachable_tasks.reachable.active_count());
                     reachable_tasks.reachable.for_each_index([&](std::size_t task_pos) {
                         if (!successor_error) {
                             return;
                         }
-                        auto lower_bound_decision = evaluate_suffix_lower_bound_pruning(
-                              *candidate
-                            , batch.projection_slots[task_pos].destination
-                            , reachability
-                            , retentions[task_pos].complete_connections
-                            , params
-                            , search_cost
-                            , choice_config
-                            , complete_connection_dominance
-                        );
+                        auto lower_bound_decision = target_projection_slots
+                            ? evaluate_suffix_lower_bound_pruning(
+                                  *candidate
+                                , batch.projection_slots[task_pos].destination
+                                , reachability
+                                , retentions[task_pos].compact_complete_connections
+                                , params
+                                , search_cost
+                                , choice_config
+                                , complete_connection_dominance
+                              )
+                            : evaluate_suffix_lower_bound_pruning(
+                                  *candidate
+                                , batch.projection_slots[task_pos].destination
+                                , reachability
+                                , retentions[task_pos].complete_connections
+                                , params
+                                , search_cost
+                                , choice_config
+                                , complete_connection_dominance
+                              );
                         if (!lower_bound_decision) {
                             successor_error = mathfp::unexpected(
                                 std::move(lower_bound_decision.error())
@@ -4701,23 +5056,36 @@ namespace timetable::domain::assignment {
             for (std::size_t task_pos = 0; task_pos < batch.projection_slots.size(); ++task_pos) {
                 const auto& slot = batch.projection_slots[task_pos];
                 auto& retention   = retentions[task_pos];
-                const auto before_tolerance = retention.complete_connections.alternatives.size();
-                auto connections = finalize_complete_connection_retention(
-                      retention.complete_connections
-                    , params.choice_tolerances
-                    , choice_config.rollout_stage
-                );
+                const auto before_tolerance = target_projection_slots
+                    ? retention.compact_complete_connections.metrics.size()
+                    : retention.complete_connections.alternatives.size();
+                std::vector<SearchConnection> connections;
+                const auto connection_count = target_projection_slots
+                    ? finalize_compact_complete_connection_count(
+                          retention.compact_complete_connections
+                        , params.choice_tolerances
+                        , choice_config.rollout_stage
+                      )
+                    : [&]() {
+                          connections = finalize_complete_connection_retention(
+                                retention.complete_connections
+                              , params.choice_tolerances
+                              , choice_config.rollout_stage
+                          );
+                          return connections.size();
+                      }();
                 task_stats[task_pos].rejected_complete_tolerance =
-                    before_tolerance - connections.size();
+                    before_tolerance - connection_count;
                 stats.rejected_complete_admissibility += task_stats[task_pos].rejected_complete_admissibility;
                 stats.rejected_complete_dominance += task_stats[task_pos].rejected_complete_dominance;
                 stats.removed_complete_dominated  += task_stats[task_pos].removed_complete_dominated;
                 stats.rejected_complete_tolerance += task_stats[task_pos].rejected_complete_tolerance;
-                batch_final_found += connections.size();
+                batch_final_found += connection_count;
                 batch_retained_before_tolerance += before_tolerance;
                 slot_results.push_back(
                     SearchSlotResult{
                           .slot = slot
+                        , .connection_count = connection_count
                         , .connections = std::move(connections)
                     }
                 );
@@ -4744,7 +5112,7 @@ namespace timetable::domain::assignment {
                         , slot.interval.has_value()
                             ? std::to_string(slot.interval->get())
                             : std::string{"<none>"}
-                        , slot_results.back().connections.size()
+                        , slot_results.back().connection_count
                         , before_tolerance
                         , task_stats[task_pos].rejected_complete_admissibility
                         , task_stats[task_pos].rejected_complete_dominance
@@ -5608,7 +5976,7 @@ namespace timetable::domain::assignment {
         ) noexcept {
             std::size_t total = 0;
             for (const auto& result : results) {
-                total += result.connections.size();
+                total += result.connection_count;
             }
             return total;
         }
@@ -5671,7 +6039,7 @@ namespace timetable::domain::assignment {
                         continue;
                     }
                     counts[slot_result.slot.origin][slot_result.slot.destination] =
-                        slot_result.connections.size();
+                        slot_result.connection_count;
                 }
                 return mathfp::kUnit;
             }

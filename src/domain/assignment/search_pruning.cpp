@@ -313,6 +313,19 @@ namespace timetable::domain::assignment {
         , SearchPruningMetricSet    metric_set
         , SearchPruningMetrics      metrics
     ) {
+        insert_exact_pruning_metrics_in_place(
+              exact_policy
+            , metric_set
+            , std::move(metrics)
+        );
+        return metric_set;
+    }
+
+    void insert_exact_pruning_metrics_in_place(
+          const ExactPruningPolicy& exact_policy
+        , SearchPruningMetricSet&   metric_set
+        , SearchPruningMetrics      metrics
+    ) {
         const auto dominated_begin = std::lower_bound(
               metric_set.metrics.begin()
             , metric_set.metrics.end()
@@ -350,7 +363,6 @@ namespace timetable::domain::assignment {
         } else {
             update_summary_with_metrics(metric_set.summary, inserted_metrics);
         }
-        return metric_set;
     }
 
     SearchPruningMetricSet insert_exact_pruning_metrics(
@@ -479,10 +491,27 @@ namespace timetable::domain::assignment {
         , SearchPruningMetricSet             metric_set
         , SearchPruningMetrics               metrics
     ) {
+        insert_search_pruning_metrics_in_place(
+              execution
+            , metric_set
+            , std::move(metrics)
+        );
+        return metric_set;
+    }
+
+    void insert_search_pruning_metrics_in_place(
+          const SearchPruningExecutionPlan& execution
+        , SearchPruningMetricSet&           metric_set
+        , SearchPruningMetrics              metrics
+    ) {
         if (!stores_search_pruning_metrics(execution)) {
-            return metric_set;
+            return;
         }
-        return insert_exact_pruning_metrics(execution.exact_policy, std::move(metric_set), std::move(metrics));
+        insert_exact_pruning_metrics_in_place(
+              execution.exact_policy
+            , metric_set
+            , std::move(metrics)
+        );
     }
 
 }  // namespace timetable::domain::assignment
