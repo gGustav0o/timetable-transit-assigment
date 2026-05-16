@@ -488,9 +488,9 @@ namespace timetable::infra::params_txt::detail {
             );
             return make_search_tolerances(
                   Dimless{ fields.imp_mult }
-                , Dimless{ fields.imp_add }
+                , Dimless{ search_temporal_parameter_input_seconds(fields.imp_add) }
                 , Dimless{ fields.jt_mult }
-                , Dimless{ fields.jt_add }
+                , Dimless{ search_temporal_parameter_input_seconds(fields.jt_add) }
                 , Dimless{ fields.nt_mult }
                 , Dimless{ fields.nt_add }
             );
@@ -510,9 +510,9 @@ namespace timetable::infra::params_txt::detail {
             );
             return make_choice_tolerances(
                   Dimless{ fields.imp_mult }
-                , Dimless{ fields.imp_add }
+                , Dimless{ search_temporal_parameter_input_seconds(fields.imp_add) }
                 , Dimless{ fields.jt_mult }
-                , Dimless{ fields.jt_add }
+                , Dimless{ search_temporal_parameter_input_seconds(fields.jt_add) }
                 , Dimless{ fields.nt_mult }
                 , Dimless{ fields.nt_add }
             );
@@ -532,8 +532,8 @@ namespace timetable::infra::params_txt::detail {
 
             return make_transfer_limits(
                   TransferCount{ static_cast<std::int32_t>(fields.max_transfers) }
-                , Time{ fields.min_transfer_wait }
-                , Time{ fields.max_transfer_wait }
+                , Time{ search_temporal_parameter_input_seconds(fields.min_transfer_wait) }
+                , Time{ search_temporal_parameter_input_seconds(fields.max_transfer_wait) }
                 , true
                 , true
             );

@@ -80,6 +80,42 @@ namespace timetable::domain {
     };
 
     /**
+     * @brief Input unit for time-like search parameters parsed from params.txt.
+     *
+     * VISUM-style parameter files express minTWT/maxTWT and absolute tolerance
+     * additions such as minSearchImpAbs/minJourneyTimeAbs in minutes. The
+     * domain model stores timetable times and time-based generalized costs in
+     * seconds, so parsing must normalize these fields before constructing
+     * TransferLimits, SearchTolerances and ChoiceTolerances.
+     */
+    enum class SearchTemporalParameterUnit : std::uint8_t {
+          Minutes
+        , Seconds
+    };
+
+    inline constexpr SearchTemporalParameterUnit kSearchTemporalParameterInputUnit =
+        SearchTemporalParameterUnit::Minutes;
+
+    [[nodiscard]] inline constexpr double search_temporal_parameter_unit_multiplier(
+        SearchTemporalParameterUnit unit
+    ) noexcept {
+        switch (unit) {
+            case SearchTemporalParameterUnit::Minutes:
+                return 60.0;
+            case SearchTemporalParameterUnit::Seconds:
+                return 1.0;
+        }
+        return 1.0;
+    }
+
+    [[nodiscard]] inline constexpr double search_temporal_parameter_input_seconds(
+          double                      raw_value
+        , SearchTemporalParameterUnit unit = kSearchTemporalParameterInputUnit
+    ) noexcept {
+        return raw_value * search_temporal_parameter_unit_multiplier(unit);
+    }
+
+    /**
      * @brief Tolerances applied during the search at intermediate nodes.
      *
      * Used to prune dominated connections early while keeping diversity.

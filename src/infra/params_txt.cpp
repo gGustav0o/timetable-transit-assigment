@@ -8,6 +8,7 @@
 
 #include <mathfp/core/error.hpp>
 #include <mathfp/core/try.hpp>
+#include <mathfp/types/units.hpp>
 
 #include "detail/params_txt.hpp"
 #include "timetable/infra/progress_bus.hpp"
@@ -73,9 +74,17 @@ namespace timetable::infra::params_txt {
         log(
             fmt::format(
                   "parsing: params mapped; max_transfers = {}  allow_start_wait = {}  allow_end_wait = {}"
+                  "  min_transfer_wait_sec = {}  max_transfer_wait_sec = {}"
+                  "  search_abs_tol(imp/jt) = {}/{}  choice_abs_tol(imp/jt) = {}/{}"
                 , params.transfers.max_transfers.get()
                 , params.transfers.allow_start_wait ? "true" : "false"
                 , params.transfers.allow_end_wait   ? "true" : "false"
+                , params.transfers.min_transfer_wait.value()
+                , params.transfers.max_transfer_wait.value()
+                , mathfp::units::as_dimless(params.search_tolerances.imp_add)
+                , mathfp::units::as_dimless(params.search_tolerances.jt_add)
+                , mathfp::units::as_dimless(params.choice_tolerances.imp_add)
+                , mathfp::units::as_dimless(params.choice_tolerances.jt_add)
             )
             , LogLevel::Info
         );
@@ -101,12 +110,20 @@ namespace timetable::infra::params_txt {
         log(
             fmt::format(
                   "parsing: assignment runtime params mapped; max_transfers = {}  skim_enabled = {}  skim_func = {}"
+                  "  min_transfer_wait_sec = {}  max_transfer_wait_sec = {}"
+                  "  search_abs_tol(imp/jt) = {}/{}  choice_abs_tol(imp/jt) = {}/{}"
                   "  pre_assign_period_sec = {}  post_assign_period_sec = {}"
                   "  delete_outside_assignment_period = {}  demand_segment_basis = {}"
                   "  deactivate_direct_dominance = {}"
                 , params.search.transfers.max_transfers.get()
                 , params.skim_matrix.enabled ? "true" : "false"
                 , timetable::domain::assignment::to_string(params.skim_matrix.func)
+                , params.search.transfers.min_transfer_wait.value()
+                , params.search.transfers.max_transfer_wait.value()
+                , mathfp::units::as_dimless(params.search.search_tolerances.imp_add)
+                , mathfp::units::as_dimless(params.search.search_tolerances.jt_add)
+                , mathfp::units::as_dimless(params.search.choice_tolerances.imp_add)
+                , mathfp::units::as_dimless(params.search.choice_tolerances.jt_add)
                 , params.assignment_period.pre_assign_period.value()
                 , params.assignment_period.post_assign_period.value()
                 , params.connection_deletion.delete_outside_assignment_period ? "true" : "false"

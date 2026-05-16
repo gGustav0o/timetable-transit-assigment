@@ -24,6 +24,9 @@
   - PerceivedJourneyTime.volCapRatioFactor — читается и хранится в PerceivedJourneyTimeWeights.volume_capacity_ratio; положительное значение включает capacity-aware split и применяется в итерационном fixed-point/MSA слое при наличии veh_journey_item_cap.csv.
   - searchPara.allowDominanceForEquivalentConnections — подключен как флаг partial-search retention между эквивалентными состояниями поиска.
   - searchPara.deactivateDominanceOfDirectConnections — подключен как флаг complete-connection dominance: прямое полное соединение не может доминировать другие complete connections и suffix lower-bound candidates.
+  - searchPara.ToleranceConstraints.minSearchImpAbs/minJourneyTimeAbs — входные абсолютные допуски трактуются как минуты и нормализуются в секунды перед построением SearchTolerances.
+  - choicePara.ToleranceConstraints.minSearchImpAbs/minJourneyTimeAbs — входные абсолютные допуски трактуются как минуты и нормализуются в секунды перед построением ChoiceTolerances.
+  - searchPara.TemporalSuitability.minTWT/maxTWT — входные значения трактуются как минуты и нормализуются в секунды перед построением TransferLimits.
   - searchExecution.partialRetentionScope — необязательный ключ режима partial-retention: tree_global задает целевую article-like реализацию с общей pruning-памятью дерева, projection_slot_local сохраняет прежний консервативный per-projection-slot режим.
   - searchExecution.validatePhaseInvariants — необязательный диагностический флаг: при True включает дорогую проверку фазовых инвариантов каждой принятой ветви; при отсутствии ключа используется False.
   - veh_journey_item_cap.csv — подключен как необязательный вход провозной способности vehicle journey items для post-assignment overload assessment.
@@ -89,6 +92,15 @@
   - validation search/choice проверяет, что в результирующих task_results не осталось соединений, запрещенных admissibility-предикатом;
   - если задан флаг удаления, не соответствующий текущей основе demand segment, preprocessing выдает предупреждение;
   - SearchTimePaddingPolicy остается отдельной моделью для search-time-domain planning/optimization и не смешивается с AssignmentPeriodConfig.
+
+Семантика временных параметров поиска и абсолютных допусков:
+
+  - для VISUM-подобного params.txt значения searchPara.TemporalSuitability.minTWT/maxTWT, searchPara.ToleranceConstraints.minSearchImpAbs/minJourneyTimeAbs и choicePara.ToleranceConstraints.minSearchImpAbs/minJourneyTimeAbs трактуются как минуты;
+  - доменная константа kSearchTemporalParameterInputUnit = SearchTemporalParameterUnit::Minutes задает это поведение по умолчанию;
+  - при парсинге эти значения умножаются на 60 и сохраняются во внутренней модели в секундах или секундно-согласованных единицах generalized cost;
+  - minNumberTransfersAbs не является временной величиной и не умножается на 60;
+  - множители minSearchImpFactor/minJourneyTimeFactor/minNumberTransfersFactor также не меняются, потому что они безразмерны;
+  - диагностика params.txt выводит нормализованные min_transfer_wait_sec, max_transfer_wait_sec, search_abs_tol(imp/jt) и choice_abs_tol(imp/jt), чтобы по логу было видно, какие значения реально использует расчет.
 
 Семантика splitPara.depBasedDSeg и delta_t:
 

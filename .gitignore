@@ -31,5 +31,6 @@ __pycache__/
 baselines/
 data/
 runs/
+docs/
 /AGENTS.md
 
