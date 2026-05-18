@@ -270,17 +270,6 @@ namespace timetable::domain::assignment {
             };
         }
 
-        std::optional<Time> first_timed_departure(
-            const SearchConnection& connection
-        ) noexcept {
-            for (const auto& leg : canonical_connection(connection).trace.legs) {
-                if (is_ride_leg(leg.kind)) {
-                    return leg.start_time;
-                }
-            }
-            return std::nullopt;
-        }
-
         mathfp::Expected<mathfp::Unit> validate_no_intermediate_zone_endpoints(
               const SearchConnection& connection
             , std::size_t             index
@@ -492,16 +481,13 @@ namespace timetable::domain::assignment {
                         , evaluated
                         , evaluate_connection_trace(connection, network, i)
                     );
-                    const auto first_departure = first_timed_departure(connection);
-                    if (!first_departure.has_value()
-                        || !contains(task_result.task.departure_domain, *first_departure)) {
+                    const auto connection_departure = metrics_of(connection).departure_time;
+                    if (!contains(task_result.task.departure_domain, connection_departure)) {
                         return mathfp::unexpected(
                             mathfp::invalid_arg("search task contains connection outside departure domain")
                                 .ctx("task_index"           , task_result.task.index.get())
                                 .ctx("interval_id"          , task_result.task.interval.id.get())
-                                .ctx("first_timed_departure", first_departure.has_value()
-                                    ? first_departure->value()
-                                    : -1.0)
+                                .ctx("departure_time"       , connection_departure.value())
                         );
                     }
                     MATHFP_TRY(validate_evaluated_segments_against_canonical_connection(

@@ -5,6 +5,7 @@
 #include <map>
 #include <string>
 #include <tuple>
+#include <vector>
 
 #include <mathfp/core/error.hpp>
 #include <mathfp/core/summation.hpp>
@@ -42,6 +43,11 @@ namespace timetable::domain::assignment::detail {
             IntervalId interval{};
             LineId     line{};
             RouteId    route{};
+        };
+
+        struct StopLoadKey final {
+            IntervalId interval{};
+            StopId     stop{};
         };
 
         [[nodiscard]] bool operator<(
@@ -99,6 +105,14 @@ namespace timetable::domain::assignment::detail {
         ) noexcept {
             return std::tuple{ lhs.interval.get(), lhs.line.get(), lhs.route.get() }
                  < std::tuple{ rhs.interval.get(), rhs.line.get(), rhs.route.get() };
+        }
+
+        [[nodiscard]] bool operator<(
+              const StopLoadKey& lhs
+            , const StopLoadKey& rhs
+        ) noexcept {
+            return std::tuple{ lhs.interval.get(), lhs.stop.get() }
+                 < std::tuple{ rhs.interval.get(), rhs.stop.get() };
         }
 
         [[nodiscard]] StopOccurrence stop_occurrence_from_key(
@@ -210,10 +224,87 @@ namespace timetable::domain::assignment::detail {
             std::size_t segment_load_count{};
         };
 
+        struct StopLoadAggregate final {
+            mathfp::CompensatedSum<double> boarding_passengers{};
+            mathfp::CompensatedSum<double> alighting_passengers{};
+            mathfp::CompensatedSum<double> transfer_boarding_passengers{};
+            mathfp::CompensatedSum<double> transfer_alighting_passengers{};
+            mathfp::CompensatedSum<double> incoming_passenger_segments{};
+            mathfp::CompensatedSum<double> outgoing_passenger_segments{};
+            mathfp::CompensatedSum<double> through_passengers{};
+        };
+
         using SegmentLoadMap = std::map<SegmentLoadKey, mathfp::CompensatedSum<double>>;
         using LineLoadMap    = std::map<LineLoadKey, LoadAggregate>;
         using RouteLoadMap   = std::map<RouteLoadKey, LoadAggregate>;
         using TripLoadMap    = std::map<TripLoadKey, LoadAggregate>;
+        using StopLoadMap    = std::map<StopLoadKey, StopLoadAggregate>;
+
+        [[nodiscard]] bool same_trip_continuation(
+              const ConnectionLeg& lhs
+            , const ConnectionLeg& rhs
+        ) noexcept {
+            return lhs.trip.has_value()
+                && rhs.trip.has_value()
+                && lhs.occurrence_to.has_value()
+                && rhs.occurrence_from.has_value()
+                && *lhs.trip == *rhs.trip
+                && lhs.occurrence_to->stop == rhs.occurrence_from->stop
+                && lhs.occurrence_to->position == rhs.occurrence_from->position;
+        }
+
+        [[nodiscard]] const ConnectionLeg* previous_ride_leg(
+              const std::vector<ConnectionLeg>& legs
+            , std::size_t                       index
+        ) noexcept {
+            while (index > 0) {
+                --index;
+                if (is_ride_leg(legs[index].kind)) {
+                    return &legs[index];
+                }
+            }
+            return nullptr;
+        }
+
+        [[nodiscard]] const ConnectionLeg* next_ride_leg(
+              const std::vector<ConnectionLeg>& legs
+            , std::size_t                       index
+        ) noexcept {
+            for (std::size_t i = index + 1; i < legs.size(); ++i) {
+                if (is_ride_leg(legs[i].kind)) {
+                    return &legs[i];
+                }
+            }
+            return nullptr;
+        }
+
+        [[nodiscard]] mathfp::Expected<StopOccurrenceKey> require_occurrence_from(
+              IntervalId           interval
+            , const ConnectionLeg& leg
+        ) {
+            if (leg.occurrence_from.has_value()) {
+                return *leg.occurrence_from;
+            }
+            return mathfp::unexpected(
+                mathfp::internal_error("ride leg is missing from-stop occurrence for stop-load projection")
+                    .ctx("interval_id", interval.get())
+                    .ctx("leg_kind"   , std::string(to_string(leg.kind)))
+            );
+        }
+
+        [[nodiscard]] mathfp::Expected<StopOccurrenceKey> require_occurrence_to(
+              IntervalId           interval
+            , const ConnectionLeg& leg
+        ) {
+            if (leg.occurrence_to.has_value()) {
+                return *leg.occurrence_to;
+            }
+            return mathfp::unexpected(
+                mathfp::internal_error("ride leg is missing to-stop occurrence for stop-load projection")
+                    .ctx("interval_id", interval.get())
+                    .ctx("leg_kind"   , std::string(to_string(leg.kind)))
+            );
+        }
 
         mathfp::Expected<mathfp::Unit> accumulate_share_load(
               SegmentLoadMap&               segment_loads
@@ -240,8 +331,94 @@ namespace timetable::domain::assignment::detail {
             return mathfp::kUnit;
         }
 
+        mathfp::Expected<mathfp::Unit> accumulate_share_stop_load(
+              StopLoadMap&                  stop_loads
+            , const ConnectionDemandShare&  share
+        ) {
+            if (!(share.passengers > 0.0)) {
+                return mathfp::kUnit;
+            }
+
+            const auto& legs = canonical_connection(share.connection).trace.legs;
+            for (std::size_t i = 0; i < legs.size(); ++i) {
+                const auto& leg = legs[i];
+                if (!is_ride_leg(leg.kind)) {
+                    continue;
+                }
+
+                MATHFP_TRY_LET(
+                      StopOccurrenceKey
+                    , from
+                    , require_occurrence_from(share.interval, leg)
+                );
+                MATHFP_TRY_LET(
+                      StopOccurrenceKey
+                    , to
+                    , require_occurrence_to(share.interval, leg)
+                );
+
+                auto& from_stop = stop_loads[StopLoadKey{
+                      .interval = share.interval
+                    , .stop     = from.stop
+                }];
+                from_stop.outgoing_passenger_segments.add(share.passengers);
+
+                auto& to_stop = stop_loads[StopLoadKey{
+                      .interval = share.interval
+                    , .stop     = to.stop
+                }];
+                to_stop.incoming_passenger_segments.add(share.passengers);
+
+                const auto* previous_ride = previous_ride_leg(legs, i);
+                const auto* next_ride     = next_ride_leg(legs, i);
+
+                const auto continues_from_previous =
+                       previous_ride != nullptr
+                    && same_trip_continuation(*previous_ride, leg);
+                const auto continues_to_next =
+                       next_ride != nullptr
+                    && same_trip_continuation(leg, *next_ride);
+
+                if (continues_from_previous) {
+                    from_stop.through_passengers.add(share.passengers);
+                } else {
+                    from_stop.boarding_passengers.add(share.passengers);
+                    if (previous_ride != nullptr) {
+                        from_stop.transfer_boarding_passengers.add(share.passengers);
+                    }
+                }
+
+                if (!continues_to_next) {
+                    to_stop.alighting_passengers.add(share.passengers);
+                    if (next_ride != nullptr) {
+                        to_stop.transfer_alighting_passengers.add(share.passengers);
+                    }
+                }
+            }
+
+            return mathfp::kUnit;
+        }
+
+        [[nodiscard]] AssignmentStopLoad make_stop_load(
+              const StopLoadKey&       key
+            , const StopLoadAggregate& aggregate
+        ) noexcept {
+            return AssignmentStopLoad{
+                  .interval                      = key.interval
+                , .stop                          = key.stop
+                , .boarding_passengers           = aggregate.boarding_passengers.value()
+                , .alighting_passengers          = aggregate.alighting_passengers.value()
+                , .transfer_boarding_passengers  = aggregate.transfer_boarding_passengers.value()
+                , .transfer_alighting_passengers = aggregate.transfer_alighting_passengers.value()
+                , .incoming_passenger_segments   = aggregate.incoming_passenger_segments.value()
+                , .outgoing_passenger_segments   = aggregate.outgoing_passenger_segments.value()
+                , .through_passengers            = aggregate.through_passengers.value()
+            };
+        }
+
         [[nodiscard]] AssignmentLoads materialize_loads(
-            const SegmentLoadMap& segment_load_map
+              const SegmentLoadMap& segment_load_map
+            , const StopLoadMap&    stop_load_map
         ) {
             LineLoadMap line_load_map;
             RouteLoadMap route_load_map;
@@ -312,6 +489,11 @@ namespace timetable::domain::assignment::detail {
                 );
             }
 
+            loads.stop_loads.reserve(stop_load_map.size());
+            for (const auto& [key, aggregate] : stop_load_map) {
+                loads.stop_loads.push_back(make_stop_load(key, aggregate));
+            }
+
             return loads;
         }
 
@@ -321,10 +503,12 @@ namespace timetable::domain::assignment::detail {
         const DemandSplitResult& split_result
     ) {
         SegmentLoadMap segment_loads;
+        StopLoadMap    stop_loads;
         for (const auto& share : split_result.shares) {
             MATHFP_TRY(accumulate_share_load(segment_loads, share));
+            MATHFP_TRY(accumulate_share_stop_load(stop_loads, share));
         }
-        return materialize_loads(segment_loads);
+        return materialize_loads(segment_loads, stop_loads);
     }
 
 }  // namespace timetable::domain::assignment::detail

@@ -520,6 +520,39 @@ namespace timetable::infra {
             writer.end_object();
         }
 
+        void write_stop_load(
+              JsonWriter&                                  writer
+            , const timetable::domain::AssignmentStopLoad& load
+        ) {
+            writer.begin_object();
+            writer.key("interval_id");
+            write_strong_id(writer, load.interval);
+            writer.key("stop_id");
+            write_strong_id(writer, load.stop);
+            writer.key("boarding_passengers");
+            writer.number(load.boarding_passengers);
+            writer.key("alighting_passengers");
+            writer.number(load.alighting_passengers);
+            writer.key("transfer_boarding_passengers");
+            writer.number(load.transfer_boarding_passengers);
+            writer.key("transfer_alighting_passengers");
+            writer.number(load.transfer_alighting_passengers);
+            writer.key("incoming_passenger_segments");
+            writer.number(load.incoming_passenger_segments);
+            writer.key("outgoing_passenger_segments");
+            writer.number(load.outgoing_passenger_segments);
+            writer.key("through_passengers");
+            writer.number(load.through_passengers);
+            writer.key("stop_turnover_passengers");
+            writer.number(load.boarding_passengers + load.alighting_passengers);
+            writer.key("transfer_passengers");
+            writer.number(
+                  load.transfer_boarding_passengers
+                + load.transfer_alighting_passengers
+            );
+            writer.end_object();
+        }
+
         void write_loads(
               JsonWriter&                               writer
             , const timetable::domain::AssignmentLoads& loads
@@ -547,6 +580,12 @@ namespace timetable::infra {
             writer.begin_array();
             for (const auto& load : loads.segment_loads) {
                 write_segment_load(writer, load);
+            }
+            writer.end_array();
+            writer.key("stop_loads");
+            writer.begin_array();
+            for (const auto& load : loads.stop_loads) {
+                write_stop_load(writer, load);
             }
             writer.end_array();
             writer.end_object();
@@ -778,7 +817,7 @@ namespace timetable::infra {
         JsonWriter writer;
         writer.begin_object();
         writer.key("schema");
-        writer.string("timetable.assignment_output.v10");
+        writer.string("timetable.assignment_output.v11");
         writer.key("mode");
         writer.string(output_mode_token(output.mode));
         writer.key("units");

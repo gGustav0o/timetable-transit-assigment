@@ -177,8 +177,12 @@
   - при True общий branch-and-bound цикл проверяет фазовые инварианты корневой ветви и каждого принятого кандидата после расширения;
   - при False эти проверки не выполняются, что является производительным режимом по умолчанию для больших all-zone запусков;
   - ключ может задаваться как булево значение True/False или как числовое 1/0;
-  - если блок searchExecution отсутствует, используется all-zone/VISUM-like дефолт и validatePhaseInvariants = False;
-  - если блок searchExecution присутствует частично, неуказанные поля берутся из дефолтного searchExecution режима.
+  - если блок searchExecution отсутствует, используется дефолт полного назначения спроса:
+    origin_period, active_demand_origins, service_day, demand_destinations, demand_tasks,
+    partialRetentionScope = projection_slot_local и validatePhaseInvariants = False;
+  - если блок searchExecution присутствует частично, неуказанные поля берутся из дефолтного режима
+    полного назначения спроса, кроме случая явного указания mode: тогда применяется базовый
+    контракт выбранного режима с последующими переопределениями полей.
 
 Формализованы как отдельная доменная политика complete-connection dominance
 
@@ -216,7 +220,8 @@
   - если compile-time override TIMETABLE_OVERRIDE_DISABLE_VEHICLE_JOURNEY_ITEM_OVERLOAD_ASSESSMENT активен, AssignmentOutput.vehicle_journey_item_loads получает status = disabled_by_config и строки не формируются;
   - assignment_output.json содержит секцию vehicle_journey_item_loads со status и entries;
   - файловый экспорт содержит отдельный файл vehicle_journey_item_loads.csv с колонками interval_id, trip_id, from_index, passengers, total_capacity, seat_capacity, load_factor, overload_passengers, status;
-  - текущий loads.csv не изменяется и остается агрегатом прежней модели AssignmentLoads.
+  - stop_loads.csv содержит остановочные агрегаты: boarding_passengers, alighting_passengers, transfer_boarding_passengers, transfer_alighting_passengers, incoming_passenger_segments, outgoing_passenger_segments, through_passengers, stop_turnover_passengers, transfer_passengers;
+  - loads.csv остается таблицей линейных, маршрутных, рейсовых и сегментных нагрузок, а остановочные агрегаты вынесены в отдельный stop_loads.csv, чтобы не смешивать разные уровни агрегации.
 
 Связь с volCapRatioFactor:
 
@@ -239,10 +244,10 @@
   - если включен behavioral capacity-aware режим через SearchImp.volCapRatioFactor или PerceivedJourneyTime.volCapRatioFactor, pipeline требует загруженный veh_journey_item_cap.csv; при отсутствии capacity input расчет завершается ошибкой вместо молчаливого игнорирования capacity-aware режима;
   - validation behavioral capacity-aware assignment проверяет, что для каждого используемого ride item существует запись capacity и TOTALCAP > 0; zero capacity остается допустимым статусом только для post-assignment overload assessment, но не для behavioral search/split;
   - результат capacity-aware iteration валидируется как обычный split, а также проверяется корректность half-open проекции split -> vehicle journey item loads, конечность load state и согласованность diagnostics с max_iterations и заданными tolerance;
-  - JSON output schema = timetable.assignment_output.v10 содержит metadata.capacity_aware: capacity_aware_enabled, capacity_aware_search_enabled, iterations, converged, max_load_delta, used_factor, penalty_policy;
+  - JSON output schema = timetable.assignment_output.v11 содержит metadata.capacity_aware: capacity_aware_enabled, capacity_aware_search_enabled, iterations, converged, max_load_delta, used_factor, penalty_policy; по сравнению с v10 в секцию loads добавлен массив stop_loads;
   - iterations, converged и max_load_delta относятся к общему outer assignment-loop при capacity_aware_search_enabled = true и к split-only fixed-point loop при capacity_aware_search_enabled = false;
   - search diagnostics логирует search cost mode, номер внешней capacity-aware итерации, размеры capacity index и wall-clock heartbeat долгих batch/branch, чтобы отличать вычислительно тяжелый search от зависания процесса;
-  - CSV-экспорты не меняются: metadata.csv сохраняет прежние колонки и не содержит capacity-aware diagnostics;
+  - metadata.csv сохраняет прежние колонки и не содержит capacity-aware diagnostics; новые остановочные показатели вынесены в отдельный stop_loads.csv;
   - used_factor в metadata.capacity_aware равен максимальному из поведенчески примененных SearchImp.volCapRatioFactor и PerceivedJourneyTime.volCapRatioFactor.
 
 Требуют переработки кода

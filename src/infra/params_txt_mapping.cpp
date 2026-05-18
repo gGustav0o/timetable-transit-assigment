@@ -967,7 +967,7 @@ namespace timetable::infra::params_txt::detail {
                 , optional_object_at(root, "searchExecution", "root")
             );
             if (obj == nullptr) {
-                return make_all_zone_origin_period_search_execution_config();
+                return make_default_demand_assignment_search_execution_config();
             }
 
             MATHFP_TRY_LET(
@@ -975,7 +975,7 @@ namespace timetable::infra::params_txt::detail {
                 , mode_token
                 , optional_string_at(*obj, "mode", "root.searchExecution")
             );
-            auto config = make_all_zone_origin_period_search_execution_config();
+            auto config = make_default_demand_assignment_search_execution_config();
             if (mode_token.has_value()) {
                 MATHFP_TRY_LET(
                       SearchExecutionMode

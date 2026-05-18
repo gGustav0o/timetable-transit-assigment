@@ -198,6 +198,28 @@ namespace timetable::domain {
     };
 
     /**
+     * @brief Stop-level passenger exchange and pass-through aggregate.
+     *
+     * boarding/alighting count actual ride-chain entry and exit events.
+     * transfer_* count the subset of those events that connects two different
+     * ride chains within one passenger connection. incoming/outgoing are
+     * passenger-segment flows on ride legs adjacent to the stop. through counts
+     * passengers that remain on the same trip through the stop between two
+     * adjacent ride legs.
+     */
+    struct AssignmentStopLoad final {
+        IntervalId interval{};
+        StopId     stop{};
+        double     boarding_passengers{};
+        double     alighting_passengers{};
+        double     transfer_boarding_passengers{};
+        double     transfer_alighting_passengers{};
+        double     incoming_passenger_segments{};
+        double     outgoing_passenger_segments{};
+        double     through_passengers{};
+    };
+
+    /**
      * @brief Demand-induced public-transport loads derived from split shares.
      */
     struct AssignmentLoads final {
@@ -205,6 +227,7 @@ namespace timetable::domain {
         std::vector<AssignmentRouteLoad>   route_loads{};
         std::vector<AssignmentTripLoad>    trip_loads{};
         std::vector<AssignmentSegmentLoad> segment_loads{};
+        std::vector<AssignmentStopLoad>    stop_loads{};
     };
 
     enum class AssignmentOutputMode {

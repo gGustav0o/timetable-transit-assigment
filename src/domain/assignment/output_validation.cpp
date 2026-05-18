@@ -30,9 +30,15 @@ namespace timetable::domain::assignment::detail {
             std::size_t segment_load_count{};
         };
 
+        struct StopFlowAggregate final {
+            mathfp::CompensatedSum<double> incoming_passenger_segments{};
+            mathfp::CompensatedSum<double> outgoing_passenger_segments{};
+        };
+
         using LineLoadKey = std::tuple<std::int64_t, std::int64_t>;
         using RouteLoadKey = std::tuple<std::int64_t, std::int64_t, std::int64_t>;
         using TripLoadKey = std::tuple<std::int64_t, std::int64_t, std::int64_t, std::int64_t>;
+        using StopLoadKey = std::tuple<std::int64_t, std::int64_t>;
 
         [[nodiscard]] LineLoadKey line_load_key(
             const AssignmentSegmentLoad& load
@@ -70,6 +76,24 @@ namespace timetable::domain::assignment::detail {
             return RouteLoadKey{ load.interval.get(), load.line.get(), load.route.get() };
         }
 
+        [[nodiscard]] StopLoadKey from_stop_load_key(
+            const AssignmentSegmentLoad& load
+        ) noexcept {
+            return StopLoadKey{ load.interval.get(), load.from.stop.get() };
+        }
+
+        [[nodiscard]] StopLoadKey to_stop_load_key(
+            const AssignmentSegmentLoad& load
+        ) noexcept {
+            return StopLoadKey{ load.interval.get(), load.to.stop.get() };
+        }
+
+        [[nodiscard]] StopLoadKey stop_load_key(
+            const AssignmentStopLoad& load
+        ) noexcept {
+            return StopLoadKey{ load.interval.get(), load.stop.get() };
+        }
+
         [[nodiscard]] bool valid_segment_load(
             const AssignmentSegmentLoad& load
         ) noexcept {
@@ -85,6 +109,27 @@ namespace timetable::domain::assignment::detail {
             return passenger_segments >= 0.0
                 && std::isfinite(passenger_segments)
                 && segment_load_count > 0;
+        }
+
+        [[nodiscard]] bool valid_stop_load(
+            const AssignmentStopLoad& load
+        ) noexcept {
+            return std::isfinite(load.boarding_passengers)
+                && std::isfinite(load.alighting_passengers)
+                && std::isfinite(load.transfer_boarding_passengers)
+                && std::isfinite(load.transfer_alighting_passengers)
+                && std::isfinite(load.incoming_passenger_segments)
+                && std::isfinite(load.outgoing_passenger_segments)
+                && std::isfinite(load.through_passengers)
+                && load.boarding_passengers >= 0.0
+                && load.alighting_passengers >= 0.0
+                && load.transfer_boarding_passengers >= 0.0
+                && load.transfer_alighting_passengers >= 0.0
+                && load.incoming_passenger_segments >= 0.0
+                && load.outgoing_passenger_segments >= 0.0
+                && load.through_passengers >= 0.0
+                && load.transfer_boarding_passengers <= load.boarding_passengers
+                && load.transfer_alighting_passengers <= load.alighting_passengers;
         }
 
         [[nodiscard]] std::map<LineLoadKey, LoadAggregate> aggregate_line_loads(
@@ -119,6 +164,19 @@ namespace timetable::domain::assignment::detail {
                 auto& aggregate = aggregates[route_load_key(load)];
                 aggregate.passenger_segments.add(load.passengers);
                 aggregate.segment_load_count += 1;
+            }
+            return aggregates;
+        }
+
+        [[nodiscard]] std::map<StopLoadKey, StopFlowAggregate> aggregate_stop_flows(
+            const std::vector<AssignmentSegmentLoad>& segment_loads
+        ) {
+            std::map<StopLoadKey, StopFlowAggregate> aggregates;
+            for (const auto& load : segment_loads) {
+                aggregates[from_stop_load_key(load)]
+                    .outgoing_passenger_segments.add(load.passengers);
+                aggregates[to_stop_load_key(load)]
+                    .incoming_passenger_segments.add(load.passengers);
             }
             return aggregates;
         }
@@ -226,6 +284,41 @@ namespace timetable::domain::assignment::detail {
                             .ctx("route_id"         , load.route.get())
                             .ctx("trip_id"          , load.trip.get())
                             .ctx("passenger_segments", load.passenger_segments)
+                    );
+                }
+            }
+
+            const auto stop_flow_aggregates = aggregate_stop_flows(loads.segment_loads);
+            if (loads.stop_loads.size() != stop_flow_aggregates.size()) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("assignment output stop load count disagrees with segment-load stop aggregates")
+                        .ctx("declared_stop_loads", static_cast<std::int64_t>(loads.stop_loads.size()))
+                        .ctx("actual_stop_loads"  , static_cast<std::int64_t>(stop_flow_aggregates.size()))
+                );
+            }
+
+            for (std::size_t i = 0; i < loads.stop_loads.size(); ++i) {
+                const auto& load = loads.stop_loads[i];
+                const auto aggregate_it = stop_flow_aggregates.find(stop_load_key(load));
+                if (
+                       aggregate_it == stop_flow_aggregates.end()
+                    || !valid_stop_load(load)
+                    || !almost_equal_scalar(
+                          load.incoming_passenger_segments
+                        , aggregate_it->second.incoming_passenger_segments.value()
+                    )
+                    || !almost_equal_scalar(
+                          load.outgoing_passenger_segments
+                        , aggregate_it->second.outgoing_passenger_segments.value()
+                    )
+                ) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("assignment output stop load disagrees with segment-load stop aggregate")
+                            .ctx("load_index", static_cast<std::int64_t>(i))
+                            .ctx("interval_id", load.interval.get())
+                            .ctx("stop_id", load.stop.get())
+                            .ctx("incoming_passenger_segments", load.incoming_passenger_segments)
+                            .ctx("outgoing_passenger_segments", load.outgoing_passenger_segments)
                     );
                 }
             }

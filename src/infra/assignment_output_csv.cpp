@@ -482,6 +482,41 @@ namespace timetable::infra {
         return std::move(writer).finish();
     }
 
+    std::string serialize_assignment_stop_loads_csv(
+        const projection::AssignmentCsvProjection& projection
+    ) {
+        CsvWriter writer;
+        writer.text("interval_id");
+        writer.text("stop_id");
+        writer.text("boarding_passengers");
+        writer.text("alighting_passengers");
+        writer.text("transfer_boarding_passengers");
+        writer.text("transfer_alighting_passengers");
+        writer.text("incoming_passenger_segments");
+        writer.text("outgoing_passenger_segments");
+        writer.text("through_passengers");
+        writer.text("stop_turnover_passengers");
+        writer.text("transfer_passengers");
+        writer.end_row();
+
+        for (const auto& row : projection.stop_load_rows) {
+            write_strong_field(writer, row.interval_id);
+            write_strong_field(writer, row.stop_id);
+            writer.number(row.boarding_passengers);
+            writer.number(row.alighting_passengers);
+            writer.number(row.transfer_boarding_passengers);
+            writer.number(row.transfer_alighting_passengers);
+            writer.number(row.incoming_passenger_segments);
+            writer.number(row.outgoing_passenger_segments);
+            writer.number(row.through_passengers);
+            writer.number(row.stop_turnover_passengers);
+            writer.number(row.transfer_passengers);
+            writer.end_row();
+        }
+
+        return std::move(writer).finish();
+    }
+
     std::string serialize_assignment_skim_matrix_csv(
         const projection::AssignmentCsvProjection& projection
     ) {

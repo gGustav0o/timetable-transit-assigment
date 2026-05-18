@@ -410,6 +410,33 @@ namespace timetable::domain::assignment::projection {
             }
         }
 
+        void append_stop_load_projection_rows(
+              AssignmentCsvProjection& projection
+            , const AssignmentLoads&   loads
+        ) {
+            projection.stop_load_rows.reserve(loads.stop_loads.size());
+            for (const auto& load : loads.stop_loads) {
+                projection.stop_load_rows.push_back(
+                    AssignmentStopLoadCsvRow{
+                          .interval_id                      = load.interval
+                        , .stop_id                          = load.stop
+                        , .boarding_passengers              = load.boarding_passengers
+                        , .alighting_passengers             = load.alighting_passengers
+                        , .transfer_boarding_passengers     = load.transfer_boarding_passengers
+                        , .transfer_alighting_passengers    = load.transfer_alighting_passengers
+                        , .incoming_passenger_segments      = load.incoming_passenger_segments
+                        , .outgoing_passenger_segments      = load.outgoing_passenger_segments
+                        , .through_passengers               = load.through_passengers
+                        , .stop_turnover_passengers         =
+                              load.boarding_passengers + load.alighting_passengers
+                        , .transfer_passengers              =
+                              load.transfer_boarding_passengers
+                            + load.transfer_alighting_passengers
+                    }
+                );
+            }
+        }
+
         void append_skim_matrix_projection_rows(
               AssignmentCsvProjection&      projection
             , const AssignmentSkimMatrix&   skim_matrix
@@ -508,6 +535,7 @@ namespace timetable::domain::assignment::projection {
         projection.share_rows     .reserve(output.summary.demand_share_count);
         projection.segment_rows   .reserve(segment_row_count);
         projection.load_rows      .reserve(load_row_count);
+        projection.stop_load_rows .reserve(output.loads.stop_loads.size());
         projection.skim_matrix_rows.reserve(output.skim_matrix.entries.size());
         projection.vehicle_journey_item_load_rows.reserve(vehicle_journey_item_load_row_count);
 
@@ -517,6 +545,7 @@ namespace timetable::domain::assignment::projection {
             MATHFP_TRY(append_od_projection_rows(projection, od_result, od_summary));
         }
         append_load_projection_rows(projection, output.loads);
+        append_stop_load_projection_rows(projection, output.loads);
         append_skim_matrix_projection_rows(projection, output.skim_matrix);
         append_vehicle_journey_item_load_projection_rows(
               projection

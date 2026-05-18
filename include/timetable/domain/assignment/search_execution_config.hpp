@@ -16,8 +16,8 @@ namespace timetable::domain::assignment {
      * only inside groups with the same origin and demand interval.
      *
      * OriginPeriod is the default architecture for origin-wide trees. The
-     * default projection is the all-zone/VISUM-like contract: one service-day
-     * tree per declared origin, retained by declared completion targets.
+     * application default is the demand-assignment contract: one service-day
+     * tree per active demand origin, retained by positive OD-demand tasks.
      */
     enum class SearchExecutionMode : std::uint8_t {
           IntervalLocal
@@ -241,15 +241,28 @@ namespace timetable::domain::assignment {
      */
     struct SearchExecutionConfig final {
         SearchExecutionMode      mode{ SearchExecutionMode::OriginPeriod };
-        SearchOriginScope        origin_scope{ SearchOriginScope::DeclaredZones };
+        SearchOriginScope        origin_scope{ SearchOriginScope::ActiveDemandOrigins };
         SearchTimeDomainSource   time_domain_source{ SearchTimeDomainSource::ServiceDay };
-        SearchDestinationScope   destination_scope{ SearchDestinationScope::DeclaredZones };
-        SearchResultProjection   result_projection{ SearchResultProjection::CompletionTargets };
+        SearchDestinationScope   destination_scope{ SearchDestinationScope::DemandDestinations };
+        SearchResultProjection   result_projection{ SearchResultProjection::DemandTasks };
         SearchPartialRetentionScope partial_retention_scope{
-            SearchPartialRetentionScope::TreeGlobal
+            SearchPartialRetentionScope::ProjectionSlotLocal
         };
         bool validate_phase_invariants{ false };
     };
+
+    [[nodiscard]] inline constexpr SearchExecutionConfig make_default_demand_assignment_search_execution_config(
+    ) noexcept {
+        return SearchExecutionConfig{
+              .mode               = SearchExecutionMode::OriginPeriod
+            , .origin_scope       = SearchOriginScope::ActiveDemandOrigins
+            , .time_domain_source = SearchTimeDomainSource::ServiceDay
+            , .destination_scope  = SearchDestinationScope::DemandDestinations
+            , .result_projection  = SearchResultProjection::DemandTasks
+            , .partial_retention_scope = SearchPartialRetentionScope::ProjectionSlotLocal
+            , .validate_phase_invariants = false
+        };
+    }
 
     [[nodiscard]] inline constexpr SearchExecutionConfig make_interval_local_search_execution_config(
     ) noexcept {

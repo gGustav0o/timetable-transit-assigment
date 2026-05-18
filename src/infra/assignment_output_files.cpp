@@ -29,7 +29,7 @@ namespace timetable::infra {
             std::string           contents{};
         };
 
-        using PreparedArtifacts = std::array<PreparedArtifact, 10>;
+        using PreparedArtifacts = std::array<PreparedArtifact, 11>;
 
         std::filesystem::path sibling_results_dir(
             const std::filesystem::path& log_dir
@@ -176,6 +176,17 @@ namespace timetable::infra {
             };
         }
 
+        PreparedArtifact prepare_stop_loads_csv_artifact(
+              const projection::AssignmentCsvProjection& csv_projection
+            , const std::filesystem::path&               path
+        ) {
+            return PreparedArtifact{
+                  .kind     = "stop_loads_csv"
+                , .path     = path
+                , .contents = serialize_assignment_stop_loads_csv(csv_projection)
+            };
+        }
+
         PreparedArtifact prepare_skim_matrix_csv_artifact(
               const projection::AssignmentCsvProjection& csv_projection
             , const std::filesystem::path&               path
@@ -215,6 +226,7 @@ namespace timetable::infra {
                 , prepare_shares_csv_artifact(csv_projection, paths.shares_csv_path)
                 , prepare_segments_csv_artifact(csv_projection, paths.segments_csv_path)
                 , prepare_loads_csv_artifact(csv_projection, paths.loads_csv_path)
+                , prepare_stop_loads_csv_artifact(csv_projection, paths.stop_loads_csv_path)
                 , prepare_skim_matrix_csv_artifact(csv_projection, paths.skim_matrix_csv_path)
                 , prepare_vehicle_journey_item_loads_csv_artifact(
                       csv_projection
@@ -251,6 +263,7 @@ namespace timetable::infra {
             , .shares_csv_path      = results_dir / "shares.csv"
             , .segments_csv_path    = results_dir / "segments.csv"
             , .loads_csv_path       = results_dir / "loads.csv"
+            , .stop_loads_csv_path  = results_dir / "stop_loads.csv"
             , .skim_matrix_csv_path = results_dir / "skim_matrix.csv"
             , .vehicle_journey_item_loads_csv_path =
                   results_dir / "vehicle_journey_item_loads.csv"

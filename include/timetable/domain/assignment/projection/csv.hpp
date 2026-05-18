@@ -145,6 +145,23 @@ namespace timetable::domain::assignment::projection {
     };
 
     /**
+     * @brief One flat row for stop_loads.csv.
+     */
+    struct AssignmentStopLoadCsvRow final {
+        IntervalId interval_id{};
+        StopId     stop_id{};
+        double     boarding_passengers{};
+        double     alighting_passengers{};
+        double     transfer_boarding_passengers{};
+        double     transfer_alighting_passengers{};
+        double     incoming_passenger_segments{};
+        double     outgoing_passenger_segments{};
+        double     through_passengers{};
+        double     stop_turnover_passengers{};
+        double     transfer_passengers{};
+    };
+
+    /**
      * @brief One flat row for skim_matrix.csv.
      */
     struct AssignmentSkimMatrixCsvRow final {
@@ -208,6 +225,7 @@ namespace timetable::domain::assignment::projection {
      * - shares.csv
      * - segments.csv
      * - loads.csv
+     * - stop_loads.csv
      * - skim_matrix.csv
      * - vehicle_journey_item_loads.csv
      * - metadata.csv
@@ -219,6 +237,7 @@ namespace timetable::domain::assignment::projection {
         std::vector<AssignmentShareCsvRow>      share_rows{};
         std::vector<AssignmentSegmentCsvRow>    segment_rows{};
         std::vector<AssignmentLoadCsvRow>       load_rows{};
+        std::vector<AssignmentStopLoadCsvRow>   stop_load_rows{};
         std::vector<AssignmentSkimMatrixCsvRow> skim_matrix_rows{};
         std::vector<AssignmentVehicleJourneyItemLoadCsvRow> vehicle_journey_item_load_rows{};
     };

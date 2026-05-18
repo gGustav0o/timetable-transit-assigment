@@ -345,6 +345,15 @@ namespace timetable::app {
             timetable::infra::progress::log(
                 fmt::format("segments.csv: {}", paths.segments_csv_path.string())
             );
+            timetable::infra::progress::log(
+                fmt::format("loads.csv: {}", paths.loads_csv_path.string())
+            );
+            timetable::infra::progress::log(
+                fmt::format("stop_loads.csv: {}", paths.stop_loads_csv_path.string())
+            );
+            timetable::infra::progress::log(
+                fmt::format("vehicle_journey_item_loads.csv: {}", paths.vehicle_journey_item_loads_csv_path.string())
+            );
 
             if (logger) {
                 logger->info("results directory: {}", paths.results_dir.string());

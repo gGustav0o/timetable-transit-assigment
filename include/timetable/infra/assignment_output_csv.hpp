@@ -30,6 +30,10 @@ namespace timetable::infra {
         const timetable::domain::assignment::projection::AssignmentCsvProjection& projection
     );
 
+    std::string serialize_assignment_stop_loads_csv(
+        const timetable::domain::assignment::projection::AssignmentCsvProjection& projection
+    );
+
     std::string serialize_assignment_skim_matrix_csv(
         const timetable::domain::assignment::projection::AssignmentCsvProjection& projection
     );
