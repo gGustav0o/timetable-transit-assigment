@@ -180,6 +180,8 @@ namespace timetable::infra {
             , .nt_add   = 1.0
         };
 
+        inline constexpr double kPairDefaultPostAssignPeriodMinutes = 24.0 * 60.0;
+
         inline constexpr PairRuntimeDefaultSpec kPairRuntimeDefaultSpec{
               .preprocess = PairPreprocessSpec{
                     .walk_time_weight           = 1.0
@@ -254,7 +256,7 @@ namespace timetable::infra {
             , .calculate_assignment = true
             , .skim_matrix_enabled = false
             , .pre_assign_period   = 0.0
-            , .post_assign_period  = 0.0
+            , .post_assign_period  = kPairDefaultPostAssignPeriodMinutes
         };
 
         mathfp::Expected<std::filesystem::path> resolve_pair_support_file(

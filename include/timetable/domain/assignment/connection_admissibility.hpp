@@ -136,7 +136,31 @@ namespace timetable::domain::assignment {
         , const ConnectionAdmissibilityConfig&  config
     ) noexcept;
 
+    /**
+     * @brief Hard temporal support of one demand interval.
+     *
+     * This is the mathematical support over which an OD-interval demand row may
+     * choose connections. It is intentionally independent of the search-time
+     * domain used to enumerate a tree: a service-day tree may produce many
+     * connections, but only connections whose demand reference time lies inside
+     * [interval.start - preAssignPeriod, interval.end + postAssignPeriod] are
+     * assignable to this demand row.
+     */
+    [[nodiscard]] bool connection_within_demand_segment_support(
+          const ConnectionMetrics&              metrics
+        , const TimeInterval&                   interval
+        , const AssignmentPeriodConfig&         assignment_period
+        , const DemandSegmentTimeConfig&        demand_time
+    ) noexcept;
+
     [[nodiscard]] bool connection_admissible_for_assignment_period(
+          const ConnectionMetrics&              metrics
+        , const TimeInterval&                   interval
+        , const AssignmentPeriodConfig&         assignment_period
+        , const ConnectionAdmissibilityConfig&  config
+    ) noexcept;
+
+    [[nodiscard]] bool connection_admissible_for_demand_segment(
           const ConnectionMetrics&              metrics
         , const TimeInterval&                   interval
         , const AssignmentPeriodConfig&         assignment_period

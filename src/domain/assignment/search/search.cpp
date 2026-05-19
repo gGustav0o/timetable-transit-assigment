@@ -3474,13 +3474,6 @@ namespace timetable::domain::assignment {
             };
         }
 
-        [[nodiscard]] bool departure_domain_admissible_for_demand_task(
-              const ConnectionMetrics& metrics
-            , const SearchTask&        task
-        ) noexcept {
-            return contains(task.departure_domain, metrics.departure_time);
-        }
-
         [[nodiscard]] std::size_t finalize_compact_complete_connection_count(
               const CompactCompleteConnectionRetention& retention
             , const ChoiceTolerances&                   tolerances
@@ -4253,11 +4246,7 @@ namespace timetable::domain::assignment {
                         );
                     }
                     const auto connection_metrics = metrics_of(*complete);
-                    if (!departure_domain_admissible_for_demand_task(connection_metrics, *task)) {
-                        ++stats.rejected_time_domain;
-                        return mathfp::kUnit;
-                    }
-                    if (!connection_admissible_for_assignment_period(
+                    if (!connection_admissible_for_demand_segment(
                           connection_metrics
                         , task->interval
                         , assignment_period

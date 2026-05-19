@@ -83,13 +83,13 @@
   - входные значения временно трактуются как минуты: kAssignmentPeriodInputUnit = AssignmentPeriodUnit::Minutes;
   - при переключении кода на AssignmentPeriodUnit::Seconds значения будут трактоваться как секунды без изменения params.txt;
   - доменная модель валидирует конечность и неотрицательность обоих периодов;
-  - для demand-интервала [start, end] assignment-period admissibility window равен [start - preAssignPeriod, end + postAssignPeriod];
-  - search task для branch-and-bound по умолчанию сохраняет окно первого timed departure равным самому demand-интервалу [start, end]; AssignmentPeriodConfig не расширяет search-time domain;
+  - для demand-интервала [start, end] жесткое окно назначения спроса равно [start - preAssignPeriod, end + postAssignPeriod];
+  - search task для branch-and-bound по умолчанию сохраняет окно первого timed departure равным самому demand-интервалу [start, end] для interval-local поиска; в origin-period режиме дерево может иметь более широкий search-time domain, а итоговая принадлежность соединения demand-интервалу определяется отдельным окном назначения спроса;
   - расширение search-time domain должно подключаться только через отдельную SearchTimeDomainConfig/SearchTimePaddingPolicy, потому что это меняет множество перечисляемых альтернатив и вычислительную сложность search;
-  - при текущей единице Minutes значение postAssignPeriod = 24*60 означает +1440 минут = +86400 секунд в admissibility window; оно не должно неявно расширять search tree;
-  - дополнительно complete connections проверяются до помещения в dominance retention, чтобы недопустимые соединения не вытесняли допустимые альтернативы;
-  - перед choice выполняется защитная повторная фильтрация тем же admissibility-предикатом;
-  - validation search/choice проверяет, что в результирующих task_results не осталось соединений, запрещенных admissibility-предикатом;
+  - при текущей единице Minutes значение postAssignPeriod = 24*60 означает +1440 минут = +86400 секунд в окне назначения спроса; оно не должно неявно расширять search tree;
+  - complete connections проверяются до помещения в dominance retention: reference_time должен попадать в окно назначения спроса, а затем применяются дополнительные флаги удаления из choicePara/splitPara;
+  - перед choice выполняется защитная повторная фильтрация тем же demand-segment-предикатом;
+  - validation search/choice проверяет, что в результирующих task_results не осталось соединений вне окна назначения спроса или запрещенных дополнительными admissibility-флагами;
   - если задан флаг удаления, не соответствующий текущей основе demand segment, preprocessing выдает предупреждение;
   - SearchTimePaddingPolicy остается отдельной моделью для search-time-domain planning/optimization и не смешивается с AssignmentPeriodConfig.
 

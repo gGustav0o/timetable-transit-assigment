@@ -123,7 +123,7 @@ namespace timetable::domain::assignment {
                                 .ctx("destination" , destination_of(connection).get());
                         }
                     ));
-                    if (!connection_admissible_for_assignment_period(
+                    if (!connection_admissible_for_demand_segment(
                           metrics_of(connection)
                         , task_result.task.interval
                         , assignment_period

@@ -160,4 +160,37 @@ namespace timetable::domain::assignment {
         );
     }
 
+    bool connection_within_demand_segment_support(
+          const ConnectionMetrics&       metrics
+        , const TimeInterval&            interval
+        , const AssignmentPeriodConfig&  assignment_period
+        , const DemandSegmentTimeConfig& demand_time
+    ) noexcept {
+        const auto window = assignment_period_window(interval, assignment_period);
+        return contains(
+              window
+            , demand_segment_reference_time(metrics, demand_time.basis)
+        );
+    }
+
+    bool connection_admissible_for_demand_segment(
+          const ConnectionMetrics&             metrics
+        , const TimeInterval&                  interval
+        , const AssignmentPeriodConfig&        assignment_period
+        , const ConnectionAdmissibilityConfig& config
+    ) noexcept {
+        return connection_within_demand_segment_support(
+                  metrics
+                , interval
+                , assignment_period
+                , config.demand_time
+            )
+            && connection_admissible_for_assignment_period(
+                  metrics
+                , interval
+                , assignment_period
+                , config
+            );
+    }
+
 }  // namespace timetable::domain::assignment

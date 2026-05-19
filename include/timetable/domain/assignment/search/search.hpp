@@ -33,7 +33,8 @@ namespace timetable::domain::assignment {
      * config chooses the sharing contract and scopes for search trees.
      * time_domain_execution is intentionally optional and consumed only by
      * OriginPeriod: IntervalLocal remains a separate fast batching path over
-     * SearchTask::departure_domain.
+     * SearchTask::departure_domain. This domain is a search seed, not the
+     * final temporal support for assigning demand.
      */
     struct SearchExecutionRequest final {
         SearchExecutionConfig            config{};
@@ -57,6 +58,11 @@ namespace timetable::domain::assignment {
      * interval. It is the assignment unit: search algorithms may share tree
      * work between tasks, but the public result must keep alternatives attached
      * to this OD-time unit.
+     *
+     * departure_domain is the task-local first-boarding search domain used by
+     * interval-local execution. Origin-period execution may enumerate a wider
+     * tree; final demand support is defined by ConnectionAdmissibilityConfig
+     * and AssignmentPeriodConfig, not by this search domain.
      */
     struct SearchTask final {
         SearchTaskRef   index{};

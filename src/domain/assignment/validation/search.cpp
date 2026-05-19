@@ -457,7 +457,7 @@ namespace timetable::domain::assignment {
                         );
                     }
 
-                    if (!connection_admissible_for_assignment_period(
+                    if (!connection_admissible_for_demand_segment(
                           metrics_of(connection)
                         , task_result.task.interval
                         , assignment_period
@@ -481,15 +481,6 @@ namespace timetable::domain::assignment {
                         , evaluated
                         , evaluate_connection_trace(connection, network, i)
                     );
-                    const auto connection_departure = metrics_of(connection).departure_time;
-                    if (!contains(task_result.task.departure_domain, connection_departure)) {
-                        return mathfp::unexpected(
-                            mathfp::invalid_arg("search task contains connection outside departure domain")
-                                .ctx("task_index"           , task_result.task.index.get())
-                                .ctx("interval_id"          , task_result.task.interval.id.get())
-                                .ctx("departure_time"       , connection_departure.value())
-                        );
-                    }
                     MATHFP_TRY(validate_evaluated_segments_against_canonical_connection(
                           connection
                         , evaluated

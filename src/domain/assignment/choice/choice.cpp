@@ -44,7 +44,7 @@ namespace timetable::domain::assignment {
             connections.reserve(task_result.connections.size());
 
             for (const auto& connection : task_result.connections) {
-                if (connection_admissible_for_assignment_period(
+                if (connection_admissible_for_demand_segment(
                       metrics_of(connection)
                     , task_result.task.interval
                     , assignment_period
