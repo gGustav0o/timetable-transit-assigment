@@ -29,6 +29,18 @@ add_subdirectory(libs/mathfp)
 
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/Dependencies.cmake)
 
+if(TARGET xlsxio_read_STATIC)
+  set(TIMETABLE_XLSXIO_READ_TARGET xlsxio_read_STATIC)
+elseif(TARGET xlsxio_read_SHARED)
+  set(TIMETABLE_XLSXIO_READ_TARGET xlsxio_read_SHARED)
+elseif(TARGET xlsxio_read)
+  set(TIMETABLE_XLSXIO_READ_TARGET xlsxio_read)
+elseif(TARGET xlsxio::xlsxio_read)
+  set(TIMETABLE_XLSXIO_READ_TARGET xlsxio::xlsxio_read)
+else()
+  message(FATAL_ERROR "xlsxio read target was not exported by the xlsxio package")
+endif()
+
 add_executable(timetable-transit-assigment
   src/main.cpp
   src/app/app.cpp
@@ -162,6 +174,7 @@ target_link_libraries(timetable-transit-assigment
     fmt::fmt
     spdlog::spdlog
     unofficial::vincentlaucsb-csv-parser::csv
+    ${TIMETABLE_XLSXIO_READ_TARGET}
     ftxui::component
     ftxui::dom
     ftxui::screen

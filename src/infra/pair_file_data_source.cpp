@@ -40,13 +40,13 @@ namespace timetable::infra {
         };
 
         struct PairDemandPaths final {
-            std::filesystem::path intervals{};
-            std::filesystem::path demand{};
+            std::optional<std::filesystem::path> intervals{};
+            std::filesystem::path                demand{};
         };
 
         struct PairResolvedPaths final {
             std::filesystem::path                segments{};
-            std::filesystem::path                intervals{};
+            std::optional<std::filesystem::path> intervals{};
             std::filesystem::path                demand{};
             std::optional<std::filesystem::path> params_txt{};
             std::optional<std::filesystem::path> vehicle_journey_item_capacity{};
@@ -58,6 +58,12 @@ namespace timetable::infra {
         inline const std::filesystem::path kLegacySegmentsPath{
             "connection_segments_input.csv"
         };
+        inline const std::filesystem::path kDefaultDailyDemandMatrixPath{
+            "dod_7064_full.xlsx"
+        };
+        inline constexpr timetable::domain::IntervalId kDefaultDailyDemandIntervalId{ 1 };
+        inline constexpr timetable::domain::Time kDefaultDailyDemandIntervalStart{ 6.0 * 60.0 * 60.0 };
+        inline constexpr timetable::domain::Time kDefaultDailyDemandIntervalEnd{ 23.0 * 60.0 * 60.0 };
 
         struct PairRuntimeDefaults final {
             timetable::domain::SearchParams                         params{};
@@ -296,7 +302,25 @@ namespace timetable::infra {
         mathfp::Expected<PairDemandPaths> resolve_pair_demand_paths(
             const std::filesystem::path& root
         ) {
-            MATHFP_TRY_LET(std::filesystem::path, intervals_path, resolve_pair_support_file(root, "time_intervals.csv"));
+            const auto default_daily_matrix_path = root / kDefaultDailyDemandMatrixPath;
+            if (std::filesystem::exists(default_daily_matrix_path)) {
+                if (!std::filesystem::is_regular_file(default_daily_matrix_path)) {
+                    return mathfp::unexpected(
+                        mathfp::invalid_arg("pair daily demand matrix path is not a regular file")
+                            .ctx("path", default_daily_matrix_path.string())
+                    );
+                }
+                return PairDemandPaths{
+                      .intervals = std::nullopt
+                    , .demand    = default_daily_matrix_path
+                };
+            }
+
+            MATHFP_TRY_LET(
+                  std::filesystem::path
+                , intervals_path
+                , resolve_pair_support_file(root, "time_intervals.csv")
+            );
             MATHFP_TRY_LET(std::filesystem::path, demand_path, resolve_pair_support_file(root, "od_demand.csv"));
             return PairDemandPaths{
                   .intervals = std::move(intervals_path)
@@ -615,7 +639,9 @@ namespace timetable::infra {
                       "  demand    = {}\n"
                       "  capacity  = {}"
                     , paths.segments .string()
-                    , paths.intervals.string()
+                    , paths.intervals.has_value()
+                        ? paths.intervals->string()
+                        : std::string{"<daily 06:00-23:00 from demand xlsx>"}
                     , paths.demand   .string()
                     , paths.vehicle_journey_item_capacity.has_value()
                         ? paths.vehicle_journey_item_capacity->string()
@@ -687,16 +713,45 @@ namespace timetable::infra {
             using timetable::infra::progress::status;
 
             status("parsing: loading pair demand input");
-            MATHFP_TRY_LET(
-                  std::vector<timetable::domain::TimeInterval>
-                , intervals
-                , csv::parse_time_intervals_csv(paths.intervals)
-            );
-            MATHFP_TRY_LET(
-                  std::vector<timetable::domain::DemandEntry>
-                , demand
-                , csv::parse_od_demand_csv(paths.demand, intervals)
-            );
+            std::vector<timetable::domain::TimeInterval> intervals;
+            std::vector<timetable::domain::DemandEntry> demand;
+
+            if (paths.demand.extension() == ".xlsx") {
+                intervals.push_back(
+                    timetable::domain::TimeInterval{
+                          .id    = kDefaultDailyDemandIntervalId
+                        , .start = kDefaultDailyDemandIntervalStart
+                        , .end   = kDefaultDailyDemandIntervalEnd
+                    }
+                );
+                MATHFP_TRY_LET(
+                      std::vector<timetable::domain::DemandEntry>
+                    , daily_demand
+                    , csv::parse_daily_od_matrix_xlsx(
+                          paths.demand
+                        , kDefaultDailyDemandIntervalId
+                      )
+                );
+                demand = std::move(daily_demand);
+            } else {
+                if (!paths.intervals.has_value()) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("legacy OD demand csv requires a time intervals path")
+                    );
+                }
+                MATHFP_TRY_LET(
+                      std::vector<timetable::domain::TimeInterval>
+                    , parsed_intervals
+                    , csv::parse_time_intervals_csv(*paths.intervals)
+                );
+                MATHFP_TRY_LET(
+                      std::vector<timetable::domain::DemandEntry>
+                    , parsed_demand
+                    , csv::parse_od_demand_csv(paths.demand, parsed_intervals)
+                );
+                intervals = std::move(parsed_intervals);
+                demand    = std::move(parsed_demand);
+            }
 
             input.input.intervals = std::move(intervals);
             input.input.demand    = std::move(demand);

@@ -2,16 +2,21 @@
 
 #include <array>
 #include <cmath>
+#include <cstdlib>
 #include <map>
+#include <memory>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
 #include <csv.hpp>
 #include <fmt/format.h>
+#include <xlsxio_read.h>
 
 #include <mathfp/core/error.hpp>
+#include <mathfp/core/numeric_tolerance.hpp>
 #include <mathfp/core/try.hpp>
 
 #include "timetable/infra/csv_parse.hpp"
@@ -53,6 +58,35 @@ namespace timetable::infra::csv {
             std::int64_t interval_id{};
             double       passengers{};
         };
+
+        struct XlsxReadDeleter final {
+            void operator()(xlsxioread handle) const noexcept {
+                if (handle != nullptr) {
+                    xlsxioread_close(handle);
+                }
+            }
+        };
+
+        struct XlsxSheetDeleter final {
+            void operator()(xlsxioreadersheet sheet) const noexcept {
+                if (sheet != nullptr) {
+                    xlsxioread_sheet_close(sheet);
+                }
+            }
+        };
+
+        struct XlsxCellDeleter final {
+            void operator()(char* value) const noexcept {
+                if (value != nullptr) {
+                    xlsxioread_free(value);
+                }
+            }
+        };
+
+        using XlsxReadHandle = std::unique_ptr<std::remove_pointer_t<xlsxioread>, XlsxReadDeleter>;
+        using XlsxSheetHandle =
+            std::unique_ptr<std::remove_pointer_t<xlsxioreadersheet>, XlsxSheetDeleter>;
+        using XlsxCellValue = std::unique_ptr<char, XlsxCellDeleter>;
 
         constexpr auto interval_int_row_field_specs() {
             return std::array<csv_parse::Int64RowFieldSpec<IntervalCsvColumns, ParsedIntervalRow>, 1>{
@@ -110,6 +144,77 @@ namespace timetable::infra::csv {
                 , csv_parse::ColumnDef<DemandCsvColumns>{ "interval_id"        , &DemandCsvColumns::interval_id }
                 , csv_parse::ColumnDef<DemandCsvColumns>{ "passengers"         , &DemandCsvColumns::passengers }
             };
+        }
+
+        [[nodiscard]] std::string_view trim_ascii(std::string_view value) noexcept {
+            while (!value.empty()
+                && (value.front() == ' ' || value.front() == '\t'
+                    || value.front() == '\r' || value.front() == '\n')) {
+                value.remove_prefix(1);
+            }
+            while (!value.empty()
+                && (value.back() == ' ' || value.back() == '\t'
+                    || value.back() == '\r' || value.back() == '\n')) {
+                value.remove_suffix(1);
+            }
+            return value;
+        }
+
+        [[nodiscard]] mathfp::Expected<double> parse_xlsx_number(
+              std::string_view value
+            , std::string_view field
+            , std::size_t      row
+            , std::size_t      column
+        ) {
+            const auto trimmed = trim_ascii(value);
+            if (trimmed.empty()) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("xlsx numeric cell is empty")
+                        .ctx("field", std::string(field))
+                        .ctx("row", static_cast<std::int64_t>(row))
+                        .ctx("column", static_cast<std::int64_t>(column))
+                );
+            }
+
+            std::string normalized{ trimmed };
+            for (char& ch : normalized) {
+                if (ch == ',') {
+                    ch = '.';
+                }
+            }
+
+            char* end = nullptr;
+            const double parsed = std::strtod(normalized.c_str(), &end);
+            if (end == normalized.c_str() || *end != '\0' || !std::isfinite(parsed)) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("xlsx numeric cell is invalid")
+                        .ctx("field", std::string(field))
+                        .ctx("row", static_cast<std::int64_t>(row))
+                        .ctx("column", static_cast<std::int64_t>(column))
+                        .ctx("value", std::string(value))
+                );
+            }
+            return parsed;
+        }
+
+        [[nodiscard]] mathfp::Expected<std::int64_t> parse_xlsx_integer(
+              std::string_view value
+            , std::string_view field
+            , std::size_t      row
+            , std::size_t      column
+        ) {
+            MATHFP_TRY_LET(double, parsed, parse_xlsx_number(value, field, row, column));
+            const auto rounded = std::llround(parsed);
+            if (!mathfp::almost_equal(parsed, static_cast<double>(rounded))) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("xlsx integer cell has fractional value")
+                        .ctx("field", std::string(field))
+                        .ctx("row", static_cast<std::int64_t>(row))
+                        .ctx("column", static_cast<std::int64_t>(column))
+                        .ctx("value", std::string(value))
+                );
+            }
+            return rounded;
         }
 
         mathfp::Expected<ParsedIntervalRow> parse_interval_row(
@@ -371,6 +476,209 @@ namespace timetable::infra::csv {
             , LogLevel::Info
         );
         status("parsing: od demand csv parsed");
+        return demand;
+    }
+
+    mathfp::Expected<std::vector<DemandEntry>> parse_daily_od_matrix_xlsx(
+          const std::filesystem::path& path
+        , IntervalId                   interval
+    ) {
+        using timetable::infra::LogLevel;
+        using timetable::infra::progress::log;
+        using timetable::infra::progress::status;
+
+        status("parsing: opening daily OD matrix xlsx");
+        XlsxReadHandle workbook{ xlsxioread_open(path.string().c_str()) };
+        if (workbook == nullptr) {
+            return mathfp::unexpected(
+                mathfp::invalid_arg("failed to open daily OD matrix xlsx")
+                    .ctx("path", path.string())
+            );
+        }
+
+        XlsxSheetHandle sheet{
+            xlsxioread_sheet_open(workbook.get(), nullptr, 0u)
+        };
+        if (sheet == nullptr) {
+            return mathfp::unexpected(
+                mathfp::invalid_arg("failed to open first worksheet in daily OD matrix xlsx")
+                    .ctx("path", path.string())
+            );
+        }
+
+        std::vector<ZoneId> destination_ids;
+        std::vector<ZoneId> row_origin_ids;
+        std::vector<DemandEntry> demand;
+        std::size_t row_index = 0;
+        double total_passengers = 0.0;
+
+        status("parsing: reading daily OD matrix xlsx");
+        while (xlsxioread_sheet_next_row(sheet.get()) != 0) {
+            ++row_index;
+            std::vector<std::string> cells;
+
+            while (true) {
+                XlsxCellValue raw_cell{
+                    xlsxioread_sheet_next_cell(sheet.get())
+                };
+                if (raw_cell == nullptr) {
+                    break;
+                }
+                cells.emplace_back(raw_cell.get());
+            }
+
+            if (row_index == 1) {
+                if (cells.size() < 4u) {
+                    return mathfp::unexpected(
+                        mathfp::invalid_arg("daily OD matrix xlsx header row is too short")
+                            .ctx("path", path.string())
+                            .ctx("row", static_cast<std::int64_t>(row_index))
+                    );
+                }
+                destination_ids.reserve(cells.size() - 3u);
+                for (std::size_t column = 4; column <= cells.size(); ++column) {
+                    MATHFP_TRY_LET(
+                          std::int64_t
+                        , destination
+                        , parse_xlsx_integer(
+                              cells[column - 1u]
+                            , "destination_zone_id"
+                            , row_index
+                            , column
+                          )
+                    );
+                    if (destination <= 0) {
+                        return mathfp::unexpected(
+                            mathfp::invalid_arg("daily OD matrix destination zone id must be positive")
+                                .ctx("path", path.string())
+                                .ctx("column", static_cast<std::int64_t>(column))
+                                .ctx("destination_zone_id", destination)
+                        );
+                    }
+                    destination_ids.push_back(ZoneId{ destination });
+                }
+                continue;
+            }
+
+            if (row_index <= 3u) {
+                continue;
+            }
+
+            if (cells.empty()) {
+                continue;
+            }
+            if (destination_ids.empty()) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("daily OD matrix xlsx has no destination header")
+                        .ctx("path", path.string())
+                );
+            }
+            if (cells.size() < destination_ids.size() + 3u) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("daily OD matrix xlsx row is shorter than destination header")
+                        .ctx("path", path.string())
+                        .ctx("row", static_cast<std::int64_t>(row_index))
+                        .ctx("cells", static_cast<std::int64_t>(cells.size()))
+                        .ctx("expected_min_cells", static_cast<std::int64_t>(destination_ids.size() + 3u))
+                );
+            }
+
+            MATHFP_TRY_LET(
+                  std::int64_t
+                , origin
+                , parse_xlsx_integer(cells[0], "origin_zone_id", row_index, 1u)
+            );
+            if (origin <= 0) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("daily OD matrix origin zone id must be positive")
+                        .ctx("path", path.string())
+                        .ctx("row", static_cast<std::int64_t>(row_index))
+                        .ctx("origin_zone_id", origin)
+                );
+            }
+            row_origin_ids.push_back(ZoneId{ origin });
+
+            for (std::size_t target_index = 0; target_index < destination_ids.size(); ++target_index) {
+                const auto column = target_index + 4u;
+                MATHFP_TRY_LET(
+                      double
+                    , passengers
+                    , parse_xlsx_number(
+                          cells[column - 1u]
+                        , "passengers"
+                        , row_index
+                        , column
+                      )
+                );
+                if (passengers < 0.0) {
+                    return mathfp::unexpected(
+                        mathfp::invalid_arg("daily OD matrix passengers must be non-negative")
+                            .ctx("path", path.string())
+                            .ctx("row", static_cast<std::int64_t>(row_index))
+                            .ctx("column", static_cast<std::int64_t>(column))
+                            .ctx("passengers", passengers)
+                    );
+                }
+                if (mathfp::almost_zero(passengers)) {
+                    continue;
+                }
+
+                total_passengers += passengers;
+                demand.push_back(
+                    DemandEntry{
+                          .origin      = ZoneId{ origin }
+                        , .destination = destination_ids[target_index]
+                        , .interval    = interval
+                        , .passengers  = passengers
+                    }
+                );
+            }
+        }
+
+        if (destination_ids.empty() || row_origin_ids.empty()) {
+            return mathfp::unexpected(
+                mathfp::invalid_arg("daily OD matrix xlsx contains no OD matrix data")
+                    .ctx("path", path.string())
+            );
+        }
+        if (destination_ids.size() != row_origin_ids.size()) {
+            return mathfp::unexpected(
+                mathfp::invalid_arg("daily OD matrix xlsx must be square")
+                    .ctx("path", path.string())
+                    .ctx("origins", static_cast<std::int64_t>(row_origin_ids.size()))
+                    .ctx("destinations", static_cast<std::int64_t>(destination_ids.size()))
+            );
+        }
+        for (std::size_t i = 0; i < destination_ids.size(); ++i) {
+            if (destination_ids[i] != row_origin_ids[i]) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("daily OD matrix xlsx origin and destination zone axes differ")
+                        .ctx("path", path.string())
+                        .ctx("position", static_cast<std::int64_t>(i + 1u))
+                        .ctx("origin_zone_id", row_origin_ids[i].get())
+                        .ctx("destination_zone_id", destination_ids[i].get())
+                );
+            }
+        }
+        if (demand.empty()) {
+            return mathfp::unexpected(
+                mathfp::invalid_arg("daily OD matrix xlsx contains no positive demand")
+                    .ctx("path", path.string())
+            );
+        }
+
+        log(
+            fmt::format(
+                  "parsing: daily OD matrix xlsx parsed; zones = {}  cells = {}  positive_entries = {}  interval = {}  total_passengers = {:.6f}"
+                , destination_ids.size()
+                , destination_ids.size() * row_origin_ids.size()
+                , demand.size()
+                , interval.get()
+                , total_passengers
+            )
+            , LogLevel::Info
+        );
+        status("parsing: daily OD matrix xlsx parsed");
         return demand;
     }
 

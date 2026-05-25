@@ -18,4 +18,9 @@ namespace timetable::infra::csv {
         , const std::vector<timetable::domain::TimeInterval>& intervals
     );
 
+    mathfp::Expected<std::vector<timetable::domain::DemandEntry>> parse_daily_od_matrix_xlsx(
+          const std::filesystem::path&       path
+        , timetable::domain::IntervalId      interval
+    );
+
 }  // namespace timetable::infra::csv

@@ -23,8 +23,8 @@ namespace timetable::io {
     // - 7064/connection_segments_7064.csv preferred by default, or
     //   connection_segments_input.csv as a legacy fallback
     // - params.txt
-    // - time_intervals.csv      or generated_demand/time_intervals.csv
-    // - od_demand.csv           or generated_demand/od_demand.csv
+    // - dod_7064_full.xlsx as the default daily OD matrix, or legacy
+    //   time_intervals.csv + od_demand.csv / generated_demand/od_demand.csv
     struct PairDataDirSpec {
         std::filesystem::path root;
     };
