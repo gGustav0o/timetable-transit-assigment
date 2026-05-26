@@ -1,27 +1,13 @@
 #include "timetable/domain/assignment/day_path.hpp"
 
 #include <algorithm>
+#include <limits>
 #include <utility>
 
 #include <mathfp/core/try.hpp>
 
 namespace timetable::domain::assignment {
     namespace {
-
-        [[nodiscard]] DayPathLeg day_path_leg_of(
-            const ConnectionLeg& leg
-        ) noexcept {
-            return DayPathLeg{
-                  .kind            = leg.kind
-                , .route_segment   = leg.route_segment
-                , .physical_from   = leg.physical_from
-                , .physical_to     = leg.physical_to
-                , .occurrence_from = leg.occurrence_from
-                , .occurrence_to   = leg.occurrence_to
-                , .line            = leg.line
-                , .route           = leg.route
-            };
-        }
 
         [[nodiscard]] bool better_day_path_representative(
               const CompleteConnectionMetrics& candidate
@@ -51,6 +37,49 @@ namespace timetable::domain::assignment {
 
     }  // namespace
 
+    DayPathLeg day_path_leg_of(
+        const ConnectionLeg& leg
+    ) noexcept {
+        return DayPathLeg{
+              .kind            = leg.kind
+            , .route_segment   = leg.route_segment
+            , .physical_from   = leg.physical_from
+            , .physical_to     = leg.physical_to
+            , .occurrence_from = leg.occurrence_from
+            , .occurrence_to   = leg.occurrence_to
+            , .line            = leg.line
+            , .route           = leg.route
+        };
+    }
+
+    DayPathPrefix make_day_path_prefix(
+        ZoneId origin
+    ) {
+        return DayPathPrefix{
+              .origin = origin
+            , .legs   = {}
+        };
+    }
+
+    DayPathPrefix append_day_path_leg(
+          DayPathPrefix prefix
+        , DayPathLeg    leg
+    ) {
+        prefix.legs.push_back(std::move(leg));
+        return prefix;
+    }
+
+    DayPathSignature complete_day_path_signature(
+          DayPathPrefix prefix
+        , ZoneId        destination
+    ) {
+        return DayPathSignature{
+              .origin      = prefix.origin
+            , .destination = destination
+            , .legs        = std::move(prefix.legs)
+        };
+    }
+
     DayPathSignature day_path_signature_of(
         const SearchConnection& connection
     ) {
@@ -70,6 +99,18 @@ namespace timetable::domain::assignment {
         return signature;
     }
 
+    bool day_path_retention_empty(
+        const DayPathRetention& retention
+    ) noexcept {
+        return retention.alternatives_by_signature.empty();
+    }
+
+    std::size_t day_path_retention_size(
+        const DayPathRetention& retention
+    ) noexcept {
+        return retention.alternatives_by_signature.size();
+    }
+
     mathfp::Expected<DayPathRetentionDecision> retain_day_path_alternative(
           DayPathRetention&        retention
         , SearchConnection         connection
@@ -84,22 +125,19 @@ namespace timetable::domain::assignment {
         );
         const auto connection_metrics = metrics_of(connection);
 
-        auto it = std::find_if(
-              retention.alternatives.begin()
-            , retention.alternatives.end()
-            , [&](const DayPathAlternative& alternative) {
-                  return alternative.signature == signature;
-              }
-        );
-        if (it == retention.alternatives.end()) {
-            retention.alternatives.push_back(
-                DayPathAlternative{
-                      .signature                         = std::move(signature)
-                    , .representative                    = std::move(connection)
-                    , .representative_metrics            = metrics
-                    , .representative_connection_metrics = connection_metrics
-                    , .timed_connection_count            = 1u
-                }
+        auto it = retention.alternatives_by_signature.find(signature);
+        if (it == retention.alternatives_by_signature.end()) {
+            auto alternative = DayPathAlternative{
+                  .signature                         = std::move(signature)
+                , .representative                    = std::move(connection)
+                , .representative_metrics            = metrics
+                , .representative_connection_metrics = connection_metrics
+                , .timed_connection_count            = 1u
+            };
+            const auto key = alternative.signature;
+            retention.alternatives_by_signature.emplace(
+                  key
+                , std::move(alternative)
             );
             return DayPathRetentionDecision{
                   .inserted_path          = true
@@ -108,20 +146,21 @@ namespace timetable::domain::assignment {
             };
         }
 
-        ++it->timed_connection_count;
+        auto& alternative = it->second;
+        ++alternative.timed_connection_count;
         const auto replaced = better_day_path_representative(
               metrics
-            , it->representative_metrics
+            , alternative.representative_metrics
         );
         if (replaced) {
-            it->representative                    = std::move(connection);
-            it->representative_metrics            = metrics;
-            it->representative_connection_metrics = connection_metrics;
+            alternative.representative                    = std::move(connection);
+            alternative.representative_metrics            = metrics;
+            alternative.representative_connection_metrics = connection_metrics;
         }
         return DayPathRetentionDecision{
               .inserted_path          = false
             , .replaced_representative = replaced
-            , .timed_connection_count = it->timed_connection_count
+            , .timed_connection_count = alternative.timed_connection_count
         };
     }
 
@@ -159,17 +198,92 @@ namespace timetable::domain::assignment {
     std::vector<SearchConnection> finalize_day_path_representatives(
         DayPathRetention retention
     ) {
-        std::sort(
-              retention.alternatives.begin()
-            , retention.alternatives.end()
-            , [](const DayPathAlternative& lhs, const DayPathAlternative& rhs) {
-                  return lhs.signature < rhs.signature;
-              }
-        );
+        auto alternatives = finalize_day_path_alternatives(std::move(retention));
 
         std::vector<SearchConnection> representatives;
-        representatives.reserve(retention.alternatives.size());
-        for (auto& alternative : retention.alternatives) {
+        representatives.reserve(alternatives.size());
+        for (auto& alternative : alternatives) {
+            representatives.push_back(std::move(alternative.representative));
+        }
+        return representatives;
+    }
+
+    std::vector<DayPathAlternative> finalize_day_path_alternatives(
+        DayPathRetention retention
+    ) {
+        std::vector<DayPathAlternative> alternatives;
+        alternatives.reserve(retention.alternatives_by_signature.size());
+        for (auto& entry : retention.alternatives_by_signature) {
+            alternatives.push_back(std::move(entry.second));
+        }
+        return alternatives;
+    }
+
+    CompleteConnectionMetricSummary summarize_day_path_metrics(
+        const DayPathRetention& retention
+    ) noexcept {
+        CompleteConnectionMetricSummary summary{
+              .min_impedance    = std::numeric_limits<double>::infinity()
+            , .min_journey_time = std::numeric_limits<double>::infinity()
+            , .min_transfers    = std::numeric_limits<double>::infinity()
+            , .empty            = retention.alternatives_by_signature.empty()
+        };
+        for (const auto& [signature, alternative] : retention.alternatives_by_signature) {
+            (void)signature;
+            summary.min_impedance = std::min(
+                  summary.min_impedance
+                , alternative.representative_metrics.impedance
+            );
+            summary.min_journey_time = std::min(
+                  summary.min_journey_time
+                , alternative.representative_metrics.journey_time.value()
+            );
+            summary.min_transfers = std::min(
+                  summary.min_transfers
+                , static_cast<double>(alternative.representative_metrics.transfers.get())
+            );
+        }
+        return summary;
+    }
+
+    std::vector<DayPathAlternative> finalize_day_path_alternatives(
+          DayPathRetention        retention
+        , const ChoiceTolerances& tolerances
+        , ChoiceRolloutStage      rollout_stage
+    ) {
+        if (rollout_stage == ChoiceRolloutStage::ExactOnly) {
+            return finalize_day_path_alternatives(std::move(retention));
+        }
+
+        const auto summary = summarize_day_path_metrics(retention);
+        for (auto it = retention.alternatives_by_signature.begin();
+             it != retention.alternatives_by_signature.end();) {
+            if (!within_complete_connection_tolerances(
+                  it->second.representative_metrics
+                , summary
+                , tolerances
+            )) {
+                it = retention.alternatives_by_signature.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        return finalize_day_path_alternatives(std::move(retention));
+    }
+
+    std::vector<SearchConnection> finalize_day_path_representatives(
+          DayPathRetention        retention
+        , const ChoiceTolerances& tolerances
+        , ChoiceRolloutStage      rollout_stage
+    ) {
+        auto alternatives = finalize_day_path_alternatives(
+              std::move(retention)
+            , tolerances
+            , rollout_stage
+        );
+        std::vector<SearchConnection> representatives;
+        representatives.reserve(alternatives.size());
+        for (auto& alternative : alternatives) {
             representatives.push_back(std::move(alternative.representative));
         }
         return representatives;
@@ -193,7 +307,6 @@ namespace timetable::domain::assignment {
         , IntervalId                    interval
     ) {
         DayPathRetention retention;
-        retention.alternatives.reserve(connections.size());
         for (auto& connection : connections) {
             MATHFP_TRY(retain_day_path_alternative(
                   retention
@@ -212,7 +325,6 @@ namespace timetable::domain::assignment {
         , IntervalId                    interval
     ) {
         DayPathRetention retention;
-        retention.alternatives.reserve(connections.size());
         for (auto& connection : connections) {
             MATHFP_TRY(retain_day_path_alternative(
                   retention
@@ -221,14 +333,31 @@ namespace timetable::domain::assignment {
                 , interval
             ));
         }
-        std::sort(
-              retention.alternatives.begin()
-            , retention.alternatives.end()
-            , [](const DayPathAlternative& lhs, const DayPathAlternative& rhs) {
-                  return lhs.signature < rhs.signature;
-              }
+        return finalize_day_path_alternatives(std::move(retention));
+    }
+
+    mathfp::Expected<std::vector<DayPathAlternative>>
+    retain_day_path_alternatives(
+          std::vector<SearchConnection> connections
+        , const SearchCostContext&      search_cost
+        , IntervalId                    interval
+        , const ChoiceTolerances&       tolerances
+        , ChoiceRolloutStage            rollout_stage
+    ) {
+        DayPathRetention retention;
+        for (auto& connection : connections) {
+            MATHFP_TRY(retain_day_path_alternative(
+                  retention
+                , std::move(connection)
+                , search_cost
+                , interval
+            ));
+        }
+        return finalize_day_path_alternatives(
+              std::move(retention)
+            , tolerances
+            , rollout_stage
         );
-        return std::move(retention.alternatives);
     }
 
 }  // namespace timetable::domain::assignment

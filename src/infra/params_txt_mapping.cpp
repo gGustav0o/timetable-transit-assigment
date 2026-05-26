@@ -1036,7 +1036,7 @@ namespace timetable::infra::params_txt::detail {
                     , parsed_mode
                     , parse_search_execution_mode_token(*mode_token)
                 );
-                config = make_search_execution_config(parsed_mode);
+                config.mode = parsed_mode;
             }
 
             MATHFP_TRY_LET(
@@ -1095,6 +1095,27 @@ namespace timetable::infra::params_txt::detail {
                 config.result_projection = parsed_projection;
                 config.partial_retention_scope =
                     default_partial_retention_scope_for_projection(parsed_projection);
+                if (!formulation_token.has_value()) {
+                    switch (parsed_projection) {
+                        case SearchResultProjection::DemandTasks:
+                            config.formulation =
+                                AssignmentCalculationFormulation::DemandTaskAssignment;
+                            config.diagnostic_mode = false;
+                            break;
+
+                        case SearchResultProjection::OdDayPairs:
+                            config.formulation =
+                                AssignmentCalculationFormulation::OdDayAssignment;
+                            config.diagnostic_mode = false;
+                            break;
+
+                        case SearchResultProjection::CompletionTargets:
+                            config.formulation =
+                                AssignmentCalculationFormulation::AllZoneSearch;
+                            config.diagnostic_mode = true;
+                            break;
+                    }
+                }
             }
             MATHFP_TRY_LET(
                   std::optional<std::string>

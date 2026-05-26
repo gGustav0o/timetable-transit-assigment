@@ -5,6 +5,7 @@
 #include <map>
 #include <optional>
 #include <span>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -88,6 +89,79 @@ namespace timetable::domain::assignment::detail {
                   )
             )
         };
+    }
+
+    inline mathfp::Expected<mathfp::Unit> validate_required_od_day_search_execution(
+        const SearchExecutionConfig& config
+    ) {
+        if (config.formulation != AssignmentCalculationFormulation::OdDayAssignment
+            || config.diagnostic_mode
+            || config.mode != SearchExecutionMode::OriginPeriod
+            || config.origin_scope != SearchOriginScope::DeclaredZones
+            || config.time_domain_source != SearchTimeDomainSource::ServiceDay
+            || config.destination_scope != SearchDestinationScope::DeclaredZones
+            || config.result_projection != SearchResultProjection::OdDayPairs
+            || config.partial_retention_scope != SearchPartialRetentionScope::TreeGlobal) {
+            return mathfp::unexpected(
+                mathfp::invalid_arg("required assignment must use OD-day search execution contract")
+                    .ctx("formulation", std::string(to_string(config.formulation)))
+                    .ctx("diagnostic_mode", config.diagnostic_mode ? "true" : "false")
+                    .ctx("mode", std::string(to_string(config.mode)))
+                    .ctx("origin_scope", std::string(to_string(config.origin_scope)))
+                    .ctx("time_domain_source", std::string(to_string(config.time_domain_source)))
+                    .ctx("destination_scope", std::string(to_string(config.destination_scope)))
+                    .ctx("result_projection", std::string(to_string(config.result_projection)))
+                    .ctx("partial_retention_scope", std::string(to_string(config.partial_retention_scope)))
+            );
+        }
+        return mathfp::kUnit;
+    }
+
+    inline mathfp::Expected<mathfp::Unit> validate_od_day_split_sources(
+        const DemandSplitResult& split
+    ) {
+        for (std::size_t i = 0; i < split.shares.size(); ++i) {
+            if (split.shares[i].source != DemandShareAlternativeSource::DayPath) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("OD-day assignment split contains non-day-path share")
+                        .ctx("share_index", static_cast<std::int64_t>(i))
+                        .ctx("origin", split.shares[i].origin.get())
+                        .ctx("destination", split.shares[i].destination.get())
+                );
+            }
+        }
+        return mathfp::kUnit;
+    }
+
+    inline void log_search_execution_summary(
+        const SearchExecutionConfig& config
+    ) {
+        using timetable::infra::LogLevel;
+        using timetable::infra::progress::log;
+
+        log(
+            fmt::format(
+                  "assignment search execution: formulation={} diagnostic={} mode={} origin_scope={} time_domain_source={} destination_scope={} result_projection={} partial_retention_scope={} max_parallel_batches={} validate_phase_invariants={} log_projection_details={}"
+                , to_string(config.formulation)
+                , config.diagnostic_mode ? "true" : "false"
+                , to_string(config.mode)
+                , to_string(config.origin_scope)
+                , to_string(config.time_domain_source)
+                , to_string(config.destination_scope)
+                , to_string(config.result_projection)
+                , to_string(config.partial_retention_scope)
+                , config.max_parallel_batches
+                , config.validate_phase_invariants ? "true" : "false"
+                , config.log_projection_details ? "true" : "false"
+            )
+            , LogLevel::Info
+        );
+        if (config.diagnostic_mode) {
+            log(
+                  "assignment search execution is diagnostic; it is not the required OD-day assignment mode"
+                , LogLevel::Warning
+            );
+        }
     }
 
     [[nodiscard]] inline SearchExecutionMode pipeline_search_execution_mode(
@@ -611,6 +685,7 @@ namespace timetable::domain::assignment::detail {
                 )
             );
         }
+        MATHFP_TRY(validate_required_od_day_search_execution(input.search_execution));
 
         both("assignment: OD-day origin streaming");
         MATHFP_TRY_LET(
@@ -679,7 +754,16 @@ namespace timetable::domain::assignment::detail {
                   accumulation.elementary_segment_loads
             )
         );
+        MATHFP_TRY(validate_od_day_split_sources(accumulation.split));
 
+        log(
+            fmt::format(
+                  "OD-day load contour: primary=elementary_segment_loads source=day_path demand_shares={:>8} elementary_loads={:>8}"
+                , accumulation.split.shares.size()
+                , elementary_segment_loads.items.size()
+            )
+            , LogLevel::Info
+        );
         log(
             fmt::format(
                   "OD-day assignment result: od_pairs = {:>8}  search_connections = {:>8}  chosen_connections = {:>8}  demand_shares = {:>8}  elementary_loads = {:>8}"
@@ -893,6 +977,7 @@ namespace timetable::domain::assignment::detail {
               "assignment pipeline started"
             , timetable::infra::LogLevel::Info
         );
+        log_search_execution_summary(input.search_execution);
         MATHFP_TRY(validate_assignment_execution_config(input.execution));
 
         if (!input.execution.calculate_assignment) {

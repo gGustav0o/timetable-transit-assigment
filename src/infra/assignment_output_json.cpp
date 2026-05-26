@@ -591,11 +591,34 @@ namespace timetable::infra {
             writer.end_object();
         }
 
+        void write_elementary_segment_load(
+              JsonWriter& writer
+            , const timetable::domain::assignment::ElementarySegmentLoad& load
+        ) {
+            writer.begin_object();
+            writer.key("interval_id");
+            write_strong_id(writer, load.key.interval);
+            writer.key("trip_id");
+            write_strong_id(writer, load.key.item.trip);
+            writer.key("from_index");
+            write_strong_id(writer, load.key.item.from_index);
+            writer.key("passengers");
+            writer.number(load.passengers);
+            writer.end_object();
+        }
+
         void write_loads(
               JsonWriter&                               writer
             , const timetable::domain::AssignmentLoads& loads
+            , const timetable::domain::assignment::ElementarySegmentLoads& elementary_segment_loads
         ) {
             writer.begin_object();
+            writer.key("elementary_segment_loads");
+            writer.begin_array();
+            for (const auto& load : elementary_segment_loads.items) {
+                write_elementary_segment_load(writer, load);
+            }
+            writer.end_array();
             writer.key("line_loads");
             writer.begin_array();
             for (const auto& load : loads.line_loads) {
@@ -867,7 +890,7 @@ namespace timetable::infra {
         JsonWriter writer;
         writer.begin_object();
         writer.key("schema");
-        writer.string("timetable.assignment_output.v11");
+        writer.string("timetable.assignment_output.v12");
         writer.key("mode");
         writer.string(output_mode_token(output.mode));
         writer.key("units");
@@ -892,7 +915,7 @@ namespace timetable::infra {
         }
         writer.end_array();
         writer.key("loads");
-        write_loads(writer, output.loads);
+        write_loads(writer, output.loads, output.elementary_segment_loads);
         writer.key("vehicle_journey_item_loads");
         write_vehicle_journey_item_loads(writer, output.vehicle_journey_item_loads);
         writer.key("skim_matrix");

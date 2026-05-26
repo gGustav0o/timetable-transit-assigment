@@ -517,6 +517,27 @@ namespace timetable::infra {
         return std::move(writer).finish();
     }
 
+    std::string serialize_assignment_elementary_segment_loads_csv(
+        const projection::AssignmentCsvProjection& projection
+    ) {
+        CsvWriter writer;
+        writer.text("interval_id");
+        writer.text("trip_id");
+        writer.text("from_index");
+        writer.text("passengers");
+        writer.end_row();
+
+        for (const auto& row : projection.elementary_segment_load_rows) {
+            write_strong_field(writer, row.interval_id);
+            write_strong_field(writer, row.trip_id);
+            write_strong_field(writer, row.from_index);
+            writer.number(row.passengers);
+            writer.end_row();
+        }
+
+        return std::move(writer).finish();
+    }
+
     std::string serialize_assignment_skim_matrix_csv(
         const projection::AssignmentCsvProjection& projection
     ) {

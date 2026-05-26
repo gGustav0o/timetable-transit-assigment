@@ -1,6 +1,7 @@
 #include "timetable/domain/assignment/choice/choice.hpp"
 
 #include <cstddef>
+#include <cstdint>
 #include <iterator>
 #include <map>
 #include <span>
@@ -9,6 +10,7 @@
 
 #include <fmt/format.h>
 
+#include <mathfp/core/error.hpp>
 #include <mathfp/core/try.hpp>
 
 #include "../detail/grouping.hpp"
@@ -97,44 +99,32 @@ namespace timetable::domain::assignment {
             };
         }
 
-        std::vector<const SearchConnection*> connection_ptrs(
-            const std::vector<SearchConnection>& connections
-        ) {
-            std::vector<const SearchConnection*> ptrs;
-            ptrs.reserve(connections.size());
-            for (const auto& connection : connections) {
-                ptrs.push_back(&connection);
-            }
-            return ptrs;
-        }
-
         mathfp::Expected<ChoiceOdDaySelection> choose_od_day_pair_connections(
               const OdDayPairResult&  pair_result
             , const SearchParams&     params
             , const SearchCostContext& search_cost
             , const ChoiceConfig&     config
         ) {
-            const auto pair_connections = connection_ptrs(pair_result.connections);
-            MATHFP_TRY_LET(
-                  std::vector<SearchConnection>
-                , chosen
-                , refine_complete_connection_ptrs(
-                      pair_connections
-                    , search_cost
-                    , IntervalId{ 0 }
-                    , params.choice_tolerances
-                    , config.rollout_stage
-                )
-            );
             MATHFP_TRY_LET(
                   std::vector<DayPathAlternative>
                 , alternatives
                 , retain_day_path_alternatives(
-                      std::move(chosen)
+                      pair_result.connections
                     , search_cost
                     , IntervalId{ 0 }
+                    , params.choice_tolerances
+                    , config.rollout_stage
                   )
             );
+            if (alternatives.size() != pair_result.connections.size()) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("OD-day choice input contains duplicate day paths")
+                        .ctx("origin", pair_result.origin.get())
+                        .ctx("destination", pair_result.destination.get())
+                        .ctx("input", static_cast<std::int64_t>(pair_result.connections.size()))
+                        .ctx("paths", static_cast<std::int64_t>(alternatives.size()))
+                );
+            }
             auto representatives = day_path_representative_connections(
                 std::span<const DayPathAlternative>{
                       alternatives.data()

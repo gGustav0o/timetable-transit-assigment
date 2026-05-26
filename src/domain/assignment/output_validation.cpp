@@ -420,6 +420,75 @@ namespace timetable::domain::assignment::detail {
             return mathfp::kUnit;
         }
 
+        using ElementaryOverloadLookup =
+            std::map<ElementarySegmentLoadKey, const ElementarySegmentOverload*>;
+
+        [[nodiscard]] ElementaryOverloadLookup build_elementary_overload_lookup(
+            const ElementarySegmentOverloadAssessment& assessment
+        ) {
+            ElementaryOverloadLookup lookup;
+            for (const auto& overload : assessment.items) {
+                lookup.emplace(overload.key, &overload);
+            }
+            return lookup;
+        }
+
+        mathfp::Expected<mathfp::Unit> validate_calculated_overload_uses_elementary_loads(
+            const AssignmentOutput& output
+        ) {
+            MATHFP_TRY(validate_vehicle_journey_item_loads(output.elementary_segment_loads));
+
+            if (output.mode != AssignmentOutputMode::Calculated) {
+                if (!output.elementary_segment_loads.items.empty()) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("non-assignment output must not contain elementary segment loads")
+                            .ctx(
+                                  "elementary_load_count"
+                                , static_cast<std::int64_t>(
+                                      output.elementary_segment_loads.items.size()
+                                  )
+                              )
+                    );
+                }
+                return mathfp::kUnit;
+            }
+
+            if (output.vehicle_journey_item_loads.status
+                != VehicleJourneyItemOverloadAssessmentStatus::Calculated) {
+                return mathfp::kUnit;
+            }
+
+            const auto overloads = build_elementary_overload_lookup(
+                output.vehicle_journey_item_loads
+            );
+            for (std::size_t i = 0; i < output.elementary_segment_loads.items.size(); ++i) {
+                const auto& load = output.elementary_segment_loads.items[i];
+                const auto overload_it = overloads.find(load.key);
+                if (overload_it == overloads.end()) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("calculated overload assessment misses an elementary segment load")
+                            .ctx("load_index" , static_cast<std::int64_t>(i))
+                            .ctx("interval_id", load.key.interval.get())
+                            .ctx("trip_id"    , load.key.item.trip.get())
+                            .ctx("from_index" , load.key.item.from_index.get())
+                    );
+                }
+                if (!almost_equal_scalar(overload_it->second->passengers, load.passengers)) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("calculated overload assessment passenger value disagrees with elementary segment load")
+                            .ctx("load_index"          , static_cast<std::int64_t>(i))
+                            .ctx("interval_id"         , load.key.interval.get())
+                            .ctx("trip_id"             , load.key.item.trip.get())
+                            .ctx("from_index"          , load.key.item.from_index.get())
+                            .ctx("elementary_passengers", load.passengers)
+                            .ctx("overload_passengers" , overload_it->second->passengers)
+                    );
+                }
+            }
+
+            return mathfp::kUnit;
+        }
+
     }  // namespace
 
     mathfp::Expected<mathfp::Unit> validate_od_result_semantics(
@@ -576,7 +645,8 @@ namespace timetable::domain::assignment::detail {
                 || !output.loads.trip_loads.empty()
                 || !output.loads.segment_loads.empty()
                 || !output.loads.stop_loads.empty()
-                || !output.loads.stop_total_loads.empty()) {
+                || !output.loads.stop_total_loads.empty()
+                || !output.elementary_segment_loads.items.empty()) {
                 return mathfp::unexpected(
                     mathfp::internal_error("all-zone search output must not contain load rows")
                 );
@@ -640,7 +710,8 @@ namespace timetable::domain::assignment::detail {
                 || !output.loads.trip_loads.empty()
                 || !output.loads.segment_loads.empty()
                 || !output.loads.stop_loads.empty()
-                || !output.loads.stop_total_loads.empty()) {
+                || !output.loads.stop_total_loads.empty()
+                || !output.elementary_segment_loads.items.empty()) {
                 return mathfp::unexpected(
                     mathfp::internal_error("disabled assignment output must not contain load rows")
                 );
@@ -711,6 +782,7 @@ namespace timetable::domain::assignment::detail {
         }
 
         MATHFP_TRY(validate_loads_semantics(output.loads));
+        MATHFP_TRY(validate_calculated_overload_uses_elementary_loads(output));
         MATHFP_TRY(validate_vehicle_journey_item_overload_assessment(
             output.vehicle_journey_item_loads
         ));

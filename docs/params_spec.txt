@@ -27,7 +27,7 @@
   - searchPara.ToleranceConstraints.minSearchImpAbs/minJourneyTimeAbs — входные абсолютные допуски трактуются как минуты и нормализуются в секунды перед построением SearchTolerances.
   - choicePara.ToleranceConstraints.minSearchImpAbs/minJourneyTimeAbs — входные абсолютные допуски трактуются как минуты и нормализуются в секунды перед построением ChoiceTolerances.
   - searchPara.TemporalSuitability.minTWT/maxTWT — входные значения трактуются как минуты и нормализуются в секунды перед построением TransferLimits.
-  - searchExecution.formulation — необязательный высокоуровневый режим постановки расчета: demand_task_assignment сохраняет прежний OD-интервальный demand-driven режим, od_day_assignment задает требуемую постановку "один service-day tree на origin и OD-day alternatives", all_zone_search включает search-only enumeration для всех объявленных зон.
+  - searchExecution.formulation — необязательный высокоуровневый режим постановки расчета: demand_task_assignment сохраняет прежний OD-интервальный demand-driven режим, od_day_assignment задает требуемую постановку "один service-day tree на origin и OD-day alternatives", all_zone_search включает search-only enumeration для всех объявленных зон, timed_connection_diagnostics включает старый timed demand-task контур только как диагностический режим.
   - searchExecution.partialRetentionScope — необязательный ключ режима partial-retention: tree_global задает целевую article-like реализацию с общей pruning-памятью дерева, projection_slot_local сохраняет прежний консервативный per-projection-slot режим.
   - searchExecution.maxParallelBatches — необязательный положительный целый лимит параллельных origin/batch worker-ов для tree-level search; по умолчанию 6.
   - searchExecution.validatePhaseInvariants — необязательный диагностический флаг: при True включает дорогую проверку фазовых инвариантов каждой принятой ветви; при отсутствии ключа используется False.
@@ -39,15 +39,25 @@ OD-day day-level path set:
 
   - SearchConnection остается конкретным расписательным соединением с trip/time information;
   - DayPathSignature задает дневной структурный путь между районами: access/transfer/egress walk и ride legs по route segment / line / route / stop-occurrence структуре, без connection segment id, trip id и clock time;
-  - после complete-connection retention и tolerance для OdDayPairs выполняется day-level retention: timed connections с одинаковой DayPathSignature схлопываются в один representative SearchConnection;
+  - DayPathPrefix является инкрементальной структурной подписью ветви поиска: она накапливается при каждом walk/ride extension и проверяется на совпадение с финальной DayPathSignature при завершении OD-пути;
+  - OD-day computational contract = incremental_day_path_retention: tree-level pruning в этом режиме использует ключ (DayPathPrefix, continuation-safe search state), поэтому timed supports одного структурного prefix начинают схлопываться внутри дерева, а не только после materialized complete connection;
+  - рабочие day-path search states отделены от финальных OD alternatives: TreePartialRetention хранит раннюю pruning-память по prefix/state, SearchProjectionRetention хранит только завершенные DayPathRetention для OD-пары;
+  - DayPathRetention индексирован по DayPathSignature; финальный vector<DayPathAlternative> создается только на finalize-границе и остается детерминированно упорядоченным по структурной подписи;
+  - OD-day search требует formulation = od_day_assignment, diagnostic_mode = false и partialRetentionScope = tree_global; projection_slot_local остается только для legacy/diagnostic timed-постановок;
+  - для OdDayPairs найденный complete timed support сразу проецируется в DayPathSignature и удерживается в DayPathRetention; сырые complete timed alternatives не становятся состоянием OD-day result slot;
+  - timed connections с одинаковой DayPathSignature схлопываются в один representative SearchConnection уже внутри search slot retention, а не поздним постпроцессингом после complete-connection retention;
   - представитель пути выбирается по доменной политике лучшего timed support: exact dominance, затем меньший impedance, меньшее journey time, меньше transfers, более ранний arrival и более поздний departure;
   - search_connection_count в OD-day output после этого слоя считается количеством day-level path representatives, а не количеством raw timed connections.
   - OD-day choice/split consume DayPathAlternative entities; SearchConnection remains only the representative timed support used for metric projection, segment loads and existing output compatibility;
+  - OD-day choice applies day-path retention/tolerance and treats duplicate day-path signatures in search output as an invariant violation; complete-connection retention remains only in the legacy timed DemandTasks formulation;
   - DayPathMetrics separates complete-retention metrics from representative connection metrics, so split/admissibility no longer reinterprets raw timed connections as primary OD-day alternatives;
   - assignment diagnostics are explicit counters over alternatives; legacy search_connection_count/chosen_connection_count fields are compatibility projections.
   - elementary segment loads in OD-day assignment require day-path split shares; timed connection shares are accepted only by the legacy/diagnostic demand-task formulation;
+  - OD-day pipeline validates that every split share is sourced from DayPath before elementary_segment_loads is materialized as the primary load contour;
   - VISUM route/stop aggregates in OD-day assignment are built from day-path split shares and representative timetable support; they are aggregate comparison projections, while elementary segment loads remain the primary load representation;
-  - the old timed demand-task calculation is preserved as searchExecution.formulation = timed_connection_diagnostics (equivalent search contract to demand_task_assignment, intended for diagnostics/comparison rather than the required OD-day formulation).
+  - AssignmentOutput хранит elementary_segment_loads как основной sparse-профиль нагрузки; loads.route_total_loads и loads.stop_total_loads являются VISUM-сравнительными агрегатами, а vehicle_journey_item_loads является overload assessment над тем же elementary support;
+  - overload assessment рассчитывается только из elementary_segment_loads и capacity rows; пересчет overload напрямую из OD alternatives, route aggregates или stop aggregates запрещен инвариантами output validation;
+  - the old timed demand-task calculation is preserved as searchExecution.formulation = timed_connection_diagnostics (equivalent search contract to demand_task_assignment, intended for diagnostics/comparison rather than the required OD-day formulation); runtime logs mark such execution as diagnostic.
 
 Семантика skimMatrixPara.lowImpConnShare:
 
@@ -198,12 +208,17 @@ OD-day day-level path set:
   - при False эти проверки не выполняются, что является производительным режимом по умолчанию для больших all-zone запусков;
   - ключ может задаваться как булево значение True/False или как числовое 1/0;
   - если блок searchExecution отсутствует, используется дефолт требуемой OD-day постановки:
-    origin_period, declared_zones, service_day, declared_zones, od_day_pairs,
-    partialRetentionScope = tree_global, maxParallelBatches = 6,
-    validatePhaseInvariants = False и logProjectionDetails = False;
+      origin_period, declared_zones, service_day, declared_zones, od_day_pairs,
+      partialRetentionScope = tree_global, maxParallelBatches = 6,
+      validatePhaseInvariants = False и logProjectionDetails = False;
+  - рабочий params.txt явно фиксирует этот дефолт через searchExecution.formulation = od_day_assignment и технические параметры maxParallelBatches = 6, validatePhaseInvariants = 0, logProjectionDetails = 0;
   - если блок searchExecution присутствует частично, неуказанные поля берутся из дефолтного режима
-    требуемой OD-day постановки, кроме случая явного указания mode: тогда применяется базовый
-    контракт выбранного режима с последующими переопределениями полей.
+    требуемой OD-day постановки; явное поле mode меняет только mode, не переключая resultProjection
+    и остальные поля постановки.
+  - для постановочного запуска технически допустимо менять maxParallelBatches, validatePhaseInvariants
+    и logProjectionDetails; изменение originScope/timeDomainSource/destinationScope/resultProjection
+    меняет математическую постановку и должно использоваться только как явная диагностика, предпочтительно
+    через formulation = timed_connection_diagnostics или all_zone_search.
 
 Семантика searchExecution.logProjectionDetails:
 
@@ -246,7 +261,8 @@ OD-day day-level path set:
   - если basePara.calcAssign = False, AssignmentOutput.vehicle_journey_item_loads получает status = skipped_assignment_disabled и строки не формируются;
   - если compile-time override TIMETABLE_OVERRIDE_DISABLE_VEHICLE_JOURNEY_ITEM_OVERLOAD_ASSESSMENT активен, AssignmentOutput.vehicle_journey_item_loads получает status = disabled_by_config и строки не формируются;
   - assignment_output.json содержит секцию vehicle_journey_item_loads со status и entries;
-  - файловый экспорт содержит отдельный файл vehicle_journey_item_loads.csv с колонками interval_id, trip_id, from_index, passengers, total_capacity, seat_capacity, load_factor, overload_passengers, status;
+  - файловый экспорт содержит отдельный primary-файл elementary_segment_loads.csv с колонками interval_id, trip_id, from_index, passengers;
+  - vehicle_journey_item_loads.csv является overload/capacity assessment над elementary_segment_loads.csv и содержит колонки interval_id, trip_id, from_index, passengers, total_capacity, seat_capacity, load_factor, overload_passengers, status;
   - stop_loads.csv содержит остановочные агрегаты: boarding_passengers, alighting_passengers, transfer_boarding_passengers, transfer_alighting_passengers, incoming_passenger_segments, outgoing_passenger_segments, through_passengers, stop_turnover_passengers, transfer_passengers;
   - loads.csv остается таблицей линейных, маршрутных, рейсовых и сегментных нагрузок, а остановочные агрегаты вынесены в отдельный stop_loads.csv, чтобы не смешивать разные уровни агрегации.
 
@@ -271,7 +287,7 @@ OD-day day-level path set:
   - если включен behavioral capacity-aware режим через SearchImp.volCapRatioFactor или PerceivedJourneyTime.volCapRatioFactor, pipeline требует загруженный veh_journey_item_cap.csv; при отсутствии capacity input расчет завершается ошибкой вместо молчаливого игнорирования capacity-aware режима;
   - validation behavioral capacity-aware assignment проверяет, что для каждого используемого ride item существует запись capacity и TOTALCAP > 0; zero capacity остается допустимым статусом только для post-assignment overload assessment, но не для behavioral search/split;
   - результат capacity-aware iteration валидируется как обычный split, а также проверяется корректность half-open проекции split -> vehicle journey item loads, конечность load state и согласованность diagnostics с max_iterations и заданными tolerance;
-  - JSON output schema = timetable.assignment_output.v11 содержит metadata.capacity_aware: capacity_aware_enabled, capacity_aware_search_enabled, iterations, converged, max_load_delta, used_factor, penalty_policy; по сравнению с v10 в секцию loads добавлен массив stop_loads;
+  - JSON output schema = timetable.assignment_output.v12 содержит metadata.capacity_aware: capacity_aware_enabled, capacity_aware_search_enabled, iterations, converged, max_load_delta, used_factor, penalty_policy; по сравнению с v11 в секцию loads добавлен массив elementary_segment_loads как primary load profile;
   - iterations, converged и max_load_delta относятся к общему outer assignment-loop при capacity_aware_search_enabled = true и к split-only fixed-point loop при capacity_aware_search_enabled = false;
   - search diagnostics логирует search cost mode, номер внешней capacity-aware итерации, размеры capacity index и wall-clock heartbeat долгих batch/branch, чтобы отличать вычислительно тяжелый search от зависания процесса;
   - metadata.csv сохраняет прежние колонки и не содержит capacity-aware diagnostics; новые остановочные показатели вынесены в отдельный stop_loads.csv;

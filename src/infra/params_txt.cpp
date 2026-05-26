@@ -115,6 +115,7 @@ namespace timetable::infra::params_txt {
                   "  pre_assign_period_sec = {}  post_assign_period_sec = {}"
                   "  delete_outside_assignment_period = {}  demand_segment_basis = {}"
                   "  deactivate_direct_dominance = {}"
+                  "  search_execution(formulation/projection/retention/workers/diagnostic) = {}/{}/{}/{}/{}"
                 , params.search.transfers.max_transfers.get()
                 , params.skim_matrix.enabled ? "true" : "false"
                 , timetable::domain::assignment::to_string(params.skim_matrix.func)
@@ -131,6 +132,11 @@ namespace timetable::infra::params_txt {
                 , params.complete_connection_dominance.deactivate_dominance_of_direct_connections
                     ? "true"
                     : "false"
+                , timetable::domain::assignment::to_string(params.search_execution.formulation)
+                , timetable::domain::assignment::to_string(params.search_execution.result_projection)
+                , timetable::domain::assignment::to_string(params.search_execution.partial_retention_scope)
+                , params.search_execution.max_parallel_batches
+                , params.search_execution.diagnostic_mode ? "true" : "false"
             )
             , LogLevel::Info
         );

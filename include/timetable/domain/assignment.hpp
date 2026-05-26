@@ -317,6 +317,15 @@ namespace timetable::domain {
         Summary                          summary{};
         std::vector<AssignmentOdResult>  od_results{};
         AssignmentLoads                  loads{};
+        /**
+         * Primary load profile for assignment and overload assessment.
+         *
+         * Each row is an elementary route segment occupied by passengers:
+         * interval + trip + half-open stop-position item. Route/stop totals
+         * in AssignmentLoads are comparison aggregates derived from split
+         * shares; overload is assessed from this elementary profile.
+         */
+        assignment::ElementarySegmentLoads elementary_segment_loads{};
         assignment::VehicleJourneyItemOverloadAssessment vehicle_journey_item_loads{};
         assignment::AssignmentSkimMatrix skim_matrix{};
         assignment::CapacityAwareAssignmentDiagnostics capacity_aware{};

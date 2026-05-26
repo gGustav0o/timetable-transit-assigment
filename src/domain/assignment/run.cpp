@@ -94,6 +94,17 @@ namespace timetable::domain::assignment {
                 , *output->summary.runtime_seconds
             )
         );
+        timetable::infra::progress::log(
+            fmt::format(
+                  "assignment output loads: elementary_segment_loads={} segment_loads={} route_totals={} stop_totals={} overload_status={} overload_rows={}"
+                , output->elementary_segment_loads.items.size()
+                , output->loads.segment_loads.size()
+                , output->loads.route_total_loads.size()
+                , output->loads.stop_total_loads.size()
+                , to_string(output->vehicle_journey_item_loads.status)
+                , output->vehicle_journey_item_loads.items.size()
+            )
+        );
 
         return output;
     }

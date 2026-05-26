@@ -310,6 +310,10 @@ namespace timetable::domain::assignment {
     struct SearchExecutionConfig final {
         static constexpr std::size_t kDefaultMaxParallelBatches = 6;
 
+        AssignmentCalculationFormulation formulation{
+            AssignmentCalculationFormulation::OdDayAssignment
+        };
+        bool                     diagnostic_mode{ false };
         SearchExecutionMode      mode{ SearchExecutionMode::OriginPeriod };
         SearchOriginScope        origin_scope{ SearchOriginScope::DeclaredZones };
         SearchTimeDomainSource   time_domain_source{ SearchTimeDomainSource::ServiceDay };
@@ -326,7 +330,9 @@ namespace timetable::domain::assignment {
     [[nodiscard]] inline constexpr SearchExecutionConfig make_default_demand_assignment_search_execution_config(
     ) noexcept {
         return SearchExecutionConfig{
-              .mode               = SearchExecutionMode::OriginPeriod
+              .formulation        = AssignmentCalculationFormulation::DemandTaskAssignment
+            , .diagnostic_mode    = false
+            , .mode               = SearchExecutionMode::OriginPeriod
             , .origin_scope       = SearchOriginScope::ActiveDemandOrigins
             , .time_domain_source = SearchTimeDomainSource::ServiceDay
             , .destination_scope  = SearchDestinationScope::DemandDestinations
@@ -340,7 +346,9 @@ namespace timetable::domain::assignment {
     [[nodiscard]] inline constexpr SearchExecutionConfig make_interval_local_search_execution_config(
     ) noexcept {
         return SearchExecutionConfig{
-              .mode               = SearchExecutionMode::IntervalLocal
+              .formulation        = AssignmentCalculationFormulation::DemandTaskAssignment
+            , .diagnostic_mode    = false
+            , .mode               = SearchExecutionMode::IntervalLocal
             , .origin_scope       = SearchOriginScope::ActiveDemandOrigins
             , .time_domain_source = SearchTimeDomainSource::DemandInduced
             , .destination_scope  = SearchDestinationScope::DemandDestinations
@@ -354,7 +362,9 @@ namespace timetable::domain::assignment {
     [[nodiscard]] inline constexpr SearchExecutionConfig make_declared_origin_period_demand_task_search_execution_config(
     ) noexcept {
         return SearchExecutionConfig{
-              .mode               = SearchExecutionMode::OriginPeriod
+              .formulation        = AssignmentCalculationFormulation::DemandTaskAssignment
+            , .diagnostic_mode    = false
+            , .mode               = SearchExecutionMode::OriginPeriod
             , .origin_scope       = SearchOriginScope::DeclaredZones
             , .time_domain_source = SearchTimeDomainSource::ServiceDay
             , .destination_scope  = SearchDestinationScope::DeclaredZones
@@ -368,7 +378,9 @@ namespace timetable::domain::assignment {
     [[nodiscard]] inline constexpr SearchExecutionConfig make_active_demand_origin_period_search_execution_config(
     ) noexcept {
         return SearchExecutionConfig{
-              .mode               = SearchExecutionMode::OriginPeriod
+              .formulation        = AssignmentCalculationFormulation::DemandTaskAssignment
+            , .diagnostic_mode    = false
+            , .mode               = SearchExecutionMode::OriginPeriod
             , .origin_scope       = SearchOriginScope::ActiveDemandOrigins
             , .time_domain_source = SearchTimeDomainSource::DemandInduced
             , .destination_scope  = SearchDestinationScope::DemandDestinations
@@ -382,7 +394,9 @@ namespace timetable::domain::assignment {
     [[nodiscard]] inline constexpr SearchExecutionConfig make_all_zone_origin_period_search_execution_config(
     ) noexcept {
         return SearchExecutionConfig{
-              .mode               = SearchExecutionMode::OriginPeriod
+              .formulation        = AssignmentCalculationFormulation::AllZoneSearch
+            , .diagnostic_mode    = true
+            , .mode               = SearchExecutionMode::OriginPeriod
             , .origin_scope       = SearchOriginScope::DeclaredZones
             , .time_domain_source = SearchTimeDomainSource::ServiceDay
             , .destination_scope  = SearchDestinationScope::DeclaredZones
@@ -396,7 +410,9 @@ namespace timetable::domain::assignment {
     [[nodiscard]] inline constexpr SearchExecutionConfig make_od_day_assignment_search_execution_config(
     ) noexcept {
         return SearchExecutionConfig{
-              .mode               = SearchExecutionMode::OriginPeriod
+              .formulation        = AssignmentCalculationFormulation::OdDayAssignment
+            , .diagnostic_mode    = false
+            , .mode               = SearchExecutionMode::OriginPeriod
             , .origin_scope       = SearchOriginScope::DeclaredZones
             , .time_domain_source = SearchTimeDomainSource::ServiceDay
             , .destination_scope  = SearchDestinationScope::DeclaredZones
@@ -430,8 +446,12 @@ namespace timetable::domain::assignment {
             case AssignmentCalculationFormulation::AllZoneSearch:
                 return make_all_zone_origin_period_search_execution_config();
 
-            case AssignmentCalculationFormulation::TimedConnectionDiagnostics:
-                return make_default_demand_assignment_search_execution_config();
+            case AssignmentCalculationFormulation::TimedConnectionDiagnostics: {
+                auto config = make_default_demand_assignment_search_execution_config();
+                config.formulation = AssignmentCalculationFormulation::TimedConnectionDiagnostics;
+                config.diagnostic_mode = true;
+                return config;
+            }
         }
         return make_default_search_execution_config();
     }

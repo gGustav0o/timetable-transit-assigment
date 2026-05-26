@@ -430,49 +430,6 @@ namespace timetable::domain::assignment::detail {
             };
         }
 
-        mathfp::Expected<VehicleJourneyItemOverloadAssessment> build_vehicle_journey_item_overload_assessment_output(
-              const DemandSplitResult&               split_result
-            , const std::vector<TimeInterval>&        intervals
-            , const VehicleJourneyItemCapacityInput& vehicle_journey_item_capacity
-            , const AssignmentExecutionConfig&        execution
-        ) {
-            MATHFP_TRY(validate_assignment_execution_config(execution));
-
-            if (!execution.calculate_vehicle_journey_item_overload_assessment) {
-                return make_disabled_by_config_vehicle_journey_item_overload_assessment();
-            }
-
-            MATHFP_TRY(validate_vehicle_journey_item_capacity_input(
-                vehicle_journey_item_capacity
-            ));
-
-            switch (vehicle_journey_item_capacity.status) {
-                case VehicleJourneyItemCapacityInputStatus::MissingInput:
-                    return make_missing_capacity_input_vehicle_journey_item_overload_assessment();
-
-                case VehicleJourneyItemCapacityInputStatus::Loaded: {
-                    MATHFP_TRY_LET(
-                          ElementarySegmentLoads
-                        , elementary_loads
-                        , build_elementary_segment_loads(split_result)
-                    );
-                    return assess_elementary_segment_overload(
-                          elementary_loads
-                        , vehicle_journey_item_capacity.capacities
-                        , intervals
-                    );
-                }
-            }
-
-            return mathfp::unexpected(
-                mathfp::internal_error("unknown vehicle journey item capacity input status")
-                    .ctx(
-                          "status"
-                        , static_cast<std::int64_t>(vehicle_journey_item_capacity.status)
-                    )
-            );
-        }
-
         mathfp::Expected<ElementarySegmentOverloadAssessment> build_elementary_segment_overload_assessment_output(
               const ElementarySegmentLoads&          elementary_segment_loads
             , const std::vector<TimeInterval>&        intervals
@@ -709,6 +666,11 @@ namespace timetable::domain::assignment::detail {
         );
         MATHFP_TRY(validate_loads_are_split_projection(split_result, loads));
         MATHFP_TRY_LET(
+              ElementarySegmentLoads
+            , elementary_segment_loads
+            , build_elementary_segment_loads(split_result)
+        );
+        MATHFP_TRY_LET(
               AssignmentSkimMatrix
             , skim_matrix
             , build_assignment_skim_matrix(
@@ -719,10 +681,10 @@ namespace timetable::domain::assignment::detail {
             )
         );
         MATHFP_TRY_LET(
-              VehicleJourneyItemOverloadAssessment
+              ElementarySegmentOverloadAssessment
             , vehicle_journey_item_loads
-            , build_vehicle_journey_item_overload_assessment_output(
-                  split_result
+            , build_elementary_segment_overload_assessment_output(
+                  elementary_segment_loads
                 , input.intervals
                 , vehicle_journey_item_capacity
                 , execution
@@ -734,6 +696,7 @@ namespace timetable::domain::assignment::detail {
             , .summary     = build_output_summary(input, search_result, choice_result, split_result)
             , .od_results  = {}
             , .loads       = std::move(loads)
+            , .elementary_segment_loads = std::move(elementary_segment_loads)
             , .vehicle_journey_item_loads = std::move(vehicle_journey_item_loads)
             , .skim_matrix = std::move(skim_matrix)
             , .capacity_aware = capacity_aware
@@ -819,6 +782,7 @@ namespace timetable::domain::assignment::detail {
             , .summary     = build_od_day_output_summary(input, search_summary, choice_result, split_result)
             , .od_results  = {}
             , .loads       = std::move(loads)
+            , .elementary_segment_loads = elementary_segment_loads
             , .vehicle_journey_item_loads = std::move(vehicle_journey_item_loads)
             , .skim_matrix = std::move(skim_matrix)
             , .capacity_aware = capacity_aware
@@ -869,6 +833,7 @@ namespace timetable::domain::assignment::detail {
             , .summary     = build_disabled_output_summary(input)
             , .od_results  = {}
             , .loads       = AssignmentLoads{}
+            , .elementary_segment_loads = ElementarySegmentLoads{}
             , .vehicle_journey_item_loads =
                   make_skipped_assignment_disabled_vehicle_journey_item_overload_assessment()
             , .skim_matrix = AssignmentSkimMatrix{
@@ -918,6 +883,7 @@ namespace timetable::domain::assignment::detail {
             , .summary     = build_all_zone_search_output_summary(search_result)
             , .od_results  = {}
             , .loads       = AssignmentLoads{}
+            , .elementary_segment_loads = ElementarySegmentLoads{}
             , .vehicle_journey_item_loads =
                   make_skipped_assignment_disabled_vehicle_journey_item_overload_assessment()
             , .skim_matrix = AssignmentSkimMatrix{

@@ -2,6 +2,7 @@
 
 #include <compare>
 #include <cstddef>
+#include <map>
 #include <optional>
 #include <span>
 #include <vector>
@@ -48,6 +49,21 @@ namespace timetable::domain::assignment {
         auto operator<=>(const DayPathSignature&) const = default;
     };
 
+    /**
+     * @brief Incremental structural path prefix used by OD-day search.
+     *
+     * The prefix is deliberately clock-free: it grows while the timetable
+     * support is explored, but it does not contain trip ids, connection segment
+     * ids or waiting legs. This lets OD-day search reason about the day-level
+     * path before a complete timed support is materialized.
+     */
+    struct DayPathPrefix final {
+        ZoneId                  origin{};
+        std::vector<DayPathLeg> legs{};
+
+        auto operator<=>(const DayPathPrefix&) const = default;
+    };
+
     struct DayPathAlternative final {
         DayPathSignature         signature{};
         SearchConnection         representative;
@@ -77,8 +93,34 @@ namespace timetable::domain::assignment {
     };
 
     struct DayPathRetention final {
-        std::vector<DayPathAlternative> alternatives{};
+        std::map<DayPathSignature, DayPathAlternative> alternatives_by_signature{};
     };
+
+    [[nodiscard]] bool day_path_retention_empty(
+        const DayPathRetention& retention
+    ) noexcept;
+
+    [[nodiscard]] std::size_t day_path_retention_size(
+        const DayPathRetention& retention
+    ) noexcept;
+
+    [[nodiscard]] DayPathLeg day_path_leg_of(
+        const ConnectionLeg& leg
+    ) noexcept;
+
+    [[nodiscard]] DayPathPrefix make_day_path_prefix(
+        ZoneId origin
+    );
+
+    [[nodiscard]] DayPathPrefix append_day_path_leg(
+          DayPathPrefix prefix
+        , DayPathLeg    leg
+    );
+
+    [[nodiscard]] DayPathSignature complete_day_path_signature(
+          DayPathPrefix prefix
+        , ZoneId        destination
+    );
 
     [[nodiscard]] DayPathSignature day_path_signature_of(
         const SearchConnection& connection
@@ -105,6 +147,26 @@ namespace timetable::domain::assignment {
         DayPathRetention retention
     );
 
+    [[nodiscard]] std::vector<DayPathAlternative> finalize_day_path_alternatives(
+        DayPathRetention retention
+    );
+
+    [[nodiscard]] CompleteConnectionMetricSummary summarize_day_path_metrics(
+        const DayPathRetention& retention
+    ) noexcept;
+
+    [[nodiscard]] std::vector<DayPathAlternative> finalize_day_path_alternatives(
+          DayPathRetention        retention
+        , const ChoiceTolerances& tolerances
+        , ChoiceRolloutStage      rollout_stage
+    );
+
+    [[nodiscard]] std::vector<SearchConnection> finalize_day_path_representatives(
+          DayPathRetention        retention
+        , const ChoiceTolerances& tolerances
+        , ChoiceRolloutStage      rollout_stage
+    );
+
     [[nodiscard]] std::vector<SearchConnection> day_path_representative_connections(
         std::span<const DayPathAlternative> alternatives
     );
@@ -121,6 +183,15 @@ namespace timetable::domain::assignment {
           std::vector<SearchConnection> connections
         , const SearchCostContext&      search_cost
         , IntervalId                    interval
+    );
+
+    [[nodiscard]] mathfp::Expected<std::vector<DayPathAlternative>>
+    retain_day_path_alternatives(
+          std::vector<SearchConnection> connections
+        , const SearchCostContext&      search_cost
+        , IntervalId                    interval
+        , const ChoiceTolerances&       tolerances
+        , ChoiceRolloutStage            rollout_stage
     );
 
 }  // namespace timetable::domain::assignment

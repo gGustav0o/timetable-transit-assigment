@@ -25,6 +25,7 @@
 #include <utility>
 #include <vector>
 
+#include <boost/container_hash/hash.hpp>
 #include <boost/unordered/unordered_flat_map.hpp>
 
 #include <mathfp/core/error.hpp>
@@ -122,6 +123,7 @@ namespace timetable::domain::assignment {
         struct SearchBranch final {
             SearchPartialTrace   trace{};
             SearchPartialMetrics metrics{};
+            DayPathPrefix        day_path_prefix{};
         };
 
         struct BranchSlot final {
@@ -378,6 +380,86 @@ namespace timetable::domain::assignment {
             , SearchNodeKeyHash
         >;
 
+        enum class OdDaySearchComputationContract : std::uint8_t {
+            IncrementalDayPathRetention
+        };
+
+        [[nodiscard]] constexpr const char* to_log_token(
+            OdDaySearchComputationContract contract
+        ) noexcept {
+            switch (contract) {
+                case OdDaySearchComputationContract::IncrementalDayPathRetention:
+                    return "incremental_day_path_retention";
+            }
+            return "unknown";
+        }
+
+        struct DayPathSearchStateKey final {
+            DayPathPrefix prefix{};
+            SearchNodeKey state{};
+
+            bool operator==(const DayPathSearchStateKey&) const = default;
+        };
+
+        struct DayPathSearchStateKeyHash final {
+            std::size_t operator()(const DayPathSearchStateKey& key) const noexcept {
+                std::size_t seed = 23u;
+                boost::hash_combine(seed, key.prefix.origin.get());
+                for (const auto& leg : key.prefix.legs) {
+                    boost::hash_combine(seed, static_cast<std::uint8_t>(leg.kind));
+                    boost::hash_combine(seed, leg.route_segment.has_value());
+                    if (leg.route_segment.has_value()) {
+                        boost::hash_combine(seed, leg.route_segment->get());
+                    }
+                    boost::hash_combine(seed, static_cast<std::uint8_t>(leg.physical_from.kind));
+                    boost::hash_combine(seed, leg.physical_from.id);
+                    boost::hash_combine(seed, static_cast<std::uint8_t>(leg.physical_to.kind));
+                    boost::hash_combine(seed, leg.physical_to.id);
+                    boost::hash_combine(seed, leg.occurrence_from.has_value());
+                    if (leg.occurrence_from.has_value()) {
+                        boost::hash_combine(seed, leg.occurrence_from->stop.get());
+                        boost::hash_combine(seed, leg.occurrence_from->position.get());
+                    }
+                    boost::hash_combine(seed, leg.occurrence_to.has_value());
+                    if (leg.occurrence_to.has_value()) {
+                        boost::hash_combine(seed, leg.occurrence_to->stop.get());
+                        boost::hash_combine(seed, leg.occurrence_to->position.get());
+                    }
+                    boost::hash_combine(seed, leg.line.has_value());
+                    if (leg.line.has_value()) {
+                        boost::hash_combine(seed, leg.line->get());
+                    }
+                    boost::hash_combine(seed, leg.route.has_value());
+                    if (leg.route.has_value()) {
+                        boost::hash_combine(seed, leg.route->get());
+                    }
+                }
+                boost::hash_combine(seed, static_cast<std::uint8_t>(key.state.physical.kind));
+                boost::hash_combine(seed, key.state.physical.id);
+                boost::hash_combine(seed, key.state.occurrence.has_value());
+                if (key.state.occurrence.has_value()) {
+                    boost::hash_combine(seed, key.state.occurrence->stop.get());
+                    boost::hash_combine(seed, key.state.occurrence->position.get());
+                }
+                boost::hash_combine(seed, static_cast<std::uint8_t>(key.state.phase));
+                boost::hash_combine(seed, key.state.transfer.last_trip.has_value());
+                if (key.state.transfer.last_trip.has_value()) {
+                    boost::hash_combine(seed, key.state.transfer.last_trip->get());
+                }
+                boost::hash_combine(seed, key.state.transfer.last_line.has_value());
+                if (key.state.transfer.last_line.has_value()) {
+                    boost::hash_combine(seed, key.state.transfer.last_line->get());
+                }
+                return seed;
+            }
+        };
+
+        using DayPathSearchStateMap = boost::unordered_flat_map<
+              DayPathSearchStateKey
+            , NodeMetricSet
+            , DayPathSearchStateKeyHash
+        >;
+
         enum class SearchProjectionSlotKind : std::uint8_t {
               DemandTask
             , OdDayPair
@@ -417,10 +499,10 @@ namespace timetable::domain::assignment {
         /**
          * @brief Retained complete-connection state for one projection slot.
          *
-         * Complete alternatives are projection-local: DemandTasks retain
-         * OD-interval alternatives, OdDayPairs retain service-day OD-pair
-         * alternatives, while CompletionTargets retain alternatives for one
-         * all-zone target destination. Partial-prefix pruning may be either
+         * Complete-alternative state is projection-local. DemandTasks keep
+         * timed OD-interval alternatives, OdDayPairs immediately project each
+         * completed support to DayPathRetention, and CompletionTargets keep a
+         * compact timed metric/count projection. Partial-prefix pruning may be
          * projection-local or tree-global depending on
          * SearchPartialRetentionScope.
          */
@@ -429,10 +511,20 @@ namespace timetable::domain::assignment {
             NodeMetricMap known_metrics{};
             CompleteConnectionRetention complete_connections{};
             CompactCompleteConnectionRetention compact_complete_connections{};
+            DayPathRetention day_paths{};
         };
 
+        /**
+         * @brief Tree-level partial retention.
+         *
+         * known_metrics is the legacy/timed state-local pruning memory.
+         * day_path_states is the OD-day working memory: it compares timed
+         * supports only inside the same structural path prefix and continuation
+         * state. Finalized OD alternatives live in SearchProjectionRetention.
+         */
         struct TreePartialRetention final {
-            NodeMetricMap known_metrics{};
+            NodeMetricMap          known_metrics{};
+            DayPathSearchStateMap  day_path_states{};
         };
 
         struct SearchSlotResult final {
@@ -2057,6 +2149,12 @@ namespace timetable::domain::assignment {
             return summary;
         }
 
+        [[nodiscard]] CompleteConnectionMetricSummary summarize_complete_metrics(
+            const DayPathRetention& retention
+        ) noexcept {
+            return summarize_day_path_metrics(retention);
+        }
+
         struct CompletionMetricLowerBound final {
             std::optional<Time> departure{};
             std::optional<Time> arrival{};
@@ -2274,6 +2372,77 @@ namespace timetable::domain::assignment {
             if (violates_complete_tolerance_lower_bound(
                   lower_bound
                 , summarize_complete_metrics(complete_retention)
+                , params.choice_tolerances
+                , reason
+            )) {
+                return SuffixLowerBoundPruningDecision{
+                      .feasible = false
+                    , .rejection_reason = reason
+                };
+            }
+
+            return SuffixLowerBoundPruningDecision{ .feasible = true };
+        }
+
+        [[nodiscard]] mathfp::Expected<SuffixLowerBoundPruningDecision> evaluate_suffix_lower_bound_pruning(
+              const SearchBranch&                       branch
+            , ZoneId                                    destination
+            , const ResidualReachability&               reachability
+            , const DayPathRetention&                   day_path_retention
+            , const SearchParams&                       params
+            , const SearchCostContext&                  search_cost
+            , const ChoiceConfig&                       choice_config
+            , const CompleteConnectionDominanceConfig&  dominance_config
+        ) {
+            if (day_path_retention_empty(day_path_retention)) {
+                return SuffixLowerBoundPruningDecision{ .feasible = true };
+            }
+
+            const auto destination_it = reachability.destinations.find(destination);
+            if (destination_it == reachability.destinations.end()) {
+                return SuffixLowerBoundPruningDecision{ .feasible = true };
+            }
+
+            const auto state = residual_reachability_key(
+                relaxed_suffix_state(branch, destination, params.transfers)
+            );
+            const auto lower_bound_it = destination_it->second.suffix_lower_bounds.find(state);
+            if (lower_bound_it == destination_it->second.suffix_lower_bounds.end()) {
+                return SuffixLowerBoundPruningDecision{ .feasible = true };
+            }
+
+            MATHFP_TRY_LET(
+                  CompletionMetricLowerBound
+                , lower_bound
+                , completion_metric_lower_bound(
+                      branch
+                    , lower_bound_it->second
+                    , search_cost
+                )
+            );
+
+            for (const auto& [signature, path] : day_path_retention.alternatives_by_signature) {
+                (void)signature;
+                if (complete_connection_dominates_completion_lower_bound(
+                      dominance_config
+                    , path.representative_metrics
+                    , lower_bound
+                )) {
+                    return SuffixLowerBoundPruningDecision{
+                          .feasible = false
+                        , .rejection_reason = SuffixLowerBoundRejectionReason::ExactDominance
+                    };
+                }
+            }
+
+            if (choice_config.rollout_stage != ChoiceRolloutStage::ExactAndApproximate) {
+                return SuffixLowerBoundPruningDecision{ .feasible = true };
+            }
+
+            auto reason = SuffixLowerBoundRejectionReason::ToleranceImpedance;
+            if (violates_complete_tolerance_lower_bound(
+                  lower_bound
+                , summarize_complete_metrics(day_path_retention)
                 , params.choice_tolerances
                 , reason
             )) {
@@ -2779,6 +2948,38 @@ namespace timetable::domain::assignment {
             };
         }
 
+        [[nodiscard]] DayPathLeg make_day_path_walk_leg(
+              ConnectionLegKind   kind
+            , const RouteSegment& route_segment
+        ) noexcept {
+            return DayPathLeg{
+                  .kind            = kind
+                , .route_segment   = route_segment.id
+                , .physical_from   = physical_from_key(route_segment)
+                , .physical_to     = physical_to_key(route_segment)
+                , .occurrence_from = std::nullopt
+                , .occurrence_to   = std::nullopt
+                , .line            = std::nullopt
+                , .route           = std::nullopt
+            };
+        }
+
+        [[nodiscard]] DayPathLeg make_day_path_ride_leg(
+            const RouteSegment& route_segment
+        ) noexcept {
+            const auto* line = line_topology_of(route_segment);
+            return DayPathLeg{
+                  .kind            = ConnectionLegKind::Ride
+                , .route_segment   = route_segment.id
+                , .physical_from   = physical_from_key(route_segment)
+                , .physical_to     = physical_to_key(route_segment)
+                , .occurrence_from = occurrence_key(line->from)
+                , .occurrence_to   = occurrence_key(line->to)
+                , .line            = line->line
+                , .route           = line->route
+            };
+        }
+
         [[nodiscard]] SearchPartialTrace extend_trace_with_walk(
               SearchPartialTrace            trace
             , std::size_t                    branch_index
@@ -2850,11 +3051,15 @@ namespace timetable::domain::assignment {
                 , transition
             );
             return SearchBranch{
-                  .trace   = trace
-                , .metrics = extend_metrics_with_walk(
+                  .trace           = trace
+                , .metrics         = extend_metrics_with_walk(
                       branch.metrics
                     , route_segment
                     , transition.kind
+                  )
+                , .day_path_prefix = append_day_path_leg(
+                      branch.day_path_prefix
+                    , make_day_path_walk_leg(transition.kind, route_segment)
                   )
             };
         }
@@ -2986,18 +3191,22 @@ namespace timetable::domain::assignment {
                 )
             );
             return SearchBranch{
-                  .trace   = extend_trace_with_timed(
+                  .trace           = extend_trace_with_timed(
                         branch.trace
                       , branch_index
                       , segment
                       , route_segment
                       , next_phase
                   )
-                , .metrics = extend_metrics_with_timed(
+                , .metrics         = extend_metrics_with_timed(
                       branch.metrics
                     , segment
                     , capacity_exposure
                 )
+                , .day_path_prefix = append_day_path_leg(
+                      branch.day_path_prefix
+                    , make_day_path_ride_leg(route_segment)
+                  )
             };
         }
 
@@ -3681,6 +3890,83 @@ namespace timetable::domain::assignment {
             );
         }
 
+        mathfp::Expected<SearchPruningDecision> retain_day_path_prefix_branch(
+              const SearchBranch&               branch
+            , TreePartialRetention&             retention
+            , const SearchParams&               params
+            , const SearchCostContext&          search_cost
+            , const SearchPruningExecutionPlan& pruning_execution
+            , SearchPruningRuntimeStats&        pruning_stats
+        ) {
+            if (!branch.metrics.departure.has_value() || !branch.metrics.current_time.has_value()) {
+                return SearchPruningDecision{
+                      .layer    = SearchPruningLayer::Exact
+                    , .reason   = SearchPruningReason::Accepted
+                    , .accepted = true
+                };
+            }
+
+            ++pruning_stats.evaluated_candidates;
+            MATHFP_TRY_LET(
+                  PartialPruningMetrics
+                , metrics
+                , make_partial_pruning_metrics(branch, search_cost)
+            );
+            auto key = DayPathSearchStateKey{
+                  .prefix = branch.day_path_prefix
+                , .state  = search_node_key(branch, pruning_execution)
+            };
+            auto it = retention.day_path_states.find(key);
+            if (it == retention.day_path_states.end()) {
+                if (stores_search_pruning_metrics(pruning_execution)) {
+                    auto metric_set = NodeMetricSet{};
+                    insert_search_pruning_metrics_in_place(
+                          pruning_execution
+                        , metric_set
+                        , std::move(metrics)
+                    );
+                    retention.day_path_states.emplace(std::move(key), std::move(metric_set));
+                    ++pruning_stats.inserted_metrics;
+                } else {
+                    ++pruning_stats.skipped_insertions;
+                }
+                ++pruning_stats.accepted_candidates;
+                return SearchPruningDecision{
+                      .layer    = SearchPruningLayer::Exact
+                    , .reason   = SearchPruningReason::Accepted
+                    , .accepted = true
+                };
+            }
+
+            const auto decision = evaluate_search_pruning(
+                  pruning_execution
+                , metrics
+                , it->second
+                , params.transfers
+            );
+            if (!decision.accepted) {
+                if (decision.layer == SearchPruningLayer::Exact) {
+                    ++pruning_stats.rejected_exact;
+                } else {
+                    ++pruning_stats.rejected_approximate;
+                }
+                return decision;
+            }
+
+            if (stores_search_pruning_metrics(pruning_execution)) {
+                insert_search_pruning_metrics_in_place(
+                      pruning_execution
+                    , it->second
+                    , std::move(metrics)
+                );
+                ++pruning_stats.inserted_metrics;
+            } else {
+                ++pruning_stats.skipped_insertions;
+            }
+            ++pruning_stats.accepted_candidates;
+            return decision;
+        }
+
         BranchState feasibility_state(
             const SearchBranch& branch
         ) noexcept {
@@ -3705,6 +3991,16 @@ namespace timetable::domain::assignment {
             return total;
         }
 
+        [[nodiscard]] std::size_t retained_day_path_count(
+            std::span<const SearchProjectionRetention> retentions
+        ) noexcept {
+            std::size_t total = 0;
+            for (const auto& retention : retentions) {
+                total += day_path_retention_size(retention.day_paths);
+            }
+            return total;
+        }
+
         struct SearchStorageDiagnostics final {
             std::size_t branch_slots{};
             std::size_t live_branches{};
@@ -3713,8 +4009,12 @@ namespace timetable::domain::assignment {
             std::size_t tree_pruning_nodes{};
             std::size_t tree_pruning_buckets{};
             float       tree_pruning_load_factor{};
+            std::size_t day_path_state_nodes{};
+            std::size_t day_path_state_buckets{};
+            float       day_path_state_load_factor{};
             std::size_t tree_pruning_insertions{};
             std::size_t retained_complete_connections{};
+            std::size_t retained_day_paths{};
             std::size_t approximate_direct_bytes{};
         };
 
@@ -3729,10 +4029,14 @@ namespace timetable::domain::assignment {
         ) noexcept {
             const auto pruning_nodes = tree_retention.known_metrics.size();
             const auto pruning_buckets = tree_retention.known_metrics.bucket_count();
+            const auto day_path_state_nodes = tree_retention.day_path_states.size();
+            const auto day_path_state_buckets = tree_retention.day_path_states.bucket_count();
             const auto live_branches = branches.size() - released_branches;
             std::size_t compact_complete_metrics = 0;
+            std::size_t day_path_alternatives = 0;
             for (const auto& retention : retentions) {
                 compact_complete_metrics += retention.compact_complete_connections.metrics.size();
+                day_path_alternatives += day_path_retention_size(retention.day_paths);
             }
             const auto approximate_direct_bytes =
                   branches.size() * sizeof(BranchSlot)
@@ -3740,7 +4044,10 @@ namespace timetable::domain::assignment {
                 + projection_state_count * projection_state_size
                 + pruning_nodes * sizeof(NodeMetricMap::value_type)
                 + pruning_buckets * sizeof(void*)
-                + compact_complete_metrics * sizeof(CompleteConnectionMetrics);
+                + day_path_state_nodes * sizeof(DayPathSearchStateMap::value_type)
+                + day_path_state_buckets * sizeof(void*)
+                + compact_complete_metrics * sizeof(CompleteConnectionMetrics)
+                + day_path_alternatives * sizeof(DayPathAlternative);
             return SearchStorageDiagnostics{
                   .branch_slots = branches.size()
                 , .live_branches = live_branches
@@ -3749,8 +4056,12 @@ namespace timetable::domain::assignment {
                 , .tree_pruning_nodes = pruning_nodes
                 , .tree_pruning_buckets = pruning_buckets
                 , .tree_pruning_load_factor = tree_retention.known_metrics.load_factor()
+                , .day_path_state_nodes = day_path_state_nodes
+                , .day_path_state_buckets = day_path_state_buckets
+                , .day_path_state_load_factor = tree_retention.day_path_states.load_factor()
                 , .tree_pruning_insertions = pruning_stats.inserted_metrics
                 , .retained_complete_connections = retained_connection_count(retentions)
+                , .retained_day_paths = retained_day_path_count(retentions)
                 , .approximate_direct_bytes = approximate_direct_bytes
             };
         }
@@ -3759,7 +4070,7 @@ namespace timetable::domain::assignment {
             const SearchStorageDiagnostics& diagnostics
         ) {
             return fmt::format(
-                  "search storage: branch_slots={} live_branches={} released_branches={} projection_states={} tree_pruning(nodes/buckets/load/insertions)={}/{}/{:.3f}/{} retained_complete={} approx_direct_mb={:.2f}"
+                  "search storage: branch_slots={} live_branches={} released_branches={} projection_states={} tree_pruning(nodes/buckets/load/insertions)={}/{}/{:.3f}/{} day_path_states(nodes/buckets/load)={}/{}/{:.3f} retained_complete={} retained_day_paths={} approx_direct_mb={:.2f}"
                 , diagnostics.branch_slots
                 , diagnostics.live_branches
                 , diagnostics.released_branches
@@ -3768,7 +4079,11 @@ namespace timetable::domain::assignment {
                 , diagnostics.tree_pruning_buckets
                 , diagnostics.tree_pruning_load_factor
                 , diagnostics.tree_pruning_insertions
+                , diagnostics.day_path_state_nodes
+                , diagnostics.day_path_state_buckets
+                , diagnostics.day_path_state_load_factor
                 , diagnostics.retained_complete_connections
+                , diagnostics.retained_day_paths
                 , static_cast<double>(diagnostics.approximate_direct_bytes)
                     / (1024.0 * 1024.0)
             );
@@ -3894,6 +4209,18 @@ namespace timetable::domain::assignment {
                 , slots.end()
                 , [](const SearchProjectionSlot& slot) {
                       return slot.kind == SearchProjectionSlotKind::CompletionTarget;
+                  }
+            );
+        }
+
+        [[nodiscard]] bool od_day_projection_slots(
+            std::span<const SearchProjectionSlot> slots
+        ) noexcept {
+            return std::all_of(
+                  slots.begin()
+                , slots.end()
+                , [](const SearchProjectionSlot& slot) {
+                      return slot.kind == SearchProjectionSlotKind::OdDayPair;
                   }
             );
         }
@@ -4277,6 +4604,27 @@ namespace timetable::domain::assignment {
                     , interval
                     , complete_retention_interval(slot, search_cost)
                 );
+                if (slot.kind == SearchProjectionSlotKind::OdDayPair) {
+                    const auto incremental_signature = complete_day_path_signature(
+                          branch.day_path_prefix
+                        , slot.destination
+                    );
+                    const auto materialized_signature = day_path_signature_of(*complete);
+                    if (incremental_signature != materialized_signature) {
+                        return mathfp::unexpected(
+                            mathfp::internal_error("incremental OD-day path prefix disagrees with materialized connection")
+                                .ctx("origin", slot.origin.get())
+                                .ctx("destination", slot.destination.get())
+                        );
+                    }
+                    MATHFP_TRY(retain_day_path_alternative(
+                          retention.day_paths
+                        , std::move(*complete)
+                        , search_cost
+                        , interval
+                    ));
+                    return mathfp::kUnit;
+                }
                 const auto retention_decision = retain_exact_complete_connection(
                       retention.complete_connections
                     , std::move(*complete)
@@ -4364,9 +4712,17 @@ namespace timetable::domain::assignment {
                 };
             const auto target_projection_slots =
                 completion_target_projection_slots(batch_task_span);
+            const auto od_day_slots =
+                od_day_projection_slots(batch_task_span);
             const auto target_positions_by_destination = target_projection_slots
                 ? completion_target_position_by_destination(batch_target_span)
                 : std::map<ZoneId, std::size_t>{};
+            if (od_day_slots && partial_retention_scope != SearchPartialRetentionScope::TreeGlobal) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("OD-day search requires tree-global incremental day-path retention")
+                        .ctx("origin", batch.key.origin.get())
+                );
+            }
             if (target_projection_slots
                 && batch.projection_slots.size() > FixedActiveMask::max_size) {
                 return mathfp::unexpected(
@@ -4447,6 +4803,7 @@ namespace timetable::domain::assignment {
                         , .fare             = 0.0
                         , .capacity_exposure = CapacityExposure{ Time{ 0.0 } }
                   }
+                  , .day_path_prefix = make_day_path_prefix(batch.key.origin)
               }
             );
             if (diagnostics.validate_phase_invariants) {
@@ -4898,14 +5255,23 @@ namespace timetable::domain::assignment {
 
                     if (partial_retention_scope
                         == SearchPartialRetentionScope::TreeGlobal) {
-                        auto pruning_decision = retain_branch(
-                              *candidate
-                            , tree_partial_retention
-                            , params
-                            , search_cost
-                            , pruning_execution
-                            , stats.pruning
-                        );
+                        auto pruning_decision = od_day_slots
+                            ? retain_day_path_prefix_branch(
+                                  *candidate
+                                , tree_partial_retention
+                                , params
+                                , search_cost
+                                , pruning_execution
+                                , stats.pruning
+                              )
+                            : retain_branch(
+                                  *candidate
+                                , tree_partial_retention
+                                , params
+                                , search_cost
+                                , pruning_execution
+                                , stats.pruning
+                              );
                         if (!pruning_decision) {
                             successor_error = mathfp::unexpected(
                                 std::move(pruning_decision.error())
@@ -4949,16 +5315,27 @@ namespace timetable::domain::assignment {
                                 , choice_config
                                 , complete_connection_dominance
                               )
-                            : evaluate_suffix_lower_bound_pruning(
-                                  *candidate
-                                , batch.projection_slots[task_pos].destination
-                                , reachability
-                                , retentions[task_pos].complete_connections
-                                , params
-                                , search_cost
-                                , choice_config
-                                , complete_connection_dominance
-                              );
+                            : batch.projection_slots[task_pos].kind == SearchProjectionSlotKind::OdDayPair
+                                ? evaluate_suffix_lower_bound_pruning(
+                                      *candidate
+                                    , batch.projection_slots[task_pos].destination
+                                    , reachability
+                                    , retentions[task_pos].day_paths
+                                    , params
+                                    , search_cost
+                                    , choice_config
+                                    , complete_connection_dominance
+                                  )
+                                : evaluate_suffix_lower_bound_pruning(
+                                      *candidate
+                                    , batch.projection_slots[task_pos].destination
+                                    , reachability
+                                    , retentions[task_pos].complete_connections
+                                    , params
+                                    , search_cost
+                                    , choice_config
+                                    , complete_connection_dominance
+                                  );
                         if (!lower_bound_decision) {
                             successor_error = mathfp::unexpected(
                                 std::move(lower_bound_decision.error())
@@ -5075,7 +5452,9 @@ namespace timetable::domain::assignment {
                 auto& retention   = retentions[task_pos];
                 const auto before_tolerance = target_projection_slots
                     ? retention.compact_complete_connections.metrics.size()
-                    : retention.complete_connections.alternatives.size();
+                    : slot.kind == SearchProjectionSlotKind::OdDayPair
+                        ? day_path_retention_size(retention.day_paths)
+                        : retention.complete_connections.alternatives.size();
                 std::vector<SearchConnection> connections;
                 std::size_t connection_count = 0u;
                 if (target_projection_slots) {
@@ -5085,32 +5464,29 @@ namespace timetable::domain::assignment {
                         , choice_config.rollout_stage
                     );
                 } else {
-                    connections = finalize_complete_connection_retention(
-                          retention.complete_connections
-                        , params.choice_tolerances
-                        , choice_config.rollout_stage
-                    );
-                    const auto complete_after_tolerance = connections.size();
                     if (slot.kind == SearchProjectionSlotKind::OdDayPair) {
-                        MATHFP_TRY_LET(
-                              IntervalId
-                            , day_path_interval
-                            , complete_retention_interval(slot, search_cost)
+                        if (!retention.complete_connections.alternatives.empty()) {
+                            return mathfp::unexpected(
+                                mathfp::internal_error("OD-day slot retained timed complete connections")
+                                    .ctx("origin", slot.origin.get())
+                                    .ctx("destination", slot.destination.get())
+                            );
+                        }
+                        connections = finalize_day_path_representatives(
+                              std::move(retention.day_paths)
+                            , params.choice_tolerances
+                            , choice_config.rollout_stage
                         );
-                        MATHFP_TRY_LET(
-                              std::vector<SearchConnection>
-                            , day_path_connections
-                            , retain_day_path_representative_connections(
-                                  std::move(connections)
-                                , search_cost
-                                , day_path_interval
-                              )
+                    } else {
+                        connections = finalize_complete_connection_retention(
+                              retention.complete_connections
+                            , params.choice_tolerances
+                            , choice_config.rollout_stage
                         );
-                        connections = std::move(day_path_connections);
                     }
                     connection_count = connections.size();
                     task_stats[task_pos].rejected_complete_tolerance =
-                        before_tolerance - complete_after_tolerance;
+                        before_tolerance - connection_count;
                 }
                 if (target_projection_slots) {
                     task_stats[task_pos].rejected_complete_tolerance =
@@ -5136,7 +5512,7 @@ namespace timetable::domain::assignment {
                     log(
                         fmt::format(
                               "search batch projection done: batch={}/{} slot={} kind={} task={} origin={} destination={} interval={} found={:>8}"
-                              " retained_complete={:>8} complete_rejected(admissibility/dominance/tolerance)={}/{}/{} complete_removed_dominated={}"
+                              " retained_before_tolerance={:>8} complete_rejected(admissibility/dominance/tolerance)={}/{}/{} complete_removed_dominated={}"
                               " reachability_pruned={} reachability_detail(phase/budget/unreachable)={}/{}/{}"
                               " lower_bound_pruned={} lower_bound_detail(exact/imp/jt/nt)={}/{}/{}/{}"
                             , batch_index + 1
@@ -5177,7 +5553,7 @@ namespace timetable::domain::assignment {
             log(
                 fmt::format(
                       "search batch done: {}/{} origin={} interval={} tasks={} found={:>8} completed={:>8}"
-                      " retained_complete={:>8} complete_rejected(admissibility/dominance/tolerance)={}/{}/{} complete_removed_dominated={}"
+                      " retained_before_tolerance={:>8} complete_rejected(admissibility/dominance/tolerance)={}/{}/{} complete_removed_dominated={}"
                       " expanded={:>8} generated={:>8} accepted={:>8}"
                       " rejected(time_domain/feasibility/reboarding/cycles/limit/reachability/dominance)={}/{}/{}/{}/{}/{}/{}"
                       " reachability_detail(phase/budget/unreachable)={}/{}/{} max_frontier={}/{}"
@@ -6947,6 +7323,12 @@ namespace timetable::domain::assignment {
                 mathfp::invalid_arg("OD-day by-origin search requires a result sink")
             );
         }
+        if (execution.config.partial_retention_scope != SearchPartialRetentionScope::TreeGlobal) {
+            return mathfp::unexpected(
+                mathfp::invalid_arg("OD-day search requires tree_global partial retention")
+                    .ctx("partial_retention_scope", std::string(to_string(execution.config.partial_retention_scope)))
+            );
+        }
 
         MATHFP_TRY(validate_assignment_period_config(assignment_period));
         MATHFP_TRY(validate_connection_admissibility_config(admissibility_config));
@@ -6958,8 +7340,9 @@ namespace timetable::domain::assignment {
         both("search: OD-day branch-and-bound");
         log(
             fmt::format(
-                  "OD-day projection contract: partial_retention_scope={} complete_retention=od_pair_slot"
+                  "OD-day projection contract: partial_retention_scope={} complete_retention=day_path_od_pair_slot computation_contract={}"
                 , to_string(execution.config.partial_retention_scope)
+                , to_log_token(OdDaySearchComputationContract::IncrementalDayPathRetention)
             )
             , LogLevel::Info
         );

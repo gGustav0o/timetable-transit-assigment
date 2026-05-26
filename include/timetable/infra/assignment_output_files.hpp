@@ -25,6 +25,7 @@ namespace timetable::infra {
         std::filesystem::path segments_csv_path{};
         std::filesystem::path loads_csv_path{};
         std::filesystem::path stop_loads_csv_path{};
+        std::filesystem::path elementary_segment_loads_csv_path{};
         std::filesystem::path skim_matrix_csv_path{};
         std::filesystem::path vehicle_journey_item_loads_csv_path{};
     };
@@ -49,6 +50,7 @@ namespace timetable::infra {
      * - segments.csv
      * - loads.csv
      * - stop_loads.csv
+     * - elementary_segment_loads.csv
      * - skim_matrix.csv
      * - vehicle_journey_item_loads.csv
      *

@@ -352,6 +352,12 @@ namespace timetable::app {
                 fmt::format("stop_loads.csv: {}", paths.stop_loads_csv_path.string())
             );
             timetable::infra::progress::log(
+                fmt::format(
+                      "elementary_segment_loads.csv: {}"
+                    , paths.elementary_segment_loads_csv_path.string()
+                )
+            );
+            timetable::infra::progress::log(
                 fmt::format("vehicle_journey_item_loads.csv: {}", paths.vehicle_journey_item_loads_csv_path.string())
             );
 

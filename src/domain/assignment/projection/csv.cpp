@@ -437,6 +437,23 @@ namespace timetable::domain::assignment::projection {
             }
         }
 
+        void append_elementary_segment_load_projection_rows(
+              AssignmentCsvProjection&       projection
+            , const ElementarySegmentLoads&  loads
+        ) {
+            projection.elementary_segment_load_rows.reserve(loads.items.size());
+            for (const auto& load : loads.items) {
+                projection.elementary_segment_load_rows.push_back(
+                    AssignmentElementarySegmentLoadCsvRow{
+                          .interval_id = load.key.interval
+                        , .trip_id     = load.key.item.trip
+                        , .from_index  = load.key.item.from_index
+                        , .passengers  = load.passengers
+                    }
+                );
+            }
+        }
+
         void append_skim_matrix_projection_rows(
               AssignmentCsvProjection&      projection
             , const AssignmentSkimMatrix&   skim_matrix
@@ -536,6 +553,9 @@ namespace timetable::domain::assignment::projection {
         projection.segment_rows   .reserve(segment_row_count);
         projection.load_rows      .reserve(load_row_count);
         projection.stop_load_rows .reserve(output.loads.stop_loads.size());
+        projection.elementary_segment_load_rows.reserve(
+            output.elementary_segment_loads.items.size()
+        );
         projection.skim_matrix_rows.reserve(output.skim_matrix.entries.size());
         projection.vehicle_journey_item_load_rows.reserve(vehicle_journey_item_load_row_count);
 
@@ -546,6 +566,10 @@ namespace timetable::domain::assignment::projection {
         }
         append_load_projection_rows(projection, output.loads);
         append_stop_load_projection_rows(projection, output.loads);
+        append_elementary_segment_load_projection_rows(
+              projection
+            , output.elementary_segment_loads
+        );
         append_skim_matrix_projection_rows(projection, output.skim_matrix);
         append_vehicle_journey_item_load_projection_rows(
               projection
