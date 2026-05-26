@@ -56,6 +56,7 @@ namespace timetable::domain::assignment {
         using PartialPruningMetrics = SearchPruningMetrics;
         using NodeMetricSet         = SearchPruningMetricSet;
         using SearchNodeKey         = SearchPruningStateKey;
+        using DayPathPrefixId       = std::size_t;
 
 
         // TODO??
@@ -395,17 +396,17 @@ namespace timetable::domain::assignment {
         }
 
         struct DayPathSearchStateKey final {
-            DayPathPrefix prefix{};
-            SearchNodeKey state{};
+            DayPathPrefixId prefix_id{};
+            SearchNodeKey   state{};
 
             bool operator==(const DayPathSearchStateKey&) const = default;
         };
 
-        struct DayPathSearchStateKeyHash final {
-            std::size_t operator()(const DayPathSearchStateKey& key) const noexcept {
+        struct DayPathPrefixHash final {
+            std::size_t operator()(const DayPathPrefix& prefix) const noexcept {
                 std::size_t seed = 23u;
-                boost::hash_combine(seed, key.prefix.origin.get());
-                for (const auto& leg : key.prefix.legs) {
+                boost::hash_combine(seed, prefix.origin.get());
+                for (const auto& leg : prefix.legs) {
                     boost::hash_combine(seed, static_cast<std::uint8_t>(leg.kind));
                     boost::hash_combine(seed, leg.route_segment.has_value());
                     if (leg.route_segment.has_value()) {
@@ -434,6 +435,14 @@ namespace timetable::domain::assignment {
                         boost::hash_combine(seed, leg.route->get());
                     }
                 }
+                return seed;
+            }
+        };
+
+        struct DayPathSearchStateKeyHash final {
+            std::size_t operator()(const DayPathSearchStateKey& key) const noexcept {
+                std::size_t seed = 29u;
+                boost::hash_combine(seed, key.prefix_id);
                 boost::hash_combine(seed, static_cast<std::uint8_t>(key.state.physical.kind));
                 boost::hash_combine(seed, key.state.physical.id);
                 boost::hash_combine(seed, key.state.occurrence.has_value());
@@ -458,6 +467,12 @@ namespace timetable::domain::assignment {
               DayPathSearchStateKey
             , NodeMetricSet
             , DayPathSearchStateKeyHash
+        >;
+
+        using DayPathPrefixInterner = boost::unordered_flat_map<
+              DayPathPrefix
+            , DayPathPrefixId
+            , DayPathPrefixHash
         >;
 
         enum class SearchProjectionSlotKind : std::uint8_t {
@@ -518,12 +533,15 @@ namespace timetable::domain::assignment {
          * @brief Tree-level partial retention.
          *
          * known_metrics is the legacy/timed state-local pruning memory.
-         * day_path_states is the OD-day working memory: it compares timed
-         * supports only inside the same structural path prefix and continuation
-         * state. Finalized OD alternatives live in SearchProjectionRetention.
+         * day_path_prefix_ids interns structural prefixes once per tree, while
+         * day_path_states keeps compact prefix-id/state pruning entries for the
+         * OD-day contour. Finalized OD alternatives live in
+         * SearchProjectionRetention.
          */
         struct TreePartialRetention final {
             NodeMetricMap          known_metrics{};
+            DayPathPrefixInterner  day_path_prefix_ids{};
+            DayPathPrefixId        next_day_path_prefix_id{ 1u };
             DayPathSearchStateMap  day_path_states{};
         };
 
@@ -3890,6 +3908,20 @@ namespace timetable::domain::assignment {
             );
         }
 
+        [[nodiscard]] DayPathPrefixId intern_day_path_prefix(
+              TreePartialRetention& retention
+            , const DayPathPrefix&   prefix
+        ) {
+            const auto found = retention.day_path_prefix_ids.find(prefix);
+            if (found != retention.day_path_prefix_ids.end()) {
+                return found->second;
+            }
+
+            const auto id = retention.next_day_path_prefix_id++;
+            retention.day_path_prefix_ids.emplace(prefix, id);
+            return id;
+        }
+
         mathfp::Expected<SearchPruningDecision> retain_day_path_prefix_branch(
               const SearchBranch&               branch
             , TreePartialRetention&             retention
@@ -3913,8 +3945,8 @@ namespace timetable::domain::assignment {
                 , make_partial_pruning_metrics(branch, search_cost)
             );
             auto key = DayPathSearchStateKey{
-                  .prefix = branch.day_path_prefix
-                , .state  = search_node_key(branch, pruning_execution)
+                  .prefix_id = intern_day_path_prefix(retention, branch.day_path_prefix)
+                , .state     = search_node_key(branch, pruning_execution)
             };
             auto it = retention.day_path_states.find(key);
             if (it == retention.day_path_states.end()) {
@@ -4009,6 +4041,9 @@ namespace timetable::domain::assignment {
             std::size_t tree_pruning_nodes{};
             std::size_t tree_pruning_buckets{};
             float       tree_pruning_load_factor{};
+            std::size_t day_path_prefix_nodes{};
+            std::size_t day_path_prefix_buckets{};
+            float       day_path_prefix_load_factor{};
             std::size_t day_path_state_nodes{};
             std::size_t day_path_state_buckets{};
             float       day_path_state_load_factor{};
@@ -4029,6 +4064,8 @@ namespace timetable::domain::assignment {
         ) noexcept {
             const auto pruning_nodes = tree_retention.known_metrics.size();
             const auto pruning_buckets = tree_retention.known_metrics.bucket_count();
+            const auto day_path_prefix_nodes = tree_retention.day_path_prefix_ids.size();
+            const auto day_path_prefix_buckets = tree_retention.day_path_prefix_ids.bucket_count();
             const auto day_path_state_nodes = tree_retention.day_path_states.size();
             const auto day_path_state_buckets = tree_retention.day_path_states.bucket_count();
             const auto live_branches = branches.size() - released_branches;
@@ -4044,6 +4081,8 @@ namespace timetable::domain::assignment {
                 + projection_state_count * projection_state_size
                 + pruning_nodes * sizeof(NodeMetricMap::value_type)
                 + pruning_buckets * sizeof(void*)
+                + day_path_prefix_nodes * sizeof(DayPathPrefixInterner::value_type)
+                + day_path_prefix_buckets * sizeof(void*)
                 + day_path_state_nodes * sizeof(DayPathSearchStateMap::value_type)
                 + day_path_state_buckets * sizeof(void*)
                 + compact_complete_metrics * sizeof(CompleteConnectionMetrics)
@@ -4056,6 +4095,9 @@ namespace timetable::domain::assignment {
                 , .tree_pruning_nodes = pruning_nodes
                 , .tree_pruning_buckets = pruning_buckets
                 , .tree_pruning_load_factor = tree_retention.known_metrics.load_factor()
+                , .day_path_prefix_nodes = day_path_prefix_nodes
+                , .day_path_prefix_buckets = day_path_prefix_buckets
+                , .day_path_prefix_load_factor = tree_retention.day_path_prefix_ids.load_factor()
                 , .day_path_state_nodes = day_path_state_nodes
                 , .day_path_state_buckets = day_path_state_buckets
                 , .day_path_state_load_factor = tree_retention.day_path_states.load_factor()
@@ -4070,7 +4112,7 @@ namespace timetable::domain::assignment {
             const SearchStorageDiagnostics& diagnostics
         ) {
             return fmt::format(
-                  "search storage: branch_slots={} live_branches={} released_branches={} projection_states={} tree_pruning(nodes/buckets/load/insertions)={}/{}/{:.3f}/{} day_path_states(nodes/buckets/load)={}/{}/{:.3f} retained_complete={} retained_day_paths={} approx_direct_mb={:.2f}"
+                  "search storage: branch_slots={} live_branches={} released_branches={} projection_states={} tree_pruning(nodes/buckets/load/insertions)={}/{}/{:.3f}/{} day_path_prefixes(nodes/buckets/load)={}/{}/{:.3f} day_path_states(nodes/buckets/load)={}/{}/{:.3f} retained_complete={} retained_day_paths={} approx_direct_mb={:.2f}"
                 , diagnostics.branch_slots
                 , diagnostics.live_branches
                 , diagnostics.released_branches
@@ -4079,6 +4121,9 @@ namespace timetable::domain::assignment {
                 , diagnostics.tree_pruning_buckets
                 , diagnostics.tree_pruning_load_factor
                 , diagnostics.tree_pruning_insertions
+                , diagnostics.day_path_prefix_nodes
+                , diagnostics.day_path_prefix_buckets
+                , diagnostics.day_path_prefix_load_factor
                 , diagnostics.day_path_state_nodes
                 , diagnostics.day_path_state_buckets
                 , diagnostics.day_path_state_load_factor

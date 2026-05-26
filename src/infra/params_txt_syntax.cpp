@@ -262,6 +262,32 @@ namespace timetable::infra::params_txt::detail {
             return result;
         }
 
+        bool starts_like_assignment_text(std::string_view text) noexcept {
+            std::size_t pos = 0;
+            while (pos < text.size() && std::isspace(static_cast<unsigned char>(text[pos]))) {
+                ++pos;
+            }
+            if (pos == text.size()) {
+                return false;
+            }
+            const auto first = static_cast<unsigned char>(text[pos]);
+            if (!std::isalpha(first) && text[pos] != '_') {
+                return false;
+            }
+            ++pos;
+            while (pos < text.size()) {
+                const auto c = static_cast<unsigned char>(text[pos]);
+                if (!std::isalnum(c) && text[pos] != '_') {
+                    break;
+                }
+                ++pos;
+            }
+            while (pos < text.size() && std::isspace(static_cast<unsigned char>(text[pos]))) {
+                ++pos;
+            }
+            return pos < text.size() && text[pos] == '=';
+        }
+
         namespace grammar {
 
             struct ws : pegtl::star<pegtl::space> {};
@@ -553,44 +579,57 @@ namespace timetable::infra::params_txt::detail {
           const std::string& text
         , std::string_view   source_name
     ) {
-        try {
+        const auto parse_assignment_text = [&]() -> mathfp::Expected<Value> {
+            pegtl::memory_input in(text, source_name);
+            ParserState state;
+            pegtl::parse<grammar::assignment_start, action>(in, state);
+            if (!state.stack.empty() || state.pending_assignment.has_value()) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("incomplete params.txt assignment parse state")
+                        .ctx("source", std::string(source_name))
+                );
+            }
+
+            const auto py_para = state.assignments.find("pyPara");
+            if (py_para != state.assignments.end()) {
+                return py_para->second;
+            }
+            if (state.assignments.size() == 1) {
+                return state.assignments.begin()->second;
+            }
+
+            return mathfp::unexpected(
+                mathfp::invalid_arg("params.txt assignment file does not define pyPara")
+                    .ctx("source", std::string(source_name))
+            );
+        };
+
+        const auto parse_value = [&]() -> mathfp::Expected<Value> {
             pegtl::memory_input in(text, source_name);
             ParserState state;
             pegtl::parse<grammar::value_start, action>(in, state);
             if (!state.stack.empty() || !state.root.has_value()) {
                 return mathfp::unexpected(
                     mathfp::invalid_arg("incomplete parse state")
-                    .ctx("source", std::string(source_name))
+                        .ctx("source", std::string(source_name))
                 );
             }
             return std::move(*state.root);
+        };
+
+        try {
+            if (starts_like_assignment_text(text)) {
+                return parse_assignment_text();
+            }
+            return parse_value();
         } catch (const pegtl::parse_error& e) {
-            try {
-                pegtl::memory_input in(text, source_name);
-                ParserState state;
-                pegtl::parse<grammar::assignment_start, action>(in, state);
-                if (!state.stack.empty() || state.pending_assignment.has_value()) {
-                    return mathfp::unexpected(
-                        mathfp::invalid_arg("incomplete params.txt assignment parse state")
-                        .ctx("source", std::string(source_name))
-                    );
+            if (!starts_like_assignment_text(text)) {
+                try {
+                    return parse_assignment_text();
+                } catch (const pegtl::parse_error&) {
+                    // Report the original value-parse error; it points at the
+                    // first construct that made the file non-object-like.
                 }
-
-                const auto py_para = state.assignments.find("pyPara");
-                if (py_para != state.assignments.end()) {
-                    return py_para->second;
-                }
-                if (state.assignments.size() == 1) {
-                    return state.assignments.begin()->second;
-                }
-
-                return mathfp::unexpected(
-                    mathfp::invalid_arg("params.txt assignment file does not define pyPara")
-                        .ctx("source", std::string(source_name))
-                );
-            } catch (const pegtl::parse_error&) {
-                // Report the original value-parse error; it points at the first
-                // construct that made the file non-object-like.
             }
 
             auto err = mathfp::invalid_arg(e.what());

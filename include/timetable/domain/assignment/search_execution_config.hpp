@@ -423,6 +423,22 @@ namespace timetable::domain::assignment {
         };
     }
 
+    [[nodiscard]] inline constexpr SearchExecutionConfig make_timed_connection_diagnostics_search_execution_config(
+    ) noexcept {
+        return SearchExecutionConfig{
+              .formulation        = AssignmentCalculationFormulation::TimedConnectionDiagnostics
+            , .diagnostic_mode    = true
+            , .mode               = SearchExecutionMode::OriginPeriod
+            , .origin_scope       = SearchOriginScope::ActiveDemandOrigins
+            , .time_domain_source = SearchTimeDomainSource::ServiceDay
+            , .destination_scope  = SearchDestinationScope::DemandDestinations
+            , .result_projection  = SearchResultProjection::DemandTasks
+            , .partial_retention_scope = SearchPartialRetentionScope::ProjectionSlotLocal
+            , .max_parallel_batches = SearchExecutionConfig::kDefaultMaxParallelBatches
+            , .validate_phase_invariants = false
+        };
+    }
+
     [[nodiscard]] inline constexpr SearchExecutionConfig make_default_search_execution_config(
     ) noexcept {
         return make_od_day_assignment_search_execution_config();
@@ -446,12 +462,8 @@ namespace timetable::domain::assignment {
             case AssignmentCalculationFormulation::AllZoneSearch:
                 return make_all_zone_origin_period_search_execution_config();
 
-            case AssignmentCalculationFormulation::TimedConnectionDiagnostics: {
-                auto config = make_default_demand_assignment_search_execution_config();
-                config.formulation = AssignmentCalculationFormulation::TimedConnectionDiagnostics;
-                config.diagnostic_mode = true;
-                return config;
-            }
+            case AssignmentCalculationFormulation::TimedConnectionDiagnostics:
+                return make_timed_connection_diagnostics_search_execution_config();
         }
         return make_default_search_execution_config();
     }
