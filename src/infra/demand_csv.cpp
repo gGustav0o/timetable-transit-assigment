@@ -60,7 +60,7 @@ namespace timetable::infra::csv {
         };
 
         struct XlsxReadDeleter final {
-            void operator()(xlsxioread handle) const noexcept {
+            void operator()(xlsxioreader handle) const noexcept {
                 if (handle != nullptr) {
                     xlsxioread_close(handle);
                 }
@@ -83,7 +83,7 @@ namespace timetable::infra::csv {
             }
         };
 
-        using XlsxReadHandle = std::unique_ptr<std::remove_pointer_t<xlsxioread>, XlsxReadDeleter>;
+        using XlsxReadHandle = std::unique_ptr<std::remove_pointer_t<xlsxioreader>, XlsxReadDeleter>;
         using XlsxSheetHandle =
             std::unique_ptr<std::remove_pointer_t<xlsxioreadersheet>, XlsxSheetDeleter>;
         using XlsxCellValue = std::unique_ptr<char, XlsxCellDeleter>;

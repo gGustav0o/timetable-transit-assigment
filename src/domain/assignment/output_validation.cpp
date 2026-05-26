@@ -548,8 +548,11 @@ namespace timetable::domain::assignment::detail {
             }
             if (!output.loads.line_loads.empty()
                 || !output.loads.route_loads.empty()
+                || !output.loads.route_total_loads.empty()
                 || !output.loads.trip_loads.empty()
-                || !output.loads.segment_loads.empty()) {
+                || !output.loads.segment_loads.empty()
+                || !output.loads.stop_loads.empty()
+                || !output.loads.stop_total_loads.empty()) {
                 return mathfp::unexpected(
                     mathfp::internal_error("all-zone search output must not contain load rows")
                 );
@@ -609,8 +612,11 @@ namespace timetable::domain::assignment::detail {
 
             if (!output.loads.line_loads.empty()
                 || !output.loads.route_loads.empty()
+                || !output.loads.route_total_loads.empty()
                 || !output.loads.trip_loads.empty()
-                || !output.loads.segment_loads.empty()) {
+                || !output.loads.segment_loads.empty()
+                || !output.loads.stop_loads.empty()
+                || !output.loads.stop_total_loads.empty()) {
                 return mathfp::unexpected(
                     mathfp::internal_error("disabled assignment output must not contain load rows")
                 );

@@ -597,6 +597,196 @@ namespace timetable::domain::assignment {
             return lookup;
         }
 
+        using OdDayChoiceLookup = std::map<detail::grouping::OdKey, const OdDayChoicePairResult*>;
+
+        mathfp::Expected<OdDayChoiceLookup> build_od_day_choice_lookup(
+            const OdDayConnectionChoiceResult& choice_result
+        ) {
+            OdDayChoiceLookup lookup;
+            for (const auto& origin_result : choice_result.origin_results) {
+                for (const auto& pair_result : origin_result.pair_results) {
+                    const auto key = detail::grouping::OdKey{
+                          .origin      = pair_result.origin
+                        , .destination = pair_result.destination
+                    };
+                    if (!lookup.emplace(key, &pair_result).second) {
+                        return mathfp::unexpected(
+                            mathfp::internal_error("OD-day choice result contains duplicate OD pair")
+                                .ctx("origin"     , key.origin     .get())
+                                .ctx("destination", key.destination.get())
+                        );
+                    }
+                }
+            }
+            return lookup;
+        }
+
+        std::vector<const SearchConnection*> admissible_od_day_connection_ptrs(
+              const OdDayChoicePairResult&     pair_result
+            , const TimeInterval&              interval
+            , const AssignmentPeriodConfig&    assignment_period
+            , const ConnectionAdmissibilityConfig& admissibility_config
+        ) {
+            std::vector<const SearchConnection*> connections;
+            connections.reserve(pair_result.connections.size());
+            for (const auto& connection : pair_result.connections) {
+                if (connection_admissible_for_demand_segment(
+                      metrics_of(connection)
+                    , interval
+                    , assignment_period
+                    , admissibility_config
+                )) {
+                    connections.push_back(&connection);
+                }
+            }
+            return connections;
+        }
+
+        struct SplitDemandUnit final {
+            ZoneId     origin{};
+            ZoneId     destination{};
+            IntervalId interval{};
+            double     passengers{};
+        };
+
+        mathfp::Expected<std::size_t> append_split_shares(
+              DemandSplitResult&                    result
+            , const SplitDemandUnit&                demand
+            , const TimeInterval&                   interval
+            , const std::vector<const SearchConnection*>& connections
+            , const SearchParams&                   params
+            , DemandSegmentBasis                    demand_basis
+            , const SplitCapacityContext*           capacity_context
+        ) {
+            if (connections.empty()) {
+                return std::size_t{ 0 };
+            }
+
+            const auto base_alternatives = derive_split_alternatives(
+                  connections
+                , params.split
+            );
+            MATHFP_TRY_LET(
+                  std::vector<SplitAlternative>
+                , alternatives
+                , apply_capacity_to_split_alternatives(
+                      base_alternatives
+                    , demand.interval
+                    , params.split
+                    , capacity_context
+                )
+            );
+
+            std::vector<double> independences;
+            std::vector<double> split_impedances;
+            std::vector<double> log_weights;
+            independences   .reserve(alternatives.size());
+            split_impedances.reserve(alternatives.size());
+            log_weights     .reserve(alternatives.size());
+
+            double max_log_weight = -std::numeric_limits<double>::infinity();
+            for (std::size_t i = 0; i < alternatives.size(); ++i) {
+                const auto independence = alternatives[i].independence;
+                const auto imp = split_impedance(
+                      alternatives[i]
+                    , interval
+                    , params.split
+                    , demand_basis
+                );
+                const auto choice_impedance = transform_split_impedance(
+                      params.split.impedance_transform
+                    , imp
+                );
+                MATHFP_TRY_LET(double, log_weight, split_choice_log_weight(
+                      params.split.choice_model
+                    , choice_impedance
+                    , independence
+                ));
+                independences   .push_back(independence);
+                split_impedances.push_back(imp);
+                log_weights     .push_back(log_weight);
+                max_log_weight = std::max(max_log_weight, log_weight);
+            }
+
+            std::vector<double> weights;
+            weights.reserve(log_weights.size());
+            for (const auto log_weight : log_weights) {
+                weights.push_back(std::exp(log_weight - max_log_weight));
+            }
+            const auto weight_sum = mathfp::compensated_sum(weights);
+            if (!(weight_sum > 0.0) || !std::isfinite(weight_sum)) {
+                return mathfp::unexpected(
+                    mathfp::domain_error("invalid OD-day split weight normalization")
+                        .ctx("origin"     , demand.origin.get())
+                        .ctx("destination", demand.destination.get())
+                        .ctx("interval"   , demand.interval.get())
+                );
+            }
+
+            const auto residual_index = max_weight_index(weights);
+            std::vector<double> probabilities(alternatives.size(), 0.0);
+            std::vector<double> passengers(alternatives.size(), 0.0);
+
+            mathfp::CompensatedSum<double> probability_prefix;
+            mathfp::CompensatedSum<double> passenger_prefix;
+            for (std::size_t i = 0; i < alternatives.size(); ++i) {
+                if (i == residual_index) {
+                    continue;
+                }
+                const auto probability = weights[i] / weight_sum;
+                const auto passenger_count = demand.passengers * probability;
+                probabilities[i] = probability;
+                passengers[i] = passenger_count;
+                probability_prefix.add(probability);
+                passenger_prefix.add(passenger_count);
+            }
+
+            auto residual_probability = 1.0 - probability_prefix.value();
+            auto residual_passengers = demand.passengers - passenger_prefix.value();
+            if (!is_non_negative_roundoff(residual_probability, 1.0)
+                || !is_non_negative_roundoff(residual_passengers, demand.passengers)) {
+                return mathfp::unexpected(
+                    mathfp::domain_error("invalid OD-day residual split normalization")
+                        .ctx("origin"              , demand.origin.get())
+                        .ctx("destination"         , demand.destination.get())
+                        .ctx("interval"            , demand.interval.get())
+                        .ctx("residual_probability", residual_probability)
+                        .ctx("residual_passengers" , residual_passengers)
+                );
+            }
+            residual_probability = std::max(0.0, residual_probability);
+            residual_passengers = std::max(0.0, residual_passengers);
+            probabilities[residual_index] = residual_probability;
+            passengers[residual_index] = residual_passengers;
+
+            const auto suppressed = compact_numerical_support(
+                  probabilities
+                , passengers
+                , residual_index
+                , demand.passengers
+            );
+
+            for (std::size_t i = 0; i < alternatives.size(); ++i) {
+                if (!(probabilities[i] > 0.0) && !(passengers[i] > 0.0)) {
+                    continue;
+                }
+                result.shares.push_back(
+                    ConnectionDemandShare{
+                          .origin          = demand.origin
+                        , .destination     = demand.destination
+                        , .interval        = demand.interval
+                        , .connection      = alternatives[i].connection
+                        , .passengers      = passengers[i]
+                        , .probability     = probabilities[i]
+                        , .independence    = independences[i]
+                        , .split_impedance = split_impedances[i]
+                    }
+                );
+            }
+
+            return suppressed;
+        }
+
         mathfp::Expected<DemandSplitResult> split_demand_over_connections_impl(
               const ConnectionChoiceResult& choice_result
             , const InputModel&             input
@@ -821,6 +1011,38 @@ namespace timetable::domain::assignment {
 
     }  // namespace
 
+    mathfp::Expected<std::vector<OdDemandIntervals>> build_od_demand_intervals(
+        const InputModel& input
+    ) {
+        std::map<detail::grouping::OdKey, std::vector<OdDemandInterval>> grouped;
+        for (const auto& demand : input.demand) {
+            if (demand.passengers <= 0.0) {
+                continue;
+            }
+            grouped[detail::grouping::od_key(demand)].push_back(
+                OdDemandInterval{
+                      .origin      = demand.origin
+                    , .destination = demand.destination
+                    , .interval    = demand.interval
+                    , .passengers  = demand.passengers
+                }
+            );
+        }
+
+        std::vector<OdDemandIntervals> result;
+        result.reserve(grouped.size());
+        for (auto& [key, intervals] : grouped) {
+            result.push_back(
+                OdDemandIntervals{
+                      .origin      = key.origin
+                    , .destination = key.destination
+                    , .intervals   = std::move(intervals)
+                }
+            );
+        }
+        return result;
+    }
+
     mathfp::Expected<DemandSplitResult> split_demand_over_connections(
           const ConnectionChoiceResult& choice_result
         , const InputModel&             input
@@ -836,6 +1058,257 @@ namespace timetable::domain::assignment {
             , "split: demand assignment"
             , "split: demand assignment done"
         );
+    }
+
+    mathfp::Expected<DemandSplitResult> split_demand_over_od_day_connections(
+          const OdDayConnectionChoiceResult& choice_result
+        , const InputModel&                  input
+        , const SearchParams&                params
+        , const DemandSegmentTimeConfig&     demand_segment_time
+        , const AssignmentPeriodConfig&      assignment_period
+        , const ConnectionAdmissibilityConfig& admissibility_config
+    ) {
+        using timetable::infra::LogLevel;
+        using timetable::infra::progress::both;
+        using timetable::infra::progress::log;
+
+        MATHFP_TRY(validate_supported_split_choice_model(params.split.choice_model.model));
+        MATHFP_TRY(validate_demand_segment_time_config(demand_segment_time));
+        MATHFP_TRY(validate_assignment_period_config(assignment_period));
+        MATHFP_TRY(validate_connection_admissibility_config(admissibility_config));
+
+        both("split: OD-day demand assignment");
+        log(
+            fmt::format(
+                  "OD-day split input: chosen_connections = {:>8}  origin_results = {:>8}  demand_entries = {:>8}  choice_model = {}  demand_basis = {}"
+                , choice_result.connections.size()
+                , choice_result.origin_results.size()
+                , input.demand.size()
+                , to_string(params.split.choice_model.model)
+                , to_string(demand_segment_time.basis)
+            )
+            , LogLevel::Info
+        );
+
+        MATHFP_TRY_LET(
+              OdDayChoiceLookup
+            , choice_lookup
+            , build_od_day_choice_lookup(choice_result)
+        );
+        MATHFP_TRY_LET(
+              std::vector<OdDemandIntervals>
+            , demand_intervals
+            , build_od_demand_intervals(input)
+        );
+        const auto interval_lookup = build_interval_lookup(input);
+
+        DemandSplitResult result;
+        std::size_t suppressed_numerical_shares = 0;
+        std::size_t interval_count = 0;
+        std::size_t skipped_empty_alternatives = 0;
+        std::size_t skipped_temporally_inadmissible = 0;
+
+        for (const auto& od_demand : demand_intervals) {
+            const auto od_key = detail::grouping::OdKey{
+                  .origin      = od_demand.origin
+                , .destination = od_demand.destination
+            };
+            const auto choice_it = choice_lookup.find(od_key);
+            if (choice_it == choice_lookup.end()) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("positive OD demand has no matching OD-day choice alternatives")
+                        .ctx("origin"     , od_key.origin.get())
+                        .ctx("destination", od_key.destination.get())
+                );
+            }
+
+            for (const auto& demand : od_demand.intervals) {
+                ++interval_count;
+                const auto interval = find_interval(interval_lookup, demand.interval);
+                if (!interval) {
+                    return mathfp::unexpected(
+                        mathfp::invalid_arg("OD demand interval references unknown time interval")
+                            .ctx("interval_id", demand.interval.get())
+                    );
+                }
+
+                const auto admissible_connections = admissible_od_day_connection_ptrs(
+                      *choice_it->second
+                    , *interval
+                    , assignment_period
+                    , admissibility_config
+                );
+                if (admissible_connections.empty()) {
+                    ++skipped_empty_alternatives;
+                    skipped_temporally_inadmissible += choice_it->second->connections.size();
+                    continue;
+                }
+
+                MATHFP_TRY_LET(
+                      std::size_t
+                    , suppressed
+                    , append_split_shares(
+                          result
+                        , SplitDemandUnit{
+                              .origin      = demand.origin
+                            , .destination = demand.destination
+                            , .interval    = demand.interval
+                            , .passengers  = demand.passengers
+                          }
+                        , *interval
+                        , admissible_connections
+                        , params
+                        , demand_segment_time.basis
+                        , nullptr
+                    )
+                );
+                suppressed_numerical_shares += suppressed;
+            }
+        }
+
+        log(
+            fmt::format(
+                  "OD-day split result: demand_od = {:>8}  demand_intervals = {:>8}  shares = {:>8}  skipped_empty_intervals = {:>8}  inadmissible_connections = {:>8}  suppressed_numerical_shares = {:>8}"
+                , demand_intervals.size()
+                , interval_count
+                , result.shares.size()
+                , skipped_empty_alternatives
+                , skipped_temporally_inadmissible
+                , suppressed_numerical_shares
+            )
+            , LogLevel::Info
+        );
+        both("split: OD-day demand assignment done");
+        return result;
+    }
+
+    mathfp::Expected<DemandSplitResult> split_origin_demand_over_od_day_connections(
+          const OriginDayChoiceResult&       choice_result
+        , const InputModel&                  input
+        , const SearchParams&                params
+        , const DemandSegmentTimeConfig&     demand_segment_time
+        , const AssignmentPeriodConfig&      assignment_period
+        , const ConnectionAdmissibilityConfig& admissibility_config
+    ) {
+        MATHFP_TRY(validate_supported_split_choice_model(params.split.choice_model.model));
+        MATHFP_TRY(validate_demand_segment_time_config(demand_segment_time));
+        MATHFP_TRY(validate_assignment_period_config(assignment_period));
+        MATHFP_TRY(validate_connection_admissibility_config(admissibility_config));
+
+        std::map<detail::grouping::OdKey, const OdDayChoicePairResult*> choice_lookup;
+        for (const auto& pair_result : choice_result.pair_results) {
+            const auto key = detail::grouping::OdKey{
+                  .origin      = pair_result.origin
+                , .destination = pair_result.destination
+            };
+            if (key.origin != choice_result.origin) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("origin-day choice result contains pair with another origin")
+                        .ctx("origin", choice_result.origin.get())
+                        .ctx("pair_origin", key.origin.get())
+                );
+            }
+            if (!choice_lookup.emplace(key, &pair_result).second) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("origin-day choice result contains duplicate OD pair")
+                        .ctx("origin"     , key.origin     .get())
+                        .ctx("destination", key.destination.get())
+                );
+            }
+        }
+
+        const auto interval_lookup = build_interval_lookup(input);
+        DemandSplitResult result;
+
+        for (const auto& demand : input.demand) {
+            if (demand.passengers <= 0.0 || demand.origin != choice_result.origin) {
+                continue;
+            }
+            const auto od_key = detail::grouping::od_key(demand);
+            const auto choice_it = choice_lookup.find(od_key);
+            if (choice_it == choice_lookup.end()) {
+                continue;
+            }
+            const auto interval = find_interval(interval_lookup, demand.interval);
+            if (!interval) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("origin OD demand interval references unknown time interval")
+                        .ctx("interval_id", demand.interval.get())
+                );
+            }
+
+            const auto admissible_connections = admissible_od_day_connection_ptrs(
+                  *choice_it->second
+                , *interval
+                , assignment_period
+                , admissibility_config
+            );
+            MATHFP_TRY_LET(
+                  std::size_t
+                , suppressed
+                , append_split_shares(
+                      result
+                    , SplitDemandUnit{
+                          .origin      = demand.origin
+                        , .destination = demand.destination
+                        , .interval    = demand.interval
+                        , .passengers  = demand.passengers
+                      }
+                    , *interval
+                    , admissible_connections
+                    , params
+                    , demand_segment_time.basis
+                    , nullptr
+                )
+            );
+            (void)suppressed;
+        }
+
+        return result;
+    }
+
+    mathfp::Expected<OriginDayDemandLoadResult> load_origin_day_demand(
+          const OriginDaySearchResult&       search_result
+        , const InputModel&                  input
+        , const SearchParams&                params
+        , const SearchCostContext&           search_cost
+        , const ChoiceConfig&                choice_config
+        , const DemandSegmentTimeConfig&     demand_segment_time
+        , const AssignmentPeriodConfig&      assignment_period
+        , const ConnectionAdmissibilityConfig& admissibility_config
+    ) {
+        MATHFP_TRY_LET(
+              OriginDayChoiceResult
+            , alternatives
+            , choose_origin_day_connections(
+                  search_result
+                , params
+                , search_cost
+                , choice_config
+            )
+        );
+        MATHFP_TRY_LET(
+              DemandSplitResult
+            , split_result
+            , split_origin_demand_over_od_day_connections(
+                  alternatives
+                , input
+                , params
+                , demand_segment_time
+                , assignment_period
+                , admissibility_config
+            )
+        );
+        MATHFP_TRY_LET(
+              ElementarySegmentLoads
+            , elementary_segment_loads
+            , build_elementary_segment_loads(split_result)
+        );
+        return OriginDayDemandLoadResult{
+              .alternatives              = std::move(alternatives)
+            , .split_result              = std::move(split_result)
+            , .elementary_segment_loads  = std::move(elementary_segment_loads)
+        };
     }
 
     mathfp::Expected<DemandSplitResult> split_demand_over_connections_capacity_aware(

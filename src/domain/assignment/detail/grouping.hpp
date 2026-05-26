@@ -139,6 +139,24 @@ namespace timetable::domain::assignment::detail::grouping {
     }
 
     [[nodiscard]] inline BorrowedOdConnectionGroups group_connection_ptrs_by_od(
+        const OdDayConnectionChoiceResult& result
+    ) {
+        BorrowedOdConnectionGroups groups;
+        for (const auto& origin_result : result.origin_results) {
+            for (const auto& pair_result : origin_result.pair_results) {
+                const auto key = OdKey{
+                      .origin      = pair_result.origin
+                    , .destination = pair_result.destination
+                };
+                for (const auto& connection : pair_result.connections) {
+                    groups[key].push_back(&connection);
+                }
+            }
+        }
+        return groups;
+    }
+
+    [[nodiscard]] inline BorrowedOdConnectionGroups group_connection_ptrs_by_od(
         const ConnectionSearchResult& result
     ) {
         BorrowedOdConnectionGroups groups;

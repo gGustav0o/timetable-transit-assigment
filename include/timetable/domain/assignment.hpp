@@ -162,6 +162,19 @@ namespace timetable::domain {
     };
 
     /**
+     * @brief Day-level route aggregate for comparison with VISUM route flows.
+     *
+     * This projection intentionally has no demand interval key. It sums the
+     * route passenger-segment volume over the full assignment day.
+     */
+    struct AssignmentRouteTotalLoad final {
+        LineId      line{};
+        RouteId     route{};
+        double      passenger_segments{};
+        std::size_t segment_load_count{};
+    };
+
+    /**
      * @brief Aggregate transit load for one concrete trip in one demand interval.
      *
      * passenger_segments is derived from segment loads for the trip. The segment
@@ -220,14 +233,34 @@ namespace timetable::domain {
     };
 
     /**
+     * @brief Day-level stop aggregate for VISUM stop-flow comparison.
+     *
+     * total_passenger_flow is the undirected through-stop volume used for
+     * comparison: boarding + alighting + pass-through occupancy over the whole
+     * assignment day. Directional incoming/outgoing segment volumes are kept so
+     * the scalar can be audited.
+     */
+    struct AssignmentStopTotalLoad final {
+        StopId stop{};
+        double boarding_passengers{};
+        double alighting_passengers{};
+        double incoming_passenger_segments{};
+        double outgoing_passenger_segments{};
+        double through_passengers{};
+        double total_passenger_flow{};
+    };
+
+    /**
      * @brief Demand-induced public-transport loads derived from split shares.
      */
     struct AssignmentLoads final {
         std::vector<AssignmentLineLoad>    line_loads{};
         std::vector<AssignmentRouteLoad>   route_loads{};
+        std::vector<AssignmentRouteTotalLoad> route_total_loads{};
         std::vector<AssignmentTripLoad>    trip_loads{};
         std::vector<AssignmentSegmentLoad> segment_loads{};
         std::vector<AssignmentStopLoad>    stop_loads{};
+        std::vector<AssignmentStopTotalLoad> stop_total_loads{};
     };
 
     enum class AssignmentOutputMode {

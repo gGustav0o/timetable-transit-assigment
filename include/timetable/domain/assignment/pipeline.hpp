@@ -6,6 +6,7 @@
 
 #include "timetable/domain/assignment.hpp"
 #include "timetable/domain/assignment/choice.hpp"
+#include "timetable/domain/assignment/connection_admissibility.hpp"
 #include "timetable/domain/assignment/preprocessed_network.hpp"
 #include "timetable/domain/assignment/search.hpp"
 #include "timetable/domain/assignment/skim_config.hpp"
@@ -32,6 +33,21 @@ namespace timetable::domain::assignment {
         CapacityAwareAssignmentDiagnostics  capacity_aware{};
     };
 
+    struct AssignmentPipelineOdDayCalculatedResult final {
+        InputModel                          input{};
+        VehicleJourneyItemCapacityInput     vehicle_journey_item_capacity{};
+        PreprocessedNetwork                 network{};
+        OdDayConnectionSearchSummary        search{};
+        OdDayConnectionChoiceResult         choice{};
+        DemandSplitResult                   split{};
+        ElementarySegmentLoads              elementary_segment_loads{};
+        AssignmentExecutionConfig           execution{};
+        AssignmentPeriodConfig              assignment_period{};
+        ConnectionAdmissibilityConfig       admissibility_config{};
+        SkimMatrixConfig                    skim_config{};
+        CapacityAwareAssignmentDiagnostics  capacity_aware{};
+    };
+
     struct AssignmentPipelineAllZoneSearchResult final {
         InputModel                          input{};
         VehicleJourneyItemCapacityInput     vehicle_journey_item_capacity{};
@@ -44,6 +60,7 @@ namespace timetable::domain::assignment {
 
     using AssignmentPipelineResult = std::variant<
           AssignmentPipelineCalculatedResult
+        , AssignmentPipelineOdDayCalculatedResult
         , AssignmentPipelineAllZoneSearchResult
         , AssignmentPipelineDisabledResult
     >;

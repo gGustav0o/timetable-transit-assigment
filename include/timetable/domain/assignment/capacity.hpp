@@ -3,11 +3,13 @@
 #include <array>
 #include <compare>
 #include <cstdint>
+#include <map>
 #include <optional>
 #include <string_view>
 #include <vector>
 
 #include <mathfp/core/expected.hpp>
+#include <mathfp/core/summation.hpp>
 #include <mathfp/core/unit.hpp>
 
 #include "timetable/enum_string.hpp"
@@ -121,6 +123,23 @@ namespace timetable::domain::assignment {
         std::vector<VehicleJourneyItemLoad> items{};
     };
 
+    /**
+     * @brief Primary elementary route-segment load representation.
+     *
+     * A vehicle journey item is the time-realized elementary segment of a
+     * public-transport route: one trip on the half-open stop-position interval
+     * [from_index, from_index + 1). These aliases name that mathematical role
+     * directly while preserving the existing capacity API.
+     */
+    using ElementarySegmentKey     = VehicleJourneyItemKey;
+    using ElementarySegmentLoadKey = VehicleJourneyItemLoadKey;
+    using ElementarySegmentLoad    = VehicleJourneyItemLoad;
+    using ElementarySegmentLoads   = VehicleJourneyItemLoads;
+
+    struct ElementarySegmentLoadAccumulator final {
+        std::map<ElementarySegmentLoadKey, mathfp::CompensatedSum<double>> loads{};
+    };
+
     enum class VehicleJourneyItemOverloadStatus : std::uint8_t {
           Ok
         , Overloaded
@@ -214,6 +233,9 @@ namespace timetable::domain::assignment {
         std::vector<VehicleJourneyItemOverload> items{};
     };
 
+    using ElementarySegmentOverload = VehicleJourneyItemOverload;
+    using ElementarySegmentOverloadAssessment = VehicleJourneyItemOverloadAssessment;
+
     [[nodiscard]] mathfp::Expected<mathfp::Unit> validate_vehicle_journey_item_key(
         VehicleJourneyItemKey key
     );
@@ -286,6 +308,19 @@ namespace timetable::domain::assignment {
         const DemandSplitResult& split_result
     );
 
+    [[nodiscard]] mathfp::Expected<ElementarySegmentLoads> build_elementary_segment_loads(
+        const DemandSplitResult& split_result
+    );
+
+    [[nodiscard]] mathfp::Expected<mathfp::Unit> accumulate_elementary_segment_loads(
+          ElementarySegmentLoadAccumulator& accumulator
+        , const ElementarySegmentLoads&     loads
+    );
+
+    [[nodiscard]] mathfp::Expected<ElementarySegmentLoads> materialize_elementary_segment_loads(
+        const ElementarySegmentLoadAccumulator& accumulator
+    );
+
     [[nodiscard]] mathfp::Expected<mathfp::Unit> validate_vehicle_journey_item_overload(
         const VehicleJourneyItemOverload& overload
     );
@@ -302,6 +337,12 @@ namespace timetable::domain::assignment {
 
     [[nodiscard]] mathfp::Expected<VehicleJourneyItemOverloadAssessment> assess_vehicle_journey_item_overload(
           const VehicleJourneyItemLoads&       loads
+        , const VehicleJourneyItemCapacitySet& capacities
+        , const std::vector<TimeInterval>&     intervals
+    );
+
+    [[nodiscard]] mathfp::Expected<ElementarySegmentOverloadAssessment> assess_elementary_segment_overload(
+          const ElementarySegmentLoads&        loads
         , const VehicleJourneyItemCapacitySet& capacities
         , const std::vector<TimeInterval>&     intervals
     );

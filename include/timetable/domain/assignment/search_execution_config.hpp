@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstdint>
+#include <cstddef>
 #include <optional>
 #include <string_view>
 
@@ -10,14 +11,54 @@
 namespace timetable::domain::assignment {
 
     /**
+     * @brief User-facing calculation formulation.
+     *
+     * This is a launch-level preset. It deliberately sits above individual
+     * search execution fields so params.txt can request the mathematical
+     * formulation directly instead of spelling out an error-prone tuple of
+     * origin/time/destination/projection scopes.
+     */
+    enum class AssignmentCalculationFormulation : std::uint8_t {
+          DemandTaskAssignment
+        , OdDayAssignment
+        , AllZoneSearch
+    };
+
+    inline constexpr std::array kAssignmentCalculationFormulationTokens{
+          timetable::EnumStringEntry<AssignmentCalculationFormulation>{
+              AssignmentCalculationFormulation::DemandTaskAssignment,
+              "demand_task_assignment"
+          }
+        , timetable::EnumStringEntry<AssignmentCalculationFormulation>{
+              AssignmentCalculationFormulation::OdDayAssignment,
+              "od_day_assignment"
+          }
+        , timetable::EnumStringEntry<AssignmentCalculationFormulation>{
+              AssignmentCalculationFormulation::AllZoneSearch,
+              "all_zone_search"
+          }
+    };
+
+    [[nodiscard]] inline constexpr std::string_view to_string(
+        AssignmentCalculationFormulation value
+    ) noexcept {
+        return timetable::enum_to_string(value, kAssignmentCalculationFormulationTokens);
+    }
+
+    [[nodiscard]] inline constexpr std::optional<AssignmentCalculationFormulation>
+    assignment_calculation_formulation_from_string(std::string_view token) noexcept {
+        return timetable::enum_from_string(token, kAssignmentCalculationFormulationTokens);
+    }
+
+    /**
      * @brief High-level execution contract for timetable connection search.
      *
      * IntervalLocal is the faster interval-local path: search work is shared
      * only inside groups with the same origin and demand interval.
      *
      * OriginPeriod is the default architecture for origin-wide trees. The
-     * application default is the demand-assignment contract: one service-day
-     * tree per active demand origin, retained by positive OD-demand tasks.
+     * application default is the required OD-day assignment contract: one
+     * service-day tree per declared origin, retained by declared OD pairs.
      */
     enum class SearchExecutionMode : std::uint8_t {
           IntervalLocal
@@ -130,22 +171,32 @@ namespace timetable::domain::assignment {
     /**
      * @brief Result materialization contract for a search tree.
      *
-     * DemandTasks is the OD-assignment projection: complete connections are
-     * retained in task-local result slots induced by positive OD demand rows.
+     * DemandTasks is the legacy OD-interval assignment projection: complete
+     * connections are retained in task-local result slots induced by positive
+     * OD demand rows.
      *
-     * CompletionTargets is the all-zone/VISUM-like projection: complete
-     * connections are retained for the tree completion targets themselves,
-     * independently of OD demand intervals. This contract requires a distinct
+     * OdDayPairs is the required assignment projection for the current
+     * formulation: one service-day tree per declared origin, all declared
+     * destinations as completion targets, and complete alternatives retained by
+     * OD pair rather than by demand interval.
+     *
+     * CompletionTargets is the all-zone diagnostic projection: complete
+     * connections are retained for the tree completion targets themselves and
+     * may be materialized as counts only. This contract requires a distinct
      * all-zone result materializer; it must not be squeezed into SearchTaskResult.
      */
     enum class SearchResultProjection : std::uint8_t {
           DemandTasks
+        , OdDayPairs
         , CompletionTargets
     };
 
     inline constexpr std::array kSearchResultProjectionTokens{
           timetable::EnumStringEntry<SearchResultProjection>{
               SearchResultProjection::DemandTasks, "demand_tasks"
+          }
+        , timetable::EnumStringEntry<SearchResultProjection>{
+              SearchResultProjection::OdDayPairs, "od_day_pairs"
           }
         , timetable::EnumStringEntry<SearchResultProjection>{
               SearchResultProjection::CompletionTargets, "completion_targets"
@@ -232,6 +283,14 @@ namespace timetable::domain::assignment {
      * - projection slots: positive OD-demand tasks;
      * - result type: ConnectionSearchResult task_results.
      *
+     * OdDayPairs contract:
+     * - origins: declared zones, one service-day tree per origin;
+     * - time horizon: the whole service day;
+     * - completion targets: declared zones;
+     * - projection slots: ordered OD pairs (origin, destination);
+     * - result type: OdDayConnectionSearchResult, kept separate from both
+     *   demand-task assignment and all-zone count diagnostics.
+     *
      * CompletionTargets contract:
      * - origins: configured by origin_scope, typically DeclaredZones;
      * - time horizon: configured by time_domain_source, typically ServiceDay;
@@ -240,15 +299,19 @@ namespace timetable::domain::assignment {
      * - result type: a separate all-zone tree result materializer.
      */
     struct SearchExecutionConfig final {
+        static constexpr std::size_t kDefaultMaxParallelBatches = 6;
+
         SearchExecutionMode      mode{ SearchExecutionMode::OriginPeriod };
-        SearchOriginScope        origin_scope{ SearchOriginScope::ActiveDemandOrigins };
+        SearchOriginScope        origin_scope{ SearchOriginScope::DeclaredZones };
         SearchTimeDomainSource   time_domain_source{ SearchTimeDomainSource::ServiceDay };
-        SearchDestinationScope   destination_scope{ SearchDestinationScope::DemandDestinations };
-        SearchResultProjection   result_projection{ SearchResultProjection::DemandTasks };
+        SearchDestinationScope   destination_scope{ SearchDestinationScope::DeclaredZones };
+        SearchResultProjection   result_projection{ SearchResultProjection::OdDayPairs };
         SearchPartialRetentionScope partial_retention_scope{
-            SearchPartialRetentionScope::ProjectionSlotLocal
+            SearchPartialRetentionScope::TreeGlobal
         };
+        std::size_t max_parallel_batches{ kDefaultMaxParallelBatches };
         bool validate_phase_invariants{ false };
+        bool log_projection_details{ false };
     };
 
     [[nodiscard]] inline constexpr SearchExecutionConfig make_default_demand_assignment_search_execution_config(
@@ -260,6 +323,7 @@ namespace timetable::domain::assignment {
             , .destination_scope  = SearchDestinationScope::DemandDestinations
             , .result_projection  = SearchResultProjection::DemandTasks
             , .partial_retention_scope = SearchPartialRetentionScope::ProjectionSlotLocal
+            , .max_parallel_batches = SearchExecutionConfig::kDefaultMaxParallelBatches
             , .validate_phase_invariants = false
         };
     }
@@ -273,6 +337,7 @@ namespace timetable::domain::assignment {
             , .destination_scope  = SearchDestinationScope::DemandDestinations
             , .result_projection  = SearchResultProjection::DemandTasks
             , .partial_retention_scope = SearchPartialRetentionScope::ProjectionSlotLocal
+            , .max_parallel_batches = SearchExecutionConfig::kDefaultMaxParallelBatches
             , .validate_phase_invariants = false
         };
     }
@@ -286,6 +351,7 @@ namespace timetable::domain::assignment {
             , .destination_scope  = SearchDestinationScope::DeclaredZones
             , .result_projection  = SearchResultProjection::DemandTasks
             , .partial_retention_scope = SearchPartialRetentionScope::ProjectionSlotLocal
+            , .max_parallel_batches = SearchExecutionConfig::kDefaultMaxParallelBatches
             , .validate_phase_invariants = false
         };
     }
@@ -299,6 +365,7 @@ namespace timetable::domain::assignment {
             , .destination_scope  = SearchDestinationScope::DemandDestinations
             , .result_projection  = SearchResultProjection::DemandTasks
             , .partial_retention_scope = SearchPartialRetentionScope::ProjectionSlotLocal
+            , .max_parallel_batches = SearchExecutionConfig::kDefaultMaxParallelBatches
             , .validate_phase_invariants = false
         };
     }
@@ -312,13 +379,49 @@ namespace timetable::domain::assignment {
             , .destination_scope  = SearchDestinationScope::DeclaredZones
             , .result_projection  = SearchResultProjection::CompletionTargets
             , .partial_retention_scope = SearchPartialRetentionScope::TreeGlobal
+            , .max_parallel_batches = SearchExecutionConfig::kDefaultMaxParallelBatches
             , .validate_phase_invariants = false
         };
+    }
+
+    [[nodiscard]] inline constexpr SearchExecutionConfig make_od_day_assignment_search_execution_config(
+    ) noexcept {
+        return SearchExecutionConfig{
+              .mode               = SearchExecutionMode::OriginPeriod
+            , .origin_scope       = SearchOriginScope::DeclaredZones
+            , .time_domain_source = SearchTimeDomainSource::ServiceDay
+            , .destination_scope  = SearchDestinationScope::DeclaredZones
+            , .result_projection  = SearchResultProjection::OdDayPairs
+            , .partial_retention_scope = SearchPartialRetentionScope::TreeGlobal
+            , .max_parallel_batches = SearchExecutionConfig::kDefaultMaxParallelBatches
+            , .validate_phase_invariants = false
+        };
+    }
+
+    [[nodiscard]] inline constexpr SearchExecutionConfig make_default_search_execution_config(
+    ) noexcept {
+        return make_od_day_assignment_search_execution_config();
     }
 
     [[nodiscard]] inline constexpr SearchExecutionConfig make_declared_origin_period_search_execution_config(
     ) noexcept {
         return make_all_zone_origin_period_search_execution_config();
+    }
+
+    [[nodiscard]] inline constexpr SearchExecutionConfig make_search_execution_config(
+        AssignmentCalculationFormulation formulation
+    ) noexcept {
+        switch (formulation) {
+            case AssignmentCalculationFormulation::DemandTaskAssignment:
+                return make_default_demand_assignment_search_execution_config();
+
+            case AssignmentCalculationFormulation::OdDayAssignment:
+                return make_od_day_assignment_search_execution_config();
+
+            case AssignmentCalculationFormulation::AllZoneSearch:
+                return make_all_zone_origin_period_search_execution_config();
+        }
+        return make_default_search_execution_config();
     }
 
     [[nodiscard]] inline constexpr SearchExecutionConfig make_search_execution_config(

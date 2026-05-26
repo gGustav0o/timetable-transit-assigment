@@ -45,9 +45,18 @@ namespace timetable::domain::assignment::detail {
             RouteId    route{};
         };
 
+        struct RouteTotalLoadKey final {
+            LineId  line{};
+            RouteId route{};
+        };
+
         struct StopLoadKey final {
             IntervalId interval{};
             StopId     stop{};
+        };
+
+        struct StopTotalLoadKey final {
+            StopId stop{};
         };
 
         [[nodiscard]] bool operator<(
@@ -108,11 +117,26 @@ namespace timetable::domain::assignment::detail {
         }
 
         [[nodiscard]] bool operator<(
+              const RouteTotalLoadKey& lhs
+            , const RouteTotalLoadKey& rhs
+        ) noexcept {
+            return std::tuple{ lhs.line.get(), lhs.route.get() }
+                 < std::tuple{ rhs.line.get(), rhs.route.get() };
+        }
+
+        [[nodiscard]] bool operator<(
               const StopLoadKey& lhs
             , const StopLoadKey& rhs
         ) noexcept {
             return std::tuple{ lhs.interval.get(), lhs.stop.get() }
                  < std::tuple{ rhs.interval.get(), rhs.stop.get() };
+        }
+
+        [[nodiscard]] bool operator<(
+              const StopTotalLoadKey& lhs
+            , const StopTotalLoadKey& rhs
+        ) noexcept {
+            return lhs.stop.get() < rhs.stop.get();
         }
 
         [[nodiscard]] StopOccurrence stop_occurrence_from_key(
@@ -219,6 +243,19 @@ namespace timetable::domain::assignment::detail {
             };
         }
 
+        [[nodiscard]] AssignmentRouteTotalLoad make_route_total_load(
+              const RouteTotalLoadKey& key
+            , double                   passenger_segments
+            , std::size_t              segment_load_count
+        ) noexcept {
+            return AssignmentRouteTotalLoad{
+                  .line                = key.line
+                , .route               = key.route
+                , .passenger_segments  = passenger_segments
+                , .segment_load_count  = segment_load_count
+            };
+        }
+
         struct LoadAggregate final {
             mathfp::CompensatedSum<double> passenger_segments{};
             std::size_t segment_load_count{};
@@ -237,8 +274,10 @@ namespace timetable::domain::assignment::detail {
         using SegmentLoadMap = std::map<SegmentLoadKey, mathfp::CompensatedSum<double>>;
         using LineLoadMap    = std::map<LineLoadKey, LoadAggregate>;
         using RouteLoadMap   = std::map<RouteLoadKey, LoadAggregate>;
+        using RouteTotalLoadMap = std::map<RouteTotalLoadKey, LoadAggregate>;
         using TripLoadMap    = std::map<TripLoadKey, LoadAggregate>;
         using StopLoadMap    = std::map<StopLoadKey, StopLoadAggregate>;
+        using StopTotalLoadMap = std::map<StopTotalLoadKey, StopLoadAggregate>;
 
         [[nodiscard]] bool same_trip_continuation(
               const ConnectionLeg& lhs
@@ -416,13 +455,35 @@ namespace timetable::domain::assignment::detail {
             };
         }
 
+        [[nodiscard]] AssignmentStopTotalLoad make_stop_total_load(
+              const StopTotalLoadKey&  key
+            , const StopLoadAggregate& aggregate
+        ) noexcept {
+            const auto boarding = aggregate.boarding_passengers.value();
+            const auto alighting = aggregate.alighting_passengers.value();
+            const auto incoming = aggregate.incoming_passenger_segments.value();
+            const auto outgoing = aggregate.outgoing_passenger_segments.value();
+            const auto through = aggregate.through_passengers.value();
+            return AssignmentStopTotalLoad{
+                  .stop                        = key.stop
+                , .boarding_passengers         = boarding
+                , .alighting_passengers        = alighting
+                , .incoming_passenger_segments = incoming
+                , .outgoing_passenger_segments = outgoing
+                , .through_passengers          = through
+                , .total_passenger_flow        = boarding + alighting + through
+            };
+        }
+
         [[nodiscard]] AssignmentLoads materialize_loads(
               const SegmentLoadMap& segment_load_map
             , const StopLoadMap&    stop_load_map
         ) {
             LineLoadMap line_load_map;
             RouteLoadMap route_load_map;
+            RouteTotalLoadMap route_total_load_map;
             TripLoadMap trip_load_map;
+            StopTotalLoadMap stop_total_load_map;
 
             AssignmentLoads loads;
             loads.segment_loads.reserve(segment_load_map.size());
@@ -454,6 +515,13 @@ namespace timetable::domain::assignment::detail {
                 }];
                 route_load.passenger_segments.add(passenger_count);
                 route_load.segment_load_count += 1;
+
+                auto& route_total_load = route_total_load_map[RouteTotalLoadKey{
+                      .line  = key.line
+                    , .route = key.route
+                }];
+                route_total_load.passenger_segments.add(passenger_count);
+                route_total_load.segment_load_count += 1;
             }
 
             loads.line_loads.reserve(line_load_map.size());
@@ -478,6 +546,17 @@ namespace timetable::domain::assignment::detail {
                 );
             }
 
+            loads.route_total_loads.reserve(route_total_load_map.size());
+            for (const auto& [key, aggregate] : route_total_load_map) {
+                loads.route_total_loads.push_back(
+                    make_route_total_load(
+                        key
+                        , aggregate.passenger_segments.value()
+                        , aggregate.segment_load_count
+                    )
+                );
+            }
+
             loads.trip_loads.reserve(trip_load_map.size());
             for (const auto& [key, aggregate] : trip_load_map) {
                 loads.trip_loads.push_back(
@@ -492,6 +571,29 @@ namespace timetable::domain::assignment::detail {
             loads.stop_loads.reserve(stop_load_map.size());
             for (const auto& [key, aggregate] : stop_load_map) {
                 loads.stop_loads.push_back(make_stop_load(key, aggregate));
+                auto& stop_total = stop_total_load_map[StopTotalLoadKey{
+                    .stop = key.stop
+                }];
+                stop_total.boarding_passengers.add(aggregate.boarding_passengers.value());
+                stop_total.alighting_passengers.add(aggregate.alighting_passengers.value());
+                stop_total.transfer_boarding_passengers.add(
+                    aggregate.transfer_boarding_passengers.value()
+                );
+                stop_total.transfer_alighting_passengers.add(
+                    aggregate.transfer_alighting_passengers.value()
+                );
+                stop_total.incoming_passenger_segments.add(
+                    aggregate.incoming_passenger_segments.value()
+                );
+                stop_total.outgoing_passenger_segments.add(
+                    aggregate.outgoing_passenger_segments.value()
+                );
+                stop_total.through_passengers.add(aggregate.through_passengers.value());
+            }
+
+            loads.stop_total_loads.reserve(stop_total_load_map.size());
+            for (const auto& [key, aggregate] : stop_total_load_map) {
+                loads.stop_total_loads.push_back(make_stop_total_load(key, aggregate));
             }
 
             return loads;

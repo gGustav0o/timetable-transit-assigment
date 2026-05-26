@@ -715,6 +715,37 @@ namespace timetable::domain::assignment {
         return loads;
     }
 
+    mathfp::Expected<ElementarySegmentLoads> build_elementary_segment_loads(
+        const DemandSplitResult& split_result
+    ) {
+        return build_vehicle_journey_item_loads(split_result);
+    }
+
+    mathfp::Expected<mathfp::Unit> accumulate_elementary_segment_loads(
+          ElementarySegmentLoadAccumulator& accumulator
+        , const ElementarySegmentLoads&     loads
+    ) {
+        MATHFP_TRY(validate_vehicle_journey_item_loads(loads));
+        for (const auto& load : loads.items) {
+            accumulator.loads[load.key].add(load.passengers);
+        }
+        return mathfp::kUnit;
+    }
+
+    mathfp::Expected<ElementarySegmentLoads> materialize_elementary_segment_loads(
+        const ElementarySegmentLoadAccumulator& accumulator
+    ) {
+        VehicleJourneyItemLoads loads;
+        loads.items.reserve(accumulator.loads.size());
+        for (const auto& [key, passengers] : accumulator.loads) {
+            loads.items.push_back(
+                make_vehicle_journey_item_load(key, passengers.value())
+            );
+        }
+        MATHFP_TRY(validate_vehicle_journey_item_loads(loads));
+        return loads;
+    }
+
     mathfp::Expected<mathfp::Unit> validate_vehicle_journey_item_overload(
         const VehicleJourneyItemOverload& overload
     ) {
@@ -950,6 +981,18 @@ namespace timetable::domain::assignment {
             , interval_lookup
         ));
         return assessment;
+    }
+
+    mathfp::Expected<ElementarySegmentOverloadAssessment> assess_elementary_segment_overload(
+          const ElementarySegmentLoads&        loads
+        , const VehicleJourneyItemCapacitySet& capacities
+        , const std::vector<TimeInterval>&     intervals
+    ) {
+        return assess_vehicle_journey_item_overload(
+              loads
+            , capacities
+            , intervals
+        );
     }
 
 }  // namespace timetable::domain::assignment

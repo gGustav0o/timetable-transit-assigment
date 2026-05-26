@@ -29,16 +29,47 @@ add_subdirectory(libs/mathfp)
 
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/Dependencies.cmake)
 
-if(TARGET xlsxio_read_STATIC)
-  set(TIMETABLE_XLSXIO_READ_TARGET xlsxio_read_STATIC)
-elseif(TARGET xlsxio_read_SHARED)
-  set(TIMETABLE_XLSXIO_READ_TARGET xlsxio_read_SHARED)
-elseif(TARGET xlsxio_read)
-  set(TIMETABLE_XLSXIO_READ_TARGET xlsxio_read)
-elseif(TARGET xlsxio::xlsxio_read)
-  set(TIMETABLE_XLSXIO_READ_TARGET xlsxio::xlsxio_read)
-else()
-  message(FATAL_ERROR "xlsxio read target was not exported by the xlsxio package")
+set(_TIMETABLE_XLSXIO_READ_TARGET_CANDIDATES
+  xlsxio::xlsxio_read
+  xlsxio::xlsxio_read_STATIC
+  xlsxio::xlsxio_read_SHARED
+  xlsxio::xlsxio_read_static
+  xlsxio::xlsxio_read_shared
+  unofficial::xlsxio::xlsxio_read
+  unofficial::xlsxio::xlsxio_read_STATIC
+  unofficial::xlsxio::xlsxio_read_SHARED
+  unofficial::xlsxio::xlsxio_read_static
+  unofficial::xlsxio::xlsxio_read_shared
+  xlsxio_read
+  xlsxio_read_STATIC
+  xlsxio_read_SHARED
+  xlsxio_read_static
+  xlsxio_read_shared
+)
+
+foreach(_target IN LISTS _TIMETABLE_XLSXIO_READ_TARGET_CANDIDATES)
+  if(TARGET ${_target})
+    set(TIMETABLE_XLSXIO_READ_TARGET ${_target})
+    break()
+  endif()
+endforeach()
+
+if(NOT TIMETABLE_XLSXIO_READ_TARGET)
+  find_path(TIMETABLE_XLSXIO_INCLUDE_DIR NAMES xlsxio_read.h)
+  find_library(TIMETABLE_XLSXIO_READ_LIBRARY NAMES xlsxio_read libxlsxio_read)
+
+  if(TIMETABLE_XLSXIO_INCLUDE_DIR AND TIMETABLE_XLSXIO_READ_LIBRARY)
+    add_library(timetable_xlsxio_read UNKNOWN IMPORTED)
+    set_target_properties(timetable_xlsxio_read PROPERTIES
+      IMPORTED_LOCATION "${TIMETABLE_XLSXIO_READ_LIBRARY}"
+      INTERFACE_INCLUDE_DIRECTORIES "${TIMETABLE_XLSXIO_INCLUDE_DIR}"
+    )
+    set(TIMETABLE_XLSXIO_READ_TARGET timetable_xlsxio_read)
+  else()
+    message(FATAL_ERROR
+      "xlsxio read target/library was not exported by the xlsxio package"
+    )
+  endif()
 endif()
 
 add_executable(timetable-transit-assigment

@@ -42,6 +42,21 @@ namespace timetable::domain::assignment::detail {
         , const CapacityAwareAssignmentDiagnostics& capacity_aware
     );
 
+    mathfp::Expected<AssignmentOutput> build_od_day_assignment_output_impl(
+          const InputModel&                      input
+        , const PreprocessedNetwork&             network
+        , const OdDayConnectionSearchSummary&    search_summary
+        , const OdDayConnectionChoiceResult&     choice_result
+        , const DemandSplitResult&               split_result
+        , const ElementarySegmentLoads&          elementary_segment_loads
+        , const VehicleJourneyItemCapacityInput& vehicle_journey_item_capacity
+        , const AssignmentExecutionConfig&        execution
+        , const AssignmentPeriodConfig&           assignment_period
+        , const ConnectionAdmissibilityConfig&    admissibility_config
+        , const SkimMatrixConfig&                skim_config
+        , const CapacityAwareAssignmentDiagnostics& capacity_aware
+    );
+
     mathfp::Expected<AssignmentOutput> build_all_zone_search_output_impl(
           const InputModel&                      input
         , const AllZoneConnectionSearchResult&   search_result

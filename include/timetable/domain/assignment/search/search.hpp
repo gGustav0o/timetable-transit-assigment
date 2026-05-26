@@ -2,10 +2,12 @@
 
 #include <cstdint>
 #include <cstddef>
+#include <functional>
 #include <span>
 #include <vector>
 
 #include <mathfp/core/expected.hpp>
+#include <mathfp/core/unit.hpp>
 #include <mathfp/types/strong_type.hpp>
 
 #include "timetable/domain/model.hpp"
@@ -159,6 +161,34 @@ namespace timetable::domain::assignment {
         std::vector<SearchTaskResult> task_results{};
     };
 
+    struct OdDayPairResult final {
+        ZoneId                        origin{};
+        ZoneId                        destination{};
+        std::vector<SearchConnection> connections{};
+    };
+
+    struct OriginDaySearchResult final {
+        ZoneId                           origin{};
+        std::vector<OdDayPairResult>     pair_results{};
+    };
+
+    struct OdDayConnectionSearchResult final {
+        std::vector<OriginDaySearchResult> origin_results{};
+    };
+
+    struct OdDayPairConnectionCount final {
+        ZoneId      origin{};
+        ZoneId      destination{};
+        std::size_t connection_count{};
+    };
+
+    struct OdDayConnectionSearchSummary final {
+        std::vector<OdDayPairConnectionCount> pair_counts{};
+    };
+
+    using OdDayOriginResultSink =
+        std::function<mathfp::Expected<mathfp::Unit>(OriginDaySearchResult)>;
+
     struct AllZoneTargetResult final {
         ZoneId                        origin{};
         ZoneId                        destination{};
@@ -188,6 +218,7 @@ namespace timetable::domain::assignment {
         std::int32_t capacity_iteration{};
         std::size_t  declared_zone_count{};
         bool         validate_phase_invariants{};
+        bool         log_projection_details{};
     };
 
     mathfp::Expected<std::vector<SearchTask>> build_search_tasks(
@@ -221,6 +252,14 @@ namespace timetable::domain::assignment {
 
     [[nodiscard]] std::size_t search_connection_count(
         const AllZoneConnectionSearchResult& result
+    ) noexcept;
+
+    [[nodiscard]] std::size_t search_connection_count(
+        const OdDayConnectionSearchResult& result
+    ) noexcept;
+
+    [[nodiscard]] std::size_t search_connection_count(
+        const OdDayConnectionSearchSummary& summary
     ) noexcept;
 
     [[nodiscard]] std::size_t all_zone_target_connection_count(
@@ -386,6 +425,35 @@ namespace timetable::domain::assignment {
         , const ConnectionAdmissibilityConfig& admissibility_config
         , const SearchPruningExecutionPlan* pruning_execution
         , const CompleteConnectionDominanceConfig& complete_connection_dominance
+        , SearchDiagnosticsContext diagnostics = {}
+    );
+
+    mathfp::Expected<OdDayConnectionSearchResult> search_od_day_connections_branch_and_bound(
+          const PreprocessedNetwork&        network
+        , std::span<const SearchTask>        tasks
+        , SearchExecutionRequest             execution
+        , const SearchParams&               params
+        , const SearchCostContext&          search_cost
+        , const ChoiceConfig&                choice_config
+        , const AssignmentPeriodConfig&      assignment_period
+        , const ConnectionAdmissibilityConfig& admissibility_config
+        , const SearchPruningExecutionPlan* pruning_execution
+        , const CompleteConnectionDominanceConfig& complete_connection_dominance
+        , SearchDiagnosticsContext diagnostics = {}
+    );
+
+    mathfp::Expected<mathfp::Unit> search_od_day_connections_by_origin_branch_and_bound(
+          const PreprocessedNetwork&        network
+        , std::span<const SearchTask>        tasks
+        , SearchExecutionRequest             execution
+        , const SearchParams&               params
+        , const SearchCostContext&          search_cost
+        , const ChoiceConfig&                choice_config
+        , const AssignmentPeriodConfig&      assignment_period
+        , const ConnectionAdmissibilityConfig& admissibility_config
+        , const SearchPruningExecutionPlan* pruning_execution
+        , const CompleteConnectionDominanceConfig& complete_connection_dominance
+        , OdDayOriginResultSink              origin_sink
         , SearchDiagnosticsContext diagnostics = {}
     );
 

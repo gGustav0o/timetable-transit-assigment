@@ -20,8 +20,10 @@ namespace timetable::domain::assignment {
     namespace {
 
         using DemandKey = detail::grouping::DemandKey;
+        using OdKey = detail::grouping::OdKey;
         using ChoiceTaskLookup = std::map<DemandKey, const ChoiceTaskResult*>;
         using DemandLookup = std::map<DemandKey, const DemandEntry*>;
+        using OdDayChoiceLookup = std::map<OdKey, const OdDayChoicePairResult*>;
         using TaskConnectionTraceMap = std::map<DemandKey, std::map<detail::grouping::ConnectionTraceKey, bool>>;
         using SkimEntryKey = std::tuple<std::int64_t, std::int64_t, std::int64_t>;
 
@@ -57,6 +59,21 @@ namespace timetable::domain::assignment {
                 , entry.destination.get()
                 , entry.interval.get()
             };
+        }
+
+        [[nodiscard]] mathfp::Expected<const TimeInterval*> find_input_interval(
+              const InputModel& input
+            , IntervalId        interval_id
+        ) {
+            for (const auto& interval : input.intervals) {
+                if (interval.id == interval_id) {
+                    return &interval;
+                }
+            }
+            return mathfp::unexpected(
+                mathfp::invalid_arg("skim input: demand references unknown interval")
+                    .ctx("interval_id", interval_id.get())
+            );
         }
 
         [[nodiscard]] mathfp::Expected<mathfp::Unit> validate_weighted_value(
@@ -186,6 +203,92 @@ namespace timetable::domain::assignment {
                 }
             }
             return lookup;
+        }
+
+        [[nodiscard]] mathfp::Expected<OdDayChoiceLookup> build_od_day_choice_lookup(
+            const OdDayConnectionChoiceResult& choice_result
+        ) {
+            OdDayChoiceLookup lookup;
+            for (const auto& origin_result : choice_result.origin_results) {
+                for (const auto& pair_result : origin_result.pair_results) {
+                    const auto key = OdKey{
+                          .origin      = pair_result.origin
+                        , .destination = pair_result.destination
+                    };
+                    if (!lookup.emplace(key, &pair_result).second) {
+                        return mathfp::unexpected(
+                            mathfp::internal_error("skim input: OD-day choice result contains duplicate OD pair")
+                                .ctx("origin"     , key.origin.get())
+                                .ctx("destination", key.destination.get())
+                        );
+                    }
+                }
+            }
+            return lookup;
+        }
+
+        [[nodiscard]] std::vector<SearchConnection> admissible_od_day_connections(
+              const OdDayChoicePairResult&      pair_result
+            , const TimeInterval&               interval
+            , const AssignmentPeriodConfig&     assignment_period
+            , const ConnectionAdmissibilityConfig& admissibility_config
+        ) {
+            std::vector<SearchConnection> connections;
+            connections.reserve(pair_result.connections.size());
+            for (const auto& connection : pair_result.connections) {
+                if (connection_admissible_for_demand_segment(
+                      metrics_of(connection)
+                    , interval
+                    , assignment_period
+                    , admissibility_config
+                )) {
+                    connections.push_back(connection);
+                }
+            }
+            return connections;
+        }
+
+        [[nodiscard]] mathfp::Expected<ConnectionChoiceResult> make_interval_choice_projection(
+              const OdDayConnectionChoiceResult& choice_result
+            , const InputModel&                  input
+            , const AssignmentPeriodConfig&      assignment_period
+            , const ConnectionAdmissibilityConfig& admissibility_config
+        ) {
+            MATHFP_TRY_LET(OdDayChoiceLookup, choice_lookup, build_od_day_choice_lookup(choice_result));
+
+            ConnectionChoiceResult projection{
+                  .connections  = choice_result.connections
+                , .task_results = {}
+            };
+            projection.task_results.reserve(input.demand.size());
+
+            for (std::size_t i = 0; i < input.demand.size(); ++i) {
+                const auto& demand = input.demand[i];
+                MATHFP_TRY_LET(const TimeInterval*, interval, find_input_interval(input, demand.interval));
+                ChoiceTaskResult task_result{
+                      .task = SearchTask{
+                          .index            = SearchTaskRef{ static_cast<std::int64_t>(i) }
+                        , .origin           = demand.origin
+                        , .destination      = demand.destination
+                        , .interval         = *interval
+                        , .departure_domain = {}
+                      }
+                    , .connections = {}
+                };
+
+                const auto choice_it = choice_lookup.find(detail::grouping::od_key(demand));
+                if (choice_it != choice_lookup.end()) {
+                    task_result.connections = admissible_od_day_connections(
+                          *choice_it->second
+                        , *interval
+                        , assignment_period
+                        , admissibility_config
+                    );
+                }
+                projection.task_results.push_back(std::move(task_result));
+            }
+
+            return projection;
         }
 
         [[nodiscard]] TaskConnectionTraceMap build_task_connection_trace_map(
@@ -755,6 +858,39 @@ namespace timetable::domain::assignment {
 
         MATHFP_TRY(validate_assignment_skim_matrix(matrix));
         return matrix;
+    }
+
+    mathfp::Expected<AssignmentSkimMatrix> build_assignment_skim_matrix(
+          const OdDayConnectionChoiceResult& choice_result
+        , const InputModel&                  input
+        , const DemandSplitResult&           split_result
+        , const AssignmentPeriodConfig&      assignment_period
+        , const ConnectionAdmissibilityConfig& admissibility_config
+        , const SkimMatrixConfig&            config
+    ) {
+        MATHFP_TRY(validate_skim_matrix_config(config));
+        if (!config.enabled) {
+            return AssignmentSkimMatrix{
+                .status = AssignmentSkimMatrixStatus::DisabledByConfig
+            };
+        }
+
+        MATHFP_TRY_LET(
+              ConnectionChoiceResult
+            , interval_choice_projection
+            , make_interval_choice_projection(
+                  choice_result
+                , input
+                , assignment_period
+                , admissibility_config
+            )
+        );
+        return build_assignment_skim_matrix(
+              interval_choice_projection
+            , input
+            , split_result
+            , config
+        );
     }
 
 }  // namespace timetable::domain::assignment

@@ -3,6 +3,7 @@
 #include <mathfp/core/expected.hpp>
 
 #include "timetable/domain/assignment.hpp"
+#include "timetable/domain/assignment/connection_admissibility.hpp"
 #include "timetable/domain/assignment/choice.hpp"
 #include "timetable/domain/assignment/preprocessed_network.hpp"
 #include "timetable/domain/assignment/search.hpp"
@@ -22,6 +23,28 @@ namespace timetable::domain::assignment {
         , const DemandSplitResult&               split_result
         , const VehicleJourneyItemCapacityInput& vehicle_journey_item_capacity
         , const AssignmentExecutionConfig&        execution
+        , const SkimMatrixConfig&                skim_config
+        , const CapacityAwareAssignmentDiagnostics& capacity_aware
+    );
+
+    /**
+     * @brief Convert the OD-day assignment formulation to the public output.
+     *
+     * Search alternatives are represented by OD-day pair counters, while
+     * chosen alternatives and split shares keep the mathematical OD/interval
+     * boundary: alternatives are day-level, demand remains interval-specific.
+     */
+    mathfp::Expected<AssignmentOutput> build_od_day_assignment_output(
+          const InputModel&                      input
+        , const PreprocessedNetwork&             network
+        , const OdDayConnectionSearchSummary&    search_summary
+        , const OdDayConnectionChoiceResult&     choice_result
+        , const DemandSplitResult&               split_result
+        , const ElementarySegmentLoads&          elementary_segment_loads
+        , const VehicleJourneyItemCapacityInput& vehicle_journey_item_capacity
+        , const AssignmentExecutionConfig&        execution
+        , const AssignmentPeriodConfig&           assignment_period
+        , const ConnectionAdmissibilityConfig&    admissibility_config
         , const SkimMatrixConfig&                skim_config
         , const CapacityAwareAssignmentDiagnostics& capacity_aware
     );

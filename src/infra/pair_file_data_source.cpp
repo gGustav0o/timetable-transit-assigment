@@ -612,7 +612,7 @@ namespace timetable::infra {
                 , .complete_connection_dominance =
                       timetable::domain::assignment::CompleteConnectionDominanceConfig{}
                 , .search_execution =
-                      timetable::domain::assignment::make_default_demand_assignment_search_execution_config()
+                      timetable::domain::assignment::make_default_search_execution_config()
                 , .search_pruning      = std::move(search_pruning)
                 , .search_time_domain  = std::move(search_time_domain)
                 , .execution           = timetable::domain::assignment::AssignmentExecutionConfig{

@@ -490,6 +490,22 @@ namespace timetable::infra {
             writer.end_object();
         }
 
+        void write_route_total_load(
+              JsonWriter&                                        writer
+            , const timetable::domain::AssignmentRouteTotalLoad& load
+        ) {
+            writer.begin_object();
+            writer.key("line_id");
+            write_strong_id(writer, load.line);
+            writer.key("route_id");
+            write_strong_id(writer, load.route);
+            writer.key("passenger_segments");
+            writer.number(load.passenger_segments);
+            writer.key("segment_load_count");
+            writer.integer(static_cast<std::int64_t>(load.segment_load_count));
+            writer.end_object();
+        }
+
         void write_segment_load(
               JsonWriter&                                     writer
             , const timetable::domain::AssignmentSegmentLoad& load
@@ -553,6 +569,28 @@ namespace timetable::infra {
             writer.end_object();
         }
 
+        void write_stop_total_load(
+              JsonWriter&                                       writer
+            , const timetable::domain::AssignmentStopTotalLoad& load
+        ) {
+            writer.begin_object();
+            writer.key("stop_id");
+            write_strong_id(writer, load.stop);
+            writer.key("boarding_passengers");
+            writer.number(load.boarding_passengers);
+            writer.key("alighting_passengers");
+            writer.number(load.alighting_passengers);
+            writer.key("incoming_passenger_segments");
+            writer.number(load.incoming_passenger_segments);
+            writer.key("outgoing_passenger_segments");
+            writer.number(load.outgoing_passenger_segments);
+            writer.key("through_passengers");
+            writer.number(load.through_passengers);
+            writer.key("total_passenger_flow");
+            writer.number(load.total_passenger_flow);
+            writer.end_object();
+        }
+
         void write_loads(
               JsonWriter&                               writer
             , const timetable::domain::AssignmentLoads& loads
@@ -568,6 +606,12 @@ namespace timetable::infra {
             writer.begin_array();
             for (const auto& load : loads.route_loads) {
                 write_route_load(writer, load);
+            }
+            writer.end_array();
+            writer.key("route_total_loads");
+            writer.begin_array();
+            for (const auto& load : loads.route_total_loads) {
+                write_route_total_load(writer, load);
             }
             writer.end_array();
             writer.key("trip_loads");
@@ -586,6 +630,12 @@ namespace timetable::infra {
             writer.begin_array();
             for (const auto& load : loads.stop_loads) {
                 write_stop_load(writer, load);
+            }
+            writer.end_array();
+            writer.key("stop_total_loads");
+            writer.begin_array();
+            for (const auto& load : loads.stop_total_loads) {
+                write_stop_total_load(writer, load);
             }
             writer.end_array();
             writer.end_object();

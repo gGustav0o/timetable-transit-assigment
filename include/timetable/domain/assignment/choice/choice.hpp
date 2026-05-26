@@ -25,6 +25,22 @@ namespace timetable::domain::assignment {
         std::vector<ChoiceTaskResult> task_results{};
     };
 
+    struct OdDayChoicePairResult final {
+        ZoneId                        origin{};
+        ZoneId                        destination{};
+        std::vector<SearchConnection> connections{};
+    };
+
+    struct OriginDayChoiceResult final {
+        ZoneId                             origin{};
+        std::vector<OdDayChoicePairResult> pair_results{};
+    };
+
+    struct OdDayConnectionChoiceResult final {
+        std::vector<SearchConnection>      connections{};
+        std::vector<OriginDayChoiceResult> origin_results{};
+    };
+
     /**
      * @brief Apply choice criteria to remove dominated/illogical connections.
      */
@@ -35,6 +51,27 @@ namespace timetable::domain::assignment {
         , const ChoiceConfig&           config
         , const AssignmentPeriodConfig& assignment_period
         , const ConnectionAdmissibilityConfig& admissibility_config
+    );
+
+    /**
+     * @brief Apply day-level choice pruning to OD-day alternatives.
+     *
+     * Demand-interval admissibility is deliberately not applied here. It belongs
+     * to the split/load layer, where the same OD-day alternative set is evaluated
+     * against each demand interval of the OD pair.
+     */
+    mathfp::Expected<OdDayConnectionChoiceResult> choose_od_day_connections(
+          const OdDayConnectionSearchResult& search_result
+        , const SearchParams&                params
+        , const SearchCostContext&           search_cost
+        , const ChoiceConfig&                config
+    );
+
+    mathfp::Expected<OriginDayChoiceResult> choose_origin_day_connections(
+          const OriginDaySearchResult& search_result
+        , const SearchParams&          params
+        , const SearchCostContext&     search_cost
+        , const ChoiceConfig&          config
     );
 
 }  // namespace timetable::domain::assignment

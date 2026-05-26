@@ -35,6 +35,10 @@ namespace timetable::domain::assignment {
             std::size_t      admissibility_rejected{};
         };
 
+        struct ChoiceOdDaySelection final {
+            OdDayChoicePairResult result{};
+        };
+
         std::vector<const SearchConnection*> admissible_task_connection_ptrs(
               const SearchTaskResult&            task_result
             , const AssignmentPeriodConfig&      assignment_period
@@ -89,6 +93,44 @@ namespace timetable::domain::assignment {
                   }
                 , .admissibility_rejected =
                     task_result.connections.size() - task_connections.size()
+            };
+        }
+
+        std::vector<const SearchConnection*> connection_ptrs(
+            const std::vector<SearchConnection>& connections
+        ) {
+            std::vector<const SearchConnection*> ptrs;
+            ptrs.reserve(connections.size());
+            for (const auto& connection : connections) {
+                ptrs.push_back(&connection);
+            }
+            return ptrs;
+        }
+
+        mathfp::Expected<ChoiceOdDaySelection> choose_od_day_pair_connections(
+              const OdDayPairResult&  pair_result
+            , const SearchParams&     params
+            , const SearchCostContext& search_cost
+            , const ChoiceConfig&     config
+        ) {
+            const auto pair_connections = connection_ptrs(pair_result.connections);
+            MATHFP_TRY_LET(
+                  std::vector<SearchConnection>
+                , chosen
+                , refine_complete_connection_ptrs(
+                      pair_connections
+                    , search_cost
+                    , IntervalId{ 0 }
+                    , params.choice_tolerances
+                    , config.rollout_stage
+                )
+            );
+            return ChoiceOdDaySelection{
+                .result = OdDayChoicePairResult{
+                      .origin      = pair_result.origin
+                    , .destination = pair_result.destination
+                    , .connections = std::move(chosen)
+                }
             };
         }
 
@@ -176,6 +218,123 @@ namespace timetable::domain::assignment {
             , LogLevel::Info
         );
         both("choice: pruning connections done");
+        return result;
+    }
+
+    mathfp::Expected<OdDayConnectionChoiceResult> choose_od_day_connections(
+          const OdDayConnectionSearchResult& search_result
+        , const SearchParams&                params
+        , const SearchCostContext&           search_cost
+        , const ChoiceConfig&                config
+    ) {
+        using timetable::infra::LogLevel;
+        using timetable::infra::progress::both;
+        using timetable::infra::progress::log;
+
+        MATHFP_TRY(validate_search_cost_context(search_cost));
+
+        both("choice: pruning OD-day connections");
+        log(
+            fmt::format(
+                  "OD-day choice input: origins = {:>8}  connections = {:>8}  rollout_stage = {}"
+                , search_result.origin_results.size()
+                , search_connection_count(search_result)
+                , to_string(config.rollout_stage)
+            )
+            , LogLevel::Info
+        );
+
+        OdDayConnectionChoiceResult result;
+        result.origin_results.reserve(search_result.origin_results.size());
+        std::map<detail::grouping::ConnectionTraceKey, std::size_t> chosen_trace_index;
+        std::size_t pair_count = 0;
+        std::size_t nonempty_pair_count = 0;
+
+        for (const auto& origin_result : search_result.origin_results) {
+            OriginDayChoiceResult chosen_origin{
+                  .origin       = origin_result.origin
+                , .pair_results = {}
+            };
+            chosen_origin.pair_results.reserve(origin_result.pair_results.size());
+
+            for (const auto& pair_result : origin_result.pair_results) {
+                ++pair_count;
+                MATHFP_TRY_LET(
+                      ChoiceOdDaySelection
+                    , selection
+                    , choose_od_day_pair_connections(
+                          pair_result
+                        , params
+                        , search_cost
+                        , config
+                    )
+                );
+                auto chosen_pair = std::move(selection.result);
+                if (!chosen_pair.connections.empty()) {
+                    ++nonempty_pair_count;
+                }
+                log(
+                    fmt::format(
+                          "OD-day choice pair: origin = {:>6}  destination = {:>6}  input = {:>5}  chosen = {:>5}"
+                        , pair_result.origin.get()
+                        , pair_result.destination.get()
+                        , pair_result.connections.size()
+                        , chosen_pair.connections.size()
+                    )
+                    , LogLevel::Info
+                );
+                append_unique_choice_connections(
+                      result.connections
+                    , chosen_trace_index
+                    , chosen_pair.connections
+                );
+                chosen_origin.pair_results.push_back(std::move(chosen_pair));
+            }
+
+            result.origin_results.push_back(std::move(chosen_origin));
+        }
+
+        log(
+            fmt::format(
+                  "OD-day choice result: pairs = {:>8}  nonempty_pairs = {:>8}  connections = {:>8}"
+                , pair_count
+                , nonempty_pair_count
+                , result.connections.size()
+            )
+            , LogLevel::Info
+        );
+        both("choice: pruning OD-day connections done");
+        return result;
+    }
+
+    mathfp::Expected<OriginDayChoiceResult> choose_origin_day_connections(
+          const OriginDaySearchResult& search_result
+        , const SearchParams&          params
+        , const SearchCostContext&     search_cost
+        , const ChoiceConfig&          config
+    ) {
+        MATHFP_TRY(validate_search_cost_context(search_cost));
+
+        OriginDayChoiceResult result{
+              .origin       = search_result.origin
+            , .pair_results = {}
+        };
+        result.pair_results.reserve(search_result.pair_results.size());
+
+        for (const auto& pair_result : search_result.pair_results) {
+            MATHFP_TRY_LET(
+                  ChoiceOdDaySelection
+                , selection
+                , choose_od_day_pair_connections(
+                      pair_result
+                    , params
+                    , search_cost
+                    , config
+                )
+            );
+            result.pair_results.push_back(std::move(selection.result));
+        }
+
         return result;
     }
 

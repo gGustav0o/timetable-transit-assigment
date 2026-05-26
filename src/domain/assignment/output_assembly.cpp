@@ -19,6 +19,7 @@ namespace timetable::domain::assignment::detail {
 
         using ChosenConnectionIndexMap = std::map<grouping::ConnectionTraceKey, std::size_t>;
         using TaskConnectionTraceMap = std::map<grouping::DemandKey, std::map<grouping::ConnectionTraceKey, bool>>;
+        using OdDayConnectionTraceMap = std::map<grouping::OdKey, std::map<grouping::ConnectionTraceKey, bool>>;
 
         AssignmentOdResult make_empty_od_result(
             const grouping::OdKey& od
@@ -75,6 +76,37 @@ namespace timetable::domain::assignment::detail {
             return traces;
         }
 
+        OdDayConnectionTraceMap build_od_day_connection_trace_map(
+            const OdDayConnectionChoiceResult& choice_result
+        ) {
+            OdDayConnectionTraceMap traces;
+            for (const auto& origin_result : choice_result.origin_results) {
+                for (const auto& pair_result : origin_result.pair_results) {
+                    auto& od_traces = traces[grouping::OdKey{
+                          .origin      = pair_result.origin
+                        , .destination = pair_result.destination
+                    }];
+                    for (const auto& connection : pair_result.connections) {
+                        od_traces[grouping::connection_trace_key(connection)] = true;
+                    }
+                }
+            }
+            return traces;
+        }
+
+        std::map<grouping::OdKey, std::size_t> build_od_day_search_count_map(
+            const OdDayConnectionSearchSummary& search_summary
+        ) {
+            std::map<grouping::OdKey, std::size_t> counts;
+            for (const auto& pair_count : search_summary.pair_counts) {
+                counts[grouping::OdKey{
+                      .origin      = pair_count.origin
+                    , .destination = pair_count.destination
+                }] += pair_count.connection_count;
+            }
+            return counts;
+        }
+
         mathfp::Expected<mathfp::Unit> validate_choice_flat_projection(
             const ConnectionChoiceResult& choice_result
         ) {
@@ -103,6 +135,36 @@ namespace timetable::domain::assignment::detail {
             return mathfp::kUnit;
         }
 
+        mathfp::Expected<mathfp::Unit> validate_od_day_choice_flat_projection(
+            const OdDayConnectionChoiceResult& choice_result
+        ) {
+            std::map<grouping::ConnectionTraceKey, bool> pair_traces;
+            for (const auto& origin_result : choice_result.origin_results) {
+                for (const auto& pair_result : origin_result.pair_results) {
+                    for (const auto& connection : pair_result.connections) {
+                        pair_traces[grouping::connection_trace_key(connection)] = true;
+                    }
+                }
+            }
+
+            const auto flat_trace_map = grouping::trace_index_map(choice_result.connections);
+            for (const auto& [trace, _] : pair_traces) {
+                if (!flat_trace_map.contains(trace)) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("output input: flat OD-day choice projection misses a pair-local connection")
+                    );
+                }
+            }
+            for (const auto& [trace, _] : flat_trace_map) {
+                if (!pair_traces.contains(trace)) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("output input: flat OD-day choice projection contains a non-pair connection")
+                    );
+                }
+            }
+            return mathfp::kUnit;
+        }
+
         mathfp::Expected<mathfp::Unit> validate_split_shares_are_task_local(
               const ConnectionChoiceResult& choice_result
             , const DemandSplitResult&      split_result
@@ -124,6 +186,40 @@ namespace timetable::domain::assignment::detail {
                 if (!task_it->second.contains(grouping::connection_trace_key(share.connection))) {
                     return mathfp::unexpected(
                         mathfp::internal_error("output input: split share connection is outside its choice task")
+                            .ctx("share_index", static_cast<std::int64_t>(i))
+                            .ctx("origin"     , share.origin     .get())
+                            .ctx("destination", share.destination.get())
+                            .ctx("interval_id", share.interval   .get())
+                    );
+                }
+            }
+            return mathfp::kUnit;
+        }
+
+        mathfp::Expected<mathfp::Unit> validate_split_shares_are_od_day_choice_local(
+              const OdDayConnectionChoiceResult& choice_result
+            , const DemandSplitResult&           split_result
+        ) {
+            const auto od_traces = build_od_day_connection_trace_map(choice_result);
+            for (std::size_t i = 0; i < split_result.shares.size(); ++i) {
+                const auto& share = split_result.shares[i];
+                const auto key = grouping::OdKey{
+                      .origin      = share.origin
+                    , .destination = share.destination
+                };
+                const auto od_it = od_traces.find(key);
+                if (od_it == od_traces.end()) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("output input: OD-day split share has no matching OD choice")
+                            .ctx("share_index", static_cast<std::int64_t>(i))
+                            .ctx("origin"     , share.origin     .get())
+                            .ctx("destination", share.destination.get())
+                            .ctx("interval_id", share.interval   .get())
+                    );
+                }
+                if (!od_it->second.contains(grouping::connection_trace_key(share.connection))) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("output input: OD-day split share connection is outside its OD choice")
                             .ctx("share_index", static_cast<std::int64_t>(i))
                             .ctx("origin"     , share.origin     .get())
                             .ctx("destination", share.destination.get())
@@ -208,6 +304,21 @@ namespace timetable::domain::assignment::detail {
             };
         }
 
+        AssignmentOutput::Summary build_od_day_output_summary(
+              const InputModel&                   input
+            , const OdDayConnectionSearchSummary& search_summary
+            , const OdDayConnectionChoiceResult&  choice_result
+            , const DemandSplitResult&            split_result
+        ) {
+            return AssignmentOutput::Summary{
+                  .search_connection_count = search_connection_count(search_summary)
+                , .chosen_connection_count = choice_result.connections.size()
+                , .demand_share_count      = split_result .shares     .size()
+                , .total_demand_passengers = total_input_demand(input)
+                , .assigned_passengers     = total_assigned_passengers(split_result)
+            };
+        }
+
         AssignmentOutput::Summary build_disabled_output_summary(
             const InputModel& input
         ) {
@@ -259,16 +370,53 @@ namespace timetable::domain::assignment::detail {
 
                 case VehicleJourneyItemCapacityInputStatus::Loaded: {
                     MATHFP_TRY_LET(
-                          VehicleJourneyItemLoads
-                        , item_loads
-                        , build_vehicle_journey_item_loads(split_result)
+                          ElementarySegmentLoads
+                        , elementary_loads
+                        , build_elementary_segment_loads(split_result)
                     );
-                    return assess_vehicle_journey_item_overload(
-                          item_loads
+                    return assess_elementary_segment_overload(
+                          elementary_loads
                         , vehicle_journey_item_capacity.capacities
                         , intervals
                     );
                 }
+            }
+
+            return mathfp::unexpected(
+                mathfp::internal_error("unknown vehicle journey item capacity input status")
+                    .ctx(
+                          "status"
+                        , static_cast<std::int64_t>(vehicle_journey_item_capacity.status)
+                    )
+            );
+        }
+
+        mathfp::Expected<ElementarySegmentOverloadAssessment> build_elementary_segment_overload_assessment_output(
+              const ElementarySegmentLoads&          elementary_segment_loads
+            , const std::vector<TimeInterval>&        intervals
+            , const VehicleJourneyItemCapacityInput& vehicle_journey_item_capacity
+            , const AssignmentExecutionConfig&        execution
+        ) {
+            MATHFP_TRY(validate_assignment_execution_config(execution));
+
+            if (!execution.calculate_vehicle_journey_item_overload_assessment) {
+                return make_disabled_by_config_vehicle_journey_item_overload_assessment();
+            }
+
+            MATHFP_TRY(validate_vehicle_journey_item_capacity_input(
+                vehicle_journey_item_capacity
+            ));
+
+            switch (vehicle_journey_item_capacity.status) {
+                case VehicleJourneyItemCapacityInputStatus::MissingInput:
+                    return make_missing_capacity_input_vehicle_journey_item_overload_assessment();
+
+                case VehicleJourneyItemCapacityInputStatus::Loaded:
+                    return assess_elementary_segment_overload(
+                          elementary_segment_loads
+                        , vehicle_journey_item_capacity.capacities
+                        , intervals
+                    );
             }
 
             return mathfp::unexpected(
@@ -499,6 +647,91 @@ namespace timetable::domain::assignment::detail {
         AssignmentOutput output{
               .mode        = AssignmentOutputMode::Calculated
             , .summary     = build_output_summary(input, search_result, choice_result, split_result)
+            , .od_results  = {}
+            , .loads       = std::move(loads)
+            , .vehicle_journey_item_loads = std::move(vehicle_journey_item_loads)
+            , .skim_matrix = std::move(skim_matrix)
+            , .capacity_aware = capacity_aware
+        };
+        output.od_results.reserve(all_ods.size());
+
+        for (const auto& [od, _] : all_ods) {
+            MATHFP_TRY_LET(
+                  AssignmentOdResult
+                , od_result
+                , build_assignment_od_result(
+                      od
+                    , input
+                    , network
+                    , search_counts
+                    , chosen_by_od
+                    , demand_by_od
+                    , shares_by_key
+                )
+            );
+            output.od_results.push_back(std::move(od_result));
+        }
+
+        output.summary.od_count = output.od_results.size();
+        MATHFP_TRY(validate_output_summary_semantics(output));
+        return output;
+    }
+
+    mathfp::Expected<AssignmentOutput> build_od_day_assignment_output_impl(
+          const InputModel&                      input
+        , const PreprocessedNetwork&             network
+        , const OdDayConnectionSearchSummary&    search_summary
+        , const OdDayConnectionChoiceResult&     choice_result
+        , const DemandSplitResult&               split_result
+        , const ElementarySegmentLoads&          elementary_segment_loads
+        , const VehicleJourneyItemCapacityInput& vehicle_journey_item_capacity
+        , const AssignmentExecutionConfig&        execution
+        , const AssignmentPeriodConfig&           assignment_period
+        , const ConnectionAdmissibilityConfig&    admissibility_config
+        , const SkimMatrixConfig&                skim_config
+        , const CapacityAwareAssignmentDiagnostics& capacity_aware
+    ) {
+        MATHFP_TRY(validate_capacity_aware_assignment_diagnostics(capacity_aware));
+        MATHFP_TRY(validate_od_day_choice_flat_projection(choice_result));
+        MATHFP_TRY(validate_split_shares_are_od_day_choice_local(choice_result, split_result));
+
+        const auto search_counts = build_od_day_search_count_map(search_summary);
+        const auto chosen_by_od  = grouping::group_connection_ptrs_by_od(choice_result);
+        const auto demand_by_od  = grouping::group_demand_entries_by_od(input.demand);
+        const auto shares_by_key = grouping::group_shares_by_demand_key(split_result.shares);
+        const auto all_ods       = collect_all_ods(search_counts, chosen_by_od, demand_by_od);
+        MATHFP_TRY_LET(
+              AssignmentLoads
+            , loads
+            , build_assignment_loads(split_result)
+        );
+        MATHFP_TRY(validate_loads_are_split_projection(split_result, loads));
+        MATHFP_TRY_LET(
+              AssignmentSkimMatrix
+            , skim_matrix
+            , build_assignment_skim_matrix(
+                  choice_result
+                , input
+                , split_result
+                , assignment_period
+                , admissibility_config
+                , skim_config
+            )
+        );
+        MATHFP_TRY_LET(
+              ElementarySegmentOverloadAssessment
+            , vehicle_journey_item_loads
+            , build_elementary_segment_overload_assessment_output(
+                  elementary_segment_loads
+                , input.intervals
+                , vehicle_journey_item_capacity
+                , execution
+            )
+        );
+
+        AssignmentOutput output{
+              .mode        = AssignmentOutputMode::Calculated
+            , .summary     = build_od_day_output_summary(input, search_summary, choice_result, split_result)
             , .od_results  = {}
             , .loads       = std::move(loads)
             , .vehicle_journey_item_loads = std::move(vehicle_journey_item_loads)

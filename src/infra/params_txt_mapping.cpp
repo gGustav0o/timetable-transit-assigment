@@ -2,7 +2,10 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
+#include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -830,6 +833,30 @@ namespace timetable::infra::params_txt::detail {
             );
         }
 
+        mathfp::Expected<std::optional<std::size_t>> optional_positive_size_at(
+              const Object&    obj
+            , std::string_view key
+            , std::string_view path
+        ) {
+            const auto it = obj.find(std::string(key));
+            if (it == obj.end()) {
+                return std::nullopt;
+            }
+            const auto* value = std::get_if<double>(&it->second.data);
+            if (value == nullptr
+                || !std::isfinite(*value)
+                || *value < 1.0
+                || *value > static_cast<double>(std::numeric_limits<std::size_t>::max())
+                || std::trunc(*value) != *value) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("expected optional positive integer")
+                        .ctx("path", std::string(path))
+                        .ctx("key" , std::string(key))
+                );
+            }
+            return static_cast<std::size_t>(*value);
+        }
+
         mathfp::Expected<const Object*> optional_object_at(
               const Object&    obj
             , std::string_view key
@@ -858,6 +885,19 @@ namespace timetable::infra::params_txt::detail {
                 return mathfp::unexpected(
                     mathfp::invalid_arg("unsupported search execution mode")
                         .ctx("mode", token)
+                );
+            }
+            return *parsed;
+        }
+
+        mathfp::Expected<timetable::domain::assignment::AssignmentCalculationFormulation>
+        parse_assignment_calculation_formulation_token(const std::string& token) {
+            const auto parsed =
+                timetable::domain::assignment::assignment_calculation_formulation_from_string(token);
+            if (!parsed.has_value()) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("unsupported assignment calculation formulation")
+                        .ctx("formulation", token)
                 );
             }
             return *parsed;
@@ -953,6 +993,7 @@ namespace timetable::infra::params_txt::detail {
         ) noexcept {
             using namespace timetable::domain::assignment;
             return result_projection == SearchResultProjection::CompletionTargets
+                || result_projection == SearchResultProjection::OdDayPairs
                 ? SearchPartialRetentionScope::TreeGlobal
                 : SearchPartialRetentionScope::ProjectionSlotLocal;
         }
@@ -967,15 +1008,28 @@ namespace timetable::infra::params_txt::detail {
                 , optional_object_at(root, "searchExecution", "root")
             );
             if (obj == nullptr) {
-                return make_default_demand_assignment_search_execution_config();
+                return make_default_search_execution_config();
             }
 
+            MATHFP_TRY_LET(
+                  std::optional<std::string>
+                , formulation_token
+                , optional_string_at(*obj, "formulation", "root.searchExecution")
+            );
             MATHFP_TRY_LET(
                   std::optional<std::string>
                 , mode_token
                 , optional_string_at(*obj, "mode", "root.searchExecution")
             );
-            auto config = make_default_demand_assignment_search_execution_config();
+            auto config = make_default_search_execution_config();
+            if (formulation_token.has_value()) {
+                MATHFP_TRY_LET(
+                      AssignmentCalculationFormulation
+                    , formulation
+                    , parse_assignment_calculation_formulation_token(*formulation_token)
+                );
+                config = make_search_execution_config(formulation);
+            }
             if (mode_token.has_value()) {
                 MATHFP_TRY_LET(
                       SearchExecutionMode
@@ -1063,6 +1117,19 @@ namespace timetable::infra::params_txt::detail {
             }
 
             MATHFP_TRY_LET(
+                  std::optional<std::size_t>
+                , max_parallel_batches
+                , optional_positive_size_at(
+                      *obj
+                    , "maxParallelBatches"
+                    , "root.searchExecution"
+                  )
+            );
+            if (max_parallel_batches.has_value()) {
+                config.max_parallel_batches = *max_parallel_batches;
+            }
+
+            MATHFP_TRY_LET(
                   std::optional<bool>
                 , validate_phase_invariants
                 , optional_bool_like_at(
@@ -1073,6 +1140,19 @@ namespace timetable::infra::params_txt::detail {
             );
             if (validate_phase_invariants.has_value()) {
                 config.validate_phase_invariants = *validate_phase_invariants;
+            }
+
+            MATHFP_TRY_LET(
+                  std::optional<bool>
+                , log_projection_details
+                , optional_bool_like_at(
+                      *obj
+                    , "logProjectionDetails"
+                    , "root.searchExecution"
+                  )
+            );
+            if (log_projection_details.has_value()) {
+                config.log_projection_details = *log_projection_details;
             }
 
             return config;

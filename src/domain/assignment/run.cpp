@@ -36,6 +36,23 @@ namespace timetable::domain::assignment {
                 );
             }
 
+            if (const auto* od_day = std::get_if<AssignmentPipelineOdDayCalculatedResult>(&result)) {
+                return build_od_day_assignment_output(
+                      od_day->input
+                    , od_day->network
+                    , od_day->search
+                    , od_day->choice
+                    , od_day->split
+                    , od_day->elementary_segment_loads
+                    , od_day->vehicle_journey_item_capacity
+                    , od_day->execution
+                    , od_day->assignment_period
+                    , od_day->admissibility_config
+                    , od_day->skim_config
+                    , od_day->capacity_aware
+                );
+            }
+
             const auto& calculated = std::get<AssignmentPipelineCalculatedResult>(result);
             return build_assignment_output(
                   calculated.input

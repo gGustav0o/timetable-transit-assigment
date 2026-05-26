@@ -27,8 +27,11 @@
   - searchPara.ToleranceConstraints.minSearchImpAbs/minJourneyTimeAbs — входные абсолютные допуски трактуются как минуты и нормализуются в секунды перед построением SearchTolerances.
   - choicePara.ToleranceConstraints.minSearchImpAbs/minJourneyTimeAbs — входные абсолютные допуски трактуются как минуты и нормализуются в секунды перед построением ChoiceTolerances.
   - searchPara.TemporalSuitability.minTWT/maxTWT — входные значения трактуются как минуты и нормализуются в секунды перед построением TransferLimits.
+  - searchExecution.formulation — необязательный высокоуровневый режим постановки расчета: demand_task_assignment сохраняет прежний OD-интервальный demand-driven режим, od_day_assignment задает требуемую постановку "один service-day tree на origin и OD-day alternatives", all_zone_search включает search-only enumeration для всех объявленных зон.
   - searchExecution.partialRetentionScope — необязательный ключ режима partial-retention: tree_global задает целевую article-like реализацию с общей pruning-памятью дерева, projection_slot_local сохраняет прежний консервативный per-projection-slot режим.
+  - searchExecution.maxParallelBatches — необязательный положительный целый лимит параллельных origin/batch worker-ов для tree-level search; по умолчанию 6.
   - searchExecution.validatePhaseInvariants — необязательный диагностический флаг: при True включает дорогую проверку фазовых инвариантов каждой принятой ветви; при отсутствии ключа используется False.
+  - searchExecution.logProjectionDetails — необязательный диагностический флаг: при True включает подробный лог по каждому projection slot; при отсутствии ключа используется False.
   - veh_journey_item_cap.csv — подключен как необязательный вход провозной способности vehicle journey items для post-assignment overload assessment.
   - compile-time runtime override policy — подключена как отдельный верхнеуровневый слой после загрузки входа и до запуска assignment pipeline; применяется только если сборка выполнена с TIMETABLE_ENABLE_RUNTIME_OVERRIDES.
 
@@ -162,12 +165,15 @@
 
 Семантика searchExecution.partialRetentionScope:
 
+  - searchExecution.formulation является preset-слоем над отдельными полями searchExecution.mode/originScope/timeDomainSource/destinationScope/resultProjection/partialRetentionScope/maxParallelBatches;
+  - если одновременно заданы formulation и отдельные поля searchExecution, сначала применяется formulation, затем явно указанные поля уточняют полученную конфигурацию;
+  - для требуемой постановки использовать searchExecution.formulation = od_day_assignment; это разворачивается в origin_period + declared_zones + service_day + declared_zones + od_day_pairs + tree_global + maxParallelBatches = 6;
   - параметр относится к SearchExecutionConfig и не меняет множество origins, completion targets или result projection;
   - tree_global задает целевую branch-and-bound семантику статьи: partial-prefix relevance проверяется один раз в рамках дерева по extension-safe search state;
   - complete-connection retention остается projection-local, потому что завершенные альтернативы материализуются отдельно для каждого demand task или completion target;
   - projection_slot_local сохраняет прежний консервативный режим, где partial-prefix retention хранится отдельно для каждого projection slot;
-  - при отсутствии ключа CompletionTargets по умолчанию использует tree_global, DemandTasks по умолчанию использует projection_slot_local;
-  - текущая реализация разрешает tree_global только для CompletionTargets, чтобы не смешивать article-like all-zone enumeration с OD-assignment projection без отдельного доказательства корректности;
+  - при отсутствии ключа CompletionTargets и OdDayPairs по умолчанию используют tree_global, DemandTasks по умолчанию использует projection_slot_local;
+  - текущая реализация разрешает tree_global для tree-level projections CompletionTargets и OdDayPairs; DemandTasks остается projection_slot_local;
   - для CompletionTargets после destination-specific suffix lower-bound pruning активные completion targets дополнительно сужаются до оставшихся projection slots, поскольку target и projection slot взаимно однозначны.
   - all-zone CompletionTargets использует count-only result sink: после финализации retention/tolerance для target сохраняется только число найденных полных соединений, а материализованные SearchConnection освобождаются; это не меняет поиск, dominance или итоговые счетчики output.
 
@@ -177,12 +183,19 @@
   - при True общий branch-and-bound цикл проверяет фазовые инварианты корневой ветви и каждого принятого кандидата после расширения;
   - при False эти проверки не выполняются, что является производительным режимом по умолчанию для больших all-zone запусков;
   - ключ может задаваться как булево значение True/False или как числовое 1/0;
-  - если блок searchExecution отсутствует, используется дефолт полного назначения спроса:
-    origin_period, active_demand_origins, service_day, demand_destinations, demand_tasks,
-    partialRetentionScope = projection_slot_local и validatePhaseInvariants = False;
+  - если блок searchExecution отсутствует, используется дефолт требуемой OD-day постановки:
+    origin_period, declared_zones, service_day, declared_zones, od_day_pairs,
+    partialRetentionScope = tree_global, maxParallelBatches = 6,
+    validatePhaseInvariants = False и logProjectionDetails = False;
   - если блок searchExecution присутствует частично, неуказанные поля берутся из дефолтного режима
-    полного назначения спроса, кроме случая явного указания mode: тогда применяется базовый
+    требуемой OD-day постановки, кроме случая явного указания mode: тогда применяется базовый
     контракт выбранного режима с последующими переопределениями полей.
+
+Семантика searchExecution.logProjectionDetails:
+
+  - параметр относится только к детализации журнала SearchExecutionConfig и не меняет допустимые соединения, pruning, dominance, choice/split или загрузки;
+  - при True после каждого origin-tree дополнительно пишется строка по каждому OD projection slot;
+  - при False сохраняются batch-level summary и heartbeat-диагностика, но OD-day-прогон не пишет 51529 подробных projection-строк.
 
 Формализованы как отдельная доменная политика complete-connection dominance
 

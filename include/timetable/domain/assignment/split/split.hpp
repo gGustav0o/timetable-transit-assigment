@@ -6,6 +6,7 @@
 
 #include "timetable/domain/model.hpp"
 #include "timetable/domain/params.hpp"
+#include "timetable/domain/assignment/assignment_period.hpp"
 #include "timetable/domain/assignment/capacity_aware_assignment.hpp"
 #include "timetable/domain/assignment/choice/choice.hpp"
 #include "timetable/domain/assignment/connection_admissibility.hpp"
@@ -27,6 +28,19 @@ namespace timetable::domain::assignment {
         std::vector<ConnectionDemandShare> shares{};
     };
 
+    struct OdDemandInterval final {
+        ZoneId     origin{};
+        ZoneId     destination{};
+        IntervalId interval{};
+        double     passengers{};
+    };
+
+    struct OdDemandIntervals final {
+        ZoneId                        origin{};
+        ZoneId                        destination{};
+        std::vector<OdDemandInterval> intervals{};
+    };
+
     /**
      * @brief Result of the capacity-aware fixed-point split layer.
      *
@@ -42,6 +56,12 @@ namespace timetable::domain::assignment {
         CapacityAwareSplitDiagnostics    diagnostics{};
     };
 
+    struct OriginDayDemandLoadResult final {
+        OriginDayChoiceResult alternatives{};
+        DemandSplitResult     split_result{};
+        ElementarySegmentLoads elementary_segment_loads{};
+    };
+
     /**
      * @brief Split each demand entry over the chosen alternatives of its task.
      */
@@ -50,6 +70,46 @@ namespace timetable::domain::assignment {
         , const InputModel&           input
         , const SearchParams&         params
         , const DemandSegmentTimeConfig& demand_segment_time
+    );
+
+    [[nodiscard]] mathfp::Expected<std::vector<OdDemandIntervals>> build_od_demand_intervals(
+        const InputModel& input
+    );
+
+    /**
+     * @brief Split demand intervals over OD-day alternatives.
+     *
+     * This is the required formulation boundary: path alternatives are keyed by
+     * OD for the whole service day, while demand rows remain interval-specific
+     * and are applied only at split/load time.
+     */
+    mathfp::Expected<DemandSplitResult> split_demand_over_od_day_connections(
+          const OdDayConnectionChoiceResult& choice_result
+        , const InputModel&                  input
+        , const SearchParams&                params
+        , const DemandSegmentTimeConfig&     demand_segment_time
+        , const AssignmentPeriodConfig&      assignment_period
+        , const ConnectionAdmissibilityConfig& admissibility_config
+    );
+
+    mathfp::Expected<DemandSplitResult> split_origin_demand_over_od_day_connections(
+          const OriginDayChoiceResult&       choice_result
+        , const InputModel&                  input
+        , const SearchParams&                params
+        , const DemandSegmentTimeConfig&     demand_segment_time
+        , const AssignmentPeriodConfig&      assignment_period
+        , const ConnectionAdmissibilityConfig& admissibility_config
+    );
+
+    mathfp::Expected<OriginDayDemandLoadResult> load_origin_day_demand(
+          const OriginDaySearchResult&       search_result
+        , const InputModel&                  input
+        , const SearchParams&                params
+        , const SearchCostContext&           search_cost
+        , const ChoiceConfig&                choice_config
+        , const DemandSegmentTimeConfig&     demand_segment_time
+        , const AssignmentPeriodConfig&      assignment_period
+        , const ConnectionAdmissibilityConfig& admissibility_config
     );
 
     /**

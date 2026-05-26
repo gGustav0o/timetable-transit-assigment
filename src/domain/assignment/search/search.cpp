@@ -379,8 +379,23 @@ namespace timetable::domain::assignment {
 
         enum class SearchProjectionSlotKind : std::uint8_t {
               DemandTask
+            , OdDayPair
             , CompletionTarget
         };
+
+        [[nodiscard]] constexpr const char* to_log_token(
+            SearchProjectionSlotKind kind
+        ) noexcept {
+            switch (kind) {
+                case SearchProjectionSlotKind::DemandTask:
+                    return "demand_task";
+                case SearchProjectionSlotKind::OdDayPair:
+                    return "od_day_pair";
+                case SearchProjectionSlotKind::CompletionTarget:
+                    return "completion_target";
+            }
+            return "unknown";
+        }
 
         struct SearchProjectionSlot final {
             SearchProjectionSlotKind                 kind{ SearchProjectionSlotKind::DemandTask };
@@ -402,9 +417,10 @@ namespace timetable::domain::assignment {
          * @brief Retained complete-connection state for one projection slot.
          *
          * Complete alternatives are projection-local: DemandTasks retain
-         * OD-interval alternatives, while CompletionTargets retain alternatives
-         * for one all-zone target destination. Partial-prefix pruning may be
-         * either projection-local or tree-global depending on
+         * OD-interval alternatives, OdDayPairs retain service-day OD-pair
+         * alternatives, while CompletionTargets retain alternatives for one
+         * all-zone target destination. Partial-prefix pruning may be either
+         * projection-local or tree-global depending on
          * SearchPartialRetentionScope.
          */
         struct SearchProjectionRetention final {
@@ -748,7 +764,6 @@ namespace timetable::domain::assignment {
         constexpr std::size_t kSearchHeartbeatStep = 100'000;
         constexpr std::size_t kSearchWallClockSuccessorCheckStep = 16'384;
         constexpr std::size_t kInitialTaskBranchReserve = 4'096;
-        constexpr std::size_t kAllZoneMaxParallelBatches = 4;
         constexpr auto kSearchWallClockHeartbeatInterval =
             std::chrono::seconds{ 30 };
 
@@ -3220,8 +3235,8 @@ namespace timetable::domain::assignment {
                     break;
 
                 case SearchBranchPhase::AfterTimedRide:
-                    visit_walk_connections(lookup.transfer_walk_connections);
                     visit_walk_connections(lookup.egress_walk_connections);
+                    visit_walk_connections(lookup.transfer_walk_connections);
                     break;
 
                 case SearchBranchPhase::BeforeFirstBoarding:
@@ -5093,44 +5108,44 @@ namespace timetable::domain::assignment {
                 MATHFP_TRY(validate_reachability_rejection_stats(task_stats[task_pos]));
                 MATHFP_TRY(validate_suffix_lower_bound_rejection_stats(task_stats[task_pos]));
 
-                log(
-                    fmt::format(
-                          "search batch projection done: batch={}/{} slot={} kind={} task={} origin={} destination={} interval={} found={:>8}"
-                          " retained_complete={:>8} complete_rejected(admissibility/dominance/tolerance)={}/{}/{} complete_removed_dominated={}"
-                          " reachability_pruned={} reachability_detail(phase/budget/unreachable)={}/{}/{}"
-                          " lower_bound_pruned={} lower_bound_detail(exact/imp/jt/nt)={}/{}/{}/{}"
-                        , batch_index + 1
-                        , batch_count
-                        , static_cast<std::int64_t>(task_pos)
-                        , slot.kind == SearchProjectionSlotKind::DemandTask
-                            ? "demand_task"
-                            : "completion_target"
-                        , slot.task_ref.has_value()
-                            ? std::to_string(slot.task_ref->get())
-                            : std::string{"<none>"}
-                        , slot.origin.get()
-                        , slot.destination.get()
-                        , slot.interval.has_value()
-                            ? std::to_string(slot.interval->get())
-                            : std::string{"<none>"}
-                        , slot_results.back().connection_count
-                        , before_tolerance
-                        , task_stats[task_pos].rejected_complete_admissibility
-                        , task_stats[task_pos].rejected_complete_dominance
-                        , task_stats[task_pos].rejected_complete_tolerance
-                        , task_stats[task_pos].removed_complete_dominated
-                        , task_stats[task_pos].rejected_reachability
-                        , task_stats[task_pos].reachability_rejections.phase
-                        , task_stats[task_pos].reachability_rejections.transfer_budget
-                        , task_stats[task_pos].reachability_rejections.unreachable_destination
-                        , task_stats[task_pos].rejected_suffix_lower_bound
-                        , task_stats[task_pos].suffix_lower_bound_rejections.exact_dominance
-                        , task_stats[task_pos].suffix_lower_bound_rejections.tolerance_impedance
-                        , task_stats[task_pos].suffix_lower_bound_rejections.tolerance_journey_time
-                        , task_stats[task_pos].suffix_lower_bound_rejections.tolerance_transfers
-                    )
-                    , LogLevel::Info
-                );
+                if (diagnostics.log_projection_details) {
+                    log(
+                        fmt::format(
+                              "search batch projection done: batch={}/{} slot={} kind={} task={} origin={} destination={} interval={} found={:>8}"
+                              " retained_complete={:>8} complete_rejected(admissibility/dominance/tolerance)={}/{}/{} complete_removed_dominated={}"
+                              " reachability_pruned={} reachability_detail(phase/budget/unreachable)={}/{}/{}"
+                              " lower_bound_pruned={} lower_bound_detail(exact/imp/jt/nt)={}/{}/{}/{}"
+                            , batch_index + 1
+                            , batch_count
+                            , static_cast<std::int64_t>(task_pos)
+                            , to_log_token(slot.kind)
+                            , slot.task_ref.has_value()
+                                ? std::to_string(slot.task_ref->get())
+                                : std::string{"<none>"}
+                            , slot.origin.get()
+                            , slot.destination.get()
+                            , slot.interval.has_value()
+                                ? std::to_string(slot.interval->get())
+                                : std::string{"<none>"}
+                            , slot_results.back().connection_count
+                            , before_tolerance
+                            , task_stats[task_pos].rejected_complete_admissibility
+                            , task_stats[task_pos].rejected_complete_dominance
+                            , task_stats[task_pos].rejected_complete_tolerance
+                            , task_stats[task_pos].removed_complete_dominated
+                            , task_stats[task_pos].rejected_reachability
+                            , task_stats[task_pos].reachability_rejections.phase
+                            , task_stats[task_pos].reachability_rejections.transfer_budget
+                            , task_stats[task_pos].reachability_rejections.unreachable_destination
+                            , task_stats[task_pos].rejected_suffix_lower_bound
+                            , task_stats[task_pos].suffix_lower_bound_rejections.exact_dominance
+                            , task_stats[task_pos].suffix_lower_bound_rejections.tolerance_impedance
+                            , task_stats[task_pos].suffix_lower_bound_rejections.tolerance_journey_time
+                            , task_stats[task_pos].suffix_lower_bound_rejections.tolerance_transfers
+                        )
+                        , LogLevel::Info
+                    );
+                }
             }
             MATHFP_TRY(validate_reachability_rejection_stats(stats));
             MATHFP_TRY(validate_suffix_lower_bound_rejection_stats(stats));
@@ -5553,6 +5568,27 @@ namespace timetable::domain::assignment {
             return slots;
         }
 
+        [[nodiscard]] std::vector<SearchProjectionSlot> build_od_day_pair_projection_slots(
+            const SearchTreeJob& job
+        ) {
+            std::vector<SearchProjectionSlot> slots;
+            slots.reserve(job.completion_targets.size());
+            for (const auto& target : job.completion_targets) {
+                slots.push_back(
+                    SearchProjectionSlot{
+                          .kind              = SearchProjectionSlotKind::OdDayPair
+                        , .origin            = job.origin
+                        , .destination       = target.destination
+                        , .interval          = std::nullopt
+                        , .task              = nullptr
+                        , .result_index      = std::nullopt
+                        , .completion_target = target.index
+                    }
+                );
+            }
+            return slots;
+        }
+
         mathfp::Expected<std::vector<SearchBatch>> build_origin_period_search_batches(
               std::span<const SearchTask>      tasks
             , std::span<const SearchTreeJob>   tree_jobs
@@ -5599,6 +5635,10 @@ namespace timetable::domain::assignment {
                             }
                             batch.projection_slots.push_back(it->second);
                         }
+                        break;
+
+                    case SearchResultProjection::OdDayPairs:
+                        batch.projection_slots = build_od_day_pair_projection_slots(job);
                         break;
 
                     case SearchResultProjection::CompletionTargets:
@@ -5716,6 +5756,11 @@ namespace timetable::domain::assignment {
         mathfp::Expected<mathfp::Unit> validate_search_execution_projection_contract(
             const SearchExecutionConfig& config
         ) {
+            if (config.max_parallel_batches == 0u) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("search execution maxParallelBatches must be positive")
+                );
+            }
             if (config.mode == SearchExecutionMode::IntervalLocal
                 && config.result_projection != SearchResultProjection::DemandTasks) {
                 return mathfp::unexpected(
@@ -5723,17 +5768,20 @@ namespace timetable::domain::assignment {
                         .ctx("result_projection", std::string(to_string(config.result_projection)))
                 );
             }
-            if (config.result_projection == SearchResultProjection::CompletionTargets
-                && config.mode != SearchExecutionMode::OriginPeriod) {
+            const auto origin_period_projection =
+                   config.result_projection == SearchResultProjection::CompletionTargets
+                || config.result_projection == SearchResultProjection::OdDayPairs;
+            if (origin_period_projection && config.mode != SearchExecutionMode::OriginPeriod) {
                 return mathfp::unexpected(
-                    mathfp::invalid_arg("completion-target projection requires origin-period search")
+                    mathfp::invalid_arg("tree-level result projection requires origin-period search")
                         .ctx("execution_mode", std::string(to_string(config.mode)))
+                        .ctx("result_projection", std::string(to_string(config.result_projection)))
                 );
             }
             if (config.partial_retention_scope == SearchPartialRetentionScope::TreeGlobal
-                && config.result_projection != SearchResultProjection::CompletionTargets) {
+                && !origin_period_projection) {
                 return mathfp::unexpected(
-                    mathfp::invalid_arg("tree-global partial retention currently requires completion-target projection")
+                    mathfp::invalid_arg("tree-global partial retention requires a tree-level result projection")
                         .ctx("result_projection", std::string(to_string(config.result_projection)))
                 );
             }
@@ -5933,6 +5981,40 @@ namespace timetable::domain::assignment {
                             break;
                         }
 
+                        case SearchResultProjection::OdDayPairs:
+                            if (slot.kind != SearchProjectionSlotKind::OdDayPair
+                                || !slot.completion_target.has_value()
+                                || slot.task != nullptr
+                                || slot.task_ref.has_value()
+                                || slot.result_index.has_value()
+                                || slot.interval.has_value()) {
+                                return mathfp::unexpected(
+                                    mathfp::internal_error("OD-day projection slot has invalid payload")
+                                        .ctx("batch", static_cast<std::int64_t>(batch_pos))
+                                        .ctx("slot_position", static_cast<std::int64_t>(task_pos))
+                                );
+                            }
+                            if (slot.completion_target->get()
+                                != static_cast<std::int64_t>(task_pos)) {
+                                return mathfp::unexpected(
+                                    mathfp::internal_error("OD-day projection slot index does not match its position")
+                                        .ctx("batch", static_cast<std::int64_t>(batch_pos))
+                                        .ctx("slot_position", static_cast<std::int64_t>(task_pos))
+                                        .ctx("target_index", slot.completion_target->get())
+                                );
+                            }
+                            if (batch.completion_targets[task_pos].destination
+                                != slot.destination) {
+                                return mathfp::unexpected(
+                                    mathfp::internal_error("OD-day projection slot destination disagrees with target position")
+                                        .ctx("batch", static_cast<std::int64_t>(batch_pos))
+                                        .ctx("slot_position", static_cast<std::int64_t>(task_pos))
+                                        .ctx("slot_destination", slot.destination.get())
+                                        .ctx("target_destination", batch.completion_targets[task_pos].destination.get())
+                                );
+                            }
+                            break;
+
                         case SearchResultProjection::CompletionTargets:
                             if (slot.kind != SearchProjectionSlotKind::CompletionTarget
                                 || !slot.completion_target.has_value()
@@ -5982,10 +6064,11 @@ namespace timetable::domain::assignment {
             return total;
         }
 
-        [[nodiscard]] std::size_t all_zone_search_worker_count(
-            std::size_t batch_count
+        [[nodiscard]] std::size_t search_batch_worker_count(
+              std::size_t batch_count
+            , std::size_t max_parallel_batches
         ) noexcept {
-            if (batch_count == 0u) {
+            if (batch_count == 0u || max_parallel_batches == 0u) {
                 return 0u;
             }
             const auto hardware = std::max(
@@ -5996,7 +6079,7 @@ namespace timetable::domain::assignment {
                   batch_count
                 , std::min<std::size_t>(
                       static_cast<std::size_t>(hardware)
-                    , kAllZoneMaxParallelBatches
+                    , max_parallel_batches
                   )
             );
         }
@@ -6023,6 +6106,30 @@ namespace timetable::domain::assignment {
                 }
                 result.task_results[*slot_result.slot.result_index].connections =
                     std::move(slot_result.connections);
+            }
+            return result;
+        }
+
+        [[nodiscard]] OriginDaySearchResult materialize_origin_day_search_result(
+              ZoneId                        origin
+            , std::vector<SearchSlotResult> slot_results
+        ) {
+            OriginDaySearchResult result{
+                  .origin       = origin
+                , .pair_results = {}
+            };
+            result.pair_results.reserve(slot_results.size());
+            for (auto& slot_result : slot_results) {
+                if (slot_result.slot.kind != SearchProjectionSlotKind::OdDayPair) {
+                    continue;
+                }
+                result.pair_results.push_back(
+                    OdDayPairResult{
+                          .origin      = slot_result.slot.origin
+                        , .destination = slot_result.slot.destination
+                        , .connections = std::move(slot_result.connections)
+                    }
+                );
             }
             return result;
         }
@@ -6114,6 +6221,28 @@ namespace timetable::domain::assignment {
             for (const auto& target_result : tree_result.target_results) {
                 total += all_zone_target_connection_count(target_result);
             }
+        }
+        return total;
+    }
+
+    std::size_t search_connection_count(
+        const OdDayConnectionSearchResult& result
+    ) noexcept {
+        std::size_t total = 0;
+        for (const auto& origin_result : result.origin_results) {
+            for (const auto& pair_result : origin_result.pair_results) {
+                total += pair_result.connections.size();
+            }
+        }
+        return total;
+    }
+
+    std::size_t search_connection_count(
+        const OdDayConnectionSearchSummary& summary
+    ) noexcept {
+        std::size_t total = 0;
+        for (const auto& pair_count : summary.pair_counts) {
+            total += pair_count.connection_count;
         }
         return total;
     }
@@ -6640,13 +6769,16 @@ namespace timetable::domain::assignment {
             , LogLevel::Info
         );
 
-        const auto worker_count = all_zone_search_worker_count(batches.size());
+        const auto worker_count = search_batch_worker_count(
+              batches.size()
+            , execution.config.max_parallel_batches
+        );
         log(
             fmt::format(
                   "all-zone search parallel execution: workers={} batches={} max_parallel_batches={}"
                 , worker_count
                 , batches.size()
-                , kAllZoneMaxParallelBatches
+                , execution.config.max_parallel_batches
             )
             , LogLevel::Info
         );
@@ -6740,6 +6872,297 @@ namespace timetable::domain::assignment {
             , LogLevel::Info
         );
         both("search: all-zone branch-and-bound done");
+        return result;
+    }
+
+    mathfp::Expected<mathfp::Unit> search_od_day_connections_by_origin_branch_and_bound(
+          const PreprocessedNetwork& network
+        , std::span<const SearchTask> tasks
+        , SearchExecutionRequest     execution
+        , const SearchParams&        params
+        , const SearchCostContext&   search_cost
+        , const ChoiceConfig&         choice_config
+        , const AssignmentPeriodConfig& assignment_period
+        , const ConnectionAdmissibilityConfig& admissibility_config
+        , const SearchPruningExecutionPlan* pruning_execution
+        , const CompleteConnectionDominanceConfig& complete_connection_dominance
+        , OdDayOriginResultSink      origin_sink
+        , SearchDiagnosticsContext diagnostics
+    ) {
+        using timetable::infra::LogLevel;
+        using timetable::infra::progress::both;
+        using timetable::infra::progress::log;
+        using timetable::infra::progress::status;
+
+        MATHFP_TRY(validate_search_execution_projection_contract(execution.config));
+        if (execution.config.result_projection != SearchResultProjection::OdDayPairs) {
+            return mathfp::unexpected(
+                mathfp::invalid_arg("OdDayConnectionSearchResult search requires OdDayPairs result projection")
+                    .ctx("result_projection", std::string(to_string(execution.config.result_projection)))
+            );
+        }
+        if (execution.config.mode != SearchExecutionMode::OriginPeriod) {
+            return mathfp::unexpected(
+                mathfp::invalid_arg("OD-day search requires origin-period execution")
+                    .ctx("execution_mode", std::string(to_string(execution.config.mode)))
+            );
+        }
+        if (search_cost.mode != SearchCostMode::BaseOnly) {
+            return mathfp::unexpected(
+                mathfp::invalid_arg("OD-day search currently supports only base search cost")
+                    .ctx("search_cost_mode", std::string(to_string(search_cost.mode)))
+            );
+        }
+        if (execution.time_domain_execution == nullptr) {
+            return mathfp::unexpected(
+                mathfp::invalid_arg("OD-day origin-period search requires SearchTimeDomainExecution")
+            );
+        }
+        if (!origin_sink) {
+            return mathfp::unexpected(
+                mathfp::invalid_arg("OD-day by-origin search requires a result sink")
+            );
+        }
+
+        MATHFP_TRY(validate_assignment_period_config(assignment_period));
+        MATHFP_TRY(validate_connection_admissibility_config(admissibility_config));
+        MATHFP_TRY(validate_complete_connection_dominance_config(
+            complete_connection_dominance
+        ));
+        MATHFP_TRY(validate_search_cost_context(search_cost));
+
+        both("search: OD-day branch-and-bound");
+        log(
+            fmt::format(
+                  "OD-day projection contract: partial_retention_scope={} complete_retention=od_pair_slot"
+                , to_string(execution.config.partial_retention_scope)
+            )
+            , LogLevel::Info
+        );
+        MATHFP_TRY_LET(
+              SearchPruningExecutionPlan
+            , default_pruning_execution
+            , plan_search_pruning_execution(
+                  SearchPruningModelConfig{
+                      .requested_state_space =
+                          SearchPruningStateSpace::CurrentPhysicalOccurrenceAndTransferContext
+                  }
+                , SearchPruningRolloutStage::Disabled
+                , params.search_tolerances
+            )
+        );
+        const auto& effective_pruning_execution =
+            pruning_execution != nullptr
+                ? *pruning_execution
+                : default_pruning_execution;
+
+        mathfp::Expected<std::vector<SearchTreeJob>> tree_jobs_result =
+            execution.config.origin_scope == SearchOriginScope::DeclaredZones
+                ? build_declared_origin_period_search_tree_jobs(
+                      execution.declared_zones
+                    , tasks
+                    , *execution.time_domain_execution
+                    , execution.config.destination_scope
+                  )
+                : build_origin_period_search_tree_jobs(
+                      tasks
+                    , *execution.time_domain_execution
+                    , execution.config.destination_scope
+                    , execution.declared_zones
+                  );
+        if (!tree_jobs_result) {
+            return mathfp::unexpected(std::move(tree_jobs_result.error()));
+        }
+        auto tree_jobs = std::move(*tree_jobs_result);
+        MATHFP_TRY_LET(
+              std::vector<SearchBatch>
+            , batches
+            , build_origin_period_search_batches(
+                  tasks
+                , tree_jobs
+                , execution.config.result_projection
+            )
+        );
+        MATHFP_TRY(validate_search_batch_projection_contract(
+              batches
+            , execution.config.mode
+            , execution.config.result_projection
+            , tasks
+        ));
+
+        const auto residual_reverse_graph = build_residual_reverse_graph(
+              network.route_segments
+            , network.connection_segments
+        );
+        const auto batch_execution_diagnostics = summarize_search_batches(batches);
+        const auto expected_tree_count = expected_search_tree_count(
+              execution.config.origin_scope
+            , diagnostics.declared_zone_count
+            , tasks
+        );
+        log(
+            fmt::format(
+                  "OD-day search diagnostics: trees={} expected_trees={} tree_count_delta={} batches={} targets={} projection_slots={} partial_retention_scope={} phase_invariant_validation={} result_sink=origin"
+                , tree_jobs.size()
+                , expected_tree_count
+                , signed_count_delta(tree_jobs.size(), expected_tree_count)
+                , batches.size()
+                , batch_execution_diagnostics.completion_target_count
+                , batch_execution_diagnostics.projection_task_count
+                , to_string(execution.config.partial_retention_scope)
+                , diagnostics.validate_phase_invariants ? "on" : "off"
+            )
+            , LogLevel::Info
+        );
+
+        const auto worker_count = search_batch_worker_count(
+              batches.size()
+            , execution.config.max_parallel_batches
+        );
+        log(
+            fmt::format(
+                  "OD-day search parallel execution: workers={} batches={} max_parallel_batches={}"
+                , worker_count
+                , batches.size()
+                , execution.config.max_parallel_batches
+            )
+            , LogLevel::Info
+        );
+
+        std::atomic<std::size_t> next_batch{ 0u };
+        std::atomic<std::size_t> completed_batches{ 0u };
+        std::atomic<std::size_t> pair_count{ 0u };
+        std::atomic<std::size_t> connection_count{ 0u };
+        std::mutex origin_sink_mutex;
+        std::vector<std::future<mathfp::Expected<mathfp::Unit>>> workers;
+        workers.reserve(worker_count);
+
+        for (std::size_t worker = 0; worker < worker_count; ++worker) {
+            workers.push_back(
+                std::async(
+                      std::launch::async
+                    , [&, worker]() -> mathfp::Expected<mathfp::Unit> {
+                          for (;;) {
+                              const auto i = next_batch.fetch_add(
+                                    1u
+                                  , std::memory_order_relaxed
+                              );
+                              if (i >= batches.size()) {
+                                  return mathfp::kUnit;
+                              }
+
+                              const auto& batch = batches[i];
+                              if (
+                                     i == 0
+                                  || (i % kTaskProgressStep) == 0
+                                  || (i + 1) == batches.size()
+                              ) {
+                                  status(
+                                      fmt::format(
+                                            "OD-day search: worker={} origin batch {}/{} origin={} targets={} projection_slots={} completed={} total_found={}"
+                                          , worker
+                                          , i + 1
+                                          , batches.size()
+                                          , batch.key.origin.get()
+                                          , batch.completion_targets.size()
+                                          , batch.projection_slots.size()
+                                          , completed_batches.load(std::memory_order_relaxed)
+                                          , connection_count.load(std::memory_order_relaxed)
+                                      )
+                                  );
+                              }
+
+                              MATHFP_TRY_LET(
+                                    std::vector<SearchSlotResult>
+                                  , slot_results
+                                  , search_batch_connections(
+                                        batch
+                                      , network
+                                      , residual_reverse_graph
+                                      , params
+                                      , search_cost
+                                      , choice_config
+                                      , assignment_period
+                                      , admissibility_config
+                                      , effective_pruning_execution
+                                      , complete_connection_dominance
+                                      , execution.config.partial_retention_scope
+                                      , diagnostics
+                                      , i
+                                      , batches.size()
+                                  )
+                              );
+                              connection_count.fetch_add(
+                                    search_slot_connection_count(slot_results)
+                                  , std::memory_order_relaxed
+                              );
+                              auto origin_result = materialize_origin_day_search_result(
+                                    batch.key.origin
+                                  , std::move(slot_results)
+                              );
+                              pair_count.fetch_add(
+                                    origin_result.pair_results.size()
+                                  , std::memory_order_relaxed
+                              );
+                              {
+                                  std::scoped_lock lock(origin_sink_mutex);
+                                  MATHFP_TRY(origin_sink(std::move(origin_result)));
+                              }
+                              completed_batches.fetch_add(1u, std::memory_order_relaxed);
+                          }
+                      }
+                )
+            );
+        }
+
+        for (auto& worker : workers) {
+            MATHFP_TRY(worker.get());
+        }
+        log(
+            fmt::format(
+                  "OD-day by-origin search result: origins = {:>8}  pairs = {:>8}  expected_trees = {:>8}  connections = {:>8}"
+                , batches.size()
+                , pair_count.load(std::memory_order_relaxed)
+                , expected_tree_count
+                , connection_count.load(std::memory_order_relaxed)
+            )
+            , LogLevel::Info
+        );
+        both("search: OD-day branch-and-bound done");
+        return mathfp::kUnit;
+    }
+
+    mathfp::Expected<OdDayConnectionSearchResult> search_od_day_connections_branch_and_bound(
+          const PreprocessedNetwork& network
+        , std::span<const SearchTask> tasks
+        , SearchExecutionRequest     execution
+        , const SearchParams&        params
+        , const SearchCostContext&   search_cost
+        , const ChoiceConfig&         choice_config
+        , const AssignmentPeriodConfig& assignment_period
+        , const ConnectionAdmissibilityConfig& admissibility_config
+        , const SearchPruningExecutionPlan* pruning_execution
+        , const CompleteConnectionDominanceConfig& complete_connection_dominance
+        , SearchDiagnosticsContext diagnostics
+    ) {
+        OdDayConnectionSearchResult result;
+        MATHFP_TRY(search_od_day_connections_by_origin_branch_and_bound(
+              network
+            , tasks
+            , execution
+            , params
+            , search_cost
+            , choice_config
+            , assignment_period
+            , admissibility_config
+            , pruning_execution
+            , complete_connection_dominance
+            , [&](OriginDaySearchResult origin_result) -> mathfp::Expected<mathfp::Unit> {
+                  result.origin_results.push_back(std::move(origin_result));
+                  return mathfp::kUnit;
+              }
+            , diagnostics
+        ));
         return result;
     }
 

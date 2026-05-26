@@ -8,7 +8,9 @@
 #include <mathfp/core/expected.hpp>
 #include <mathfp/core/unit.hpp>
 
+#include "timetable/domain/assignment/assignment_period.hpp"
 #include "timetable/domain/assignment/choice.hpp"
+#include "timetable/domain/assignment/connection_admissibility.hpp"
 #include "timetable/domain/assignment/skim_config.hpp"
 #include "timetable/domain/assignment/split.hpp"
 #include "timetable/domain/model.hpp"
@@ -101,6 +103,15 @@ namespace timetable::domain::assignment {
         , const InputModel&             input
         , const DemandSplitResult&      split_result
         , const SkimMatrixConfig&       config
+    );
+
+    [[nodiscard]] mathfp::Expected<AssignmentSkimMatrix> build_assignment_skim_matrix(
+          const OdDayConnectionChoiceResult& choice_result
+        , const InputModel&                  input
+        , const DemandSplitResult&           split_result
+        , const AssignmentPeriodConfig&      assignment_period
+        , const ConnectionAdmissibilityConfig& admissibility_config
+        , const SkimMatrixConfig&            config
     );
 
 }  // namespace timetable::domain::assignment
