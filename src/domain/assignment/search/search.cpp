@@ -36,6 +36,7 @@
 
 #include "timetable/domain/endpoints.hpp"
 #include "timetable/domain/assignment/complete_connection_retention.hpp"
+#include "timetable/domain/assignment/day_path.hpp"
 #include "timetable/domain/assignment/search_cost.hpp"
 #include "timetable/domain/assignment/search_pruning.hpp"
 #include "timetable/domain/assignment/search_pruning_diagnostics.hpp"
@@ -5076,22 +5077,45 @@ namespace timetable::domain::assignment {
                     ? retention.compact_complete_connections.metrics.size()
                     : retention.complete_connections.alternatives.size();
                 std::vector<SearchConnection> connections;
-                const auto connection_count = target_projection_slots
-                    ? finalize_compact_complete_connection_count(
+                std::size_t connection_count = 0u;
+                if (target_projection_slots) {
+                    connection_count = finalize_compact_complete_connection_count(
                           retention.compact_complete_connections
                         , params.choice_tolerances
                         , choice_config.rollout_stage
-                      )
-                    : [&]() {
-                          connections = finalize_complete_connection_retention(
-                                retention.complete_connections
-                              , params.choice_tolerances
-                              , choice_config.rollout_stage
-                          );
-                          return connections.size();
-                      }();
-                task_stats[task_pos].rejected_complete_tolerance =
-                    before_tolerance - connection_count;
+                    );
+                } else {
+                    connections = finalize_complete_connection_retention(
+                          retention.complete_connections
+                        , params.choice_tolerances
+                        , choice_config.rollout_stage
+                    );
+                    const auto complete_after_tolerance = connections.size();
+                    if (slot.kind == SearchProjectionSlotKind::OdDayPair) {
+                        MATHFP_TRY_LET(
+                              IntervalId
+                            , day_path_interval
+                            , complete_retention_interval(slot, search_cost)
+                        );
+                        MATHFP_TRY_LET(
+                              std::vector<SearchConnection>
+                            , day_path_connections
+                            , retain_day_path_representative_connections(
+                                  std::move(connections)
+                                , search_cost
+                                , day_path_interval
+                              )
+                        );
+                        connections = std::move(day_path_connections);
+                    }
+                    connection_count = connections.size();
+                    task_stats[task_pos].rejected_complete_tolerance =
+                        before_tolerance - complete_after_tolerance;
+                }
+                if (target_projection_slots) {
+                    task_stats[task_pos].rejected_complete_tolerance =
+                        before_tolerance - connection_count;
+                }
                 stats.rejected_complete_admissibility += task_stats[task_pos].rejected_complete_admissibility;
                 stats.rejected_complete_dominance += task_stats[task_pos].rejected_complete_dominance;
                 stats.removed_complete_dominated  += task_stats[task_pos].removed_complete_dominated;

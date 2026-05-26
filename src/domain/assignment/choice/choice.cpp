@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <iterator>
 #include <map>
+#include <span>
 #include <utility>
 #include <vector>
 
@@ -125,11 +126,27 @@ namespace timetable::domain::assignment {
                     , config.rollout_stage
                 )
             );
+            MATHFP_TRY_LET(
+                  std::vector<DayPathAlternative>
+                , alternatives
+                , retain_day_path_alternatives(
+                      std::move(chosen)
+                    , search_cost
+                    , IntervalId{ 0 }
+                  )
+            );
+            auto representatives = day_path_representative_connections(
+                std::span<const DayPathAlternative>{
+                      alternatives.data()
+                    , alternatives.size()
+                }
+            );
             return ChoiceOdDaySelection{
                 .result = OdDayChoicePairResult{
                       .origin      = pair_result.origin
                     , .destination = pair_result.destination
-                    , .connections = std::move(chosen)
+                    , .alternatives = std::move(alternatives)
+                    , .connections = std::move(representatives)
                 }
             };
         }

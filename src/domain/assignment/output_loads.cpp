@@ -438,6 +438,34 @@ namespace timetable::domain::assignment::detail {
             return mathfp::kUnit;
         }
 
+        mathfp::Expected<mathfp::Unit> validate_day_path_load_share(
+              const ConnectionDemandShare& share
+            , std::size_t                  share_index
+        ) {
+            if (share.source != DemandShareAlternativeSource::DayPath) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("day-path VISUM/load aggregates require day-path split shares")
+                        .ctx("share_index", static_cast<std::int64_t>(share_index))
+                        .ctx("origin"     , share.origin.get())
+                        .ctx("destination", share.destination.get())
+                        .ctx("interval_id", share.interval.get())
+                );
+            }
+
+            const auto representative_signature = day_path_signature_of(share.connection);
+            if (!(representative_signature == share.day_path)) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("day-path VISUM/load share signature disagrees with representative connection")
+                        .ctx("share_index", static_cast<std::int64_t>(share_index))
+                        .ctx("origin"     , share.origin.get())
+                        .ctx("destination", share.destination.get())
+                        .ctx("interval_id", share.interval.get())
+                );
+            }
+
+            return mathfp::kUnit;
+        }
+
         [[nodiscard]] AssignmentStopLoad make_stop_load(
               const StopLoadKey&       key
             , const StopLoadAggregate& aggregate
@@ -611,6 +639,15 @@ namespace timetable::domain::assignment::detail {
             MATHFP_TRY(accumulate_share_stop_load(stop_loads, share));
         }
         return materialize_loads(segment_loads, stop_loads);
+    }
+
+    mathfp::Expected<AssignmentLoads> build_day_path_assignment_loads(
+        const DemandSplitResult& split_result
+    ) {
+        for (std::size_t i = 0; i < split_result.shares.size(); ++i) {
+            MATHFP_TRY(validate_day_path_load_share(split_result.shares[i], i));
+        }
+        return build_assignment_loads(split_result);
     }
 
 }  // namespace timetable::domain::assignment::detail

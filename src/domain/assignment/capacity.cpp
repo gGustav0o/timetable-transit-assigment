@@ -92,6 +92,34 @@ namespace timetable::domain::assignment {
             return mathfp::kUnit;
         }
 
+        mathfp::Expected<mathfp::Unit> validate_day_path_load_share(
+              const ConnectionDemandShare& share
+            , std::size_t                  share_index
+        ) {
+            if (share.source != DemandShareAlternativeSource::DayPath) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("day-path elementary loads require day-path split shares")
+                        .ctx("share_index", static_cast<std::int64_t>(share_index))
+                        .ctx("origin"     , share.origin.get())
+                        .ctx("destination", share.destination.get())
+                        .ctx("interval_id", share.interval.get())
+                );
+            }
+
+            const auto representative_signature = day_path_signature_of(share.connection);
+            if (!(representative_signature == share.day_path)) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("day-path split share signature disagrees with representative connection")
+                        .ctx("share_index", static_cast<std::int64_t>(share_index))
+                        .ctx("origin"     , share.origin.get())
+                        .ctx("destination", share.destination.get())
+                        .ctx("interval_id", share.interval.get())
+                );
+            }
+
+            return mathfp::kUnit;
+        }
+
         [[nodiscard]] VehicleJourneyItemLoads materialize_vehicle_journey_item_loads(
             const VehicleJourneyItemLoadMap& load_map
         ) {
@@ -718,6 +746,15 @@ namespace timetable::domain::assignment {
     mathfp::Expected<ElementarySegmentLoads> build_elementary_segment_loads(
         const DemandSplitResult& split_result
     ) {
+        return build_vehicle_journey_item_loads(split_result);
+    }
+
+    mathfp::Expected<ElementarySegmentLoads> build_day_path_elementary_segment_loads(
+        const DemandSplitResult& split_result
+    ) {
+        for (std::size_t i = 0; i < split_result.shares.size(); ++i) {
+            MATHFP_TRY(validate_day_path_load_share(split_result.shares[i], i));
+        }
         return build_vehicle_journey_item_loads(split_result);
     }
 

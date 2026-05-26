@@ -20,6 +20,7 @@ namespace timetable::domain::assignment::detail {
         using ChosenConnectionIndexMap = std::map<grouping::ConnectionTraceKey, std::size_t>;
         using TaskConnectionTraceMap = std::map<grouping::DemandKey, std::map<grouping::ConnectionTraceKey, bool>>;
         using OdDayConnectionTraceMap = std::map<grouping::OdKey, std::map<grouping::ConnectionTraceKey, bool>>;
+        using OdDayPathMap = std::map<grouping::OdKey, std::map<DayPathSignature, bool>>;
 
         AssignmentOdResult make_empty_od_result(
             const grouping::OdKey& od
@@ -94,6 +95,24 @@ namespace timetable::domain::assignment::detail {
             return traces;
         }
 
+        OdDayPathMap build_od_day_path_map(
+            const OdDayConnectionChoiceResult& choice_result
+        ) {
+            OdDayPathMap paths;
+            for (const auto& origin_result : choice_result.origin_results) {
+                for (const auto& pair_result : origin_result.pair_results) {
+                    auto& od_paths = paths[grouping::OdKey{
+                          .origin      = pair_result.origin
+                        , .destination = pair_result.destination
+                    }];
+                    for (const auto& alternative : pair_result.alternatives) {
+                        od_paths[alternative.signature] = true;
+                    }
+                }
+            }
+            return paths;
+        }
+
         std::map<grouping::OdKey, std::size_t> build_od_day_search_count_map(
             const OdDayConnectionSearchSummary& search_summary
         ) {
@@ -141,6 +160,35 @@ namespace timetable::domain::assignment::detail {
             std::map<grouping::ConnectionTraceKey, bool> pair_traces;
             for (const auto& origin_result : choice_result.origin_results) {
                 for (const auto& pair_result : origin_result.pair_results) {
+                    if (pair_result.alternatives.size() != pair_result.connections.size()) {
+                        return mathfp::unexpected(
+                            mathfp::internal_error("output input: OD-day choice alternatives disagree with representative projection size")
+                                .ctx("origin"       , pair_result.origin.get())
+                                .ctx("destination"  , pair_result.destination.get())
+                                .ctx(
+                                      "alternative_count"
+                                    , static_cast<std::int64_t>(pair_result.alternatives.size())
+                                  )
+                                .ctx(
+                                      "representative_count"
+                                    , static_cast<std::int64_t>(pair_result.connections.size())
+                                  )
+                        );
+                    }
+                    for (std::size_t i = 0; i < pair_result.alternatives.size(); ++i) {
+                        const auto& alternative = pair_result.alternatives[i];
+                        const auto& representative = pair_result.connections[i];
+                        if (grouping::connection_trace_key(alternative.representative)
+                                != grouping::connection_trace_key(representative)
+                            || alternative.signature != day_path_signature_of(representative)) {
+                            return mathfp::unexpected(
+                                mathfp::internal_error("output input: OD-day choice representative is not the projection of its day path")
+                                    .ctx("origin"     , pair_result.origin.get())
+                                    .ctx("destination", pair_result.destination.get())
+                                    .ctx("path_index" , static_cast<std::int64_t>(i))
+                            );
+                        }
+                    }
                     for (const auto& connection : pair_result.connections) {
                         pair_traces[grouping::connection_trace_key(connection)] = true;
                     }
@@ -201,6 +249,7 @@ namespace timetable::domain::assignment::detail {
             , const DemandSplitResult&           split_result
         ) {
             const auto od_traces = build_od_day_connection_trace_map(choice_result);
+            const auto od_paths  = build_od_day_path_map(choice_result);
             for (std::size_t i = 0; i < split_result.shares.size(); ++i) {
                 const auto& share = split_result.shares[i];
                 const auto key = grouping::OdKey{
@@ -211,6 +260,26 @@ namespace timetable::domain::assignment::detail {
                 if (od_it == od_traces.end()) {
                     return mathfp::unexpected(
                         mathfp::internal_error("output input: OD-day split share has no matching OD choice")
+                            .ctx("share_index", static_cast<std::int64_t>(i))
+                            .ctx("origin"     , share.origin     .get())
+                            .ctx("destination", share.destination.get())
+                            .ctx("interval_id", share.interval   .get())
+                    );
+                }
+                if (share.source != DemandShareAlternativeSource::DayPath) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("output input: OD-day split share is not a day-path alternative")
+                            .ctx("share_index", static_cast<std::int64_t>(i))
+                            .ctx("origin"     , share.origin     .get())
+                            .ctx("destination", share.destination.get())
+                            .ctx("interval_id", share.interval   .get())
+                    );
+                }
+                const auto od_path_it = od_paths.find(key);
+                if (od_path_it == od_paths.end()
+                    || !od_path_it->second.contains(share.day_path)) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("output input: OD-day split share path is outside its OD choice")
                             .ctx("share_index", static_cast<std::int64_t>(i))
                             .ctx("origin"     , share.origin     .get())
                             .ctx("destination", share.destination.get())
@@ -301,6 +370,10 @@ namespace timetable::domain::assignment::detail {
                 , .demand_share_count      = split_result .shares     .size()
                 , .total_demand_passengers = total_input_demand(input)
                 , .assigned_passengers     = total_assigned_passengers(split_result)
+                , .diagnostics             = AssignmentOutput::Diagnostics{
+                      .search_alternative_count = search_connection_count(search_result)
+                    , .chosen_alternative_count = choice_result.connections.size()
+                  }
             };
         }
 
@@ -316,6 +389,10 @@ namespace timetable::domain::assignment::detail {
                 , .demand_share_count      = split_result .shares     .size()
                 , .total_demand_passengers = total_input_demand(input)
                 , .assigned_passengers     = total_assigned_passengers(split_result)
+                , .diagnostics             = AssignmentOutput::Diagnostics{
+                      .search_alternative_count = search_connection_count(search_summary)
+                    , .chosen_alternative_count = choice_result.connections.size()
+                  }
             };
         }
 
@@ -328,6 +405,7 @@ namespace timetable::domain::assignment::detail {
                 , .demand_share_count      = 0
                 , .total_demand_passengers = total_input_demand(input)
                 , .assigned_passengers     = 0.0
+                , .diagnostics             = AssignmentOutput::Diagnostics{}
             };
         }
 
@@ -345,6 +423,10 @@ namespace timetable::domain::assignment::detail {
                 , .demand_share_count      = 0
                 , .total_demand_passengers = 0.0
                 , .assigned_passengers     = 0.0
+                , .diagnostics             = AssignmentOutput::Diagnostics{
+                      .search_alternative_count = search_connection_count(search_result)
+                    , .chosen_alternative_count = 0
+                  }
             };
         }
 
@@ -435,6 +517,7 @@ namespace timetable::domain::assignment::detail {
         ) {
             if (const auto search_it = search_counts.find(od); search_it != search_counts.end()) {
                 od_result.search_connection_count = search_it->second;
+                od_result.diagnostics.search.alternative_count = search_it->second;
             }
         }
 
@@ -462,6 +545,8 @@ namespace timetable::domain::assignment::detail {
                 od_result.connections.push_back(std::move(mapped_connection));
             }
             od_result.chosen_connection_count = od_result.connections.size();
+            od_result.diagnostics.choice.chosen_alternative_count =
+                od_result.chosen_connection_count;
             return chosen_connection_indices;
         }
 
@@ -703,7 +788,7 @@ namespace timetable::domain::assignment::detail {
         MATHFP_TRY_LET(
               AssignmentLoads
             , loads
-            , build_assignment_loads(split_result)
+            , build_day_path_assignment_loads(split_result)
         );
         MATHFP_TRY(validate_loads_are_split_projection(split_result, loads));
         MATHFP_TRY_LET(
@@ -856,6 +941,12 @@ namespace timetable::domain::assignment::detail {
                         , .assigned_passengers     = 0.0
                         , .connections             = {}
                         , .intervals               = {}
+                        , .diagnostics             = AssignmentOdDiagnostics{
+                              .search = AssignmentOdSearchDiagnostics{
+                                  .alternative_count = all_zone_target_connection_count(target)
+                              }
+                            , .choice = AssignmentOdChoiceDiagnostics{}
+                          }
                     }
                 );
             }

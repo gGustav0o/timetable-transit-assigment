@@ -5,6 +5,7 @@
 #include <mathfp/core/expected.hpp>
 
 #include "timetable/domain/assignment/choice/choice_config.hpp"
+#include "timetable/domain/assignment/day_path.hpp"
 #include "timetable/domain/assignment/search_cost.hpp"
 #include "timetable/domain/params.hpp"
 #include "timetable/domain/assignment/search/search.hpp"
@@ -28,6 +29,7 @@ namespace timetable::domain::assignment {
     struct OdDayChoicePairResult final {
         ZoneId                        origin{};
         ZoneId                        destination{};
+        std::vector<DayPathAlternative> alternatives{};
         std::vector<SearchConnection> connections{};
     };
 
@@ -37,6 +39,7 @@ namespace timetable::domain::assignment {
     };
 
     struct OdDayConnectionChoiceResult final {
+        // Unique flat projection of chosen path representatives.
         std::vector<SearchConnection>      connections{};
         std::vector<OriginDayChoiceResult> origin_results{};
     };

@@ -17,6 +17,7 @@
 #include "timetable/domain/assignment/choice/choice_config.hpp"
 #include "timetable/domain/assignment/complete_connection_retention.hpp"
 #include "timetable/domain/assignment/connection_admissibility.hpp"
+#include "timetable/domain/assignment/day_path.hpp"
 #include "timetable/domain/assignment/execution_config.hpp"
 #include "timetable/domain/assignment/search/search.hpp"
 #include "timetable/domain/assignment/search_execution_config.hpp"
@@ -109,13 +110,28 @@ namespace timetable::domain {
         std::vector<AssignmentIntervalShare> shares{};
     };
 
+    struct AssignmentOdSearchDiagnostics final {
+        std::size_t alternative_count{};
+    };
+
+    struct AssignmentOdChoiceDiagnostics final {
+        std::size_t chosen_alternative_count{};
+    };
+
+    struct AssignmentOdDiagnostics final {
+        AssignmentOdSearchDiagnostics search{};
+        AssignmentOdChoiceDiagnostics choice{};
+    };
+
     /**
      * @brief Canonical assignment result for one origin-destination pair.
      *
      * connections contains the chosen alternatives after step 3.3.
      * intervals contains the demand/split view from step 3.4.
-     * search_connection_count counts all search-stage alternatives before choice.
-     * chosen_connection_count equals connections.size().
+     * diagnostics contains search/choice counters. search_connection_count and
+     * chosen_connection_count are compatibility projections of those diagnostics
+     * for existing CSV/text output. In OD-day assignment alternatives are
+     * day-level paths, not raw timed timetable connections.
      *
      * Ordering contract:
      * - od_results are ordered lexicographically by (origin, destination)
@@ -131,6 +147,7 @@ namespace timetable::domain {
         double                                assigned_passengers{};
         std::vector<AssignmentConnection>     connections{};
         std::vector<AssignmentDemandInterval> intervals{};
+        AssignmentOdDiagnostics               diagnostics{};
     };
 
     /**
@@ -165,7 +182,10 @@ namespace timetable::domain {
      * @brief Day-level route aggregate for comparison with VISUM route flows.
      *
      * This projection intentionally has no demand interval key. It sums the
-     * route passenger-segment volume over the full assignment day.
+     * route passenger-segment volume over the full assignment day. In OD-day
+     * assignment it is derived from day-path split shares and their
+     * representative timetable support; elementary segment loads remain the
+     * primary overload/load profile.
      */
     struct AssignmentRouteTotalLoad final {
         LineId      line{};
@@ -238,7 +258,8 @@ namespace timetable::domain {
      * total_passenger_flow is the undirected through-stop volume used for
      * comparison: boarding + alighting + pass-through occupancy over the whole
      * assignment day. Directional incoming/outgoing segment volumes are kept so
-     * the scalar can be audited.
+     * the scalar can be audited. In OD-day assignment these aggregates are
+     * day-path projections, not raw timed-search alternative counts.
      */
     struct AssignmentStopTotalLoad final {
         StopId stop{};
@@ -276,6 +297,11 @@ namespace timetable::domain {
      * projections should be derived.
      */
     struct AssignmentOutput final {
+        struct Diagnostics final {
+            std::size_t search_alternative_count{};
+            std::size_t chosen_alternative_count{};
+        };
+
         struct Summary final {
             std::size_t od_count{};
             std::size_t search_connection_count{};
@@ -284,6 +310,7 @@ namespace timetable::domain {
             double      total_demand_passengers{};
             double      assigned_passengers{};
             std::optional<double> runtime_seconds{};
+            Diagnostics diagnostics{};
         };
 
         AssignmentOutputMode             mode{ AssignmentOutputMode::Calculated };

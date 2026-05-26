@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <vector>
 
 #include <mathfp/core/expected.hpp>
@@ -10,18 +11,26 @@
 #include "timetable/domain/assignment/capacity_aware_assignment.hpp"
 #include "timetable/domain/assignment/choice/choice.hpp"
 #include "timetable/domain/assignment/connection_admissibility.hpp"
+#include "timetable/domain/assignment/day_path.hpp"
 
 namespace timetable::domain::assignment {
 
+    enum class DemandShareAlternativeSource : std::uint8_t {
+          TimedConnection
+        , DayPath
+    };
+
     struct ConnectionDemandShare final {
-        ZoneId               origin{};
-        ZoneId               destination{};
-        IntervalId           interval{};
-        SearchConnection     connection;
-        double               passengers{};
-        double               probability{};
-        double               independence{};
-        double               split_impedance{};
+        ZoneId                       origin{};
+        ZoneId                       destination{};
+        IntervalId                   interval{};
+        DemandShareAlternativeSource source{ DemandShareAlternativeSource::TimedConnection };
+        DayPathSignature             day_path{};
+        SearchConnection             connection;
+        double                       passengers{};
+        double                       probability{};
+        double                       independence{};
+        double                       split_impedance{};
     };
 
     struct DemandSplitResult final {

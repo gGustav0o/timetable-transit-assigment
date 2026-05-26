@@ -35,6 +35,20 @@
   - veh_journey_item_cap.csv — подключен как необязательный вход провозной способности vehicle journey items для post-assignment overload assessment.
   - compile-time runtime override policy — подключена как отдельный верхнеуровневый слой после загрузки входа и до запуска assignment pipeline; применяется только если сборка выполнена с TIMETABLE_ENABLE_RUNTIME_OVERRIDES.
 
+OD-day day-level path set:
+
+  - SearchConnection остается конкретным расписательным соединением с trip/time information;
+  - DayPathSignature задает дневной структурный путь между районами: access/transfer/egress walk и ride legs по route segment / line / route / stop-occurrence структуре, без connection segment id, trip id и clock time;
+  - после complete-connection retention и tolerance для OdDayPairs выполняется day-level retention: timed connections с одинаковой DayPathSignature схлопываются в один representative SearchConnection;
+  - представитель пути выбирается по доменной политике лучшего timed support: exact dominance, затем меньший impedance, меньшее journey time, меньше transfers, более ранний arrival и более поздний departure;
+  - search_connection_count в OD-day output после этого слоя считается количеством day-level path representatives, а не количеством raw timed connections.
+  - OD-day choice/split consume DayPathAlternative entities; SearchConnection remains only the representative timed support used for metric projection, segment loads and existing output compatibility;
+  - DayPathMetrics separates complete-retention metrics from representative connection metrics, so split/admissibility no longer reinterprets raw timed connections as primary OD-day alternatives;
+  - assignment diagnostics are explicit counters over alternatives; legacy search_connection_count/chosen_connection_count fields are compatibility projections.
+  - elementary segment loads in OD-day assignment require day-path split shares; timed connection shares are accepted only by the legacy/diagnostic demand-task formulation;
+  - VISUM route/stop aggregates in OD-day assignment are built from day-path split shares and representative timetable support; they are aggregate comparison projections, while elementary segment loads remain the primary load representation;
+  - the old timed demand-task calculation is preserved as searchExecution.formulation = timed_connection_diagnostics (equivalent search contract to demand_task_assignment, intended for diagnostics/comparison rather than the required OD-day formulation).
+
 Семантика skimMatrixPara.lowImpConnShare:
 
   - для OD-интервала берется множество альтернатив после выбора и распределения спроса;

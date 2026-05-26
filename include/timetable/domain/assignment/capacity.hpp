@@ -312,6 +312,10 @@ namespace timetable::domain::assignment {
         const DemandSplitResult& split_result
     );
 
+    [[nodiscard]] mathfp::Expected<ElementarySegmentLoads> build_day_path_elementary_segment_loads(
+        const DemandSplitResult& split_result
+    );
+
     [[nodiscard]] mathfp::Expected<mathfp::Unit> accumulate_elementary_segment_loads(
           ElementarySegmentLoadAccumulator& accumulator
         , const ElementarySegmentLoads&     loads

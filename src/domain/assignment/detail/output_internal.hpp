@@ -30,6 +30,10 @@ namespace timetable::domain::assignment::detail {
         const DemandSplitResult& split_result
     );
 
+    mathfp::Expected<AssignmentLoads> build_day_path_assignment_loads(
+        const DemandSplitResult& split_result
+    );
+
     mathfp::Expected<AssignmentOutput> build_assignment_output_impl(
           const InputModel&                      input
         , const PreprocessedNetwork&             network

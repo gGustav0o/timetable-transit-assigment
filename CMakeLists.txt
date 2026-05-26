@@ -84,6 +84,7 @@ add_executable(timetable-transit-assigment
   src/domain/assignment/complete_connection_retention.cpp
   src/domain/assignment/connection_admissibility.cpp
   src/domain/assignment/connection.cpp
+  src/domain/assignment/day_path.cpp
   src/domain/assignment/execution_config.cpp
   src/domain/assignment/output.cpp
   src/domain/assignment/output_assembly.cpp

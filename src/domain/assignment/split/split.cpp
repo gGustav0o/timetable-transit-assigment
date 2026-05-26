@@ -30,6 +30,8 @@ namespace timetable::domain::assignment {
 
         struct SplitAlternative final {
             SearchConnection  connection;
+            DemandShareAlternativeSource source{ DemandShareAlternativeSource::TimedConnection };
+            DayPathSignature  day_path{};
             ConnectionMetrics metrics{};
             double            perceived_journey_time{};
             double            independence{};
@@ -476,9 +478,40 @@ namespace timetable::domain::assignment {
                 alternatives.push_back(
                     SplitAlternative{
                           .connection             = *connection
+                        , .source                 = DemandShareAlternativeSource::TimedConnection
+                        , .day_path               = day_path_signature_of(*connection)
                         , .metrics                = metrics
                         , .perceived_journey_time = perceived_journey_time(
                               metrics
+                            , params.perceived_journey_time
+                          )
+                        , .independence           = 0.0
+                    }
+                );
+            }
+
+            assign_split_independences(alternatives, params.independence);
+
+            return alternatives;
+        }
+
+        std::vector<SplitAlternative> derive_split_alternatives(
+              const std::vector<const DayPathAlternative*>& paths
+            , const SplitParams&                            params
+        ) {
+            std::vector<SplitAlternative> alternatives;
+            alternatives.reserve(paths.size());
+
+            for (const auto* path : paths) {
+                const auto path_metrics = day_path_metrics_of(*path);
+                alternatives.push_back(
+                    SplitAlternative{
+                          .connection             = path->representative
+                        , .source                 = DemandShareAlternativeSource::DayPath
+                        , .day_path               = path->signature
+                        , .metrics                = path_metrics.representative
+                        , .perceived_journey_time = perceived_journey_time(
+                              path_metrics.representative
                             , params.perceived_journey_time
                           )
                         , .independence           = 0.0
@@ -543,6 +576,8 @@ namespace timetable::domain::assignment {
                 adjusted.push_back(
                     SplitAlternative{
                           .connection             = alternative.connection
+                        , .source                 = alternative.source
+                        , .day_path               = alternative.day_path
                         , .metrics                = alternative.metrics
                         , .perceived_journey_time = adjusted_perceived_journey_time
                         , .independence           = 0.0
@@ -621,25 +656,25 @@ namespace timetable::domain::assignment {
             return lookup;
         }
 
-        std::vector<const SearchConnection*> admissible_od_day_connection_ptrs(
+        std::vector<const DayPathAlternative*> admissible_od_day_path_ptrs(
               const OdDayChoicePairResult&     pair_result
             , const TimeInterval&              interval
             , const AssignmentPeriodConfig&    assignment_period
             , const ConnectionAdmissibilityConfig& admissibility_config
         ) {
-            std::vector<const SearchConnection*> connections;
-            connections.reserve(pair_result.connections.size());
-            for (const auto& connection : pair_result.connections) {
+            std::vector<const DayPathAlternative*> paths;
+            paths.reserve(pair_result.alternatives.size());
+            for (const auto& path : pair_result.alternatives) {
                 if (connection_admissible_for_demand_segment(
-                      metrics_of(connection)
+                      day_path_metrics_of(path).representative
                     , interval
                     , assignment_period
                     , admissibility_config
                 )) {
-                    connections.push_back(&connection);
+                    paths.push_back(&path);
                 }
             }
-            return connections;
+            return paths;
         }
 
         struct SplitDemandUnit final {
@@ -653,19 +688,15 @@ namespace timetable::domain::assignment {
               DemandSplitResult&                    result
             , const SplitDemandUnit&                demand
             , const TimeInterval&                   interval
-            , const std::vector<const SearchConnection*>& connections
+            , const std::vector<SplitAlternative>&  base_alternatives
             , const SearchParams&                   params
             , DemandSegmentBasis                    demand_basis
             , const SplitCapacityContext*           capacity_context
         ) {
-            if (connections.empty()) {
+            if (base_alternatives.empty()) {
                 return std::size_t{ 0 };
             }
 
-            const auto base_alternatives = derive_split_alternatives(
-                  connections
-                , params.split
-            );
             MATHFP_TRY_LET(
                   std::vector<SplitAlternative>
                 , alternatives
@@ -775,6 +806,8 @@ namespace timetable::domain::assignment {
                           .origin          = demand.origin
                         , .destination     = demand.destination
                         , .interval        = demand.interval
+                        , .source          = alternatives[i].source
+                        , .day_path        = alternatives[i].day_path
                         , .connection      = alternatives[i].connection
                         , .passengers      = passengers[i]
                         , .probability     = probabilities[i]
@@ -987,6 +1020,8 @@ namespace timetable::domain::assignment {
                           .origin          = demand.origin
                         , .destination     = demand.destination
                         , .interval        = demand.interval
+                        , .source          = alternatives[i].source
+                        , .day_path        = alternatives[i].day_path
                         , .connection      = alternatives[i].connection
                         , .passengers      = passengers[i]
                         , .probability     = probabilities[i]
@@ -1132,17 +1167,21 @@ namespace timetable::domain::assignment {
                     );
                 }
 
-                const auto admissible_connections = admissible_od_day_connection_ptrs(
+                const auto admissible_paths = admissible_od_day_path_ptrs(
                       *choice_it->second
                     , *interval
                     , assignment_period
                     , admissibility_config
                 );
-                if (admissible_connections.empty()) {
+                if (admissible_paths.empty()) {
                     ++skipped_empty_alternatives;
-                    skipped_temporally_inadmissible += choice_it->second->connections.size();
+                    skipped_temporally_inadmissible += choice_it->second->alternatives.size();
                     continue;
                 }
+                const auto base_alternatives = derive_split_alternatives(
+                      admissible_paths
+                    , params.split
+                );
 
                 MATHFP_TRY_LET(
                       std::size_t
@@ -1156,7 +1195,7 @@ namespace timetable::domain::assignment {
                             , .passengers  = demand.passengers
                           }
                         , *interval
-                        , admissible_connections
+                        , base_alternatives
                         , params
                         , demand_segment_time.basis
                         , nullptr
@@ -1237,11 +1276,15 @@ namespace timetable::domain::assignment {
                 );
             }
 
-            const auto admissible_connections = admissible_od_day_connection_ptrs(
+            const auto admissible_paths = admissible_od_day_path_ptrs(
                   *choice_it->second
                 , *interval
                 , assignment_period
                 , admissibility_config
+            );
+            const auto base_alternatives = derive_split_alternatives(
+                  admissible_paths
+                , params.split
             );
             MATHFP_TRY_LET(
                   std::size_t
@@ -1255,7 +1298,7 @@ namespace timetable::domain::assignment {
                         , .passengers  = demand.passengers
                       }
                     , *interval
-                    , admissible_connections
+                    , base_alternatives
                     , params
                     , demand_segment_time.basis
                     , nullptr
@@ -1302,7 +1345,7 @@ namespace timetable::domain::assignment {
         MATHFP_TRY_LET(
               ElementarySegmentLoads
             , elementary_segment_loads
-            , build_elementary_segment_loads(split_result)
+            , build_day_path_elementary_segment_loads(split_result)
         );
         return OriginDayDemandLoadResult{
               .alternatives              = std::move(alternatives)

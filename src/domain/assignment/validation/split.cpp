@@ -176,6 +176,37 @@ namespace timetable::domain::assignment {
             return lookup;
         }
 
+        mathfp::Expected<mathfp::Unit> validate_share_day_path_identity(
+              const ConnectionDemandShare& share
+            , std::size_t                  share_index
+        ) {
+            switch (share.source) {
+                case DemandShareAlternativeSource::TimedConnection:
+                    return mathfp::kUnit;
+
+                case DemandShareAlternativeSource::DayPath: {
+                    const auto representative_signature =
+                        day_path_signature_of(share.connection);
+                    if (representative_signature == share.day_path) {
+                        return mathfp::kUnit;
+                    }
+                    return mathfp::unexpected(
+                        mathfp::internal_error("split output day-path share signature disagrees with representative connection")
+                            .ctx("share_index", static_cast<std::int64_t>(share_index))
+                            .ctx("origin"     , share.origin.get())
+                            .ctx("destination", share.destination.get())
+                            .ctx("interval_id", share.interval.get())
+                    );
+                }
+            }
+
+            return mathfp::unexpected(
+                mathfp::internal_error("split output contains unsupported share alternative source")
+                    .ctx("share_index", static_cast<std::int64_t>(share_index))
+                    .ctx("source"     , static_cast<std::int64_t>(share.source))
+            );
+        }
+
         mathfp::Expected<mathfp::Unit> validate_split_choice_model_config_for_runtime(
             const SplitChoiceModelConfig& config
         ) {
@@ -559,6 +590,7 @@ namespace timetable::domain::assignment {
                             .ctx("split_impedance", share.split_impedance)
                     );
                 }
+                MATHFP_TRY(validate_share_day_path_identity(share, i));
 
                 probability_sum_by_key[key].add(share.probability);
                 passengers_sum_by_key[key].add(share.passengers);

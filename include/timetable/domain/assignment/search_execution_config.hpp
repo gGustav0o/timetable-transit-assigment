@@ -17,11 +17,16 @@ namespace timetable::domain::assignment {
      * search execution fields so params.txt can request the mathematical
      * formulation directly instead of spelling out an error-prone tuple of
      * origin/time/destination/projection scopes.
+     *
+     * TimedConnectionDiagnostics preserves the previous demand-task/timed
+     * alternative formulation for diagnostics and comparisons. The required
+     * production formulation is OdDayAssignment.
      */
     enum class AssignmentCalculationFormulation : std::uint8_t {
           DemandTaskAssignment
         , OdDayAssignment
         , AllZoneSearch
+        , TimedConnectionDiagnostics
     };
 
     inline constexpr std::array kAssignmentCalculationFormulationTokens{
@@ -36,6 +41,10 @@ namespace timetable::domain::assignment {
         , timetable::EnumStringEntry<AssignmentCalculationFormulation>{
               AssignmentCalculationFormulation::AllZoneSearch,
               "all_zone_search"
+          }
+        , timetable::EnumStringEntry<AssignmentCalculationFormulation>{
+              AssignmentCalculationFormulation::TimedConnectionDiagnostics,
+              "timed_connection_diagnostics"
           }
     };
 
@@ -420,6 +429,9 @@ namespace timetable::domain::assignment {
 
             case AssignmentCalculationFormulation::AllZoneSearch:
                 return make_all_zone_origin_period_search_execution_config();
+
+            case AssignmentCalculationFormulation::TimedConnectionDiagnostics:
+                return make_default_demand_assignment_search_execution_config();
         }
         return make_default_search_execution_config();
     }

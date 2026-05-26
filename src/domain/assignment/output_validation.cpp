@@ -434,6 +434,30 @@ namespace timetable::domain::assignment::detail {
                     .ctx("actual_count"  , static_cast<std::int64_t>(od_result.connections.size()))
             );
         }
+        if (od_result.diagnostics.search.alternative_count
+                != od_result.search_connection_count
+            || od_result.diagnostics.choice.chosen_alternative_count
+                != od_result.chosen_connection_count) {
+            return mathfp::unexpected(
+                mathfp::internal_error("assignment output OD diagnostics disagree with compatibility counters")
+                    .ctx("origin"                 , od_result.origin.get())
+                    .ctx("destination"            , od_result.destination.get())
+                    .ctx("search_connection_count", static_cast<std::int64_t>(od_result.search_connection_count))
+                    .ctx(
+                          "diagnostic_search_alternatives"
+                        , static_cast<std::int64_t>(
+                              od_result.diagnostics.search.alternative_count
+                          )
+                      )
+                    .ctx("chosen_connection_count", static_cast<std::int64_t>(od_result.chosen_connection_count))
+                    .ctx(
+                          "diagnostic_chosen_alternatives"
+                        , static_cast<std::int64_t>(
+                              od_result.diagnostics.choice.chosen_alternative_count
+                          )
+                      )
+            );
+        }
 
         mathfp::CompensatedSum<double> demand_sum;
         mathfp::CompensatedSum<double> assigned_sum;
@@ -717,6 +741,29 @@ namespace timetable::domain::assignment::detail {
                     .ctx("actual_total_demand"        , total_demand.value())
                     .ctx("declared_assigned"          , output.summary.assigned_passengers)
                     .ctx("actual_assigned"            , assigned.value())
+            );
+        }
+
+        if (output.summary.diagnostics.search_alternative_count
+                != output.summary.search_connection_count
+            || output.summary.diagnostics.chosen_alternative_count
+                != output.summary.chosen_connection_count) {
+            return mathfp::unexpected(
+                mathfp::internal_error("assignment output summary diagnostics disagree with compatibility counters")
+                    .ctx("search_connection_count", static_cast<std::int64_t>(output.summary.search_connection_count))
+                    .ctx(
+                          "diagnostic_search_alternatives"
+                        , static_cast<std::int64_t>(
+                              output.summary.diagnostics.search_alternative_count
+                          )
+                      )
+                    .ctx("chosen_connection_count", static_cast<std::int64_t>(output.summary.chosen_connection_count))
+                    .ctx(
+                          "diagnostic_chosen_alternatives"
+                        , static_cast<std::int64_t>(
+                              output.summary.diagnostics.chosen_alternative_count
+                          )
+                      )
             );
         }
 
