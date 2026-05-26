@@ -2,7 +2,9 @@
 
 #include <cstdint>
 #include <cstddef>
+#include <compare>
 #include <functional>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -14,6 +16,7 @@
 #include "timetable/domain/params.hpp"
 #include "timetable/domain/assignment/assignment_period.hpp"
 #include "timetable/domain/assignment/choice/choice_config.hpp"
+#include "timetable/domain/assignment/complete_connection_metrics.hpp"
 #include "timetable/domain/assignment/connection.hpp"
 #include "timetable/domain/assignment/connection_admissibility.hpp"
 #include "timetable/domain/assignment/search_execution_config.hpp"
@@ -161,10 +164,52 @@ namespace timetable::domain::assignment {
         std::vector<SearchTaskResult> task_results{};
     };
 
+    /**
+     * @brief One structural leg of a day-level OD path.
+     *
+     * A DayPathLeg deliberately excludes concrete connection segment ids, trip
+     * ids and clock times. It keeps only the supply structure that determines
+     * the path pattern used for day-level assignment.
+     */
+    struct DayPathLeg final {
+        ConnectionLegKind                kind{};
+        std::optional<RouteSegmentId>    route_segment{};
+        EndpointKey                      physical_from{};
+        EndpointKey                      physical_to{};
+        std::optional<StopOccurrenceKey> occurrence_from{};
+        std::optional<StopOccurrenceKey> occurrence_to{};
+        std::optional<LineId>            line{};
+        std::optional<RouteId>           route{};
+
+        auto operator<=>(const DayPathLeg&) const = default;
+    };
+
+    /**
+     * @brief Canonical day-level path identity for one OD pair.
+     *
+     * SearchConnection is a time-realized timetable connection. DayPathSignature
+     * is the corresponding all-day structural path pattern between zones.
+     */
+    struct DayPathSignature final {
+        ZoneId                  origin{};
+        ZoneId                  destination{};
+        std::vector<DayPathLeg> legs{};
+
+        auto operator<=>(const DayPathSignature&) const = default;
+    };
+
+    struct DayPathAlternative final {
+        DayPathSignature         signature{};
+        SearchConnection         representative;
+        CompleteConnectionMetrics representative_metrics{};
+        ConnectionMetrics         representative_connection_metrics{};
+        std::size_t              timed_connection_count{};
+    };
+
     struct OdDayPairResult final {
         ZoneId                        origin{};
         ZoneId                        destination{};
-        std::vector<SearchConnection> connections{};
+        std::vector<DayPathAlternative> alternatives{};
     };
 
     struct OriginDaySearchResult final {

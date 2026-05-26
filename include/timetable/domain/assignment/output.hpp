@@ -65,6 +65,21 @@ namespace timetable::domain::assignment {
     );
 
     /**
+     * @brief Convert timed connection diagnostics to a search-only output.
+     *
+     * This contour deliberately stops before choice, split, loads and overload
+     * assessment. It is not a demand-assignment result.
+     */
+    mathfp::Expected<AssignmentOutput> build_timed_connection_diagnostics_output(
+          const InputModel&                      input
+        , const ConnectionSearchResult&          search_result
+        , const VehicleJourneyItemCapacityInput& vehicle_journey_item_capacity
+        , const AssignmentExecutionConfig&        execution
+        , const SkimMatrixConfig&                skim_config
+        , const CapacityAwareAssignmentDiagnostics& capacity_aware
+    );
+
+    /**
      * @brief Build a canonical output for the mode where assignment is disabled.
      *
      * The output preserves the OD-time demand structure and contains no

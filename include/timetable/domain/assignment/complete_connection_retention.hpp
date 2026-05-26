@@ -6,6 +6,7 @@
 #include <mathfp/core/expected.hpp>
 
 #include "timetable/domain/assignment/choice/choice_config.hpp"
+#include "timetable/domain/assignment/complete_connection_metrics.hpp"
 #include "timetable/domain/assignment/search_cost.hpp"
 #include "timetable/domain/assignment/search/search.hpp"
 #include "timetable/domain/params.hpp"
@@ -26,14 +27,6 @@ namespace timetable::domain::assignment {
      */
     struct CompleteConnectionDominanceConfig final {
         bool deactivate_dominance_of_direct_connections{ false };
-    };
-
-    struct CompleteConnectionMetrics final {
-        Time          departure{};
-        Time          arrival{};
-        Time          journey_time{};
-        TransferCount transfers{};
-        double        impedance{};
     };
 
     struct CompleteConnectionAlternative final {

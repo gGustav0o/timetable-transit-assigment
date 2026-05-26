@@ -70,6 +70,15 @@ namespace timetable::domain::assignment::detail {
         , const CapacityAwareAssignmentDiagnostics& capacity_aware
     );
 
+    mathfp::Expected<AssignmentOutput> build_timed_connection_diagnostics_output_impl(
+          const InputModel&                      input
+        , const ConnectionSearchResult&          search_result
+        , const VehicleJourneyItemCapacityInput& vehicle_journey_item_capacity
+        , const AssignmentExecutionConfig&        execution
+        , const SkimMatrixConfig&                skim_config
+        , const CapacityAwareAssignmentDiagnostics& capacity_aware
+    );
+
     mathfp::Expected<AssignmentOutput> build_assignment_disabled_output_impl(
           const InputModel&                      input
         , const VehicleJourneyItemCapacityInput& vehicle_journey_item_capacity

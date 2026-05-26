@@ -46,6 +46,24 @@ namespace timetable::domain::assignment {
         );
     }
 
+    mathfp::Expected<AssignmentOutput> build_timed_connection_diagnostics_output(
+          const InputModel&                      input
+        , const ConnectionSearchResult&          search_result
+        , const VehicleJourneyItemCapacityInput& vehicle_journey_item_capacity
+        , const AssignmentExecutionConfig&        execution
+        , const SkimMatrixConfig&                skim_config
+        , const CapacityAwareAssignmentDiagnostics& capacity_aware
+    ) {
+        return detail::build_timed_connection_diagnostics_output_impl(
+              input
+            , search_result
+            , vehicle_journey_item_capacity
+            , execution
+            , skim_config
+            , capacity_aware
+        );
+    }
+
     mathfp::Expected<AssignmentOutput> build_od_day_assignment_output(
           const InputModel&                      input
         , const PreprocessedNetwork&             network

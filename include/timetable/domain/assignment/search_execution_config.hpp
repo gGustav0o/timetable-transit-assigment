@@ -481,4 +481,57 @@ namespace timetable::domain::assignment {
         return make_declared_origin_period_search_execution_config();
     }
 
+    [[nodiscard]] inline constexpr bool is_required_od_day_assignment_profile(
+        const SearchExecutionConfig& config
+    ) noexcept {
+        return config.formulation == AssignmentCalculationFormulation::OdDayAssignment
+            && !config.diagnostic_mode
+            && config.mode == SearchExecutionMode::OriginPeriod
+            && config.origin_scope == SearchOriginScope::DeclaredZones
+            && config.time_domain_source == SearchTimeDomainSource::ServiceDay
+            && config.destination_scope == SearchDestinationScope::DeclaredZones
+            && config.result_projection == SearchResultProjection::OdDayPairs
+            && config.partial_retention_scope == SearchPartialRetentionScope::TreeGlobal
+            && config.max_parallel_batches > 0u
+            && config.max_parallel_batches <= SearchExecutionConfig::kDefaultMaxParallelBatches;
+    }
+
+    [[nodiscard]] inline constexpr bool is_timed_connection_diagnostics_profile(
+        const SearchExecutionConfig& config
+    ) noexcept {
+        return config.formulation == AssignmentCalculationFormulation::TimedConnectionDiagnostics
+            && config.diagnostic_mode
+            && config.mode == SearchExecutionMode::OriginPeriod
+            && config.origin_scope == SearchOriginScope::ActiveDemandOrigins
+            && config.time_domain_source == SearchTimeDomainSource::ServiceDay
+            && config.destination_scope == SearchDestinationScope::DemandDestinations
+            && config.result_projection == SearchResultProjection::DemandTasks
+            && config.partial_retention_scope == SearchPartialRetentionScope::ProjectionSlotLocal
+            && config.max_parallel_batches > 0u;
+    }
+
+    [[nodiscard]] inline constexpr bool is_all_zone_search_diagnostics_profile(
+        const SearchExecutionConfig& config
+    ) noexcept {
+        return config.formulation == AssignmentCalculationFormulation::AllZoneSearch
+            && config.diagnostic_mode
+            && config.mode == SearchExecutionMode::OriginPeriod
+            && config.origin_scope == SearchOriginScope::DeclaredZones
+            && config.time_domain_source == SearchTimeDomainSource::ServiceDay
+            && config.destination_scope == SearchDestinationScope::DeclaredZones
+            && config.result_projection == SearchResultProjection::CompletionTargets
+            && config.partial_retention_scope == SearchPartialRetentionScope::TreeGlobal
+            && config.max_parallel_batches > 0u;
+    }
+
+    [[nodiscard]] inline constexpr bool is_demand_task_assignment_profile(
+        const SearchExecutionConfig& config
+    ) noexcept {
+        return config.formulation == AssignmentCalculationFormulation::DemandTaskAssignment
+            && config.diagnostic_mode
+            && config.result_projection == SearchResultProjection::DemandTasks
+            && config.partial_retention_scope == SearchPartialRetentionScope::ProjectionSlotLocal
+            && config.max_parallel_batches > 0u;
+    }
+
 }  // namespace timetable::domain::assignment

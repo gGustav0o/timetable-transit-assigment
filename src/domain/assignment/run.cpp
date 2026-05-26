@@ -36,6 +36,17 @@ namespace timetable::domain::assignment {
                 );
             }
 
+            if (const auto* timed = std::get_if<AssignmentPipelineTimedDiagnosticsResult>(&result)) {
+                return build_timed_connection_diagnostics_output(
+                      timed->input
+                    , timed->search
+                    , timed->vehicle_journey_item_capacity
+                    , timed->execution
+                    , timed->skim_config
+                    , timed->capacity_aware
+                );
+            }
+
             if (const auto* od_day = std::get_if<AssignmentPipelineOdDayCalculatedResult>(&result)) {
                 return build_od_day_assignment_output(
                       od_day->input

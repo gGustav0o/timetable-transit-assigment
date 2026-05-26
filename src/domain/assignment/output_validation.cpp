@@ -592,6 +592,7 @@ namespace timetable::domain::assignment::detail {
         switch (output.mode) {
         case AssignmentOutputMode::Calculated:
         case AssignmentOutputMode::AllZoneSearch:
+        case AssignmentOutputMode::TimedConnectionDiagnostics:
         case AssignmentOutputMode::AssignmentDisabled:
             break;
         default:
@@ -626,13 +627,14 @@ namespace timetable::domain::assignment::detail {
                 mathfp::internal_error("calculated assignment output cannot mark vehicle journey item loads as skipped by disabled assignment")
             );
         }
-        if (output.mode == AssignmentOutputMode::AllZoneSearch) {
+        if (output.mode == AssignmentOutputMode::AllZoneSearch
+            || output.mode == AssignmentOutputMode::TimedConnectionDiagnostics) {
             if (output.summary.chosen_connection_count != 0
                 || output.summary.demand_share_count != 0
                 || !almost_equal_scalar(output.summary.total_demand_passengers, 0.0)
                 || !almost_equal_scalar(output.summary.assigned_passengers, 0.0)) {
                 return mathfp::unexpected(
-                    mathfp::internal_error("all-zone search output summary must not contain assignment quantities")
+                    mathfp::internal_error("search diagnostics output summary must not contain assignment quantities")
                         .ctx("chosen_connection_count", static_cast<std::int64_t>(output.summary.chosen_connection_count))
                         .ctx("demand_share_count"     , static_cast<std::int64_t>(output.summary.demand_share_count))
                         .ctx("total_demand_passengers", output.summary.total_demand_passengers)
@@ -648,19 +650,19 @@ namespace timetable::domain::assignment::detail {
                 || !output.loads.stop_total_loads.empty()
                 || !output.elementary_segment_loads.items.empty()) {
                 return mathfp::unexpected(
-                    mathfp::internal_error("all-zone search output must not contain load rows")
+                    mathfp::internal_error("search diagnostics output must not contain load rows")
                 );
             }
             if (output.skim_matrix.status == AssignmentSkimMatrixStatus::Calculated) {
                 return mathfp::unexpected(
-                    mathfp::internal_error("all-zone search output cannot contain calculated skim matrix")
+                    mathfp::internal_error("search diagnostics output cannot contain calculated skim matrix")
                 );
             }
             if (output.vehicle_journey_item_loads.status
                     != VehicleJourneyItemOverloadAssessmentStatus::SkippedAssignmentDisabled
                 || !output.vehicle_journey_item_loads.items.empty()) {
                 return mathfp::unexpected(
-                    mathfp::internal_error("all-zone search output must not contain vehicle journey item load rows")
+                    mathfp::internal_error("search diagnostics output must not contain vehicle journey item load rows")
                         .ctx(
                               "vehicle_journey_item_load_status"
                             , std::string(to_string(output.vehicle_journey_item_loads.status))
@@ -678,7 +680,7 @@ namespace timetable::domain::assignment::detail {
                     || !od_result.connections.empty()
                     || !od_result.intervals.empty()) {
                     return mathfp::unexpected(
-                        mathfp::internal_error("all-zone search OD result must contain only search counters")
+                        mathfp::internal_error("search diagnostics OD result must contain only search counters")
                             .ctx("origin"                 , od_result.origin.get())
                             .ctx("destination"            , od_result.destination.get())
                             .ctx("chosen_connection_count", static_cast<std::int64_t>(od_result.chosen_connection_count))

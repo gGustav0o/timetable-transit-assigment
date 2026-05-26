@@ -430,6 +430,23 @@ namespace timetable::domain::assignment::detail {
             };
         }
 
+        AssignmentOutput::Summary build_timed_connection_diagnostics_output_summary(
+            const ConnectionSearchResult& search_result
+        ) {
+            const auto search_count = search_connection_count(search_result);
+            return AssignmentOutput::Summary{
+                  .search_connection_count = search_count
+                , .chosen_connection_count = 0
+                , .demand_share_count      = 0
+                , .total_demand_passengers = 0.0
+                , .assigned_passengers     = 0.0
+                , .diagnostics             = AssignmentOutput::Diagnostics{
+                      .search_alternative_count = search_count
+                    , .chosen_alternative_count = 0
+                  }
+            };
+        }
+
         mathfp::Expected<ElementarySegmentOverloadAssessment> build_elementary_segment_overload_assessment_output(
               const ElementarySegmentLoads&          elementary_segment_loads
             , const std::vector<TimeInterval>&        intervals
@@ -742,6 +759,10 @@ namespace timetable::domain::assignment::detail {
         MATHFP_TRY(validate_capacity_aware_assignment_diagnostics(capacity_aware));
         MATHFP_TRY(validate_od_day_choice_flat_projection(choice_result));
         MATHFP_TRY(validate_split_shares_are_od_day_choice_local(choice_result, split_result));
+        MATHFP_TRY(validate_vehicle_journey_item_load_projection(
+              split_result
+            , elementary_segment_loads
+        ));
 
         const auto search_counts = build_od_day_search_count_map(search_summary);
         const auto chosen_by_od  = grouping::group_connection_ptrs_by_od(choice_result);
@@ -804,6 +825,64 @@ namespace timetable::domain::assignment::detail {
                 )
             );
             output.od_results.push_back(std::move(od_result));
+        }
+
+        output.summary.od_count = output.od_results.size();
+        MATHFP_TRY(validate_output_summary_semantics(output));
+        return output;
+    }
+
+    mathfp::Expected<AssignmentOutput> build_timed_connection_diagnostics_output_impl(
+          const InputModel&
+        , const ConnectionSearchResult&          search_result
+        , const VehicleJourneyItemCapacityInput& vehicle_journey_item_capacity
+        , const AssignmentExecutionConfig&        execution
+        , const SkimMatrixConfig&                skim_config
+        , const CapacityAwareAssignmentDiagnostics& capacity_aware
+    ) {
+        MATHFP_TRY(validate_capacity_aware_assignment_diagnostics(capacity_aware));
+        MATHFP_TRY(validate_assignment_execution_config(execution));
+        MATHFP_TRY(validate_vehicle_journey_item_capacity_input(
+            vehicle_journey_item_capacity
+        ));
+        MATHFP_TRY(validate_skim_matrix_config(skim_config));
+
+        const auto search_counts = grouping::count_connections_by_od(search_result);
+        AssignmentOutput output{
+              .mode        = AssignmentOutputMode::TimedConnectionDiagnostics
+            , .summary     = build_timed_connection_diagnostics_output_summary(search_result)
+            , .od_results  = {}
+            , .loads       = AssignmentLoads{}
+            , .elementary_segment_loads = ElementarySegmentLoads{}
+            , .vehicle_journey_item_loads =
+                  make_skipped_assignment_disabled_vehicle_journey_item_overload_assessment()
+            , .skim_matrix = AssignmentSkimMatrix{
+                  .status = skim_config.enabled
+                      ? AssignmentSkimMatrixStatus::SkippedAssignmentDisabled
+                      : AssignmentSkimMatrixStatus::DisabledByConfig
+              }
+            , .capacity_aware = capacity_aware
+        };
+        output.od_results.reserve(search_counts.size());
+        for (const auto& [od, count] : search_counts) {
+            output.od_results.push_back(
+                AssignmentOdResult{
+                      .origin                  = od.origin
+                    , .destination             = od.destination
+                    , .search_connection_count = count
+                    , .chosen_connection_count = 0
+                    , .total_demand_passengers = 0.0
+                    , .assigned_passengers     = 0.0
+                    , .connections             = {}
+                    , .intervals               = {}
+                    , .diagnostics             = AssignmentOdDiagnostics{
+                          .search = AssignmentOdSearchDiagnostics{
+                              .alternative_count = count
+                          }
+                        , .choice = AssignmentOdChoiceDiagnostics{}
+                      }
+                }
+            );
         }
 
         output.summary.od_count = output.od_results.size();

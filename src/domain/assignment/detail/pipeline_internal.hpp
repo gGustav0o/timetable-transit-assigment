@@ -94,14 +94,7 @@ namespace timetable::domain::assignment::detail {
     inline mathfp::Expected<mathfp::Unit> validate_required_od_day_search_execution(
         const SearchExecutionConfig& config
     ) {
-        if (config.formulation != AssignmentCalculationFormulation::OdDayAssignment
-            || config.diagnostic_mode
-            || config.mode != SearchExecutionMode::OriginPeriod
-            || config.origin_scope != SearchOriginScope::DeclaredZones
-            || config.time_domain_source != SearchTimeDomainSource::ServiceDay
-            || config.destination_scope != SearchDestinationScope::DeclaredZones
-            || config.result_projection != SearchResultProjection::OdDayPairs
-            || config.partial_retention_scope != SearchPartialRetentionScope::TreeGlobal) {
+        if (!is_required_od_day_assignment_profile(config)) {
             return mathfp::unexpected(
                 mathfp::invalid_arg("required assignment must use OD-day search execution contract")
                     .ctx("formulation", std::string(to_string(config.formulation)))
@@ -112,9 +105,69 @@ namespace timetable::domain::assignment::detail {
                     .ctx("destination_scope", std::string(to_string(config.destination_scope)))
                     .ctx("result_projection", std::string(to_string(config.result_projection)))
                     .ctx("partial_retention_scope", std::string(to_string(config.partial_retention_scope)))
+                    .ctx("max_parallel_batches", static_cast<std::int64_t>(config.max_parallel_batches))
+                    .ctx(
+                          "max_supported_parallel_batches"
+                        , static_cast<std::int64_t>(
+                              SearchExecutionConfig::kDefaultMaxParallelBatches
+                          )
+                      )
             );
         }
         return mathfp::kUnit;
+    }
+
+    inline mathfp::Expected<mathfp::Unit> validate_assignment_search_execution_profile(
+        const SearchExecutionConfig& config
+    ) {
+        switch (config.formulation) {
+            case AssignmentCalculationFormulation::OdDayAssignment:
+                return validate_required_od_day_search_execution(config);
+
+            case AssignmentCalculationFormulation::TimedConnectionDiagnostics:
+                if (is_timed_connection_diagnostics_profile(config)) {
+                    return mathfp::kUnit;
+                }
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("timed connection contour is available only as a diagnostic demand-task profile")
+                        .ctx("diagnostic_mode", config.diagnostic_mode ? "true" : "false")
+                        .ctx("mode", std::string(to_string(config.mode)))
+                        .ctx("origin_scope", std::string(to_string(config.origin_scope)))
+                        .ctx("time_domain_source", std::string(to_string(config.time_domain_source)))
+                        .ctx("destination_scope", std::string(to_string(config.destination_scope)))
+                        .ctx("result_projection", std::string(to_string(config.result_projection)))
+                        .ctx("partial_retention_scope", std::string(to_string(config.partial_retention_scope)))
+                );
+
+            case AssignmentCalculationFormulation::AllZoneSearch:
+                if (is_all_zone_search_diagnostics_profile(config)) {
+                    return mathfp::kUnit;
+                }
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("all-zone search is available only as a diagnostic completion-target profile")
+                        .ctx("diagnostic_mode", config.diagnostic_mode ? "true" : "false")
+                        .ctx("mode", std::string(to_string(config.mode)))
+                        .ctx("origin_scope", std::string(to_string(config.origin_scope)))
+                        .ctx("time_domain_source", std::string(to_string(config.time_domain_source)))
+                        .ctx("destination_scope", std::string(to_string(config.destination_scope)))
+                        .ctx("result_projection", std::string(to_string(config.result_projection)))
+                        .ctx("partial_retention_scope", std::string(to_string(config.partial_retention_scope)))
+                );
+
+            case AssignmentCalculationFormulation::DemandTaskAssignment:
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("legacy demand-task timed assignment is disabled; use od_day_assignment for production or timed_connection_diagnostics for search-only diagnostics")
+                        .ctx("diagnostic_mode", config.diagnostic_mode ? "true" : "false")
+                        .ctx("mode", std::string(to_string(config.mode)))
+                        .ctx("result_projection", std::string(to_string(config.result_projection)))
+                        .ctx("partial_retention_scope", std::string(to_string(config.partial_retention_scope)))
+                );
+        }
+
+        return mathfp::unexpected(
+            mathfp::invalid_arg("unsupported assignment calculation formulation")
+                .ctx("formulation", static_cast<std::int64_t>(config.formulation))
+        );
     }
 
     inline mathfp::Expected<mathfp::Unit> validate_od_day_split_sources(
@@ -130,6 +183,41 @@ namespace timetable::domain::assignment::detail {
                 );
             }
         }
+        return mathfp::kUnit;
+    }
+
+    inline mathfp::Expected<mathfp::Unit> validate_od_day_origin_load_result(
+        const OriginDayDemandLoadResult& result
+    ) {
+        MATHFP_TRY(validate_od_day_split_sources(result.split_result));
+        MATHFP_TRY(validate_vehicle_journey_item_load_projection(
+              result.split_result
+            , result.elementary_segment_loads
+        ));
+        if (result.split_result.shares.empty()
+            && !result.elementary_segment_loads.items.empty()) {
+            return mathfp::unexpected(
+                mathfp::internal_error("OD-day elementary loads cannot exist without day-path split shares")
+                    .ctx(
+                          "elementary_loads"
+                        , static_cast<std::int64_t>(
+                              result.elementary_segment_loads.items.size()
+                          )
+                      )
+            );
+        }
+        return mathfp::kUnit;
+    }
+
+    inline mathfp::Expected<mathfp::Unit> validate_od_day_primary_load_contour(
+          const DemandSplitResult&       split
+        , const ElementarySegmentLoads&  elementary_segment_loads
+    ) {
+        MATHFP_TRY(validate_od_day_split_sources(split));
+        MATHFP_TRY(validate_vehicle_journey_item_load_projection(
+              split
+            , elementary_segment_loads
+        ));
         return mathfp::kUnit;
     }
 
@@ -160,6 +248,22 @@ namespace timetable::domain::assignment::detail {
             log(
                   "assignment search execution is diagnostic; it is not the required OD-day assignment mode"
                 , LogLevel::Warning
+            );
+        }
+        if (config.formulation == AssignmentCalculationFormulation::TimedConnectionDiagnostics) {
+            log(
+                  "timed connection contour is preserved only for diagnostics; production loading must use OD-day DayPath alternatives"
+                , LogLevel::Warning
+            );
+        }
+        if (config.formulation == AssignmentCalculationFormulation::OdDayAssignment) {
+            log(
+                fmt::format(
+                      "production OD-day profile: day_path_search=true load_source=day_path primary_load=elementary_segment_loads workers={}/{}"
+                    , config.max_parallel_batches
+                    , SearchExecutionConfig::kDefaultMaxParallelBatches
+                )
+                , LogLevel::Info
             );
         }
     }
@@ -627,7 +731,7 @@ namespace timetable::domain::assignment::detail {
                 OdDayPairConnectionCount{
                       .origin           = pair_result.origin
                     , .destination      = pair_result.destination
-                    , .connection_count = pair_result.connections.size()
+                    , .connection_count = pair_result.alternatives.size()
                 }
             );
         }
@@ -731,6 +835,7 @@ namespace timetable::domain::assignment::detail {
                           , admissibility_config
                       )
                   );
+                  MATHFP_TRY(validate_od_day_origin_load_result(origin_load));
                   append_origin_day_choice_result(
                         accumulation
                       , std::move(origin_load.alternatives)
@@ -754,7 +859,10 @@ namespace timetable::domain::assignment::detail {
                   accumulation.elementary_segment_loads
             )
         );
-        MATHFP_TRY(validate_od_day_split_sources(accumulation.split));
+        MATHFP_TRY(validate_od_day_primary_load_contour(
+              accumulation.split
+            , elementary_segment_loads
+        ));
 
         log(
             fmt::format(
@@ -996,6 +1104,7 @@ namespace timetable::domain::assignment::detail {
                       )
             };
         }
+        MATHFP_TRY(validate_assignment_search_execution_profile(input.search_execution));
 
         MATHFP_TRY_LET(
               PreprocessedNetwork
@@ -1003,8 +1112,8 @@ namespace timetable::domain::assignment::detail {
             , run_validated_preprocessing_step(input)
         );
 
-        if (input.search_execution.result_projection
-            == SearchResultProjection::CompletionTargets) {
+        if (input.search_execution.formulation
+            == AssignmentCalculationFormulation::AllZoneSearch) {
             MATHFP_TRY_LET(
                   SearchStepResult
                 , search_step
@@ -1029,8 +1138,8 @@ namespace timetable::domain::assignment::detail {
             };
         }
 
-        if (input.search_execution.result_projection
-            == SearchResultProjection::OdDayPairs) {
+        if (input.search_execution.formulation
+            == AssignmentCalculationFormulation::OdDayAssignment) {
             MATHFP_TRY_LET(
                   AssignmentPipelineOdDayCalculatedResult
                 , result
@@ -1040,6 +1149,36 @@ namespace timetable::domain::assignment::detail {
                 )
             );
             return result;
+        }
+
+        if (input.search_execution.formulation
+            == AssignmentCalculationFormulation::TimedConnectionDiagnostics) {
+            timetable::infra::progress::both(
+                  "assignment: timed connection diagnostics contour"
+                , timetable::infra::LogLevel::Warning
+            );
+            if (capacity_aware_search_enabled(input) || capacity_aware_split_enabled(input)) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("timed connection diagnostics contour does not support capacity-aware assignment")
+                );
+            }
+            MATHFP_TRY_LET(
+                  SearchStepResult
+                , search_step
+                , run_validated_search_step(network, input, VehicleJourneyItemLoadState{})
+            );
+            return AssignmentPipelineTimedDiagnosticsResult{
+                  .input                         = std::move(input.input)
+                , .vehicle_journey_item_capacity = std::move(input.vehicle_journey_item_capacity)
+                , .network                       = std::move(network)
+                , .search                        = std::move(search_step.result)
+                , .execution                     = input.execution
+                , .skim_config                   = input.skim_matrix
+                , .capacity_aware                =
+                      make_capacity_aware_assignment_disabled_diagnostics(
+                          input.capacity_aware_assignment.penalty_policy
+                      )
+            };
         }
 
         if (capacity_aware_search_enabled(input)) {

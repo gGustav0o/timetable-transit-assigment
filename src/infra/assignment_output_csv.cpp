@@ -125,6 +125,8 @@ namespace timetable::infra {
                     return "calculated";
                 case timetable::domain::AssignmentOutputMode::AllZoneSearch:
                     return "all_zone_search";
+                case timetable::domain::AssignmentOutputMode::TimedConnectionDiagnostics:
+                    return "timed_connection_diagnostics";
                 case timetable::domain::AssignmentOutputMode::AssignmentDisabled:
                     return "assignment_disabled";
             }

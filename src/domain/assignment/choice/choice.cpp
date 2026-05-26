@@ -1,8 +1,10 @@
 #include "timetable/domain/assignment/choice/choice.hpp"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <iterator>
+#include <limits>
 #include <map>
 #include <span>
 #include <utility>
@@ -41,6 +43,64 @@ namespace timetable::domain::assignment {
         struct ChoiceOdDaySelection final {
             OdDayChoicePairResult result{};
         };
+
+        CompleteConnectionMetricSummary summarize_day_path_alternatives(
+            std::span<const DayPathAlternative> alternatives
+        ) noexcept {
+            CompleteConnectionMetricSummary summary{
+                  .min_impedance    = std::numeric_limits<double>::infinity()
+                , .min_journey_time = std::numeric_limits<double>::infinity()
+                , .min_transfers    = std::numeric_limits<double>::infinity()
+                , .empty            = alternatives.empty()
+            };
+            for (const auto& alternative : alternatives) {
+                summary.min_impedance = std::min(
+                      summary.min_impedance
+                    , alternative.representative_metrics.impedance
+                );
+                summary.min_journey_time = std::min(
+                      summary.min_journey_time
+                    , alternative.representative_metrics.journey_time.value()
+                );
+                summary.min_transfers = std::min(
+                      summary.min_transfers
+                    , static_cast<double>(alternative.representative_metrics.transfers.get())
+                );
+            }
+            return summary;
+        }
+
+        std::vector<DayPathAlternative> choose_day_path_alternatives(
+              std::vector<DayPathAlternative> alternatives
+            , const ChoiceTolerances&         tolerances
+            , ChoiceRolloutStage              rollout_stage
+        ) {
+            if (rollout_stage == ChoiceRolloutStage::ExactOnly) {
+                return alternatives;
+            }
+
+            const auto summary = summarize_day_path_alternatives(
+                std::span<const DayPathAlternative>{
+                      alternatives.data()
+                    , alternatives.size()
+                }
+            );
+            alternatives.erase(
+                  std::remove_if(
+                        alternatives.begin()
+                      , alternatives.end()
+                      , [&](const DayPathAlternative& alternative) {
+                            return !within_complete_connection_tolerances(
+                                  alternative.representative_metrics
+                                , summary
+                                , tolerances
+                            );
+                        }
+                    )
+                , alternatives.end()
+            );
+            return alternatives;
+        }
 
         std::vector<const SearchConnection*> admissible_task_connection_ptrs(
               const SearchTaskResult&            task_result
@@ -105,26 +165,22 @@ namespace timetable::domain::assignment {
             , const SearchCostContext& search_cost
             , const ChoiceConfig&     config
         ) {
-            MATHFP_TRY_LET(
-                  std::vector<DayPathAlternative>
-                , alternatives
-                , retain_day_path_alternatives(
-                      pair_result.connections
-                    , search_cost
-                    , IntervalId{ 0 }
-                    , params.choice_tolerances
-                    , config.rollout_stage
-                  )
-            );
-            if (alternatives.size() != pair_result.connections.size()) {
-                return mathfp::unexpected(
-                    mathfp::internal_error("OD-day choice input contains duplicate day paths")
-                        .ctx("origin", pair_result.origin.get())
-                        .ctx("destination", pair_result.destination.get())
-                        .ctx("input", static_cast<std::int64_t>(pair_result.connections.size()))
-                        .ctx("paths", static_cast<std::int64_t>(alternatives.size()))
-                );
+            (void)search_cost;
+            std::map<DayPathSignature, bool> signatures;
+            for (const auto& alternative : pair_result.alternatives) {
+                if (!signatures.emplace(alternative.signature, true).second) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("OD-day choice input contains duplicate day-path alternatives")
+                            .ctx("origin", pair_result.origin.get())
+                            .ctx("destination", pair_result.destination.get())
+                    );
+                }
             }
+            auto alternatives = choose_day_path_alternatives(
+                  pair_result.alternatives
+                , params.choice_tolerances
+                , config.rollout_stage
+            );
             auto representatives = day_path_representative_connections(
                 std::span<const DayPathAlternative>{
                       alternatives.data()
@@ -285,7 +341,7 @@ namespace timetable::domain::assignment {
                           "OD-day choice pair: origin = {:>6}  destination = {:>6}  input = {:>5}  chosen = {:>5}"
                         , pair_result.origin.get()
                         , pair_result.destination.get()
-                        , pair_result.connections.size()
+                        , pair_result.alternatives.size()
                         , chosen_pair.connections.size()
                     )
                     , LogLevel::Info

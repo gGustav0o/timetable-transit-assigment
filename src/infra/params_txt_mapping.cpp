@@ -1099,8 +1099,8 @@ namespace timetable::infra::params_txt::detail {
                     switch (parsed_projection) {
                         case SearchResultProjection::DemandTasks:
                             config.formulation =
-                                AssignmentCalculationFormulation::DemandTaskAssignment;
-                            config.diagnostic_mode = false;
+                                AssignmentCalculationFormulation::TimedConnectionDiagnostics;
+                            config.diagnostic_mode = true;
                             break;
 
                         case SearchResultProjection::OdDayPairs:

@@ -16,40 +16,6 @@
 namespace timetable::domain::assignment {
 
     /**
-     * @brief One structural leg of a day-level OD path.
-     *
-     * A DayPathLeg deliberately excludes concrete connection segment ids, trip
-     * ids and clock times. It keeps only the supply structure that determines
-     * the path pattern used for day-level assignment.
-     */
-    struct DayPathLeg final {
-        ConnectionLegKind                kind{};
-        std::optional<RouteSegmentId>    route_segment{};
-        EndpointKey                      physical_from{};
-        EndpointKey                      physical_to{};
-        std::optional<StopOccurrenceKey> occurrence_from{};
-        std::optional<StopOccurrenceKey> occurrence_to{};
-        std::optional<LineId>            line{};
-        std::optional<RouteId>           route{};
-
-        auto operator<=>(const DayPathLeg&) const = default;
-    };
-
-    /**
-     * @brief Canonical day-level path identity for one OD pair.
-     *
-     * SearchConnection is a time-realized timetable connection. DayPathSignature
-     * is the corresponding all-day structural path pattern between zones.
-     */
-    struct DayPathSignature final {
-        ZoneId                  origin{};
-        ZoneId                  destination{};
-        std::vector<DayPathLeg> legs{};
-
-        auto operator<=>(const DayPathSignature&) const = default;
-    };
-
-    /**
      * @brief Incremental structural path prefix used by OD-day search.
      *
      * The prefix is deliberately clock-free: it grows while the timetable
@@ -62,14 +28,6 @@ namespace timetable::domain::assignment {
         std::vector<DayPathLeg> legs{};
 
         auto operator<=>(const DayPathPrefix&) const = default;
-    };
-
-    struct DayPathAlternative final {
-        DayPathSignature         signature{};
-        SearchConnection         representative;
-        CompleteConnectionMetrics representative_metrics{};
-        ConnectionMetrics         representative_connection_metrics{};
-        std::size_t              timed_connection_count{};
     };
 
     /**

@@ -99,6 +99,8 @@ namespace timetable::domain::assignment::projection {
                 return "calculated";
             case AssignmentOutputMode::AllZoneSearch:
                 return "all_zone_search";
+            case AssignmentOutputMode::TimedConnectionDiagnostics:
+                return "timed_connection_diagnostics";
             case AssignmentOutputMode::AssignmentDisabled:
                 return "assignment_disabled";
             }

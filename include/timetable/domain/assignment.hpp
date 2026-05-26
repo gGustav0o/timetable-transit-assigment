@@ -19,6 +19,7 @@
 #include "timetable/domain/assignment/connection_admissibility.hpp"
 #include "timetable/domain/assignment/day_path.hpp"
 #include "timetable/domain/assignment/execution_config.hpp"
+#include "timetable/domain/assignment/od_day_path_search.hpp"
 #include "timetable/domain/assignment/search/search.hpp"
 #include "timetable/domain/assignment/search_execution_config.hpp"
 #include "timetable/domain/assignment/search_pruning_config.hpp"
@@ -287,6 +288,7 @@ namespace timetable::domain {
     enum class AssignmentOutputMode {
         Calculated,
         AllZoneSearch,
+        TimedConnectionDiagnostics,
         AssignmentDisabled
     };
 
