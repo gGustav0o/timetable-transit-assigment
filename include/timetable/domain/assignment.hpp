@@ -273,7 +273,12 @@ namespace timetable::domain {
     };
 
     /**
-     * @brief Demand-induced public-transport loads derived from split shares.
+     * @brief VISUM comparison aggregates derived from the loaded day-path supports.
+     *
+     * This is not the production load profile of the OD-day formulation.
+     * Production loading and overload assessment use elementary_segment_loads;
+     * these rows are secondary line/route/stop summaries for comparison and
+     * reporting.
      */
     struct AssignmentLoads final {
         std::vector<AssignmentLineLoad>    line_loads{};

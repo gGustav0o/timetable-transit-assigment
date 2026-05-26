@@ -452,10 +452,10 @@ namespace timetable::domain::assignment::detail {
                 );
             }
 
-            const auto representative_signature = day_path_signature_of(share.connection);
-            if (!(representative_signature == share.day_path)) {
+            const auto support_signature = day_path_signature_of(share.connection);
+            if (!(support_signature == share.day_path)) {
                 return mathfp::unexpected(
-                    mathfp::internal_error("day-path VISUM/load share signature disagrees with representative connection")
+                    mathfp::internal_error("day-path VISUM/load share signature disagrees with selected support connection")
                         .ctx("share_index", static_cast<std::int64_t>(share_index))
                         .ctx("origin"     , share.origin.get())
                         .ctx("destination", share.destination.get())
@@ -644,6 +644,11 @@ namespace timetable::domain::assignment::detail {
     mathfp::Expected<AssignmentLoads> build_day_path_assignment_loads(
         const DemandSplitResult& split_result
     ) {
+        /*
+         * These are VISUM-facing aggregates over the support selected by split
+         * for each OD-day path share. They are intentionally downstream of the
+         * primary elementary_segment_loads contour.
+         */
         for (std::size_t i = 0; i < split_result.shares.size(); ++i) {
             MATHFP_TRY(validate_day_path_load_share(split_result.shares[i], i));
         }

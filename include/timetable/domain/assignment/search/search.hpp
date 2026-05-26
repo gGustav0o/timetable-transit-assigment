@@ -198,12 +198,20 @@ namespace timetable::domain::assignment {
         auto operator<=>(const DayPathSignature&) const = default;
     };
 
-    struct DayPathAlternative final {
-        DayPathSignature         signature{};
-        SearchConnection         representative;
+    struct DayPathIdentity final {
+        DayPathSignature signature{};
+    };
+
+    struct DayPathTimedSupport final {
+        SearchConnection          representative;
         CompleteConnectionMetrics representative_metrics{};
         ConnectionMetrics         representative_connection_metrics{};
-        std::size_t              timed_connection_count{};
+        std::vector<SearchConnection> connections{};
+    };
+
+    struct DayPathAlternative final {
+        DayPathIdentity     identity{};
+        DayPathTimedSupport support;
     };
 
     struct OdDayPairResult final {

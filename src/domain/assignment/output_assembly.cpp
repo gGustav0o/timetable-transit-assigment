@@ -87,8 +87,10 @@ namespace timetable::domain::assignment::detail {
                           .origin      = pair_result.origin
                         , .destination = pair_result.destination
                     }];
-                    for (const auto& connection : pair_result.connections) {
-                        od_traces[grouping::connection_trace_key(connection)] = true;
+                    for (const auto& alternative : pair_result.alternatives) {
+                        for (const auto& connection : day_path_support_connections(alternative)) {
+                            od_traces[grouping::connection_trace_key(connection)] = true;
+                        }
                     }
                 }
             }
@@ -106,7 +108,7 @@ namespace timetable::domain::assignment::detail {
                         , .destination = pair_result.destination
                     }];
                     for (const auto& alternative : pair_result.alternatives) {
-                        od_paths[alternative.signature] = true;
+                        od_paths[day_path_signature_of(alternative)] = true;
                     }
                 }
             }
@@ -178,15 +180,25 @@ namespace timetable::domain::assignment::detail {
                     for (std::size_t i = 0; i < pair_result.alternatives.size(); ++i) {
                         const auto& alternative = pair_result.alternatives[i];
                         const auto& representative = pair_result.connections[i];
-                        if (grouping::connection_trace_key(alternative.representative)
+                        if (grouping::connection_trace_key(day_path_representative_connection(alternative))
                                 != grouping::connection_trace_key(representative)
-                            || alternative.signature != day_path_signature_of(representative)) {
+                            || day_path_signature_of(alternative) != day_path_signature_of(representative)) {
                             return mathfp::unexpected(
                                 mathfp::internal_error("output input: OD-day choice representative is not the projection of its day path")
                                     .ctx("origin"     , pair_result.origin.get())
                                     .ctx("destination", pair_result.destination.get())
                                     .ctx("path_index" , static_cast<std::int64_t>(i))
                             );
+                        }
+                        for (const auto& support : day_path_support_connections(alternative)) {
+                            if (day_path_signature_of(alternative) != day_path_signature_of(support)) {
+                                return mathfp::unexpected(
+                                    mathfp::internal_error("output input: OD-day support connection is not a support of its day-path identity")
+                                        .ctx("origin"     , pair_result.origin.get())
+                                        .ctx("destination", pair_result.destination.get())
+                                        .ctx("path_index" , static_cast<std::int64_t>(i))
+                                );
+                            }
                         }
                     }
                     for (const auto& connection : pair_result.connections) {
@@ -676,6 +688,12 @@ namespace timetable::domain::assignment::detail {
         const auto demand_by_od  = grouping::group_demand_entries_by_od(input.demand);
         const auto shares_by_key = grouping::group_shares_by_demand_key(split_result.shares);
         const auto all_ods       = collect_all_ods(search_counts, chosen_by_od, demand_by_od);
+
+        /*
+         * OD-day production loading is elementary_segment_loads. AssignmentLoads
+         * is materialized only as VISUM-facing line/route/stop aggregates over
+         * the support selected by the split layer.
+         */
         MATHFP_TRY_LET(
               AssignmentLoads
             , loads

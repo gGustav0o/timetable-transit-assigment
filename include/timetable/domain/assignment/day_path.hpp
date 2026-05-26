@@ -8,6 +8,7 @@
 #include <vector>
 
 #include <mathfp/core/expected.hpp>
+#include <mathfp/core/unit.hpp>
 
 #include "timetable/domain/assignment/complete_connection_retention.hpp"
 #include "timetable/domain/assignment/search/search.hpp"
@@ -82,6 +83,27 @@ namespace timetable::domain::assignment {
 
     [[nodiscard]] DayPathSignature day_path_signature_of(
         const SearchConnection& connection
+    );
+
+    [[nodiscard]] const DayPathSignature& day_path_signature_of(
+        const DayPathAlternative& alternative
+    ) noexcept;
+
+    [[nodiscard]] const DayPathTimedSupport& day_path_support_of(
+        const DayPathAlternative& alternative
+    ) noexcept;
+
+    [[nodiscard]] const SearchConnection& day_path_representative_connection(
+        const DayPathAlternative& alternative
+    ) noexcept;
+
+    [[nodiscard]] std::span<const SearchConnection> day_path_support_connections(
+        const DayPathAlternative& alternative
+    ) noexcept;
+
+    [[nodiscard]] mathfp::Expected<mathfp::Unit> validate_day_path_alternative(
+          const DayPathAlternative& alternative
+        , std::size_t               alternative_index
     );
 
     [[nodiscard]] mathfp::Expected<DayPathRetentionDecision> retain_day_path_alternative(

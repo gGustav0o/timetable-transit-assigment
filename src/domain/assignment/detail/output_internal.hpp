@@ -30,6 +30,10 @@ namespace timetable::domain::assignment::detail {
         const DemandSplitResult& split_result
     );
 
+    /**
+     * Build secondary VISUM comparison aggregates from day-path split shares.
+     * The OD-day production load profile remains ElementarySegmentLoads.
+     */
     mathfp::Expected<AssignmentLoads> build_day_path_assignment_loads(
         const DemandSplitResult& split_result
     );

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cstdint>
 #include <iterator>
 #include <map>
 #include <optional>
@@ -177,6 +178,25 @@ namespace timetable::domain::assignment::detail {
             if (split.shares[i].source != DemandShareAlternativeSource::DayPath) {
                 return mathfp::unexpected(
                     mathfp::internal_error("OD-day assignment split contains non-day-path share")
+                        .ctx("share_index", static_cast<std::int64_t>(i))
+                        .ctx("origin", split.shares[i].origin.get())
+                        .ctx("destination", split.shares[i].destination.get())
+                );
+            }
+            if (split.shares[i].day_path.origin != split.shares[i].origin
+                || split.shares[i].day_path.destination != split.shares[i].destination) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("OD-day split share day-path identity disagrees with OD demand key")
+                        .ctx("share_index", static_cast<std::int64_t>(i))
+                        .ctx("origin", split.shares[i].origin.get())
+                        .ctx("destination", split.shares[i].destination.get())
+                        .ctx("path_origin", split.shares[i].day_path.origin.get())
+                        .ctx("path_destination", split.shares[i].day_path.destination.get())
+                );
+            }
+            if (day_path_signature_of(split.shares[i].connection) != split.shares[i].day_path) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("OD-day split share support connection disagrees with day-path identity")
                         .ctx("share_index", static_cast<std::int64_t>(i))
                         .ctx("origin", split.shares[i].origin.get())
                         .ctx("destination", split.shares[i].destination.get())

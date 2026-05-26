@@ -527,11 +527,8 @@ namespace timetable::domain::assignment {
     [[nodiscard]] inline constexpr bool is_demand_task_assignment_profile(
         const SearchExecutionConfig& config
     ) noexcept {
-        return config.formulation == AssignmentCalculationFormulation::DemandTaskAssignment
-            && config.diagnostic_mode
-            && config.result_projection == SearchResultProjection::DemandTasks
-            && config.partial_retention_scope == SearchPartialRetentionScope::ProjectionSlotLocal
-            && config.max_parallel_batches > 0u;
+        (void)config;
+        return false;
     }
 
 }  // namespace timetable::domain::assignment

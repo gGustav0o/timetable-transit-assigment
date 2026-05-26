@@ -106,10 +106,10 @@ namespace timetable::domain::assignment {
                 );
             }
 
-            const auto representative_signature = day_path_signature_of(share.connection);
-            if (!(representative_signature == share.day_path)) {
+            const auto support_signature = day_path_signature_of(share.connection);
+            if (!(support_signature == share.day_path)) {
                 return mathfp::unexpected(
-                    mathfp::internal_error("day-path split share signature disagrees with representative connection")
+                    mathfp::internal_error("day-path split share signature disagrees with selected support connection")
                         .ctx("share_index", static_cast<std::int64_t>(share_index))
                         .ctx("origin"     , share.origin.get())
                         .ctx("destination", share.destination.get())

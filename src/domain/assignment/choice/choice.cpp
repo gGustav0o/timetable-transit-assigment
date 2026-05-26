@@ -56,15 +56,15 @@ namespace timetable::domain::assignment {
             for (const auto& alternative : alternatives) {
                 summary.min_impedance = std::min(
                       summary.min_impedance
-                    , alternative.representative_metrics.impedance
+                    , alternative.support.representative_metrics.impedance
                 );
                 summary.min_journey_time = std::min(
                       summary.min_journey_time
-                    , alternative.representative_metrics.journey_time.value()
+                    , alternative.support.representative_metrics.journey_time.value()
                 );
                 summary.min_transfers = std::min(
                       summary.min_transfers
-                    , static_cast<double>(alternative.representative_metrics.transfers.get())
+                    , static_cast<double>(alternative.support.representative_metrics.transfers.get())
                 );
             }
             return summary;
@@ -91,7 +91,7 @@ namespace timetable::domain::assignment {
                       , alternatives.end()
                       , [&](const DayPathAlternative& alternative) {
                             return !within_complete_connection_tolerances(
-                                  alternative.representative_metrics
+                                  alternative.support.representative_metrics
                                 , summary
                                 , tolerances
                             );
@@ -167,8 +167,10 @@ namespace timetable::domain::assignment {
         ) {
             (void)search_cost;
             std::map<DayPathSignature, bool> signatures;
-            for (const auto& alternative : pair_result.alternatives) {
-                if (!signatures.emplace(alternative.signature, true).second) {
+            for (std::size_t i = 0; i < pair_result.alternatives.size(); ++i) {
+                const auto& alternative = pair_result.alternatives[i];
+                MATHFP_TRY(validate_day_path_alternative(alternative, i));
+                if (!signatures.emplace(day_path_signature_of(alternative), true).second) {
                     return mathfp::unexpected(
                         mathfp::internal_error("OD-day choice input contains duplicate day-path alternatives")
                             .ctx("origin", pair_result.origin.get())

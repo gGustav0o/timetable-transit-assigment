@@ -55,6 +55,18 @@ namespace timetable::domain::assignment {
         SupportSetWithRepresentative
     };
 
+    /**
+     * @brief Day-level path feasibility semantics.
+     *
+     * A structural OD-day path is feasible iff its structural leg sequence has
+     * at least one chronologically feasible chain of concrete timetable support
+     * labels. The public alternative remains day-level; the concrete labels are
+     * search witnesses and representative/metric support, not OD alternatives.
+     */
+    enum class OdDayPathFeasibilitySemantics : std::uint8_t {
+        ExistsTimedSupportLabelPath
+    };
+
     struct OdDayPathSearchContract final {
         OdDayPathSearchHorizon        horizon{ OdDayPathSearchHorizon::ServiceDay };
         OdDayPathTreeContract         tree_contract{ OdDayPathTreeContract::OneTreePerDeclaredOrigin };
@@ -63,6 +75,9 @@ namespace timetable::domain::assignment {
         };
         OdDayPathTimedSupportPolicy   timed_support_policy{
             OdDayPathTimedSupportPolicy::SupportSetWithRepresentative
+        };
+        OdDayPathFeasibilitySemantics feasibility_semantics{
+            OdDayPathFeasibilitySemantics::ExistsTimedSupportLabelPath
         };
         std::size_t                   declared_origin_count{};
     };
@@ -75,6 +90,8 @@ namespace timetable::domain::assignment {
             , .tree_contract          = OdDayPathTreeContract::OneTreePerDeclaredOrigin
             , .demand_interval_policy = OdDayPathDemandIntervalPolicy::AssignmentOnly
             , .timed_support_policy   = OdDayPathTimedSupportPolicy::SupportSetWithRepresentative
+            , .feasibility_semantics   =
+                OdDayPathFeasibilitySemantics::ExistsTimedSupportLabelPath
             , .declared_origin_count  = declared_origin_count
         };
     }
@@ -85,7 +102,9 @@ namespace timetable::domain::assignment {
         return contract.horizon == OdDayPathSearchHorizon::ServiceDay
             && contract.tree_contract == OdDayPathTreeContract::OneTreePerDeclaredOrigin
             && contract.demand_interval_policy == OdDayPathDemandIntervalPolicy::AssignmentOnly
-            && contract.timed_support_policy == OdDayPathTimedSupportPolicy::SupportSetWithRepresentative;
+            && contract.timed_support_policy == OdDayPathTimedSupportPolicy::SupportSetWithRepresentative
+            && contract.feasibility_semantics
+                == OdDayPathFeasibilitySemantics::ExistsTimedSupportLabelPath;
     }
 
     /**

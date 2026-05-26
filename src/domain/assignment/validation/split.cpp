@@ -185,13 +185,13 @@ namespace timetable::domain::assignment {
                     return mathfp::kUnit;
 
                 case DemandShareAlternativeSource::DayPath: {
-                    const auto representative_signature =
+                    const auto support_signature =
                         day_path_signature_of(share.connection);
-                    if (representative_signature == share.day_path) {
+                    if (support_signature == share.day_path) {
                         return mathfp::kUnit;
                     }
                     return mathfp::unexpected(
-                        mathfp::internal_error("split output day-path share signature disagrees with representative connection")
+                        mathfp::internal_error("split output day-path share signature disagrees with selected support connection")
                             .ctx("share_index", static_cast<std::int64_t>(share_index))
                             .ctx("origin"     , share.origin.get())
                             .ctx("destination", share.destination.get())

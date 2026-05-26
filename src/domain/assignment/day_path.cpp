@@ -1,9 +1,11 @@
 #include "timetable/domain/assignment/day_path.hpp"
 
 #include <algorithm>
+#include <cstdint>
 #include <limits>
 #include <utility>
 
+#include <mathfp/core/error.hpp>
 #include <mathfp/core/try.hpp>
 
 namespace timetable::domain::assignment {
@@ -99,6 +101,75 @@ namespace timetable::domain::assignment {
         return signature;
     }
 
+    const DayPathSignature& day_path_signature_of(
+        const DayPathAlternative& alternative
+    ) noexcept {
+        return alternative.identity.signature;
+    }
+
+    const DayPathTimedSupport& day_path_support_of(
+        const DayPathAlternative& alternative
+    ) noexcept {
+        return alternative.support;
+    }
+
+    const SearchConnection& day_path_representative_connection(
+        const DayPathAlternative& alternative
+    ) noexcept {
+        return alternative.support.representative;
+    }
+
+    std::span<const SearchConnection> day_path_support_connections(
+        const DayPathAlternative& alternative
+    ) noexcept {
+        return std::span<const SearchConnection>{
+              alternative.support.connections.data()
+            , alternative.support.connections.size()
+        };
+    }
+
+    mathfp::Expected<mathfp::Unit> validate_day_path_alternative(
+          const DayPathAlternative& alternative
+        , std::size_t               alternative_index
+    ) {
+        const auto& identity = day_path_signature_of(alternative);
+        if (alternative.support.connections.empty()) {
+            return mathfp::unexpected(
+                mathfp::internal_error("day-path alternative has empty timed support")
+                    .ctx("alternative_index", static_cast<std::int64_t>(alternative_index))
+                    .ctx("origin", identity.origin.get())
+                    .ctx("destination", identity.destination.get())
+            );
+        }
+
+        const auto representative_signature =
+            day_path_signature_of(alternative.support.representative);
+        if (!(representative_signature == identity)) {
+            return mathfp::unexpected(
+                mathfp::internal_error("day-path representative disagrees with structural identity")
+                    .ctx("alternative_index", static_cast<std::int64_t>(alternative_index))
+                    .ctx("origin", identity.origin.get())
+                    .ctx("destination", identity.destination.get())
+            );
+        }
+
+        for (std::size_t i = 0; i < alternative.support.connections.size(); ++i) {
+            const auto support_signature =
+                day_path_signature_of(alternative.support.connections[i]);
+            if (!(support_signature == identity)) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("day-path timed support disagrees with structural identity")
+                        .ctx("alternative_index", static_cast<std::int64_t>(alternative_index))
+                        .ctx("support_index", static_cast<std::int64_t>(i))
+                        .ctx("origin", identity.origin.get())
+                        .ctx("destination", identity.destination.get())
+                );
+            }
+        }
+
+        return mathfp::kUnit;
+    }
+
     bool day_path_retention_empty(
         const DayPathRetention& retention
     ) noexcept {
@@ -127,14 +198,20 @@ namespace timetable::domain::assignment {
 
         auto it = retention.alternatives_by_signature.find(signature);
         if (it == retention.alternatives_by_signature.end()) {
+            std::vector<SearchConnection> support_connections;
+            support_connections.push_back(connection);
             auto alternative = DayPathAlternative{
-                  .signature                         = std::move(signature)
-                , .representative                    = std::move(connection)
-                , .representative_metrics            = metrics
-                , .representative_connection_metrics = connection_metrics
-                , .timed_connection_count            = 1u
+                  .identity = DayPathIdentity{
+                      .signature = std::move(signature)
+                  }
+                , .support = DayPathTimedSupport{
+                      .representative                    = std::move(connection)
+                    , .representative_metrics            = metrics
+                    , .representative_connection_metrics = connection_metrics
+                    , .connections                       = std::move(support_connections)
+                  }
             };
-            const auto key = alternative.signature;
+            const auto key = alternative.identity.signature;
             retention.alternatives_by_signature.emplace(
                   key
                 , std::move(alternative)
@@ -147,20 +224,20 @@ namespace timetable::domain::assignment {
         }
 
         auto& alternative = it->second;
-        ++alternative.timed_connection_count;
+        alternative.support.connections.push_back(connection);
         const auto replaced = better_day_path_representative(
               metrics
-            , alternative.representative_metrics
+            , alternative.support.representative_metrics
         );
         if (replaced) {
-            alternative.representative                    = std::move(connection);
-            alternative.representative_metrics            = metrics;
-            alternative.representative_connection_metrics = connection_metrics;
+            alternative.support.representative                    = std::move(connection);
+            alternative.support.representative_metrics            = metrics;
+            alternative.support.representative_connection_metrics = connection_metrics;
         }
         return DayPathRetentionDecision{
               .inserted_path          = false
             , .replaced_representative = replaced
-            , .timed_connection_count = alternative.timed_connection_count
+            , .timed_connection_count = alternative.support.connections.size()
         };
     }
 
@@ -176,12 +253,18 @@ namespace timetable::domain::assignment {
             , complete_connection_metrics(connection, search_cost, interval)
         );
         const auto connection_metrics = metrics_of(connection);
+        std::vector<SearchConnection> support_connections;
+        support_connections.push_back(connection);
         return DayPathAlternative{
-              .signature                         = std::move(signature)
-            , .representative                    = std::move(connection)
-            , .representative_metrics            = metrics
-            , .representative_connection_metrics = connection_metrics
-            , .timed_connection_count            = 1u
+              .identity = DayPathIdentity{
+                  .signature = std::move(signature)
+              }
+            , .support = DayPathTimedSupport{
+                  .representative                    = std::move(connection)
+                , .representative_metrics            = metrics
+                , .representative_connection_metrics = connection_metrics
+                , .connections                       = std::move(support_connections)
+              }
         };
     }
 
@@ -189,9 +272,9 @@ namespace timetable::domain::assignment {
         const DayPathAlternative& alternative
     ) noexcept {
         return DayPathMetrics{
-              .complete               = alternative.representative_metrics
-            , .representative         = alternative.representative_connection_metrics
-            , .timed_connection_count = alternative.timed_connection_count
+              .complete               = alternative.support.representative_metrics
+            , .representative         = alternative.support.representative_connection_metrics
+            , .timed_connection_count = alternative.support.connections.size()
         };
     }
 
@@ -203,7 +286,7 @@ namespace timetable::domain::assignment {
         std::vector<SearchConnection> representatives;
         representatives.reserve(alternatives.size());
         for (auto& alternative : alternatives) {
-            representatives.push_back(std::move(alternative.representative));
+            representatives.push_back(std::move(alternative.support.representative));
         }
         return representatives;
     }
@@ -232,15 +315,15 @@ namespace timetable::domain::assignment {
             (void)signature;
             summary.min_impedance = std::min(
                   summary.min_impedance
-                , alternative.representative_metrics.impedance
+                , alternative.support.representative_metrics.impedance
             );
             summary.min_journey_time = std::min(
                   summary.min_journey_time
-                , alternative.representative_metrics.journey_time.value()
+                , alternative.support.representative_metrics.journey_time.value()
             );
             summary.min_transfers = std::min(
                   summary.min_transfers
-                , static_cast<double>(alternative.representative_metrics.transfers.get())
+                , static_cast<double>(alternative.support.representative_metrics.transfers.get())
             );
         }
         return summary;
@@ -259,7 +342,7 @@ namespace timetable::domain::assignment {
         for (auto it = retention.alternatives_by_signature.begin();
              it != retention.alternatives_by_signature.end();) {
             if (!within_complete_connection_tolerances(
-                  it->second.representative_metrics
+                  it->second.support.representative_metrics
                 , summary
                 , tolerances
             )) {
@@ -284,7 +367,7 @@ namespace timetable::domain::assignment {
         std::vector<SearchConnection> representatives;
         representatives.reserve(alternatives.size());
         for (auto& alternative : alternatives) {
-            representatives.push_back(std::move(alternative.representative));
+            representatives.push_back(std::move(alternative.support.representative));
         }
         return representatives;
     }
@@ -295,7 +378,7 @@ namespace timetable::domain::assignment {
         std::vector<SearchConnection> representatives;
         representatives.reserve(alternatives.size());
         for (const auto& alternative : alternatives) {
-            representatives.push_back(alternative.representative);
+            representatives.push_back(alternative.support.representative);
         }
         return representatives;
     }
