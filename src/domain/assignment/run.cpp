@@ -107,7 +107,7 @@ namespace timetable::domain::assignment {
         );
         timetable::infra::progress::log(
             fmt::format(
-                  "assignment output loads: elementary_segment_loads={} segment_loads={} route_totals={} stop_totals={} overload_status={} overload_rows={}"
+                  "assignment output loads: production=elementary_segment_loads elementary_segment_loads={} visum_segment_loads={} route_totals={} stop_totals={} overload_source=elementary_segment_loads overload_status={} overload_rows={}"
                 , output->elementary_segment_loads.items.size()
                 , output->loads.segment_loads.size()
                 , output->loads.route_total_loads.size()

@@ -66,7 +66,7 @@ namespace timetable::domain::assignment {
     };
 
     struct OriginDayDemandLoadResult final {
-        OriginDayChoiceResult alternatives{};
+        OriginDayPathChoiceResult alternatives{};
         DemandSplitResult     split_result{};
         ElementarySegmentLoads elementary_segment_loads{};
     };
@@ -92,6 +92,35 @@ namespace timetable::domain::assignment {
      * OD for the whole service day, while demand rows remain interval-specific
      * and are applied only at split/load time.
      */
+    mathfp::Expected<DemandSplitResult> split_demand_over_od_day_paths(
+          const OdDayPathChoiceResult&       choice_result
+        , const InputModel&                  input
+        , const SearchParams&                params
+        , const DemandSegmentTimeConfig&     demand_segment_time
+        , const AssignmentPeriodConfig&      assignment_period
+        , const ConnectionAdmissibilityConfig& admissibility_config
+    );
+
+    mathfp::Expected<DemandSplitResult> split_origin_demand_over_od_day_paths(
+          const OriginDayPathChoiceResult&   choice_result
+        , const InputModel&                  input
+        , const SearchParams&                params
+        , const DemandSegmentTimeConfig&     demand_segment_time
+        , const AssignmentPeriodConfig&      assignment_period
+        , const ConnectionAdmissibilityConfig& admissibility_config
+    );
+
+    mathfp::Expected<OriginDayDemandLoadResult> load_origin_day_path_demand(
+          const OriginDaySearchResult&       search_result
+        , const InputModel&                  input
+        , const SearchParams&                params
+        , const SearchCostContext&           search_cost
+        , const ChoiceConfig&                choice_config
+        , const DemandSegmentTimeConfig&     demand_segment_time
+        , const AssignmentPeriodConfig&      assignment_period
+        , const ConnectionAdmissibilityConfig& admissibility_config
+    );
+
     mathfp::Expected<DemandSplitResult> split_demand_over_od_day_connections(
           const OdDayConnectionChoiceResult& choice_result
         , const InputModel&                  input

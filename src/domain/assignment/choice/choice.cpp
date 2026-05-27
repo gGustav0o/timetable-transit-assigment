@@ -40,8 +40,8 @@ namespace timetable::domain::assignment {
             std::size_t      admissibility_rejected{};
         };
 
-        struct ChoiceOdDaySelection final {
-            OdDayChoicePairResult result{};
+        struct ChoiceOdDayPathSelection final {
+            OdDayPathChoicePairResult result{};
         };
 
         CompleteConnectionMetricSummary summarize_day_path_alternatives(
@@ -159,7 +159,7 @@ namespace timetable::domain::assignment {
             };
         }
 
-        mathfp::Expected<ChoiceOdDaySelection> choose_od_day_pair_connections(
+        mathfp::Expected<ChoiceOdDayPathSelection> choose_od_day_pair_connections(
               const OdDayPairResult&  pair_result
             , const SearchParams&     params
             , const SearchCostContext& search_cost
@@ -189,8 +189,8 @@ namespace timetable::domain::assignment {
                     , alternatives.size()
                 }
             );
-            return ChoiceOdDaySelection{
-                .result = OdDayChoicePairResult{
+            return ChoiceOdDayPathSelection{
+                .result = OdDayPathChoicePairResult{
                       .origin      = pair_result.origin
                     , .destination = pair_result.destination
                     , .alternatives = std::move(alternatives)
@@ -286,8 +286,8 @@ namespace timetable::domain::assignment {
         return result;
     }
 
-    mathfp::Expected<OdDayConnectionChoiceResult> choose_od_day_connections(
-          const OdDayConnectionSearchResult& search_result
+    mathfp::Expected<OdDayPathChoiceResult> choose_od_day_paths(
+          const OdDayPathSearchResult& search_result
         , const SearchParams&                params
         , const SearchCostContext&           search_cost
         , const ChoiceConfig&                config
@@ -309,14 +309,14 @@ namespace timetable::domain::assignment {
             , LogLevel::Info
         );
 
-        OdDayConnectionChoiceResult result;
+        OdDayPathChoiceResult result;
         result.origin_results.reserve(search_result.origin_results.size());
         std::map<detail::grouping::ConnectionTraceKey, std::size_t> chosen_trace_index;
         std::size_t pair_count = 0;
         std::size_t nonempty_pair_count = 0;
 
         for (const auto& origin_result : search_result.origin_results) {
-            OriginDayChoiceResult chosen_origin{
+            OriginDayPathChoiceResult chosen_origin{
                   .origin       = origin_result.origin
                 , .pair_results = {}
             };
@@ -325,7 +325,7 @@ namespace timetable::domain::assignment {
             for (const auto& pair_result : origin_result.pair_results) {
                 ++pair_count;
                 MATHFP_TRY_LET(
-                      ChoiceOdDaySelection
+                      ChoiceOdDayPathSelection
                     , selection
                     , choose_od_day_pair_connections(
                           pair_result
@@ -372,7 +372,7 @@ namespace timetable::domain::assignment {
         return result;
     }
 
-    mathfp::Expected<OriginDayChoiceResult> choose_origin_day_connections(
+    mathfp::Expected<OriginDayPathChoiceResult> choose_origin_day_paths(
           const OriginDaySearchResult& search_result
         , const SearchParams&          params
         , const SearchCostContext&     search_cost
@@ -380,7 +380,7 @@ namespace timetable::domain::assignment {
     ) {
         MATHFP_TRY(validate_search_cost_context(search_cost));
 
-        OriginDayChoiceResult result{
+        OriginDayPathChoiceResult result{
               .origin       = search_result.origin
             , .pair_results = {}
         };
@@ -388,7 +388,7 @@ namespace timetable::domain::assignment {
 
         for (const auto& pair_result : search_result.pair_results) {
             MATHFP_TRY_LET(
-                  ChoiceOdDaySelection
+                  ChoiceOdDayPathSelection
                 , selection
                 , choose_od_day_pair_connections(
                       pair_result
@@ -401,6 +401,34 @@ namespace timetable::domain::assignment {
         }
 
         return result;
+    }
+
+    mathfp::Expected<OdDayConnectionChoiceResult> choose_od_day_connections(
+          const OdDayPathSearchResult& search_result
+        , const SearchParams&          params
+        , const SearchCostContext&     search_cost
+        , const ChoiceConfig&          config
+    ) {
+        return choose_od_day_paths(
+              search_result
+            , params
+            , search_cost
+            , config
+        );
+    }
+
+    mathfp::Expected<OriginDayChoiceResult> choose_origin_day_connections(
+          const OriginDaySearchResult& search_result
+        , const SearchParams&          params
+        , const SearchCostContext&     search_cost
+        , const ChoiceConfig&          config
+    ) {
+        return choose_origin_day_paths(
+              search_result
+            , params
+            , search_cost
+            , config
+        );
     }
 
 }  // namespace timetable::domain::assignment

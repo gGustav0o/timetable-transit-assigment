@@ -436,7 +436,7 @@ namespace timetable::domain::assignment::detail {
         mathfp::Expected<mathfp::Unit> validate_calculated_overload_uses_elementary_loads(
             const AssignmentOutput& output
         ) {
-            MATHFP_TRY(validate_vehicle_journey_item_loads(output.elementary_segment_loads));
+            MATHFP_TRY(validate_elementary_segment_loads(output.elementary_segment_loads));
 
             if (output.mode != AssignmentOutputMode::Calculated) {
                 if (!output.elementary_segment_loads.items.empty()) {
@@ -785,7 +785,7 @@ namespace timetable::domain::assignment::detail {
 
         MATHFP_TRY(validate_loads_semantics(output.loads));
         MATHFP_TRY(validate_calculated_overload_uses_elementary_loads(output));
-        MATHFP_TRY(validate_vehicle_journey_item_overload_assessment(
+        MATHFP_TRY(validate_elementary_segment_overload_assessment(
             output.vehicle_journey_item_loads
         ));
         MATHFP_TRY(validate_skim_matrix_matches_output(output));

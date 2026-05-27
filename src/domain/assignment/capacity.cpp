@@ -729,6 +729,19 @@ namespace timetable::domain::assignment {
         return mathfp::kUnit;
     }
 
+    mathfp::Expected<mathfp::Unit> validate_elementary_segment_loads(
+        const ElementarySegmentLoads& loads
+    ) {
+        return validate_vehicle_journey_item_loads(loads);
+    }
+
+    mathfp::Expected<mathfp::Unit> validate_elementary_segment_load_projection(
+          const DemandSplitResult&      split_result
+        , const ElementarySegmentLoads& loads
+    ) {
+        return validate_vehicle_journey_item_load_projection(split_result, loads);
+    }
+
     mathfp::Expected<VehicleJourneyItemLoads> build_vehicle_journey_item_loads(
         const DemandSplitResult& split_result
     ) {
@@ -935,6 +948,12 @@ namespace timetable::domain::assignment {
         }
 
         return mathfp::kUnit;
+    }
+
+    mathfp::Expected<mathfp::Unit> validate_elementary_segment_overload_assessment(
+        const ElementarySegmentOverloadAssessment& assessment
+    ) {
+        return validate_vehicle_journey_item_overload_assessment(assessment);
     }
 
     VehicleJourneyItemOverloadAssessment make_skipped_assignment_disabled_vehicle_journey_item_overload_assessment() {

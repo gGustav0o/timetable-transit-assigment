@@ -297,7 +297,7 @@ namespace timetable::domain::assignment {
      * - time horizon: the whole service day;
      * - completion targets: declared zones;
      * - projection slots: ordered OD pairs (origin, destination);
-     * - result type: OdDayConnectionSearchResult, kept separate from both
+     * - result type: OdDayPathSearchResult, kept separate from both
      *   demand-task assignment and all-zone count diagnostics.
      *
      * CompletionTargets contract:

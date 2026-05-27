@@ -56,8 +56,8 @@ namespace timetable::domain::assignment::detail {
     };
 
     struct OdDayPipelineAccumulation final {
-        OdDayConnectionSearchSummary       search_summary{};
-        OdDayConnectionChoiceResult        choice{};
+        OdDayPathSearchSummary             search_summary{};
+        OdDayPathChoiceResult              choice{};
         DemandSplitResult                  split{};
         ElementarySegmentLoadAccumulator   elementary_segment_loads{};
         std::map<grouping::ConnectionTraceKey, std::size_t> chosen_trace_index{};
@@ -210,7 +210,7 @@ namespace timetable::domain::assignment::detail {
         const OriginDayDemandLoadResult& result
     ) {
         MATHFP_TRY(validate_od_day_split_sources(result.split_result));
-        MATHFP_TRY(validate_vehicle_journey_item_load_projection(
+        MATHFP_TRY(validate_elementary_segment_load_projection(
               result.split_result
             , result.elementary_segment_loads
         ));
@@ -234,7 +234,7 @@ namespace timetable::domain::assignment::detail {
         , const ElementarySegmentLoads&  elementary_segment_loads
     ) {
         MATHFP_TRY(validate_od_day_split_sources(split));
-        MATHFP_TRY(validate_vehicle_journey_item_load_projection(
+        MATHFP_TRY(validate_elementary_segment_load_projection(
               split
             , elementary_segment_loads
         ));
@@ -743,7 +743,7 @@ namespace timetable::domain::assignment::detail {
     }
 
     inline void append_od_day_search_summary(
-          OdDayConnectionSearchSummary& summary
+          OdDayPathSearchSummary&       summary
         , const OriginDaySearchResult&   origin_result
     ) {
         for (const auto& pair_result : origin_result.pair_results) {
@@ -758,8 +758,8 @@ namespace timetable::domain::assignment::detail {
     }
 
     inline void append_unique_od_day_choice_connections(
-          OdDayPipelineAccumulation&  accumulation
-        , const OriginDayChoiceResult& origin_choice
+          OdDayPipelineAccumulation&      accumulation
+        , const OriginDayPathChoiceResult& origin_choice
     ) {
         for (const auto& pair_result : origin_choice.pair_results) {
             for (const auto& connection : pair_result.connections) {
@@ -776,7 +776,7 @@ namespace timetable::domain::assignment::detail {
 
     inline void append_origin_day_choice_result(
           OdDayPipelineAccumulation& accumulation
-        , OriginDayChoiceResult       origin_choice
+        , OriginDayPathChoiceResult   origin_choice
     ) {
         append_unique_od_day_choice_connections(accumulation, origin_choice);
         accumulation.choice.origin_results.push_back(std::move(origin_choice));
@@ -828,7 +828,7 @@ namespace timetable::domain::assignment::detail {
             , .demand_time = input.demand_segment_time
         };
 
-        MATHFP_TRY(search_od_day_connections_by_origin_branch_and_bound(
+        MATHFP_TRY(search_od_day_paths_by_origin_branch_and_bound(
               network
             , prepared.tasks
             , execution_request
@@ -844,7 +844,7 @@ namespace timetable::domain::assignment::detail {
                   MATHFP_TRY_LET(
                         OriginDayDemandLoadResult
                       , origin_load
-                      , load_origin_day_demand(
+                      , load_origin_day_path_demand(
                             origin_result
                           , input.input
                           , input.params
@@ -886,7 +886,7 @@ namespace timetable::domain::assignment::detail {
 
         log(
             fmt::format(
-                  "OD-day load contour: primary=elementary_segment_loads source=day_path demand_shares={:>8} elementary_loads={:>8}"
+                  "OD-day load contour: production=elementary_segment_loads source=day_path demand_shares={:>8} elementary_loads={:>8} secondary_visum_aggregates=route_stop_totals overload_source=elementary_segment_loads"
                 , accumulation.split.shares.size()
                 , elementary_segment_loads.items.size()
             )

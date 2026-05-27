@@ -34,10 +34,9 @@ namespace timetable::domain::assignment {
     /**
      * @brief Behavioral metrics of a day-level path alternative.
      *
-     * The path is structural, while behavioral evaluation still needs one
-     * concrete timetable support. representative_connection_metrics are derived
-     * from that support; representative_metrics are the matching search-cost
-     * metrics used by complete-connection dominance and choice tolerances.
+     * The path is structural. Behavioral evaluation is derived from compact
+     * timed support descriptors retained under that path; representative metrics
+     * are only the canonical path-quality projection used by choice tolerances.
      */
     struct DayPathMetrics final {
         CompleteConnectionMetrics complete{};
@@ -97,7 +96,7 @@ namespace timetable::domain::assignment {
         const DayPathAlternative& alternative
     ) noexcept;
 
-    [[nodiscard]] std::span<const SearchConnection> day_path_support_connections(
+    [[nodiscard]] std::span<const DayPathSupportDescriptor> day_path_support_descriptors(
         const DayPathAlternative& alternative
     ) noexcept;
 

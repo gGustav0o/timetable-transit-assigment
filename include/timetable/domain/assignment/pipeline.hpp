@@ -37,8 +37,8 @@ namespace timetable::domain::assignment {
         InputModel                          input{};
         VehicleJourneyItemCapacityInput     vehicle_journey_item_capacity{};
         PreprocessedNetwork                 network{};
-        OdDayConnectionSearchSummary        search{};
-        OdDayConnectionChoiceResult         choice{};
+        OdDayPathSearchSummary              search{};
+        OdDayPathChoiceResult               choice{};
         DemandSplitResult                   split{};
         ElementarySegmentLoads              elementary_segment_loads{};
         AssignmentExecutionConfig           execution{};

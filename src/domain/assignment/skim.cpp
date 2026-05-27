@@ -23,7 +23,7 @@ namespace timetable::domain::assignment {
         using OdKey = detail::grouping::OdKey;
         using ChoiceTaskLookup = std::map<DemandKey, const ChoiceTaskResult*>;
         using DemandLookup = std::map<DemandKey, const DemandEntry*>;
-        using OdDayChoiceLookup = std::map<OdKey, const OdDayChoicePairResult*>;
+        using OdDayChoiceLookup = std::map<OdKey, const OdDayPathChoicePairResult*>;
         using TaskConnectionTraceMap = std::map<DemandKey, std::map<detail::grouping::ConnectionTraceKey, bool>>;
         using SkimEntryKey = std::tuple<std::int64_t, std::int64_t, std::int64_t>;
 
@@ -206,7 +206,7 @@ namespace timetable::domain::assignment {
         }
 
         [[nodiscard]] mathfp::Expected<OdDayChoiceLookup> build_od_day_choice_lookup(
-            const OdDayConnectionChoiceResult& choice_result
+            const OdDayPathChoiceResult& choice_result
         ) {
             OdDayChoiceLookup lookup;
             for (const auto& origin_result : choice_result.origin_results) {
@@ -228,7 +228,7 @@ namespace timetable::domain::assignment {
         }
 
         [[nodiscard]] std::vector<SearchConnection> admissible_od_day_connections(
-              const OdDayChoicePairResult&      pair_result
+              const OdDayPathChoicePairResult&  pair_result
             , const TimeInterval&               interval
             , const AssignmentPeriodConfig&     assignment_period
             , const ConnectionAdmissibilityConfig& admissibility_config
@@ -249,7 +249,7 @@ namespace timetable::domain::assignment {
         }
 
         [[nodiscard]] mathfp::Expected<ConnectionChoiceResult> make_interval_choice_projection(
-              const OdDayConnectionChoiceResult& choice_result
+              const OdDayPathChoiceResult&       choice_result
             , const InputModel&                  input
             , const AssignmentPeriodConfig&      assignment_period
             , const ConnectionAdmissibilityConfig& admissibility_config
@@ -861,7 +861,7 @@ namespace timetable::domain::assignment {
     }
 
     mathfp::Expected<AssignmentSkimMatrix> build_assignment_skim_matrix(
-          const OdDayConnectionChoiceResult& choice_result
+          const OdDayPathChoiceResult&       choice_result
         , const InputModel&                  input
         , const DemandSplitResult&           split_result
         , const AssignmentPeriodConfig&      assignment_period

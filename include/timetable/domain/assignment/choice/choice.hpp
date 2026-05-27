@@ -26,23 +26,27 @@ namespace timetable::domain::assignment {
         std::vector<ChoiceTaskResult> task_results{};
     };
 
-    struct OdDayChoicePairResult final {
+    struct OdDayPathChoicePairResult final {
         ZoneId                        origin{};
         ZoneId                        destination{};
         std::vector<DayPathAlternative> alternatives{};
         std::vector<SearchConnection> connections{};
     };
 
-    struct OriginDayChoiceResult final {
+    struct OriginDayPathChoiceResult final {
         ZoneId                             origin{};
-        std::vector<OdDayChoicePairResult> pair_results{};
+        std::vector<OdDayPathChoicePairResult> pair_results{};
     };
 
-    struct OdDayConnectionChoiceResult final {
+    struct OdDayPathChoiceResult final {
         // Unique flat projection of chosen path representatives.
         std::vector<SearchConnection>      connections{};
-        std::vector<OriginDayChoiceResult> origin_results{};
+        std::vector<OriginDayPathChoiceResult> origin_results{};
     };
+
+    using OdDayChoicePairResult = OdDayPathChoicePairResult;
+    using OriginDayChoiceResult = OriginDayPathChoiceResult;
+    using OdDayConnectionChoiceResult = OdDayPathChoiceResult;
 
     /**
      * @brief Apply choice criteria to remove dominated/illogical connections.
@@ -63,8 +67,22 @@ namespace timetable::domain::assignment {
      * to the split/load layer, where the same OD-day alternative set is evaluated
      * against each demand interval of the OD pair.
      */
+    mathfp::Expected<OdDayPathChoiceResult> choose_od_day_paths(
+          const OdDayPathSearchResult& search_result
+        , const SearchParams&                params
+        , const SearchCostContext&           search_cost
+        , const ChoiceConfig&                config
+    );
+
+    mathfp::Expected<OriginDayPathChoiceResult> choose_origin_day_paths(
+          const OriginDaySearchResult& search_result
+        , const SearchParams&          params
+        , const SearchCostContext&     search_cost
+        , const ChoiceConfig&          config
+    );
+
     mathfp::Expected<OdDayConnectionChoiceResult> choose_od_day_connections(
-          const OdDayConnectionSearchResult& search_result
+          const OdDayPathSearchResult& search_result
         , const SearchParams&                params
         , const SearchCostContext&           search_cost
         , const ChoiceConfig&                config

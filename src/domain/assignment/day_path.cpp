@@ -119,12 +119,12 @@ namespace timetable::domain::assignment {
         return alternative.support.representative;
     }
 
-    std::span<const SearchConnection> day_path_support_connections(
+    std::span<const DayPathSupportDescriptor> day_path_support_descriptors(
         const DayPathAlternative& alternative
     ) noexcept {
-        return std::span<const SearchConnection>{
-              alternative.support.connections.data()
-            , alternative.support.connections.size()
+        return std::span<const DayPathSupportDescriptor>{
+              alternative.support.supports.data()
+            , alternative.support.supports.size()
         };
     }
 
@@ -133,7 +133,7 @@ namespace timetable::domain::assignment {
         , std::size_t               alternative_index
     ) {
         const auto& identity = day_path_signature_of(alternative);
-        if (alternative.support.connections.empty()) {
+        if (alternative.support.supports.empty()) {
             return mathfp::unexpected(
                 mathfp::internal_error("day-path alternative has empty timed support")
                     .ctx("alternative_index", static_cast<std::int64_t>(alternative_index))
@@ -153,9 +153,9 @@ namespace timetable::domain::assignment {
             );
         }
 
-        for (std::size_t i = 0; i < alternative.support.connections.size(); ++i) {
+        for (std::size_t i = 0; i < alternative.support.supports.size(); ++i) {
             const auto support_signature =
-                day_path_signature_of(alternative.support.connections[i]);
+                day_path_signature_of(alternative.support.supports[i].connection);
             if (!(support_signature == identity)) {
                 return mathfp::unexpected(
                     mathfp::internal_error("day-path timed support disagrees with structural identity")
@@ -198,8 +198,14 @@ namespace timetable::domain::assignment {
 
         auto it = retention.alternatives_by_signature.find(signature);
         if (it == retention.alternatives_by_signature.end()) {
-            std::vector<SearchConnection> support_connections;
-            support_connections.push_back(connection);
+            std::vector<DayPathSupportDescriptor> supports;
+            supports.push_back(
+                DayPathSupportDescriptor{
+                      .connection         = connection
+                    , .complete_metrics   = metrics
+                    , .connection_metrics = connection_metrics
+                }
+            );
             auto alternative = DayPathAlternative{
                   .identity = DayPathIdentity{
                       .signature = std::move(signature)
@@ -208,7 +214,7 @@ namespace timetable::domain::assignment {
                       .representative                    = std::move(connection)
                     , .representative_metrics            = metrics
                     , .representative_connection_metrics = connection_metrics
-                    , .connections                       = std::move(support_connections)
+                    , .supports                          = std::move(supports)
                   }
             };
             const auto key = alternative.identity.signature;
@@ -224,20 +230,27 @@ namespace timetable::domain::assignment {
         }
 
         auto& alternative = it->second;
-        alternative.support.connections.push_back(connection);
+        alternative.support.supports.push_back(
+            DayPathSupportDescriptor{
+                  .connection         = connection
+                , .complete_metrics   = metrics
+                , .connection_metrics = connection_metrics
+            }
+        );
         const auto replaced = better_day_path_representative(
               metrics
             , alternative.support.representative_metrics
         );
         if (replaced) {
-            alternative.support.representative                    = std::move(connection);
+            alternative.support.representative =
+                alternative.support.supports.back().connection;
             alternative.support.representative_metrics            = metrics;
             alternative.support.representative_connection_metrics = connection_metrics;
         }
         return DayPathRetentionDecision{
               .inserted_path          = false
             , .replaced_representative = replaced
-            , .timed_connection_count = alternative.support.connections.size()
+            , .timed_connection_count = alternative.support.supports.size()
         };
     }
 
@@ -253,8 +266,14 @@ namespace timetable::domain::assignment {
             , complete_connection_metrics(connection, search_cost, interval)
         );
         const auto connection_metrics = metrics_of(connection);
-        std::vector<SearchConnection> support_connections;
-        support_connections.push_back(connection);
+        std::vector<DayPathSupportDescriptor> supports;
+        supports.push_back(
+            DayPathSupportDescriptor{
+                  .connection         = connection
+                , .complete_metrics   = metrics
+                , .connection_metrics = connection_metrics
+            }
+        );
         return DayPathAlternative{
               .identity = DayPathIdentity{
                   .signature = std::move(signature)
@@ -263,7 +282,7 @@ namespace timetable::domain::assignment {
                   .representative                    = std::move(connection)
                 , .representative_metrics            = metrics
                 , .representative_connection_metrics = connection_metrics
-                , .connections                       = std::move(support_connections)
+                , .supports                          = std::move(supports)
               }
         };
     }
@@ -274,7 +293,7 @@ namespace timetable::domain::assignment {
         return DayPathMetrics{
               .complete               = alternative.support.representative_metrics
             , .representative         = alternative.support.representative_connection_metrics
-            , .timed_connection_count = alternative.support.connections.size()
+            , .timed_connection_count = alternative.support.supports.size()
         };
     }
 

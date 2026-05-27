@@ -396,27 +396,27 @@ namespace timetable::domain::assignment {
             return "unknown";
         }
 
-        struct DayPathTimedSupportLabelState final {
+        struct DayPathSupportEnvelopeState final {
             ConnectionSegmentId          connection{};
             RouteSegmentId               route_segment{};
             std::optional<TripId>        trip{};
             std::optional<RoutePosition> from_index{};
             std::optional<RoutePosition> to_index{};
 
-            bool operator==(const DayPathTimedSupportLabelState&) const = default;
+            bool operator==(const DayPathSupportEnvelopeState&) const = default;
         };
 
         /**
          * OD-day dominance is extension-safe only at equal structural prefix and
-         * equal support-label context. A concrete support label is the timetable
-         * witness carried by the current day-level branch; merging different
-         * labels could erase downstream transfer feasibility.
+         * equal support-envelope context. The current envelope is intentionally
+         * exact: one last timetable label. Coarser envelopes may replace it only
+         * if they preserve all future transfer-feasibility extensions.
          */
         struct DayPathSearchNodeState final {
             EndpointKey                                  physical{};
             std::optional<StopOccurrenceKey>             occurrence{};
             SearchBranchPhase                            phase{ SearchBranchPhase::AtOrigin };
-            std::optional<DayPathTimedSupportLabelState> last_support_label{};
+            std::optional<DayPathSupportEnvelopeState>    support_envelope{};
 
             bool operator==(const DayPathSearchNodeState&) const = default;
         };
@@ -477,9 +477,9 @@ namespace timetable::domain::assignment {
                     boost::hash_combine(seed, key.state.occurrence->position.get());
                 }
                 boost::hash_combine(seed, static_cast<std::uint8_t>(key.state.phase));
-                boost::hash_combine(seed, key.state.last_support_label.has_value());
-                if (key.state.last_support_label.has_value()) {
-                    const auto& label = *key.state.last_support_label;
+                boost::hash_combine(seed, key.state.support_envelope.has_value());
+                if (key.state.support_envelope.has_value()) {
+                    const auto& label = *key.state.support_envelope;
                     boost::hash_combine(seed, label.connection.get());
                     boost::hash_combine(seed, label.route_segment.get());
                     boost::hash_combine(seed, label.trip.has_value());
@@ -551,11 +551,11 @@ namespace timetable::domain::assignment {
          * @brief Retained complete-connection state for one projection slot.
          *
          * Complete-alternative state is projection-local. DemandTasks keep
-         * timed OD-interval alternatives, OdDayPairs immediately project each
-         * completed support to DayPathRetention, and CompletionTargets keep a
+         * timed OD-interval alternatives. OdDayPairs never retain raw complete
+         * alternatives: every completed support is immediately projected to the
+         * final DayPathRetention of its OD slot. CompletionTargets keep only a
          * compact timed metric/count projection. Partial-prefix pruning may be
-         * projection-local or tree-global depending on
-         * SearchPartialRetentionScope.
+         * projection-local or tree-global depending on SearchPartialRetentionScope.
          */
         struct SearchProjectionRetention final {
             SearchProjectionSlot slot{};
@@ -939,7 +939,7 @@ namespace timetable::domain::assignment {
         struct DayLevelRideSupport final {
             RouteSegmentId                   route_segment{};
             DayLevelSupplyEdgeRef            edge{};
-            std::vector<ConnectionSegmentId> connections{};
+            std::vector<ConnectionSegmentId> support_labels{};
         };
 
         struct DayLevelTimedSupportLabel final {
@@ -990,7 +990,7 @@ namespace timetable::domain::assignment {
             for (const auto& [_, supports] : graph.rides_by_from) {
                 profile.ride_edges += supports.size();
                 for (const auto& support : supports) {
-                    profile.ride_support_labels += support.connections.size();
+                    profile.ride_support_labels += support.support_labels.size();
                 }
             }
             return profile;
@@ -1234,7 +1234,7 @@ namespace timetable::domain::assignment {
                         DayLevelRideSupport{
                               .route_segment = route_segment_id
                             , .edge          = edge
-                            , .connections   = support
+                            , .support_labels = support
                         }
                     );
                 }
@@ -2306,10 +2306,10 @@ namespace timetable::domain::assignment {
         DayPathSearchNodeState day_path_search_node_state(
             const SearchBranch& branch
         ) noexcept {
-            const auto last_support_label =
+            const auto support_envelope =
                 branch.trace.last_timed_segment != nullptr
-                    ? std::optional<DayPathTimedSupportLabelState>{
-                          DayPathTimedSupportLabelState{
+                    ? std::optional<DayPathSupportEnvelopeState>{
+                          DayPathSupportEnvelopeState{
                                 .connection    = branch.trace.last_timed_segment->id
                               , .route_segment = branch.trace.last_timed_segment->route_segment
                               , .trip          = branch.trace.last_timed_segment->trip
@@ -2320,10 +2320,10 @@ namespace timetable::domain::assignment {
                     : std::nullopt;
 
             return DayPathSearchNodeState{
-                  .physical           = branch.trace.current_physical
-                , .occurrence         = branch.trace.current_occurrence
-                , .phase              = branch.trace.phase
-                , .last_support_label = last_support_label
+                  .physical         = branch.trace.current_physical
+                , .occurrence       = branch.trace.current_occurrence
+                , .phase            = branch.trace.phase
+                , .support_envelope = support_envelope
             };
         }
 
@@ -3344,7 +3344,7 @@ namespace timetable::domain::assignment {
             , Visitor&&                  visit
         ) {
             auto&& visitor = visit;
-            for (const auto connection_id : support.connections) {
+            for (const auto connection_id : support.support_labels) {
                 const auto label = feasible_day_level_timed_support_label(
                       network
                     , branch
@@ -5158,6 +5158,40 @@ namespace timetable::domain::assignment {
             return IntervalId{ 0 };
         }
 
+        mathfp::Expected<mathfp::Unit> retain_completed_day_path_for_slot(
+              SearchConnection          complete
+            , const SearchBranch&       branch
+            , const SearchProjectionSlot& slot
+            , const SearchCostContext&  search_cost
+            , SearchProjectionRetention& retention
+        ) {
+            const auto incremental_signature = complete_day_path_signature(
+                  branch.day_path_prefix
+                , slot.destination
+            );
+            const auto materialized_signature = day_path_signature_of(complete);
+            if (incremental_signature != materialized_signature) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("incremental OD-day path prefix disagrees with materialized connection")
+                        .ctx("origin", slot.origin.get())
+                        .ctx("destination", slot.destination.get())
+                );
+            }
+
+            MATHFP_TRY_LET(
+                  IntervalId
+                , interval
+                , complete_retention_interval(slot, search_cost)
+            );
+            MATHFP_TRY(retain_day_path_alternative(
+                  retention.day_paths
+                , std::move(complete)
+                , search_cost
+                , interval
+            ));
+            return mathfp::kUnit;
+        }
+
         mathfp::Expected<mathfp::Unit> retain_complete_for_slot(
               const SearchBranch&        branch
             , const BranchArena&         branches
@@ -5238,32 +5272,20 @@ namespace timetable::domain::assignment {
                         return mathfp::kUnit;
                     }
                 }
+                if (slot.kind == SearchProjectionSlotKind::OdDayPair) {
+                    return retain_completed_day_path_for_slot(
+                          std::move(*complete)
+                        , branch
+                        , slot
+                        , search_cost
+                        , retention
+                    );
+                }
                 MATHFP_TRY_LET(
                       IntervalId
                     , interval
                     , complete_retention_interval(slot, search_cost)
                 );
-                if (slot.kind == SearchProjectionSlotKind::OdDayPair) {
-                    const auto incremental_signature = complete_day_path_signature(
-                          branch.day_path_prefix
-                        , slot.destination
-                    );
-                    const auto materialized_signature = day_path_signature_of(*complete);
-                    if (incremental_signature != materialized_signature) {
-                        return mathfp::unexpected(
-                            mathfp::internal_error("incremental OD-day path prefix disagrees with materialized connection")
-                                .ctx("origin", slot.origin.get())
-                                .ctx("destination", slot.destination.get())
-                        );
-                    }
-                    MATHFP_TRY(retain_day_path_alternative(
-                          retention.day_paths
-                        , std::move(*complete)
-                        , search_cost
-                        , interval
-                    ));
-                    return mathfp::kUnit;
-                }
                 const auto retention_decision = retain_exact_complete_connection(
                       retention.complete_connections
                     , std::move(*complete)
@@ -6114,11 +6136,12 @@ namespace timetable::domain::assignment {
                     );
                 } else {
                     if (slot.kind == SearchProjectionSlotKind::OdDayPair) {
-                        if (!retention.complete_connections.alternatives.empty()) {
+                        if (!retention.complete_connections.alternatives.empty()
+                            || !retention.compact_complete_connections.metrics.empty()) {
                             return mathfp::unexpected(
-                                mathfp::internal_error("OD-day slot retained timed complete connections")
+                                mathfp::internal_error("OD-day slot retained non-path complete alternatives")
                                     .ctx("origin", slot.origin.get())
-                                .ctx("destination", slot.destination.get())
+                                    .ctx("destination", slot.destination.get())
                             );
                         }
                         (void)choice_config;
@@ -7337,7 +7360,7 @@ namespace timetable::domain::assignment {
     }
 
     std::size_t search_connection_count(
-        const OdDayConnectionSearchResult& result
+        const OdDayPathSearchResult& result
     ) noexcept {
         std::size_t total = 0;
         for (const auto& origin_result : result.origin_results) {
@@ -7349,7 +7372,7 @@ namespace timetable::domain::assignment {
     }
 
     std::size_t search_connection_count(
-        const OdDayConnectionSearchSummary& summary
+        const OdDayPathSearchSummary& summary
     ) noexcept {
         std::size_t total = 0;
         for (const auto& pair_count : summary.pair_counts) {
@@ -7986,7 +8009,7 @@ namespace timetable::domain::assignment {
         return result;
     }
 
-    mathfp::Expected<mathfp::Unit> search_od_day_connections_by_origin_branch_and_bound(
+    mathfp::Expected<mathfp::Unit> search_od_day_paths_by_origin_branch_and_bound(
           const PreprocessedNetwork& network
         , std::span<const SearchTask> tasks
         , SearchExecutionRequest     execution
@@ -8008,7 +8031,7 @@ namespace timetable::domain::assignment {
         MATHFP_TRY(validate_search_execution_projection_contract(execution.config));
         if (execution.config.result_projection != SearchResultProjection::OdDayPairs) {
             return mathfp::unexpected(
-                mathfp::invalid_arg("OdDayConnectionSearchResult search requires OdDayPairs result projection")
+                mathfp::invalid_arg("OdDayPathSearchResult search requires OdDayPairs result projection")
                     .ctx("result_projection", std::string(to_string(execution.config.result_projection)))
             );
         }
@@ -8299,7 +8322,7 @@ namespace timetable::domain::assignment {
         return mathfp::kUnit;
     }
 
-    mathfp::Expected<OdDayConnectionSearchResult> search_od_day_connections_branch_and_bound(
+    mathfp::Expected<OdDayPathSearchResult> search_od_day_paths_branch_and_bound(
           const PreprocessedNetwork& network
         , std::span<const SearchTask> tasks
         , SearchExecutionRequest     execution
@@ -8312,8 +8335,8 @@ namespace timetable::domain::assignment {
         , const CompleteConnectionDominanceConfig& complete_connection_dominance
         , SearchDiagnosticsContext diagnostics
     ) {
-        OdDayConnectionSearchResult result;
-        MATHFP_TRY(search_od_day_connections_by_origin_branch_and_bound(
+        OdDayPathSearchResult result;
+        MATHFP_TRY(search_od_day_paths_by_origin_branch_and_bound(
               network
             , tasks
             , execution
@@ -8331,6 +8354,64 @@ namespace timetable::domain::assignment {
             , diagnostics
         ));
         return result;
+    }
+
+    mathfp::Expected<OdDayConnectionSearchResult> search_od_day_connections_branch_and_bound(
+          const PreprocessedNetwork& network
+        , std::span<const SearchTask> tasks
+        , SearchExecutionRequest     execution
+        , const SearchParams&        params
+        , const SearchCostContext&   search_cost
+        , const ChoiceConfig&         choice_config
+        , const AssignmentPeriodConfig& assignment_period
+        , const ConnectionAdmissibilityConfig& admissibility_config
+        , const SearchPruningExecutionPlan* pruning_execution
+        , const CompleteConnectionDominanceConfig& complete_connection_dominance
+        , SearchDiagnosticsContext diagnostics
+    ) {
+        return search_od_day_paths_branch_and_bound(
+              network
+            , tasks
+            , execution
+            , params
+            , search_cost
+            , choice_config
+            , assignment_period
+            , admissibility_config
+            , pruning_execution
+            , complete_connection_dominance
+            , diagnostics
+        );
+    }
+
+    mathfp::Expected<mathfp::Unit> search_od_day_connections_by_origin_branch_and_bound(
+          const PreprocessedNetwork& network
+        , std::span<const SearchTask> tasks
+        , SearchExecutionRequest     execution
+        , const SearchParams&        params
+        , const SearchCostContext&   search_cost
+        , const ChoiceConfig&         choice_config
+        , const AssignmentPeriodConfig& assignment_period
+        , const ConnectionAdmissibilityConfig& admissibility_config
+        , const SearchPruningExecutionPlan* pruning_execution
+        , const CompleteConnectionDominanceConfig& complete_connection_dominance
+        , OdDayOriginResultSink      origin_sink
+        , SearchDiagnosticsContext diagnostics
+    ) {
+        return search_od_day_paths_by_origin_branch_and_bound(
+              network
+            , tasks
+            , execution
+            , params
+            , search_cost
+            , choice_config
+            , assignment_period
+            , admissibility_config
+            , pruning_execution
+            , complete_connection_dominance
+            , std::move(origin_sink)
+            , diagnostics
+        );
     }
 
     mathfp::Expected<ConnectionSearchResult> search_connections_branch_and_bound(

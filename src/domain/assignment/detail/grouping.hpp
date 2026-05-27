@@ -139,7 +139,7 @@ namespace timetable::domain::assignment::detail::grouping {
     }
 
     [[nodiscard]] inline BorrowedOdConnectionGroups group_connection_ptrs_by_od(
-        const OdDayConnectionChoiceResult& result
+        const OdDayPathChoiceResult& result
     ) {
         BorrowedOdConnectionGroups groups;
         for (const auto& origin_result : result.origin_results) {

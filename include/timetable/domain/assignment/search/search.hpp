@@ -202,11 +202,25 @@ namespace timetable::domain::assignment {
         DayPathSignature signature{};
     };
 
+    /**
+     * @brief Compact timed witness retained under one structural day path.
+     *
+     * The descriptor is not an OD alternative identity. It is the minimal
+     * materialized support currently needed by interval admissibility and
+     * elementary-load projection: one feasible timetable realization with its
+     * already derived metrics. Public choice remains keyed by DayPathSignature.
+     */
+    struct DayPathSupportDescriptor final {
+        SearchConnection          connection;
+        CompleteConnectionMetrics complete_metrics{};
+        ConnectionMetrics         connection_metrics{};
+    };
+
     struct DayPathTimedSupport final {
         SearchConnection          representative;
         CompleteConnectionMetrics representative_metrics{};
         ConnectionMetrics         representative_connection_metrics{};
-        std::vector<SearchConnection> connections{};
+        std::vector<DayPathSupportDescriptor> supports{};
     };
 
     struct DayPathAlternative final {
@@ -214,20 +228,24 @@ namespace timetable::domain::assignment {
         DayPathTimedSupport support;
     };
 
-    struct OdDayPairResult final {
+    struct OdDayPathPairResult final {
         ZoneId                        origin{};
         ZoneId                        destination{};
         std::vector<DayPathAlternative> alternatives{};
     };
 
-    struct OriginDaySearchResult final {
+    struct OdDayOriginPathSet final {
         ZoneId                           origin{};
-        std::vector<OdDayPairResult>     pair_results{};
+        std::vector<OdDayPathPairResult> pair_results{};
     };
 
-    struct OdDayConnectionSearchResult final {
-        std::vector<OriginDaySearchResult> origin_results{};
+    struct OdDayPathSearchResult final {
+        std::vector<OdDayOriginPathSet> origin_results{};
     };
+
+    using OdDayPairResult = OdDayPathPairResult;
+    using OriginDaySearchResult = OdDayOriginPathSet;
+    using OdDayConnectionSearchResult = OdDayPathSearchResult;
 
     struct OdDayPairConnectionCount final {
         ZoneId      origin{};
@@ -235,12 +253,16 @@ namespace timetable::domain::assignment {
         std::size_t connection_count{};
     };
 
-    struct OdDayConnectionSearchSummary final {
+    struct OdDayPathSearchSummary final {
         std::vector<OdDayPairConnectionCount> pair_counts{};
     };
 
-    using OdDayOriginResultSink =
-        std::function<mathfp::Expected<mathfp::Unit>(OriginDaySearchResult)>;
+    using OdDayConnectionSearchSummary = OdDayPathSearchSummary;
+
+    using OdDayOriginPathSetSink =
+        std::function<mathfp::Expected<mathfp::Unit>(OdDayOriginPathSet)>;
+
+    using OdDayOriginResultSink = OdDayOriginPathSetSink;
 
     struct AllZoneTargetResult final {
         ZoneId                        origin{};
@@ -308,11 +330,11 @@ namespace timetable::domain::assignment {
     ) noexcept;
 
     [[nodiscard]] std::size_t search_connection_count(
-        const OdDayConnectionSearchResult& result
+        const OdDayPathSearchResult& result
     ) noexcept;
 
     [[nodiscard]] std::size_t search_connection_count(
-        const OdDayConnectionSearchSummary& summary
+        const OdDayPathSearchSummary& summary
     ) noexcept;
 
     [[nodiscard]] std::size_t all_zone_target_connection_count(
@@ -478,6 +500,35 @@ namespace timetable::domain::assignment {
         , const ConnectionAdmissibilityConfig& admissibility_config
         , const SearchPruningExecutionPlan* pruning_execution
         , const CompleteConnectionDominanceConfig& complete_connection_dominance
+        , SearchDiagnosticsContext diagnostics = {}
+    );
+
+    mathfp::Expected<OdDayPathSearchResult> search_od_day_paths_branch_and_bound(
+          const PreprocessedNetwork&        network
+        , std::span<const SearchTask>        tasks
+        , SearchExecutionRequest             execution
+        , const SearchParams&               params
+        , const SearchCostContext&          search_cost
+        , const ChoiceConfig&                choice_config
+        , const AssignmentPeriodConfig&      assignment_period
+        , const ConnectionAdmissibilityConfig& admissibility_config
+        , const SearchPruningExecutionPlan* pruning_execution
+        , const CompleteConnectionDominanceConfig& complete_connection_dominance
+        , SearchDiagnosticsContext diagnostics = {}
+    );
+
+    mathfp::Expected<mathfp::Unit> search_od_day_paths_by_origin_branch_and_bound(
+          const PreprocessedNetwork&        network
+        , std::span<const SearchTask>        tasks
+        , SearchExecutionRequest             execution
+        , const SearchParams&               params
+        , const SearchCostContext&          search_cost
+        , const ChoiceConfig&                choice_config
+        , const AssignmentPeriodConfig&      assignment_period
+        , const ConnectionAdmissibilityConfig& admissibility_config
+        , const SearchPruningExecutionPlan* pruning_execution
+        , const CompleteConnectionDominanceConfig& complete_connection_dominance
+        , OdDayOriginResultSink              origin_sink
         , SearchDiagnosticsContext diagnostics = {}
     );
 

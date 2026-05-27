@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <map>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -78,7 +79,7 @@ namespace timetable::domain::assignment::detail {
         }
 
         OdDayConnectionTraceMap build_od_day_connection_trace_map(
-            const OdDayConnectionChoiceResult& choice_result
+            const OdDayPathChoiceResult& choice_result
         ) {
             OdDayConnectionTraceMap traces;
             for (const auto& origin_result : choice_result.origin_results) {
@@ -88,8 +89,8 @@ namespace timetable::domain::assignment::detail {
                         , .destination = pair_result.destination
                     }];
                     for (const auto& alternative : pair_result.alternatives) {
-                        for (const auto& connection : day_path_support_connections(alternative)) {
-                            od_traces[grouping::connection_trace_key(connection)] = true;
+                        for (const auto& support : day_path_support_descriptors(alternative)) {
+                            od_traces[grouping::connection_trace_key(support.connection)] = true;
                         }
                     }
                 }
@@ -98,7 +99,7 @@ namespace timetable::domain::assignment::detail {
         }
 
         OdDayPathMap build_od_day_path_map(
-            const OdDayConnectionChoiceResult& choice_result
+            const OdDayPathChoiceResult& choice_result
         ) {
             OdDayPathMap paths;
             for (const auto& origin_result : choice_result.origin_results) {
@@ -116,7 +117,7 @@ namespace timetable::domain::assignment::detail {
         }
 
         std::map<grouping::OdKey, std::size_t> build_od_day_search_count_map(
-            const OdDayConnectionSearchSummary& search_summary
+            const OdDayPathSearchSummary& search_summary
         ) {
             std::map<grouping::OdKey, std::size_t> counts;
             for (const auto& pair_count : search_summary.pair_counts) {
@@ -157,7 +158,7 @@ namespace timetable::domain::assignment::detail {
         }
 
         mathfp::Expected<mathfp::Unit> validate_od_day_choice_flat_projection(
-            const OdDayConnectionChoiceResult& choice_result
+            const OdDayPathChoiceResult& choice_result
         ) {
             std::map<grouping::ConnectionTraceKey, bool> pair_traces;
             for (const auto& origin_result : choice_result.origin_results) {
@@ -190,8 +191,9 @@ namespace timetable::domain::assignment::detail {
                                     .ctx("path_index" , static_cast<std::int64_t>(i))
                             );
                         }
-                        for (const auto& support : day_path_support_connections(alternative)) {
-                            if (day_path_signature_of(alternative) != day_path_signature_of(support)) {
+                        for (const auto& support : day_path_support_descriptors(alternative)) {
+                            if (day_path_signature_of(alternative)
+                                != day_path_signature_of(support.connection)) {
                                 return mathfp::unexpected(
                                     mathfp::internal_error("output input: OD-day support connection is not a support of its day-path identity")
                                         .ctx("origin"     , pair_result.origin.get())
@@ -257,7 +259,7 @@ namespace timetable::domain::assignment::detail {
         }
 
         mathfp::Expected<mathfp::Unit> validate_split_shares_are_od_day_choice_local(
-              const OdDayConnectionChoiceResult& choice_result
+              const OdDayPathChoiceResult&       choice_result
             , const DemandSplitResult&           split_result
         ) {
             const auto od_traces = build_od_day_connection_trace_map(choice_result);
@@ -352,6 +354,21 @@ namespace timetable::domain::assignment::detail {
             return mathfp::kUnit;
         }
 
+        mathfp::Expected<mathfp::Unit> validate_od_day_production_load_contract(
+              const DemandSplitResult&                  split_result
+            , const ElementarySegmentLoads&             elementary_segment_loads
+            , const AssignmentLoads&                     visum_loads
+            , const ElementarySegmentOverloadAssessment& elementary_overload
+        ) {
+            MATHFP_TRY(validate_elementary_segment_load_projection(
+                  split_result
+                , elementary_segment_loads
+            ));
+            MATHFP_TRY(validate_loads_are_split_projection(split_result, visum_loads));
+            MATHFP_TRY(validate_elementary_segment_overload_assessment(elementary_overload));
+            return mathfp::kUnit;
+        }
+
         std::map<grouping::OdKey, bool> collect_all_ods(
               const std::map<grouping::OdKey, std::size_t>& search_counts
             , const grouping::BorrowedOdConnectionGroups&   chosen_by_od
@@ -391,8 +408,8 @@ namespace timetable::domain::assignment::detail {
 
         AssignmentOutput::Summary build_od_day_output_summary(
               const InputModel&                   input
-            , const OdDayConnectionSearchSummary& search_summary
-            , const OdDayConnectionChoiceResult&  choice_result
+            , const OdDayPathSearchSummary& search_summary
+            , const OdDayPathChoiceResult&        choice_result
             , const DemandSplitResult&            split_result
         ) {
             return AssignmentOutput::Summary{
@@ -494,6 +511,37 @@ namespace timetable::domain::assignment::detail {
                         , static_cast<std::int64_t>(vehicle_journey_item_capacity.status)
                     )
             );
+        }
+
+        mathfp::Expected<mathfp::Unit> validate_timed_diagnostics_only_output_contract(
+            const AssignmentOutput& output
+        ) {
+            if (
+                   !output.loads.line_loads.empty()
+                || !output.loads.route_loads.empty()
+                || !output.loads.route_total_loads.empty()
+                || !output.loads.trip_loads.empty()
+                || !output.loads.segment_loads.empty()
+                || !output.loads.stop_loads.empty()
+                || !output.loads.stop_total_loads.empty()
+                || !output.elementary_segment_loads.items.empty()
+                || !output.vehicle_journey_item_loads.items.empty()
+            ) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("timed connection diagnostics output must not contain production loading rows")
+                );
+            }
+            if (output.vehicle_journey_item_loads.status
+                != VehicleJourneyItemOverloadAssessmentStatus::SkippedAssignmentDisabled) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("timed connection diagnostics output must not calculate overload")
+                        .ctx(
+                              "status"
+                            , std::string(to_string(output.vehicle_journey_item_loads.status))
+                        )
+                );
+            }
+            return mathfp::kUnit;
         }
 
         void assign_search_connection_count(
@@ -690,9 +738,9 @@ namespace timetable::domain::assignment::detail {
         const auto all_ods       = collect_all_ods(search_counts, chosen_by_od, demand_by_od);
 
         /*
-         * OD-day production loading is elementary_segment_loads. AssignmentLoads
-         * is materialized only as VISUM-facing line/route/stop aggregates over
-         * the support selected by the split layer.
+         * This legacy output path is kept for non-default diagnostics and
+         * compatibility. The required OD-day production path below receives
+         * elementary_segment_loads from the origin-streaming pipeline.
          */
         MATHFP_TRY_LET(
               AssignmentLoads
@@ -763,8 +811,8 @@ namespace timetable::domain::assignment::detail {
     mathfp::Expected<AssignmentOutput> build_od_day_assignment_output_impl(
           const InputModel&                      input
         , const PreprocessedNetwork&             network
-        , const OdDayConnectionSearchSummary&    search_summary
-        , const OdDayConnectionChoiceResult&     choice_result
+        , const OdDayPathSearchSummary&          search_summary
+        , const OdDayPathChoiceResult&           choice_result
         , const DemandSplitResult&               split_result
         , const ElementarySegmentLoads&          elementary_segment_loads
         , const VehicleJourneyItemCapacityInput& vehicle_journey_item_capacity
@@ -777,7 +825,7 @@ namespace timetable::domain::assignment::detail {
         MATHFP_TRY(validate_capacity_aware_assignment_diagnostics(capacity_aware));
         MATHFP_TRY(validate_od_day_choice_flat_projection(choice_result));
         MATHFP_TRY(validate_split_shares_are_od_day_choice_local(choice_result, split_result));
-        MATHFP_TRY(validate_vehicle_journey_item_load_projection(
+        MATHFP_TRY(validate_elementary_segment_load_projection(
               split_result
             , elementary_segment_loads
         ));
@@ -789,10 +837,9 @@ namespace timetable::domain::assignment::detail {
         const auto all_ods       = collect_all_ods(search_counts, chosen_by_od, demand_by_od);
         MATHFP_TRY_LET(
               AssignmentLoads
-            , loads
+            , visum_loads
             , build_day_path_assignment_loads(split_result)
         );
-        MATHFP_TRY(validate_loads_are_split_projection(split_result, loads));
         MATHFP_TRY_LET(
               AssignmentSkimMatrix
             , skim_matrix
@@ -807,7 +854,7 @@ namespace timetable::domain::assignment::detail {
         );
         MATHFP_TRY_LET(
               ElementarySegmentOverloadAssessment
-            , vehicle_journey_item_loads
+            , elementary_overload
             , build_elementary_segment_overload_assessment_output(
                   elementary_segment_loads
                 , input.intervals
@@ -815,14 +862,20 @@ namespace timetable::domain::assignment::detail {
                 , execution
             )
         );
+        MATHFP_TRY(validate_od_day_production_load_contract(
+              split_result
+            , elementary_segment_loads
+            , visum_loads
+            , elementary_overload
+        ));
 
         AssignmentOutput output{
               .mode        = AssignmentOutputMode::Calculated
             , .summary     = build_od_day_output_summary(input, search_summary, choice_result, split_result)
             , .od_results  = {}
-            , .loads       = std::move(loads)
+            , .loads       = std::move(visum_loads)
             , .elementary_segment_loads = elementary_segment_loads
-            , .vehicle_journey_item_loads = std::move(vehicle_journey_item_loads)
+            , .vehicle_journey_item_loads = std::move(elementary_overload)
             , .skim_matrix = std::move(skim_matrix)
             , .capacity_aware = capacity_aware
         };
@@ -904,6 +957,7 @@ namespace timetable::domain::assignment::detail {
         }
 
         output.summary.od_count = output.od_results.size();
+        MATHFP_TRY(validate_timed_diagnostics_only_output_contract(output));
         MATHFP_TRY(validate_output_summary_semantics(output));
         return output;
     }

@@ -164,59 +164,11 @@ namespace timetable::domain::assignment {
         std::vector<std::vector<DayLevelSupplyEdgeRef>> outgoing_edges_by_node{};
     };
 
-    /**
-     * @brief Clock-free path retained by OD-day search.
-     *
-     * signature is the canonical OD path identity consumed by loading. supply_edges
-     * is the graph trace that lets assignment project the path back to elementary
-     * route segments without relying on raw timed connection enumeration.
+    /*
+     * Production OD-day search results are declared in search/search.hpp as
+     * OdDayPathSearchResult/OdDayOriginPathSet/OdDayPathPairResult. This header
+     * owns the mathematical contract and day-level supply graph vocabulary only;
+     * it deliberately does not introduce a parallel result hierarchy.
      */
-    struct DayStructuralPath final {
-        DayPathSignature                   signature{};
-        std::vector<DayLevelSupplyEdgeRef> supply_edges{};
-    };
-
-    /**
-     * @brief One concrete timetable support selected for a structural path.
-     *
-     * The representative is auxiliary: it supports metrics, choice and
-     * diagnostics, but it is not the identity of the OD-day alternative.
-     */
-    struct DayTimedRepresentative final {
-        std::optional<SearchConnection> connection{};
-        CompleteConnectionMetrics       complete_metrics{};
-        ConnectionMetrics               connection_metrics{};
-        std::size_t                     support_connection_count{};
-    };
-
-    struct OdDayPathAlternative final {
-        DayStructuralPath      structural_path{};
-        DayTimedRepresentative timed_representative{};
-    };
-
-    struct OdDayPathPairResult final {
-        ZoneId                            origin{};
-        ZoneId                            destination{};
-        std::vector<OdDayPathAlternative> alternatives{};
-    };
-
-    struct OdDayOriginPathSet final {
-        ZoneId                           origin{};
-        std::vector<OdDayPathPairResult> pair_results{};
-    };
-
-    struct OdDayPathSearchSummary final {
-        std::size_t origin_tree_count{};
-        std::size_t od_pair_count{};
-        std::size_t structural_path_count{};
-        std::size_t representative_connection_count{};
-    };
-
-    struct OdDayPathSearchResult final {
-        OdDayPathSearchContract         contract{};
-        DayLevelSupplyGraph             supply_graph{};
-        std::vector<OdDayOriginPathSet> origin_results{};
-        OdDayPathSearchSummary          summary{};
-    };
 
 }  // namespace timetable::domain::assignment

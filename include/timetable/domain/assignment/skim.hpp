@@ -106,7 +106,7 @@ namespace timetable::domain::assignment {
     );
 
     [[nodiscard]] mathfp::Expected<AssignmentSkimMatrix> build_assignment_skim_matrix(
-          const OdDayConnectionChoiceResult& choice_result
+          const OdDayPathChoiceResult&       choice_result
         , const InputModel&                  input
         , const DemandSplitResult&           split_result
         , const AssignmentPeriodConfig&      assignment_period

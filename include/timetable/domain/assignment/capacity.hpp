@@ -304,6 +304,15 @@ namespace timetable::domain::assignment {
         , const VehicleJourneyItemLoads& loads
     );
 
+    [[nodiscard]] mathfp::Expected<mathfp::Unit> validate_elementary_segment_loads(
+        const ElementarySegmentLoads& loads
+    );
+
+    [[nodiscard]] mathfp::Expected<mathfp::Unit> validate_elementary_segment_load_projection(
+          const DemandSplitResult&      split_result
+        , const ElementarySegmentLoads& loads
+    );
+
     [[nodiscard]] mathfp::Expected<VehicleJourneyItemLoads> build_vehicle_journey_item_loads(
         const DemandSplitResult& split_result
     );
@@ -331,6 +340,10 @@ namespace timetable::domain::assignment {
 
     [[nodiscard]] mathfp::Expected<mathfp::Unit> validate_vehicle_journey_item_overload_assessment(
         const VehicleJourneyItemOverloadAssessment& assessment
+    );
+
+    [[nodiscard]] mathfp::Expected<mathfp::Unit> validate_elementary_segment_overload_assessment(
+        const ElementarySegmentOverloadAssessment& assessment
     );
 
     [[nodiscard]] VehicleJourneyItemOverloadAssessment make_skipped_assignment_disabled_vehicle_journey_item_overload_assessment();

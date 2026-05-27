@@ -638,10 +638,13 @@ namespace timetable::domain::assignment {
             return lookup;
         }
 
-        using OdDayChoiceLookup = std::map<detail::grouping::OdKey, const OdDayChoicePairResult*>;
+        using OdDayChoiceLookup = std::map<
+              detail::grouping::OdKey
+            , const OdDayPathChoicePairResult*
+        >;
 
         mathfp::Expected<OdDayChoiceLookup> build_od_day_choice_lookup(
-            const OdDayConnectionChoiceResult& choice_result
+            const OdDayPathChoiceResult& choice_result
         ) {
             OdDayChoiceLookup lookup;
             for (const auto& origin_result : choice_result.origin_results) {
@@ -679,8 +682,9 @@ namespace timetable::domain::assignment {
             std::optional<IntervalAdmissibleDayPathSupport> best;
             auto best_impedance = std::numeric_limits<double>::infinity();
 
-            for (const auto& connection : day_path_support_connections(path)) {
-                const auto metrics = metrics_of(connection);
+            for (const auto& support : day_path_support_descriptors(path)) {
+                const auto& connection = support.connection;
+                const auto metrics = support.connection_metrics;
                 if (!connection_admissible_for_demand_segment(
                       metrics
                     , interval
@@ -722,7 +726,7 @@ namespace timetable::domain::assignment {
 
         mathfp::Expected<std::vector<IntervalAdmissibleDayPathSupport>>
         admissible_od_day_path_supports(
-              const OdDayChoicePairResult&        pair_result
+              const OdDayPathChoicePairResult&    pair_result
             , const TimeInterval&                 interval
             , const AssignmentPeriodConfig&       assignment_period
             , const ConnectionAdmissibilityConfig& admissibility_config
@@ -1166,8 +1170,8 @@ namespace timetable::domain::assignment {
         );
     }
 
-    mathfp::Expected<DemandSplitResult> split_demand_over_od_day_connections(
-          const OdDayConnectionChoiceResult& choice_result
+    mathfp::Expected<DemandSplitResult> split_demand_over_od_day_paths(
+          const OdDayPathChoiceResult&       choice_result
         , const InputModel&                  input
         , const SearchParams&                params
         , const DemandSegmentTimeConfig&     demand_segment_time
@@ -1298,8 +1302,8 @@ namespace timetable::domain::assignment {
         return result;
     }
 
-    mathfp::Expected<DemandSplitResult> split_origin_demand_over_od_day_connections(
-          const OriginDayChoiceResult&       choice_result
+    mathfp::Expected<DemandSplitResult> split_origin_demand_over_od_day_paths(
+          const OriginDayPathChoiceResult&   choice_result
         , const InputModel&                  input
         , const SearchParams&                params
         , const DemandSegmentTimeConfig&     demand_segment_time
@@ -1311,7 +1315,7 @@ namespace timetable::domain::assignment {
         MATHFP_TRY(validate_assignment_period_config(assignment_period));
         MATHFP_TRY(validate_connection_admissibility_config(admissibility_config));
 
-        std::map<detail::grouping::OdKey, const OdDayChoicePairResult*> choice_lookup;
+        std::map<detail::grouping::OdKey, const OdDayPathChoicePairResult*> choice_lookup;
         for (const auto& pair_result : choice_result.pair_results) {
             const auto key = detail::grouping::OdKey{
                   .origin      = pair_result.origin
@@ -1393,7 +1397,7 @@ namespace timetable::domain::assignment {
         return result;
     }
 
-    mathfp::Expected<OriginDayDemandLoadResult> load_origin_day_demand(
+    mathfp::Expected<OriginDayDemandLoadResult> load_origin_day_path_demand(
           const OriginDaySearchResult&       search_result
         , const InputModel&                  input
         , const SearchParams&                params
@@ -1404,9 +1408,9 @@ namespace timetable::domain::assignment {
         , const ConnectionAdmissibilityConfig& admissibility_config
     ) {
         MATHFP_TRY_LET(
-              OriginDayChoiceResult
+              OriginDayPathChoiceResult
             , alternatives
-            , choose_origin_day_connections(
+            , choose_origin_day_paths(
                   search_result
                 , params
                 , search_cost
@@ -1416,7 +1420,7 @@ namespace timetable::domain::assignment {
         MATHFP_TRY_LET(
               DemandSplitResult
             , split_result
-            , split_origin_demand_over_od_day_connections(
+            , split_origin_demand_over_od_day_paths(
                   alternatives
                 , input
                 , params
@@ -1435,6 +1439,64 @@ namespace timetable::domain::assignment {
             , .split_result              = std::move(split_result)
             , .elementary_segment_loads  = std::move(elementary_segment_loads)
         };
+    }
+
+    mathfp::Expected<DemandSplitResult> split_demand_over_od_day_connections(
+          const OdDayConnectionChoiceResult& choice_result
+        , const InputModel&                  input
+        , const SearchParams&                params
+        , const DemandSegmentTimeConfig&     demand_segment_time
+        , const AssignmentPeriodConfig&      assignment_period
+        , const ConnectionAdmissibilityConfig& admissibility_config
+    ) {
+        return split_demand_over_od_day_paths(
+              choice_result
+            , input
+            , params
+            , demand_segment_time
+            , assignment_period
+            , admissibility_config
+        );
+    }
+
+    mathfp::Expected<DemandSplitResult> split_origin_demand_over_od_day_connections(
+          const OriginDayChoiceResult&       choice_result
+        , const InputModel&                  input
+        , const SearchParams&                params
+        , const DemandSegmentTimeConfig&     demand_segment_time
+        , const AssignmentPeriodConfig&      assignment_period
+        , const ConnectionAdmissibilityConfig& admissibility_config
+    ) {
+        return split_origin_demand_over_od_day_paths(
+              choice_result
+            , input
+            , params
+            , demand_segment_time
+            , assignment_period
+            , admissibility_config
+        );
+    }
+
+    mathfp::Expected<OriginDayDemandLoadResult> load_origin_day_demand(
+          const OriginDaySearchResult&       search_result
+        , const InputModel&                  input
+        , const SearchParams&                params
+        , const SearchCostContext&           search_cost
+        , const ChoiceConfig&                choice_config
+        , const DemandSegmentTimeConfig&     demand_segment_time
+        , const AssignmentPeriodConfig&      assignment_period
+        , const ConnectionAdmissibilityConfig& admissibility_config
+    ) {
+        return load_origin_day_path_demand(
+              search_result
+            , input
+            , params
+            , search_cost
+            , choice_config
+            , demand_segment_time
+            , assignment_period
+            , admissibility_config
+        );
     }
 
     mathfp::Expected<DemandSplitResult> split_demand_over_connections_capacity_aware(
