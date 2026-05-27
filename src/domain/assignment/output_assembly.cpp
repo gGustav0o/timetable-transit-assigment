@@ -20,7 +20,6 @@ namespace timetable::domain::assignment::detail {
 
         using ChosenConnectionIndexMap = std::map<grouping::ConnectionTraceKey, std::size_t>;
         using TaskConnectionTraceMap = std::map<grouping::DemandKey, std::map<grouping::ConnectionTraceKey, bool>>;
-        using OdDayConnectionTraceMap = std::map<grouping::OdKey, std::map<grouping::ConnectionTraceKey, bool>>;
         using OdDayPathMap = std::map<grouping::OdKey, std::map<DayPathSignature, bool>>;
 
         AssignmentOdResult make_empty_od_result(
@@ -73,26 +72,6 @@ namespace timetable::domain::assignment::detail {
                 }];
                 for (const auto& connection : task_result.connections) {
                     task_traces[grouping::connection_trace_key(connection)] = true;
-                }
-            }
-            return traces;
-        }
-
-        OdDayConnectionTraceMap build_od_day_connection_trace_map(
-            const OdDayPathChoiceResult& choice_result
-        ) {
-            OdDayConnectionTraceMap traces;
-            for (const auto& origin_result : choice_result.origin_results) {
-                for (const auto& pair_result : origin_result.pair_results) {
-                    auto& od_traces = traces[grouping::OdKey{
-                          .origin      = pair_result.origin
-                        , .destination = pair_result.destination
-                    }];
-                    for (const auto& alternative : pair_result.alternatives) {
-                        for (const auto& support : day_path_split_support_descriptors(alternative)) {
-                            od_traces[grouping::connection_trace_key(support.connection)] = true;
-                        }
-                    }
                 }
             }
             return traces;
@@ -193,9 +172,9 @@ namespace timetable::domain::assignment::detail {
                         }
                         for (const auto& support : day_path_split_support_descriptors(alternative)) {
                             if (day_path_signature_of(alternative)
-                                != day_path_signature_of(support.connection)) {
+                                != support.signature) {
                                 return mathfp::unexpected(
-                                    mathfp::internal_error("output input: OD-day support connection is not a support of its day-path identity")
+                                    mathfp::internal_error("output input: OD-day compact support is not a support of its day-path identity")
                                         .ctx("origin"     , pair_result.origin.get())
                                         .ctx("destination", pair_result.destination.get())
                                         .ctx("path_index" , static_cast<std::int64_t>(i))
@@ -262,7 +241,6 @@ namespace timetable::domain::assignment::detail {
               const OdDayPathChoiceResult&       choice_result
             , const DemandSplitResult&           split_result
         ) {
-            const auto od_traces = build_od_day_connection_trace_map(choice_result);
             const auto od_paths  = build_od_day_path_map(choice_result);
             for (std::size_t i = 0; i < split_result.shares.size(); ++i) {
                 const auto& share = split_result.shares[i];
@@ -270,8 +248,8 @@ namespace timetable::domain::assignment::detail {
                       .origin      = share.origin
                     , .destination = share.destination
                 };
-                const auto od_it = od_traces.find(key);
-                if (od_it == od_traces.end()) {
+                const auto od_path_it = od_paths.find(key);
+                if (od_path_it == od_paths.end()) {
                     return mathfp::unexpected(
                         mathfp::internal_error("output input: OD-day split share has no matching OD choice")
                             .ctx("share_index", static_cast<std::int64_t>(i))
@@ -289,9 +267,7 @@ namespace timetable::domain::assignment::detail {
                             .ctx("interval_id", share.interval   .get())
                     );
                 }
-                const auto od_path_it = od_paths.find(key);
-                if (od_path_it == od_paths.end()
-                    || !od_path_it->second.contains(share.day_path)) {
+                if (!od_path_it->second.contains(share.day_path)) {
                     return mathfp::unexpected(
                         mathfp::internal_error("output input: OD-day split share path is outside its OD choice")
                             .ctx("share_index", static_cast<std::int64_t>(i))
@@ -300,9 +276,10 @@ namespace timetable::domain::assignment::detail {
                             .ctx("interval_id", share.interval   .get())
                     );
                 }
-                if (!od_it->second.contains(grouping::connection_trace_key(share.connection))) {
+                if (!share.day_path_support.has_value()
+                    || !(share.day_path_support->signature == share.day_path)) {
                     return mathfp::unexpected(
-                        mathfp::internal_error("output input: OD-day split share connection is outside its OD choice")
+                        mathfp::internal_error("output input: OD-day split share compact support is outside its OD choice")
                             .ctx("share_index", static_cast<std::int64_t>(i))
                             .ctx("origin"     , share.origin     .get())
                             .ctx("destination", share.destination.get())
@@ -319,6 +296,15 @@ namespace timetable::domain::assignment::detail {
             mathfp::CompensatedSum<double> total;
             for (const auto& share : split_result.shares) {
                 if (!(share.passengers > 0.0)) {
+                    continue;
+                }
+                if (share.source == DemandShareAlternativeSource::DayPath) {
+                    if (share.day_path_support.has_value()) {
+                        total.add(
+                              share.passengers
+                            * static_cast<double>(share.day_path_support->ride_legs.size())
+                        );
+                    }
                     continue;
                 }
                 for (const auto& leg : canonical_connection(share.connection).trace.legs) {

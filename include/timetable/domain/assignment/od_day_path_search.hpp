@@ -59,6 +59,18 @@ namespace timetable::domain::assignment {
         StructuralSupplyEdges
     };
 
+    enum class OdDayPathTreeLabelPolicy : std::uint8_t {
+        SeparateFromOdAlternatives
+    };
+
+    enum class OdDayPathAlternativeRetentionPolicy : std::uint8_t {
+        ProductionOdPairSlotsOnly
+    };
+
+    enum class OdDayPathSignaturePolicy : std::uint8_t {
+        RouteStopLinePattern
+    };
+
     /**
      * @brief Day-level path feasibility semantics.
      *
@@ -83,6 +95,15 @@ namespace timetable::domain::assignment {
         OdDayPathSuccessorExpansionPolicy successor_expansion_policy{
             OdDayPathSuccessorExpansionPolicy::StructuralSupplyEdges
         };
+        OdDayPathTreeLabelPolicy tree_label_policy{
+            OdDayPathTreeLabelPolicy::SeparateFromOdAlternatives
+        };
+        OdDayPathAlternativeRetentionPolicy alternative_retention_policy{
+            OdDayPathAlternativeRetentionPolicy::ProductionOdPairSlotsOnly
+        };
+        OdDayPathSignaturePolicy signature_policy{
+            OdDayPathSignaturePolicy::RouteStopLinePattern
+        };
         OdDayPathFeasibilitySemantics feasibility_semantics{
             OdDayPathFeasibilitySemantics::ExistsTimedSupportLabelPath
         };
@@ -99,6 +120,12 @@ namespace timetable::domain::assignment {
             , .timed_support_policy   = OdDayPathTimedSupportPolicy::SupportSetWithRepresentative
             , .successor_expansion_policy =
                 OdDayPathSuccessorExpansionPolicy::StructuralSupplyEdges
+            , .tree_label_policy =
+                OdDayPathTreeLabelPolicy::SeparateFromOdAlternatives
+            , .alternative_retention_policy =
+                OdDayPathAlternativeRetentionPolicy::ProductionOdPairSlotsOnly
+            , .signature_policy =
+                OdDayPathSignaturePolicy::RouteStopLinePattern
             , .feasibility_semantics   =
                 OdDayPathFeasibilitySemantics::ExistsTimedSupportLabelPath
             , .declared_origin_count  = declared_origin_count
@@ -114,8 +141,15 @@ namespace timetable::domain::assignment {
             && contract.timed_support_policy == OdDayPathTimedSupportPolicy::SupportSetWithRepresentative
             && contract.successor_expansion_policy
                 == OdDayPathSuccessorExpansionPolicy::StructuralSupplyEdges
+            && contract.tree_label_policy
+                == OdDayPathTreeLabelPolicy::SeparateFromOdAlternatives
+            && contract.alternative_retention_policy
+                == OdDayPathAlternativeRetentionPolicy::ProductionOdPairSlotsOnly
+            && contract.signature_policy
+                == OdDayPathSignaturePolicy::RouteStopLinePattern
             && contract.feasibility_semantics
-                == OdDayPathFeasibilitySemantics::ExistsTimedSupportLabelPath;
+                == OdDayPathFeasibilitySemantics::ExistsTimedSupportLabelPath
+            && contract.declared_origin_count > 0u;
     }
 
     /**

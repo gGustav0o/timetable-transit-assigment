@@ -381,7 +381,10 @@ namespace timetable::domain::assignment {
             const auto weight = config.volume_weighted ? share.passengers : 1.0;
             return SkimAlternative{
                   .share   = &share
-                , .metrics = metrics_of(share.connection)
+                , .metrics = share.source == DemandShareAlternativeSource::DayPath
+                    && share.day_path_support.has_value()
+                        ? share.day_path_support->connection_metrics
+                        : metrics_of(share.connection)
                 , .weight  = weight
             };
         }

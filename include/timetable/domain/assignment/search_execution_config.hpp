@@ -18,9 +18,10 @@ namespace timetable::domain::assignment {
      * formulation directly instead of spelling out an error-prone tuple of
      * origin/time/destination/projection scopes.
      *
-     * TimedConnectionDiagnostics preserves the previous demand-task/timed
-     * alternative formulation for diagnostics and comparisons. The required
-     * production formulation is OdDayAssignment.
+     * TimedConnectionDiagnostics is the only supported contour for legacy
+     * timed path enumeration. The required production formulation is
+     * OdDayAssignment; DemandTaskAssignment is kept only as a rejected legacy
+     * token for explicit configuration errors.
      */
     enum class AssignmentCalculationFormulation : std::uint8_t {
           DemandTaskAssignment

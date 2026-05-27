@@ -33,15 +33,15 @@ namespace timetable::domain::assignment {
             SearchConnection  connection;
             DemandShareAlternativeSource source{ DemandShareAlternativeSource::TimedConnection };
             DayPathSignature  day_path{};
+            std::optional<DayPathSupportDescriptor> day_path_support{};
             ConnectionMetrics metrics{};
             double            perceived_journey_time{};
             double            independence{};
         };
 
         struct IntervalAdmissibleDayPathSupport final {
-            const DayPathAlternative* path{};
-            const SearchConnection*   connection{};
-            ConnectionMetrics         metrics{};
+            const DayPathAlternative*       path{};
+            const DayPathSupportDescriptor* support{};
         };
 
         struct SplitCapacityContext final {
@@ -487,6 +487,7 @@ namespace timetable::domain::assignment {
                           .connection             = *connection
                         , .source                 = DemandShareAlternativeSource::TimedConnection
                         , .day_path               = day_path_signature_of(*connection)
+                        , .day_path_support       = std::nullopt
                         , .metrics                = metrics
                         , .perceived_journey_time = perceived_journey_time(
                               metrics
@@ -510,14 +511,16 @@ namespace timetable::domain::assignment {
             alternatives.reserve(supports.size());
 
             for (const auto& support : supports) {
+                const auto& selected = *support.support;
                 alternatives.push_back(
                     SplitAlternative{
-                          .connection             = *support.connection
+                          .connection             = day_path_representative_connection(*support.path)
                         , .source                 = DemandShareAlternativeSource::DayPath
                         , .day_path               = day_path_signature_of(*support.path)
-                        , .metrics                = support.metrics
+                        , .day_path_support       = selected
+                        , .metrics                = selected.connection_metrics
                         , .perceived_journey_time = perceived_journey_time(
-                              support.metrics
+                              selected.connection_metrics
                             , params.perceived_journey_time
                           )
                         , .independence           = 0.0
@@ -584,6 +587,7 @@ namespace timetable::domain::assignment {
                           .connection             = alternative.connection
                         , .source                 = alternative.source
                         , .day_path               = alternative.day_path
+                        , .day_path_support       = alternative.day_path_support
                         , .metrics                = alternative.metrics
                         , .perceived_journey_time = adjusted_perceived_journey_time
                         , .independence           = 0.0
@@ -688,7 +692,6 @@ namespace timetable::domain::assignment {
             auto best_impedance = std::numeric_limits<double>::infinity();
 
             for (const auto& support : day_path_split_support_descriptors(path)) {
-                const auto& connection = support.connection;
                 const auto metrics = support.connection_metrics;
                 if (!connection_admissible_for_demand_segment(
                       metrics
@@ -700,9 +703,10 @@ namespace timetable::domain::assignment {
                 }
 
                 const auto candidate = SplitAlternative{
-                      .connection             = connection
+                      .connection             = day_path_representative_connection(path)
                     , .source                 = DemandShareAlternativeSource::DayPath
                     , .day_path               = day_path_signature_of(path)
+                    , .day_path_support       = support
                     , .metrics                = metrics
                     , .perceived_journey_time = perceived_journey_time(
                           metrics
@@ -720,8 +724,7 @@ namespace timetable::domain::assignment {
                     best_impedance = candidate_impedance;
                     best = IntervalAdmissibleDayPathSupport{
                           .path       = &path
-                        , .connection = &connection
-                        , .metrics    = metrics
+                        , .support    = &support
                     };
                 }
             }
@@ -797,9 +800,18 @@ namespace timetable::domain::assignment {
                             .ctx("path_destination", share.day_path.destination.get())
                     );
                 }
-                if (!(day_path_signature_of(share.connection) == share.day_path)) {
+                if (!share.day_path_support.has_value()) {
                     return mathfp::unexpected(
-                        mathfp::internal_error("OD-day split share support connection disagrees with selected day path")
+                        mathfp::internal_error("OD-day split share is missing compact interval support")
+                            .ctx("share_index", static_cast<std::int64_t>(i))
+                            .ctx("origin"     , share.origin.get())
+                            .ctx("destination", share.destination.get())
+                            .ctx("interval_id", share.interval.get())
+                    );
+                }
+                if (!(share.day_path_support->signature == share.day_path)) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("OD-day split share compact support disagrees with selected day path")
                             .ctx("share_index", static_cast<std::int64_t>(i))
                             .ctx("origin"     , share.origin.get())
                             .ctx("destination", share.destination.get())
@@ -833,7 +845,7 @@ namespace timetable::domain::assignment {
                             .ctx("interval_id", share.interval.get())
                     );
                 }
-                const auto metrics = metrics_of(share.connection);
+                const auto metrics = share.day_path_support->connection_metrics;
                 if (!connection_admissible_for_demand_segment(
                       metrics
                     , *interval
@@ -986,6 +998,7 @@ namespace timetable::domain::assignment {
                         , .source          = alternatives[i].source
                         , .day_path        = alternatives[i].day_path
                         , .connection      = alternatives[i].connection
+                        , .day_path_support = alternatives[i].day_path_support
                         , .passengers      = passengers[i]
                         , .probability     = probabilities[i]
                         , .independence    = independences[i]
@@ -1200,6 +1213,7 @@ namespace timetable::domain::assignment {
                         , .source          = alternatives[i].source
                         , .day_path        = alternatives[i].day_path
                         , .connection      = alternatives[i].connection
+                        , .day_path_support = alternatives[i].day_path_support
                         , .passengers      = passengers[i]
                         , .probability     = probabilities[i]
                         , .independence    = independences[i]

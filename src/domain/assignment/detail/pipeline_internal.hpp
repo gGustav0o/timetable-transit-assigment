@@ -194,9 +194,10 @@ namespace timetable::domain::assignment::detail {
                         .ctx("path_destination", split.shares[i].day_path.destination.get())
                 );
             }
-            if (day_path_signature_of(split.shares[i].connection) != split.shares[i].day_path) {
+            if (!split.shares[i].day_path_support.has_value()
+                || split.shares[i].day_path_support->signature != split.shares[i].day_path) {
                 return mathfp::unexpected(
-                    mathfp::internal_error("OD-day split share support connection disagrees with day-path identity")
+                    mathfp::internal_error("OD-day split share compact support disagrees with day-path identity")
                         .ctx("share_index", static_cast<std::int64_t>(i))
                         .ctx("origin", split.shares[i].origin.get())
                         .ctx("destination", split.shares[i].destination.get())

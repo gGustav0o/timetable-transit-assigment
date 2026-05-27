@@ -168,8 +168,10 @@ namespace timetable::domain::assignment {
      * @brief One structural leg of a day-level OD path.
      *
      * A DayPathLeg deliberately excludes concrete connection segment ids, trip
-     * ids and clock times. It keeps only the supply structure that determines
-     * the path pattern used for day-level assignment.
+     * ids and clock times. In production DayPathSignature it is normalized to a
+     * route-stop-line pattern: physical endpoints and route/line identity for
+     * rides, physical endpoints for walks. Route-segment ids and occurrence
+     * positions are search/support detail, not OD alternative identity.
      */
     struct DayPathLeg final {
         ConnectionLegKind                kind{};
@@ -188,7 +190,10 @@ namespace timetable::domain::assignment {
      * @brief Canonical day-level path identity for one OD pair.
      *
      * SearchConnection is a time-realized timetable connection. DayPathSignature
-     * is the corresponding all-day structural path pattern between zones.
+     * is the corresponding all-day production path pattern between zones. It is
+     * intentionally coarser than the tree/support label: timed feasibility and
+     * elementary-load support are stored under the alternative, not inside its
+     * public identity.
      */
     struct DayPathSignature final {
         ZoneId                  origin{};
@@ -209,10 +214,27 @@ namespace timetable::domain::assignment {
      * timetable realization available to the split layer for demand-interval
      * admissibility and elementary-load projection.
      */
+    struct DayPathRideSupportLeg final {
+        ConnectionSegmentId connection_segment{};
+        RouteSegmentId      route_segment{};
+        LineId              line{};
+        RouteId             route{};
+        TripId              trip{};
+        StopOccurrenceKey   occurrence_from{};
+        StopOccurrenceKey   occurrence_to{};
+        RoutePosition       from_index{};
+        RoutePosition       to_index{};
+        Time                departure{};
+        Time                arrival{};
+
+        auto operator<=>(const DayPathRideSupportLeg&) const = default;
+    };
+
     struct DayPathSupportDescriptor final {
-        SearchConnection          connection;
-        CompleteConnectionMetrics complete_metrics{};
-        ConnectionMetrics         connection_metrics{};
+        DayPathSignature                    signature{};
+        CompleteConnectionMetrics           complete_metrics{};
+        ConnectionMetrics                   connection_metrics{};
+        std::vector<DayPathRideSupportLeg>  ride_legs{};
     };
 
     struct DayPathSplitSupport final {

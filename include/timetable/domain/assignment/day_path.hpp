@@ -17,12 +17,11 @@
 namespace timetable::domain::assignment {
 
     /**
-     * @brief Incremental structural path prefix used by OD-day search.
+     * @brief Incremental tree-label prefix used by OD-day search.
      *
-     * The prefix is deliberately clock-free: it grows while the timetable
-     * support is explored, but it does not contain trip ids, connection segment
-     * ids or waiting legs. This lets OD-day search reason about the day-level
-     * path before a complete timed support is materialized.
+     * The prefix is a search label, not a finalized OD alternative. It is
+     * deliberately clock-free and is converted to the coarser production
+     * DayPathSignature only when a destination is reached.
      */
     struct DayPathPrefix final {
         ZoneId                  origin{};
@@ -54,6 +53,11 @@ namespace timetable::domain::assignment {
         std::map<DayPathSignature, DayPathAlternative> alternatives_by_signature{};
     };
 
+    struct DayPathRetentionConfig final {
+        std::size_t max_alternatives_per_od{ 256u };
+        std::size_t max_supports_per_path{ 16u };
+    };
+
     [[nodiscard]] bool day_path_retention_empty(
         const DayPathRetention& retention
     ) noexcept;
@@ -66,6 +70,10 @@ namespace timetable::domain::assignment {
         const ConnectionLeg& leg
     ) noexcept;
 
+    [[nodiscard]] DayPathLeg production_day_path_leg(
+        DayPathLeg leg
+    ) noexcept;
+
     [[nodiscard]] DayPathPrefix make_day_path_prefix(
         ZoneId origin
     );
@@ -76,6 +84,11 @@ namespace timetable::domain::assignment {
     );
 
     [[nodiscard]] DayPathSignature complete_day_path_signature(
+          DayPathPrefix prefix
+        , ZoneId        destination
+    );
+
+    [[nodiscard]] DayPathSignature make_day_path_signature_from_tree_label(
           DayPathPrefix prefix
         , ZoneId        destination
     );
@@ -114,6 +127,14 @@ namespace timetable::domain::assignment {
         , SearchConnection        connection
         , const SearchCostContext& search_cost
         , IntervalId              interval
+    );
+
+    [[nodiscard]] mathfp::Expected<DayPathRetentionDecision> retain_day_path_alternative(
+          DayPathRetention&             retention
+        , SearchConnection              connection
+        , const SearchCostContext&      search_cost
+        , IntervalId                    interval
+        , const DayPathRetentionConfig& config
     );
 
     [[nodiscard]] mathfp::Expected<DayPathAlternative> make_day_path_alternative(

@@ -514,6 +514,16 @@ namespace timetable::domain::assignment {
             , DayPathPrefixHash
         >;
 
+        struct OdDayProductionMemoryLimits final {
+            std::size_t max_branch_slots_per_tree{ 750'000u };
+            std::size_t max_live_branches_per_tree{ 300'000u };
+            std::size_t max_frontier_per_tree{ 300'000u };
+            std::size_t max_day_path_prefixes_per_tree{ 500'000u };
+            std::size_t max_day_path_states_per_tree{ 500'000u };
+            std::size_t max_retained_day_paths_per_tree{ 65'536u };
+            std::size_t max_approximate_direct_bytes_per_tree{ 512u * 1024u * 1024u };
+        };
+
         enum class SearchProjectionSlotKind : std::uint8_t {
               DemandTask
             , OdDayPair
@@ -4461,20 +4471,22 @@ namespace timetable::domain::assignment {
                 };
             }
 
-            if (pruning_execution.exact_enabled) {
-                const auto exact_decision = evaluate_exact_pruning(
-                      pruning_execution.exact_policy
-                    , metrics
-                    , it->second
-                );
-                if (!exact_decision.accepted) {
-                    ++pruning_stats.rejected_exact;
-                    return SearchPruningDecision{
-                          .layer    = SearchPruningLayer::Exact
-                        , .reason   = exact_decision.reason
-                        , .accepted = false
-                    };
+            const auto pruning_decision = evaluate_search_pruning(
+                  pruning_execution
+                , metrics
+                , it->second
+                , params.transfers
+            );
+            if (!pruning_decision.accepted) {
+                switch (pruning_decision.layer) {
+                    case SearchPruningLayer::Exact:
+                        ++pruning_stats.rejected_exact;
+                        break;
+                    case SearchPruningLayer::Approximate:
+                        ++pruning_stats.rejected_approximate;
+                        break;
                 }
+                return pruning_decision;
             }
 
             if (stores_search_pruning_metrics(pruning_execution)) {
@@ -4489,11 +4501,7 @@ namespace timetable::domain::assignment {
                 ++pruning_stats.skipped_insertions;
             }
             ++pruning_stats.accepted_candidates;
-            return SearchPruningDecision{
-                  .layer    = SearchPruningLayer::Exact
-                , .reason   = SearchPruningReason::Accepted
-                , .accepted = true
-            };
+            return pruning_decision;
         }
 
         mathfp::Expected<SearchPruningDecision> retain_branch(
@@ -4554,7 +4562,6 @@ namespace timetable::domain::assignment {
             , const SearchPruningExecutionPlan& pruning_execution
             , SearchPruningRuntimeStats&        pruning_stats
         ) {
-            (void)params;
             ++pruning_stats.evaluated_candidates;
             MATHFP_TRY_LET(
                   PartialPruningMetrics
@@ -4587,20 +4594,22 @@ namespace timetable::domain::assignment {
                 };
             }
 
-            if (pruning_execution.exact_enabled) {
-                const auto exact_decision = evaluate_exact_pruning(
-                      pruning_execution.exact_policy
-                    , metrics
-                    , it->second
-                );
-                if (!exact_decision.accepted) {
-                    ++pruning_stats.rejected_exact;
-                    return SearchPruningDecision{
-                          .layer    = SearchPruningLayer::Exact
-                        , .reason   = exact_decision.reason
-                        , .accepted = false
-                    };
+            const auto pruning_decision = evaluate_search_pruning(
+                  pruning_execution
+                , metrics
+                , it->second
+                , params.transfers
+            );
+            if (!pruning_decision.accepted) {
+                switch (pruning_decision.layer) {
+                    case SearchPruningLayer::Exact:
+                        ++pruning_stats.rejected_exact;
+                        break;
+                    case SearchPruningLayer::Approximate:
+                        ++pruning_stats.rejected_approximate;
+                        break;
                 }
+                return pruning_decision;
             }
 
             if (stores_search_pruning_metrics(pruning_execution)) {
@@ -4614,11 +4623,7 @@ namespace timetable::domain::assignment {
                 ++pruning_stats.skipped_insertions;
             }
             ++pruning_stats.accepted_candidates;
-            return SearchPruningDecision{
-                  .layer    = SearchPruningLayer::Exact
-                , .reason   = SearchPruningReason::Accepted
-                , .accepted = true
-            };
+            return pruning_decision;
         }
 
         BranchState feasibility_state(
@@ -4754,6 +4759,76 @@ namespace timetable::domain::assignment {
                 , static_cast<double>(diagnostics.approximate_direct_bytes)
                     / (1024.0 * 1024.0)
             );
+        }
+
+        mathfp::Expected<mathfp::Unit> validate_od_day_production_memory_limits(
+              const SearchStorageDiagnostics& diagnostics
+            , std::size_t                     current_frontier
+            , std::size_t                     next_frontier
+            , const OdDayProductionMemoryLimits& limits
+            , ZoneId                          origin
+        ) {
+            const auto fail =
+                [&](const char* metric, std::size_t actual, std::size_t limit)
+                    -> mathfp::Expected<mathfp::Unit> {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("OD-day production memory limit exceeded")
+                            .ctx("origin", origin.get())
+                            .ctx("metric", std::string(metric))
+                            .ctx("actual", static_cast<std::int64_t>(actual))
+                            .ctx("limit", static_cast<std::int64_t>(limit))
+                    );
+                };
+
+            if (diagnostics.branch_slots > limits.max_branch_slots_per_tree) {
+                return fail(
+                      "branch_slots"
+                    , diagnostics.branch_slots
+                    , limits.max_branch_slots_per_tree
+                );
+            }
+            if (diagnostics.live_branches > limits.max_live_branches_per_tree) {
+                return fail(
+                      "live_branches"
+                    , diagnostics.live_branches
+                    , limits.max_live_branches_per_tree
+                );
+            }
+            const auto frontier = current_frontier + next_frontier;
+            if (frontier > limits.max_frontier_per_tree) {
+                return fail("frontier", frontier, limits.max_frontier_per_tree);
+            }
+            if (diagnostics.day_path_prefix_nodes > limits.max_day_path_prefixes_per_tree) {
+                return fail(
+                      "day_path_prefixes"
+                    , diagnostics.day_path_prefix_nodes
+                    , limits.max_day_path_prefixes_per_tree
+                );
+            }
+            if (diagnostics.day_path_state_nodes > limits.max_day_path_states_per_tree) {
+                return fail(
+                      "day_path_states"
+                    , diagnostics.day_path_state_nodes
+                    , limits.max_day_path_states_per_tree
+                );
+            }
+            if (diagnostics.retained_day_paths > limits.max_retained_day_paths_per_tree) {
+                return fail(
+                      "retained_day_paths"
+                    , diagnostics.retained_day_paths
+                    , limits.max_retained_day_paths_per_tree
+                );
+            }
+            if (diagnostics.approximate_direct_bytes
+                > limits.max_approximate_direct_bytes_per_tree) {
+                return fail(
+                      "approximate_direct_bytes"
+                    , diagnostics.approximate_direct_bytes
+                    , limits.max_approximate_direct_bytes_per_tree
+                );
+            }
+
+            return mathfp::kUnit;
         }
 
         struct ReachabilityTaskFilter final {
@@ -5199,7 +5274,7 @@ namespace timetable::domain::assignment {
              * structural path bucket and is never retained as a raw complete
              * alternative of the search slot.
              */
-            const auto incremental_signature = complete_day_path_signature(
+            const auto incremental_signature = make_day_path_signature_from_tree_label(
                   branch.day_path_prefix
                 , slot.destination
             );
@@ -5595,25 +5670,46 @@ namespace timetable::domain::assignment {
             const auto projection_state_size = target_projection_slots
                 ? sizeof(FixedActiveMask)
                 : sizeof(DemandBranchProjectionState);
+            const OdDayProductionMemoryLimits od_day_memory_limits{};
+            auto make_storage_diagnostics = [&]() noexcept {
+                return search_storage_diagnostics(
+                      branches
+                    , released_branches
+                    , projection_state_count()
+                    , projection_state_size
+                    , tree_partial_retention
+                    , std::span<const SearchProjectionRetention>{
+                          retentions.data()
+                        , retentions.size()
+                      }
+                    , stats.pruning
+                );
+            };
             auto emit_storage_diagnostics = [&]() {
                 log(
                     format_search_storage_diagnostics(
-                        search_storage_diagnostics(
-                              branches
-                            , released_branches
-                            , projection_state_count()
-                            , projection_state_size
-                            , tree_partial_retention
-                            , std::span<const SearchProjectionRetention>{
-                                  retentions.data()
-                                , retentions.size()
-                              }
-                            , stats.pruning
-                        )
+                        make_storage_diagnostics()
                     )
                     , LogLevel::Info
                 );
             };
+            if (od_day_slots) {
+                log(
+                    fmt::format(
+                          "OD-day production memory limits: branch_slots={} live_branches={} frontier={} day_path_prefixes={} day_path_states={} retained_day_paths={} approx_direct_mb={:.2f}"
+                        , od_day_memory_limits.max_branch_slots_per_tree
+                        , od_day_memory_limits.max_live_branches_per_tree
+                        , od_day_memory_limits.max_frontier_per_tree
+                        , od_day_memory_limits.max_day_path_prefixes_per_tree
+                        , od_day_memory_limits.max_day_path_states_per_tree
+                        , od_day_memory_limits.max_retained_day_paths_per_tree
+                        , static_cast<double>(
+                              od_day_memory_limits.max_approximate_direct_bytes_per_tree
+                          ) / (1024.0 * 1024.0)
+                    )
+                    , LogLevel::Info
+                );
+            }
             auto emit_wall_clock_heartbeat =
                 [&](const char* stage, std::size_t branch_index) {
                     const auto now = Clock::now();
@@ -5704,6 +5800,15 @@ namespace timetable::domain::assignment {
                 const auto& active_tasks   = *active_tasks_ptr;
                 const auto& active_targets = *active_targets_ptr;
                 ++stats.expanded_branches;
+                if (od_day_slots && ((stats.expanded_branches % 1024u) == 0u)) {
+                    MATHFP_TRY(validate_od_day_production_memory_limits(
+                          make_storage_diagnostics()
+                        , current_frontier.size()
+                        , next_frontier.size()
+                        , od_day_memory_limits
+                        , batch.key.origin
+                    ));
+                }
 
                 if ((stats.expanded_branches % kSearchHeartbeatStep) == 0) {
                     status(
@@ -6143,6 +6248,17 @@ namespace timetable::domain::assignment {
                     } else {
                         next_frontier   .push_back(candidate_index);
                         increment_phase_stats(next_frontier_by_phase, candidate_phase);
+                    }
+                    if (od_day_slots
+                        && (current_frontier.size() + next_frontier.size()
+                            > od_day_memory_limits.max_frontier_per_tree)) {
+                        successor_error = validate_od_day_production_memory_limits(
+                              make_storage_diagnostics()
+                            , current_frontier.size()
+                            , next_frontier.size()
+                            , od_day_memory_limits
+                            , batch.key.origin
+                        );
                     }
                 }
                     , [&](std::size_t rejected_walk_count) {
@@ -8114,12 +8230,27 @@ namespace timetable::domain::assignment {
             complete_connection_dominance
         ));
         MATHFP_TRY(validate_search_cost_context(search_cost));
+        const auto od_day_contract = make_od_day_path_search_contract(
+            diagnostics.declared_zone_count
+        );
+        if (!satisfies_od_day_path_search_contract(od_day_contract)) {
+            return mathfp::unexpected(
+                mathfp::internal_error("OD-day search production contract is not satisfied")
+                    .ctx(
+                          "declared_origin_count"
+                        , static_cast<std::int64_t>(od_day_contract.declared_origin_count)
+                    )
+            );
+        }
 
         both("search: OD-day branch-and-bound");
+        const auto day_path_retention_config = DayPathRetentionConfig{};
         log(
             fmt::format(
-                  "OD-day projection contract: partial_retention_scope={} complete_retention=day_path_od_pair_slot computation_contract={}"
+                  "OD-day projection contract: partial_retention_scope={} tree_labels=separate_from_od_alternatives complete_retention=day_path_od_pair_slot od_alternative_retention=production_slots_only signature=route_stop_line_pattern max_alternatives_per_od={} max_supports_per_path={} computation_contract={}"
                 , to_string(execution.config.partial_retention_scope)
+                , day_path_retention_config.max_alternatives_per_od
+                , day_path_retention_config.max_supports_per_path
                 , to_log_token(OdDaySearchComputationContract::StructuralEdgeExpansion)
             )
             , LogLevel::Info
@@ -8204,7 +8335,7 @@ namespace timetable::domain::assignment {
         }
         log(
             fmt::format(
-                  "OD-day computational profile: contour=production_day_path successor_generation=structural_day_edges timed_contour=diagnostics_only trees={} destinations={} time_horizon=service_day result=day_path_support_sets split_interval_admissibility=support_set primary_load=elementary_segment_loads max_parallel_batches={}"
+                  "OD-day computational profile: contour=production_day_path successor_generation=structural_day_edges tree_label_scope=search_only od_signature=route_stop_line_pattern timed_contour=diagnostics_only trees={} destinations={} time_horizon=service_day result=day_path_support_sets split_interval_admissibility=support_set primary_load=elementary_segment_loads max_parallel_batches={}"
                 , tree_jobs.size()
                 , execution.config.destination_scope == SearchDestinationScope::DeclaredZones
                     ? execution.declared_zones.size()

@@ -69,6 +69,29 @@ namespace timetable::domain::assignment {
                 return mathfp::kUnit;
             }
 
+            if (share.source == DemandShareAlternativeSource::DayPath) {
+                if (!share.day_path_support.has_value()) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("day-path elementary load share is missing compact support")
+                            .ctx("origin"     , share.origin.get())
+                            .ctx("destination", share.destination.get())
+                            .ctx("interval_id", share.interval.get())
+                    );
+                }
+                for (const auto& leg : share.day_path_support->ride_legs) {
+                    for (auto index = leg.from_index.get(); index < leg.to_index.get(); ++index) {
+                        loads[VehicleJourneyItemLoadKey{
+                              .interval = share.interval
+                            , .item     = VehicleJourneyItemKey{
+                                  .trip       = leg.trip
+                                , .from_index = RoutePosition{ index }
+                              }
+                        }].add(share.passengers);
+                    }
+                }
+                return mathfp::kUnit;
+            }
+
             const auto& trace = canonical_connection(share.connection).trace;
             for (const auto& leg : trace.legs) {
                 if (!is_ride_leg(leg.kind)) {
@@ -106,10 +129,19 @@ namespace timetable::domain::assignment {
                 );
             }
 
-            const auto support_signature = day_path_signature_of(share.connection);
-            if (!(support_signature == share.day_path)) {
+            if (!share.day_path_support.has_value()) {
                 return mathfp::unexpected(
-                    mathfp::internal_error("day-path split share signature disagrees with selected support connection")
+                    mathfp::internal_error("day-path split share is missing compact support for elementary loads")
+                        .ctx("share_index", static_cast<std::int64_t>(share_index))
+                        .ctx("origin"     , share.origin.get())
+                        .ctx("destination", share.destination.get())
+                        .ctx("interval_id", share.interval.get())
+                );
+            }
+
+            if (!(share.day_path_support->signature == share.day_path)) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("day-path split share signature disagrees with compact support")
                         .ctx("share_index", static_cast<std::int64_t>(share_index))
                         .ctx("origin"     , share.origin.get())
                         .ctx("destination", share.destination.get())
@@ -436,20 +468,37 @@ namespace timetable::domain::assignment {
                     continue;
                 }
 
-                const auto& trace = canonical_connection(share.connection).trace;
-                for (const auto& leg : trace.legs) {
-                    if (!is_ride_leg(leg.kind)) {
-                        continue;
+                if (share.source == DemandShareAlternativeSource::DayPath) {
+                    if (!share.day_path_support.has_value()) {
+                        return mathfp::unexpected(
+                            mathfp::internal_error("day-path load projection share is missing compact support")
+                                .ctx("origin"     , share.origin.get())
+                                .ctx("destination", share.destination.get())
+                                .ctx("interval_id", share.interval.get())
+                        );
                     }
+                    for (const auto& leg : share.day_path_support->ride_legs) {
+                        expected.add(
+                            share.passengers
+                            * static_cast<double>(leg.to_index.get() - leg.from_index.get())
+                        );
+                    }
+                } else {
+                    const auto& trace = canonical_connection(share.connection).trace;
+                    for (const auto& leg : trace.legs) {
+                        if (!is_ride_leg(leg.kind)) {
+                            continue;
+                        }
 
-                    MATHFP_TRY_LET(
-                          std::vector<VehicleJourneyItemKey>
-                        , occupied_items
-                        , vehicle_journey_items_occupied(leg)
-                    );
-                    expected.add(
-                        share.passengers * static_cast<double>(occupied_items.size())
-                    );
+                        MATHFP_TRY_LET(
+                              std::vector<VehicleJourneyItemKey>
+                            , occupied_items
+                            , vehicle_journey_items_occupied(leg)
+                        );
+                        expected.add(
+                            share.passengers * static_cast<double>(occupied_items.size())
+                        );
+                    }
                 }
             }
 

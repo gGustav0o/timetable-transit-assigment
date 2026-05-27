@@ -11,6 +11,8 @@
 #include <mathfp/core/summation.hpp>
 #include <mathfp/core/try.hpp>
 
+#include "timetable/domain/endpoints.hpp"
+
 namespace timetable::domain::assignment::detail {
     namespace {
 
@@ -345,11 +347,69 @@ namespace timetable::domain::assignment::detail {
             );
         }
 
+        [[nodiscard]] ConnectionLeg compact_support_connection_leg(
+            const DayPathRideSupportLeg& leg
+        ) noexcept {
+            return ConnectionLeg{
+                  .kind               = ConnectionLegKind::Ride
+                , .connection_segment = leg.connection_segment
+                , .route_segment      = leg.route_segment
+                , .physical_from      = endpoint_key(leg.occurrence_from.stop)
+                , .physical_to        = endpoint_key(leg.occurrence_to.stop)
+                , .occurrence_from    = leg.occurrence_from
+                , .occurrence_to      = leg.occurrence_to
+                , .line               = leg.line
+                , .route              = leg.route
+                , .trip               = leg.trip
+                , .start_time         = leg.departure
+                , .end_time           = leg.arrival
+                , .length             = Length{ 0.0 }
+                , .fare               = 0.0
+            };
+        }
+
+        [[nodiscard]] mathfp::Expected<std::vector<ConnectionLeg>> compact_support_ride_legs(
+            const ConnectionDemandShare& share
+        ) {
+            if (!share.day_path_support.has_value()) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("day-path VISUM/load share is missing compact support")
+                        .ctx("origin"     , share.origin.get())
+                        .ctx("destination", share.destination.get())
+                        .ctx("interval_id", share.interval.get())
+                );
+            }
+
+            std::vector<ConnectionLeg> legs;
+            legs.reserve(share.day_path_support->ride_legs.size());
+            for (const auto& leg : share.day_path_support->ride_legs) {
+                legs.push_back(compact_support_connection_leg(leg));
+            }
+            return legs;
+        }
+
         mathfp::Expected<mathfp::Unit> accumulate_share_load(
               SegmentLoadMap&               segment_loads
             , const ConnectionDemandShare&  share
         ) {
             if (!(share.passengers > 0.0)) {
+                return mathfp::kUnit;
+            }
+
+            if (share.source == DemandShareAlternativeSource::DayPath) {
+                MATHFP_TRY_LET(
+                      std::vector<ConnectionLeg>
+                    , legs
+                    , compact_support_ride_legs(share)
+                );
+                for (const auto& leg : legs) {
+                    MATHFP_TRY_LET(
+                          SegmentLoadKey
+                        , key
+                        , segment_load_key(share.interval, leg)
+                    );
+                    segment_loads[key].add(share.passengers);
+                }
                 return mathfp::kUnit;
             }
 
@@ -378,7 +438,18 @@ namespace timetable::domain::assignment::detail {
                 return mathfp::kUnit;
             }
 
-            const auto& legs = canonical_connection(share.connection).trace.legs;
+            std::vector<ConnectionLeg> compact_legs;
+            if (share.source == DemandShareAlternativeSource::DayPath) {
+                MATHFP_TRY_LET(
+                      std::vector<ConnectionLeg>
+                    , support_legs
+                    , compact_support_ride_legs(share)
+                );
+                compact_legs = std::move(support_legs);
+            }
+            const auto& legs = share.source == DemandShareAlternativeSource::DayPath
+                ? compact_legs
+                : canonical_connection(share.connection).trace.legs;
             for (std::size_t i = 0; i < legs.size(); ++i) {
                 const auto& leg = legs[i];
                 if (!is_ride_leg(leg.kind)) {
@@ -452,10 +523,18 @@ namespace timetable::domain::assignment::detail {
                 );
             }
 
-            const auto support_signature = day_path_signature_of(share.connection);
-            if (!(support_signature == share.day_path)) {
+            if (!share.day_path_support.has_value()) {
                 return mathfp::unexpected(
-                    mathfp::internal_error("day-path VISUM/load share signature disagrees with selected support connection")
+                    mathfp::internal_error("day-path VISUM/load share is missing compact support")
+                        .ctx("share_index", static_cast<std::int64_t>(share_index))
+                        .ctx("origin"     , share.origin.get())
+                        .ctx("destination", share.destination.get())
+                        .ctx("interval_id", share.interval.get())
+                );
+            }
+            if (!(share.day_path_support->signature == share.day_path)) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("day-path VISUM/load share signature disagrees with compact support")
                         .ctx("share_index", static_cast<std::int64_t>(share_index))
                         .ctx("origin"     , share.origin.get())
                         .ctx("destination", share.destination.get())

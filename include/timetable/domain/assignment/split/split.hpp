@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 #include <mathfp/core/expected.hpp>
@@ -27,6 +28,7 @@ namespace timetable::domain::assignment {
         DemandShareAlternativeSource source{ DemandShareAlternativeSource::TimedConnection };
         DayPathSignature             day_path{};
         SearchConnection             connection;
+        std::optional<DayPathSupportDescriptor> day_path_support{};
         double                       passengers{};
         double                       probability{};
         double                       independence{};
