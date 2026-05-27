@@ -17,11 +17,11 @@
 namespace timetable::domain::assignment {
 
     /**
-     * @brief Incremental tree-label prefix used by OD-day search.
+     * @brief Incremental path identity carried by an OD-day search branch.
      *
-     * The prefix is a search label, not a finalized OD alternative. It is
-     * deliberately clock-free and is converted to the coarser production
-     * DayPathSignature only when a destination is reached.
+     * The prefix is branch payload, not the dominance state of the OD-day
+     * tree. It is deliberately clock-free and is converted to the coarser
+     * production DayPathSignature only when a destination is reached.
      */
     struct DayPathPrefix final {
         ZoneId                  origin{};
@@ -131,6 +131,15 @@ namespace timetable::domain::assignment {
 
     [[nodiscard]] mathfp::Expected<DayPathRetentionDecision> retain_day_path_alternative(
           DayPathRetention&             retention
+        , SearchConnection              connection
+        , const SearchCostContext&      search_cost
+        , IntervalId                    interval
+        , const DayPathRetentionConfig& config
+    );
+
+    [[nodiscard]] mathfp::Expected<DayPathRetentionDecision> retain_day_path_alternative(
+          DayPathRetention&             retention
+        , DayPathSignature              signature
         , SearchConnection              connection
         , const SearchCostContext&      search_cost
         , IntervalId                    interval

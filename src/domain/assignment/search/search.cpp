@@ -57,7 +57,6 @@ namespace timetable::domain::assignment {
         using PartialPruningMetrics = SearchPruningMetrics;
         using NodeMetricSet         = SearchPruningMetricSet;
         using SearchNodeKey         = SearchPruningStateKey;
-        using DayPathPrefixId       = std::size_t;
 
 
         // TODO??
@@ -124,10 +123,23 @@ namespace timetable::domain::assignment {
             CapacityExposure    capacity_exposure{};
         };
 
+        /**
+         * Production OD-day carrier. It is self-contained by construction:
+         * path_identity is the day-level alternative identity, support_segments
+         * is the compact timed/walk witness needed for metrics and split/load.
+         *
+         * The carrier deliberately does not depend on parent_branch. Parent
+         * chains remain available for the legacy timed diagnostic contour only.
+         */
+        struct OdDayProductionCarrier final {
+            DayPathPrefix                    path_identity{};
+            std::vector<ConnectionSegmentId> support_segments{};
+        };
+
         struct SearchBranch final {
-            SearchPartialTrace   trace{};
-            SearchPartialMetrics metrics{};
-            DayPathPrefix        day_path_prefix{};
+            SearchPartialTrace      trace{};
+            SearchPartialMetrics    metrics{};
+            OdDayProductionCarrier  od_day_carrier{};
         };
 
         struct BranchSlot final {
@@ -401,128 +413,89 @@ namespace timetable::domain::assignment {
             return "unknown";
         }
 
-        struct DayPathSupportEnvelopeState final {
-            std::optional<DayLevelSupplyEdgeRef> day_level_ride_edge{};
-            RouteSegmentId               route_segment{};
-            std::optional<RoutePosition> from_index{};
-            std::optional<RoutePosition> to_index{};
-
-            bool operator==(const DayPathSupportEnvelopeState&) const = default;
-        };
-
         /**
-         * OD-day dominance is extension-safe only at equal structural prefix and
-         * equal structural support-envelope context. Timetable labels are
-         * feasibility witnesses and split support; they must not make the
-         * production OD-day state space proportional to departure count.
+         * OD-day dominance belongs to the tree label, not to the already
+         * accumulated path identity. The path prefix is branch payload used to
+         * materialize a finalized OD alternative; it must not partition the
+         * dominance table.
+         *
+         * The retained label state is intentionally only the extension-relevant
+         * state: current physical/occurrence/phase and the last timed context
+         * needed by same-trip and same-line feasibility rules.
          */
-        struct DayPathSearchNodeState final {
-            EndpointKey                                  physical{};
-            std::optional<StopOccurrenceKey>             occurrence{};
-            SearchBranchPhase                            phase{ SearchBranchPhase::AtOrigin };
-            std::optional<DayPathSupportEnvelopeState>    support_envelope{};
+        struct OdDaySupportEnvelopeState final {
+            std::optional<StopOccurrenceKey>     last_timed_occurrence{};
+            SearchPruningTransferContext         transfer{};
 
-            bool operator==(const DayPathSearchNodeState&) const = default;
+            bool operator==(const OdDaySupportEnvelopeState&) const = default;
         };
 
-        struct DayPathSearchStateKey final {
-            DayPathPrefixId       prefix_id{};
-            DayPathSearchNodeState state{};
+        struct OdDayLabelState final {
+            EndpointKey                          physical{};
+            std::optional<StopOccurrenceKey>     current_occurrence{};
+            SearchBranchPhase                    phase{ SearchBranchPhase::AtOrigin };
+            OdDaySupportEnvelopeState            support{};
 
-            bool operator==(const DayPathSearchStateKey&) const = default;
+            bool operator==(const OdDayLabelState&) const = default;
         };
 
-        struct DayPathPrefixHash final {
-            std::size_t operator()(const DayPathPrefix& prefix) const noexcept {
-                std::size_t seed = 23u;
-                boost::hash_combine(seed, prefix.origin.get());
-                for (const auto& leg : prefix.legs) {
-                    boost::hash_combine(seed, static_cast<std::uint8_t>(leg.kind));
-                    boost::hash_combine(seed, leg.route_segment.has_value());
-                    if (leg.route_segment.has_value()) {
-                        boost::hash_combine(seed, leg.route_segment->get());
-                    }
-                    boost::hash_combine(seed, static_cast<std::uint8_t>(leg.physical_from.kind));
-                    boost::hash_combine(seed, leg.physical_from.id);
-                    boost::hash_combine(seed, static_cast<std::uint8_t>(leg.physical_to.kind));
-                    boost::hash_combine(seed, leg.physical_to.id);
-                    boost::hash_combine(seed, leg.occurrence_from.has_value());
-                    if (leg.occurrence_from.has_value()) {
-                        boost::hash_combine(seed, leg.occurrence_from->stop.get());
-                        boost::hash_combine(seed, leg.occurrence_from->position.get());
-                    }
-                    boost::hash_combine(seed, leg.occurrence_to.has_value());
-                    if (leg.occurrence_to.has_value()) {
-                        boost::hash_combine(seed, leg.occurrence_to->stop.get());
-                        boost::hash_combine(seed, leg.occurrence_to->position.get());
-                    }
-                    boost::hash_combine(seed, leg.line.has_value());
-                    if (leg.line.has_value()) {
-                        boost::hash_combine(seed, leg.line->get());
-                    }
-                    boost::hash_combine(seed, leg.route.has_value());
-                    if (leg.route.has_value()) {
-                        boost::hash_combine(seed, leg.route->get());
-                    }
-                }
-                return seed;
-            }
-        };
-
-        struct DayPathSearchStateKeyHash final {
-            std::size_t operator()(const DayPathSearchStateKey& key) const noexcept {
+        struct OdDayLabelStateHash final {
+            std::size_t operator()(const OdDayLabelState& key) const noexcept {
                 std::size_t seed = 29u;
-                boost::hash_combine(seed, key.prefix_id);
-                boost::hash_combine(seed, static_cast<std::uint8_t>(key.state.physical.kind));
-                boost::hash_combine(seed, key.state.physical.id);
-                boost::hash_combine(seed, key.state.occurrence.has_value());
-                if (key.state.occurrence.has_value()) {
-                    boost::hash_combine(seed, key.state.occurrence->stop.get());
-                    boost::hash_combine(seed, key.state.occurrence->position.get());
+                boost::hash_combine(seed, static_cast<std::uint8_t>(key.physical.kind));
+                boost::hash_combine(seed, key.physical.id);
+                boost::hash_combine(seed, key.current_occurrence.has_value());
+                if (key.current_occurrence.has_value()) {
+                    boost::hash_combine(seed, key.current_occurrence->stop.get());
+                    boost::hash_combine(seed, key.current_occurrence->position.get());
                 }
-                boost::hash_combine(seed, static_cast<std::uint8_t>(key.state.phase));
-                boost::hash_combine(seed, key.state.support_envelope.has_value());
-                if (key.state.support_envelope.has_value()) {
-                    const auto& label = *key.state.support_envelope;
-                    boost::hash_combine(seed, label.day_level_ride_edge.has_value());
-                    if (label.day_level_ride_edge.has_value()) {
-                        boost::hash_combine(seed, label.day_level_ride_edge->get());
-                    }
-                    boost::hash_combine(seed, label.route_segment.get());
-                    boost::hash_combine(seed, label.from_index.has_value());
-                    if (label.from_index.has_value()) {
-                        boost::hash_combine(seed, label.from_index->get());
-                    }
-                    boost::hash_combine(seed, label.to_index.has_value());
-                    if (label.to_index.has_value()) {
-                        boost::hash_combine(seed, label.to_index->get());
-                    }
+                boost::hash_combine(seed, key.support.last_timed_occurrence.has_value());
+                if (key.support.last_timed_occurrence.has_value()) {
+                    boost::hash_combine(seed, key.support.last_timed_occurrence->stop.get());
+                    boost::hash_combine(seed, key.support.last_timed_occurrence->position.get());
+                }
+                boost::hash_combine(seed, static_cast<std::uint8_t>(key.phase));
+                boost::hash_combine(seed, key.support.transfer.last_trip.has_value());
+                if (key.support.transfer.last_trip.has_value()) {
+                    boost::hash_combine(seed, key.support.transfer.last_trip->get());
+                }
+                boost::hash_combine(seed, key.support.transfer.last_line.has_value());
+                if (key.support.transfer.last_line.has_value()) {
+                    boost::hash_combine(seed, key.support.transfer.last_line->get());
                 }
                 return seed;
             }
         };
 
-        using DayPathSearchStateMap = boost::unordered_flat_map<
-              DayPathSearchStateKey
+        using OdDayLabelStateMap = boost::unordered_flat_map<
+              OdDayLabelState
             , NodeMetricSet
-            , DayPathSearchStateKeyHash
-        >;
-
-        using DayPathPrefixInterner = boost::unordered_flat_map<
-              DayPathPrefix
-            , DayPathPrefixId
-            , DayPathPrefixHash
+            , OdDayLabelStateHash
         >;
 
         struct OdDayProductionMemoryLimits final {
             std::size_t max_branch_slots_per_tree{ 750'000u };
             std::size_t max_live_branches_per_tree{ 300'000u };
             std::size_t max_frontier_per_tree{ 300'000u };
-            std::size_t max_day_path_prefixes_per_tree{ 500'000u };
-            std::size_t max_day_path_states_per_tree{ 500'000u };
+            std::size_t max_od_day_label_states_per_tree{ 500'000u };
             std::size_t max_retained_day_paths_per_tree{ 65'536u };
             std::size_t max_approximate_direct_bytes_per_tree{ 512u * 1024u * 1024u };
         };
+
+        struct OdDayLabelRetentionConfig final {
+            std::size_t max_representatives_per_label{
+                SearchExecutionConfig::kDefaultMaxOdDayLabelRepresentativesPerState
+            };
+        };
+
+        [[nodiscard]] OdDayLabelRetentionConfig od_day_label_retention_config_of(
+            const SearchExecutionConfig& config
+        ) noexcept {
+            return OdDayLabelRetentionConfig{
+                .max_representatives_per_label =
+                    config.max_od_day_label_representatives_per_state
+            };
+        }
 
         enum class SearchProjectionSlotKind : std::uint8_t {
               DemandTask
@@ -582,16 +555,13 @@ namespace timetable::domain::assignment {
          * @brief Tree-level partial retention.
          *
          * known_metrics is the legacy/timed state-local pruning memory.
-         * day_path_prefix_ids interns structural prefixes once per tree, while
-         * day_path_states keeps compact prefix-id/state pruning entries for the
-         * OD-day contour. Finalized OD alternatives live in
-         * SearchProjectionRetention.
+         * od_day_label_states is the OD-day tree-label dominance table.
+         * DayPathPrefix remains branch-local path identity and is projected
+         * only into finalized OD alternatives.
          */
         struct TreePartialRetention final {
             NodeMetricMap          known_metrics{};
-            DayPathPrefixInterner  day_path_prefix_ids{};
-            DayPathPrefixId        next_day_path_prefix_id{ 1u };
-            DayPathSearchStateMap  day_path_states{};
+            OdDayLabelStateMap     od_day_label_states{};
         };
 
         struct SearchSlotResult final {
@@ -2316,36 +2286,41 @@ namespace timetable::domain::assignment {
             );
         }
 
-        DayPathSearchNodeState day_path_search_node_state(
+        OdDayLabelState od_day_label_state(
             const SearchBranch& branch
         ) noexcept {
-            const auto support_envelope =
-                branch.trace.last_timed_segment != nullptr
-                    ? std::optional<DayPathSupportEnvelopeState>{
-                          DayPathSupportEnvelopeState{
-                                .day_level_ride_edge = branch.trace.last_day_level_ride_edge
-                              , .route_segment = branch.trace.last_timed_segment->route_segment
-                              , .from_index    = branch.trace.last_timed_segment->from_index
-                              , .to_index      = branch.trace.last_timed_segment->to_index
-                          }
-                      }
-                    : std::nullopt;
-
-            return DayPathSearchNodeState{
-                  .physical         = branch.trace.current_physical
-                , .occurrence       = branch.trace.current_occurrence
-                , .phase            = branch.trace.phase
-                , .support_envelope = support_envelope
+            return OdDayLabelState{
+                  .physical              = branch.trace.current_physical
+                , .current_occurrence    = branch.trace.current_occurrence
+                , .phase                 = branch.trace.phase
+                , .support               = OdDaySupportEnvelopeState{
+                      .last_timed_occurrence = search_last_timed_occurrence(branch)
+                    , .transfer              = search_transfer_context(branch)
+                  }
             };
         }
 
         bool branch_revisits_physical(
               const BranchArena&  branches
             , const SearchBranch& branch
+            , const PreprocessedNetwork& network
             , EndpointKey         next
         ) {
             if (branch.trace.current_physical == next) {
                 return true;
+            }
+
+            if (!branch.od_day_carrier.support_segments.empty()) {
+                auto physical = endpoint_key(branch.trace.origin);
+                for (const auto segment_id : branch.od_day_carrier.support_segments) {
+                    const auto& segment = connection_segment_at(network, segment_id);
+                    const auto& route_segment = route_segment_at(network, segment.route_segment);
+                    physical = physical_to_key(route_segment);
+                    if (physical == next) {
+                        return true;
+                    }
+                }
+                return false;
             }
 
             auto cursor = branch.trace.parent_branch;
@@ -2363,10 +2338,25 @@ namespace timetable::domain::assignment {
         bool branch_revisits_occurrence(
               const BranchArena&  branches
             , const SearchBranch& branch
+            , const PreprocessedNetwork& network
             , StopOccurrenceKey   next
         ) {
             if (branch.trace.current_occurrence.has_value() && branch.trace.current_occurrence.value() == next) {
                 return true;
+            }
+
+            if (!branch.od_day_carrier.support_segments.empty()) {
+                for (const auto segment_id : branch.od_day_carrier.support_segments) {
+                    const auto& segment = connection_segment_at(network, segment_id);
+                    if (!is_timed_connection(segment)) {
+                        continue;
+                    }
+                    const auto& route_segment = route_segment_at(network, segment.route_segment);
+                    if (occurrence_key(line_topology_of(route_segment)->to) == next) {
+                        return true;
+                    }
+                }
+                return false;
             }
 
             auto cursor = branch.trace.parent_branch;
@@ -3668,6 +3658,8 @@ namespace timetable::domain::assignment {
                 , segment_id
                 , transition
             );
+            auto support_segments = branch.od_day_carrier.support_segments;
+            support_segments.push_back(segment_id);
             return SearchBranch{
                   .trace           = trace
                 , .metrics         = extend_metrics_with_walk(
@@ -3675,10 +3667,13 @@ namespace timetable::domain::assignment {
                     , route_segment
                     , transition.kind
                   )
-                , .day_path_prefix = append_day_path_leg(
-                      branch.day_path_prefix
-                    , make_day_path_walk_leg(transition.kind, route_segment)
-                  )
+                , .od_day_carrier  = OdDayProductionCarrier{
+                      .path_identity = append_day_path_leg(
+                            branch.od_day_carrier.path_identity
+                          , make_day_path_walk_leg(transition.kind, route_segment)
+                      )
+                    , .support_segments = std::move(support_segments)
+                  }
             };
         }
 
@@ -3812,6 +3807,8 @@ namespace timetable::domain::assignment {
                     , search_cost
                 )
             );
+            auto support_segments = branch.od_day_carrier.support_segments;
+            support_segments.push_back(segment.id);
             return SearchBranch{
                   .trace           = extend_trace_with_timed(
                         branch.trace
@@ -3826,10 +3823,13 @@ namespace timetable::domain::assignment {
                     , segment
                     , capacity_exposure
                 )
-                , .day_path_prefix = append_day_path_leg(
-                      branch.day_path_prefix
-                    , make_day_path_ride_leg(route_segment)
-                  )
+                , .od_day_carrier  = OdDayProductionCarrier{
+                      .path_identity = append_day_path_leg(
+                            branch.od_day_carrier.path_identity
+                          , make_day_path_ride_leg(route_segment)
+                      )
+                    , .support_segments = std::move(support_segments)
+                  }
             };
         }
 
@@ -3988,7 +3988,7 @@ namespace timetable::domain::assignment {
                     return std::optional<SearchBranch>{};
                 }
                 const auto next_physical = physical_to_key(route_segment);
-                if (branch_revisits_physical(branches, branch, next_physical)) {
+                if (branch_revisits_physical(branches, branch, network, next_physical)) {
                     return std::optional<SearchBranch>{};
                 }
                 return std::optional<SearchBranch>{
@@ -4007,7 +4007,7 @@ namespace timetable::domain::assignment {
                 return std::optional<SearchBranch>{};
             }
             const auto next_occurrence = occurrence_key(line_topology_of(route_segment)->to);
-            if (branch_revisits_occurrence(branches, branch, next_occurrence)) {
+            if (branch_revisits_occurrence(branches, branch, network, next_occurrence)) {
                 return std::optional<SearchBranch>{};
             }
             MATHFP_TRY_LET(
@@ -4134,6 +4134,10 @@ namespace timetable::domain::assignment {
               const BranchArena&  branches
             , const SearchBranch& branch
         ) {
+            if (!branch.od_day_carrier.support_segments.empty()) {
+                return branch.od_day_carrier.support_segments;
+            }
+
             std::vector<ConnectionSegmentId> reversed_segments;
             const auto* cursor = &branch;
             while (cursor->trace.incoming_segment.has_value()) {
@@ -4488,7 +4492,6 @@ namespace timetable::domain::assignment {
                 }
                 return pruning_decision;
             }
-
             if (stores_search_pruning_metrics(pruning_execution)) {
                 insert_pruning_metrics(
                       known_metrics
@@ -4540,26 +4543,101 @@ namespace timetable::domain::assignment {
             );
         }
 
-        [[nodiscard]] DayPathPrefixId intern_day_path_prefix(
-              TreePartialRetention& retention
-            , const DayPathPrefix&   prefix
-        ) {
-            const auto found = retention.day_path_prefix_ids.find(prefix);
-            if (found != retention.day_path_prefix_ids.end()) {
-                return found->second;
-            }
-
-            const auto id = retention.next_day_path_prefix_id++;
-            retention.day_path_prefix_ids.emplace(prefix, id);
-            return id;
+        [[nodiscard]] bool same_pruning_metrics(
+              const SearchPruningMetrics& lhs
+            , const SearchPruningMetrics& rhs
+        ) noexcept {
+            return lhs.departure.value() == rhs.departure.value()
+                && lhs.arrival.value() == rhs.arrival.value()
+                && lhs.journey_time.value() == rhs.journey_time.value()
+                && lhs.walk_time.value() == rhs.walk_time.value()
+                && lhs.transfers.get() == rhs.transfers.get()
+                && lhs.fare == rhs.fare
+                && lhs.impedance == rhs.impedance;
         }
 
-        mathfp::Expected<SearchPruningDecision> retain_day_path_prefix_branch(
+        [[nodiscard]] bool contains_pruning_metrics(
+              const NodeMetricSet&        metric_set
+            , const SearchPruningMetrics& metrics
+        ) noexcept {
+            return std::any_of(
+                  metric_set.metrics.begin()
+                , metric_set.metrics.end()
+                , [&](const SearchPruningMetrics& existing) {
+                      return same_pruning_metrics(existing, metrics);
+                  }
+            );
+        }
+
+        [[nodiscard]] bool worse_od_day_label_representative(
+              const SearchPruningMetrics& lhs
+            , const SearchPruningMetrics& rhs
+        ) noexcept {
+            if (lhs.impedance != rhs.impedance) {
+                return lhs.impedance > rhs.impedance;
+            }
+            if (lhs.journey_time.value() != rhs.journey_time.value()) {
+                return lhs.journey_time.value() > rhs.journey_time.value();
+            }
+            if (lhs.transfers.get() != rhs.transfers.get()) {
+                return lhs.transfers.get() > rhs.transfers.get();
+            }
+            if (lhs.arrival.value() != rhs.arrival.value()) {
+                return lhs.arrival.value() > rhs.arrival.value();
+            }
+            return lhs.departure.value() < rhs.departure.value();
+        }
+
+        void enforce_bounded_od_day_label_representatives(
+              NodeMetricSet& metric_set
+            , const OdDayLabelRetentionConfig& config
+        ) {
+            while (metric_set.metrics.size() > config.max_representatives_per_label) {
+                auto worst = metric_set.metrics.begin();
+                for (auto it = std::next(metric_set.metrics.begin());
+                     it != metric_set.metrics.end();
+                     ++it) {
+                    if (worse_od_day_label_representative(*it, *worst)) {
+                        worst = it;
+                    }
+                }
+                metric_set.metrics.erase(worst);
+            }
+            metric_set.summary = summarize_pruning_metrics(
+                std::span<const SearchPruningMetrics>{
+                      metric_set.metrics.data()
+                    , metric_set.metrics.size()
+                }
+            );
+        }
+
+        [[nodiscard]] bool insert_bounded_od_day_label_representative(
+              const SearchPruningExecutionPlan& pruning_execution
+            , NodeMetricSet&                    metric_set
+            , const SearchPruningMetrics&       metrics
+            , const OdDayLabelRetentionConfig&  config
+        ) {
+            auto trial = metric_set;
+            insert_search_pruning_metrics_in_place(
+                  pruning_execution
+                , trial
+                , metrics
+            );
+            enforce_bounded_od_day_label_representatives(trial, config);
+            if (!contains_pruning_metrics(trial, metrics)) {
+                return false;
+            }
+            metric_set = std::move(trial);
+            return true;
+        }
+
+        mathfp::Expected<SearchPruningDecision> retain_od_day_label_branch(
               const SearchBranch&               branch
             , TreePartialRetention&             retention
             , const SearchParams&               params
             , const SearchCostContext&          search_cost
             , const SearchPruningExecutionPlan& pruning_execution
+            , const OdDayLabelRetentionConfig&  retention_config
             , SearchPruningRuntimeStats&        pruning_stats
         ) {
             ++pruning_stats.evaluated_candidates;
@@ -4568,20 +4646,26 @@ namespace timetable::domain::assignment {
                 , metrics
                 , make_day_path_pruning_metrics(branch, search_cost)
             );
-            auto key = DayPathSearchStateKey{
-                  .prefix_id = intern_day_path_prefix(retention, branch.day_path_prefix)
-                , .state     = day_path_search_node_state(branch)
-            };
-            auto it = retention.day_path_states.find(key);
-            if (it == retention.day_path_states.end()) {
+            auto key = od_day_label_state(branch);
+            auto it = retention.od_day_label_states.find(key);
+            if (it == retention.od_day_label_states.end()) {
                 if (stores_search_pruning_metrics(pruning_execution)) {
                     auto metric_set = NodeMetricSet{};
-                    insert_search_pruning_metrics_in_place(
+                    const auto retained = insert_bounded_od_day_label_representative(
                           pruning_execution
                         , metric_set
-                        , std::move(metrics)
+                        , metrics
+                        , retention_config
                     );
-                    retention.day_path_states.emplace(std::move(key), std::move(metric_set));
+                    if (!retained) {
+                        ++pruning_stats.rejected_approximate;
+                        return SearchPruningDecision{
+                              .layer    = SearchPruningLayer::Approximate
+                            , .reason   = SearchPruningReason::RejectedApproximateTolerance
+                            , .accepted = false
+                        };
+                    }
+                    retention.od_day_label_states.emplace(std::move(key), std::move(metric_set));
                     ++pruning_stats.inserted_metrics;
                 } else {
                     ++pruning_stats.skipped_insertions;
@@ -4611,13 +4695,30 @@ namespace timetable::domain::assignment {
                 }
                 return pruning_decision;
             }
+            if (contains_pruning_metrics(it->second, metrics)) {
+                ++pruning_stats.rejected_exact;
+                return SearchPruningDecision{
+                      .layer    = SearchPruningLayer::Exact
+                    , .reason   = SearchPruningReason::RejectedExactDominance
+                    , .accepted = false
+                };
+            }
 
             if (stores_search_pruning_metrics(pruning_execution)) {
-                insert_search_pruning_metrics_in_place(
+                const auto retained = insert_bounded_od_day_label_representative(
                       pruning_execution
                     , it->second
-                    , std::move(metrics)
+                    , metrics
+                    , retention_config
                 );
+                if (!retained) {
+                    ++pruning_stats.rejected_approximate;
+                    return SearchPruningDecision{
+                          .layer    = SearchPruningLayer::Approximate
+                        , .reason   = SearchPruningReason::RejectedApproximateTolerance
+                        , .accepted = false
+                    };
+                }
                 ++pruning_stats.inserted_metrics;
             } else {
                 ++pruning_stats.skipped_insertions;
@@ -4668,12 +4769,10 @@ namespace timetable::domain::assignment {
             std::size_t tree_pruning_nodes{};
             std::size_t tree_pruning_buckets{};
             float       tree_pruning_load_factor{};
-            std::size_t day_path_prefix_nodes{};
-            std::size_t day_path_prefix_buckets{};
-            float       day_path_prefix_load_factor{};
-            std::size_t day_path_state_nodes{};
-            std::size_t day_path_state_buckets{};
-            float       day_path_state_load_factor{};
+            std::size_t od_day_label_state_nodes{};
+            std::size_t od_day_label_state_buckets{};
+            float       od_day_label_state_load_factor{};
+            std::size_t od_day_label_representatives{};
             std::size_t tree_pruning_insertions{};
             std::size_t retained_complete_connections{};
             std::size_t retained_day_paths{};
@@ -4691,10 +4790,13 @@ namespace timetable::domain::assignment {
         ) noexcept {
             const auto pruning_nodes = tree_retention.known_metrics.size();
             const auto pruning_buckets = tree_retention.known_metrics.bucket_count();
-            const auto day_path_prefix_nodes = tree_retention.day_path_prefix_ids.size();
-            const auto day_path_prefix_buckets = tree_retention.day_path_prefix_ids.bucket_count();
-            const auto day_path_state_nodes = tree_retention.day_path_states.size();
-            const auto day_path_state_buckets = tree_retention.day_path_states.bucket_count();
+            const auto od_day_label_state_nodes = tree_retention.od_day_label_states.size();
+            const auto od_day_label_state_buckets = tree_retention.od_day_label_states.bucket_count();
+            std::size_t od_day_label_representatives = 0u;
+            for (const auto& [state, metric_set] : tree_retention.od_day_label_states) {
+                (void)state;
+                od_day_label_representatives += metric_set.metrics.size();
+            }
             const auto live_branches = branches.size() - released_branches;
             std::size_t compact_complete_metrics = 0;
             std::size_t day_path_alternatives = 0;
@@ -4708,10 +4810,9 @@ namespace timetable::domain::assignment {
                 + projection_state_count * projection_state_size
                 + pruning_nodes * sizeof(NodeMetricMap::value_type)
                 + pruning_buckets * sizeof(void*)
-                + day_path_prefix_nodes * sizeof(DayPathPrefixInterner::value_type)
-                + day_path_prefix_buckets * sizeof(void*)
-                + day_path_state_nodes * sizeof(DayPathSearchStateMap::value_type)
-                + day_path_state_buckets * sizeof(void*)
+                + od_day_label_state_nodes * sizeof(OdDayLabelStateMap::value_type)
+                + od_day_label_state_buckets * sizeof(void*)
+                + od_day_label_representatives * sizeof(SearchPruningMetrics)
                 + compact_complete_metrics * sizeof(CompleteConnectionMetrics)
                 + day_path_alternatives * sizeof(DayPathAlternative);
             return SearchStorageDiagnostics{
@@ -4722,12 +4823,10 @@ namespace timetable::domain::assignment {
                 , .tree_pruning_nodes = pruning_nodes
                 , .tree_pruning_buckets = pruning_buckets
                 , .tree_pruning_load_factor = tree_retention.known_metrics.load_factor()
-                , .day_path_prefix_nodes = day_path_prefix_nodes
-                , .day_path_prefix_buckets = day_path_prefix_buckets
-                , .day_path_prefix_load_factor = tree_retention.day_path_prefix_ids.load_factor()
-                , .day_path_state_nodes = day_path_state_nodes
-                , .day_path_state_buckets = day_path_state_buckets
-                , .day_path_state_load_factor = tree_retention.day_path_states.load_factor()
+                , .od_day_label_state_nodes = od_day_label_state_nodes
+                , .od_day_label_state_buckets = od_day_label_state_buckets
+                , .od_day_label_state_load_factor = tree_retention.od_day_label_states.load_factor()
+                , .od_day_label_representatives = od_day_label_representatives
                 , .tree_pruning_insertions = pruning_stats.inserted_metrics
                 , .retained_complete_connections = retained_connection_count(retentions)
                 , .retained_day_paths = retained_day_path_count(retentions)
@@ -4739,7 +4838,7 @@ namespace timetable::domain::assignment {
             const SearchStorageDiagnostics& diagnostics
         ) {
             return fmt::format(
-                  "search storage: branch_slots={} live_branches={} released_branches={} projection_states={} tree_pruning(nodes/buckets/load/insertions)={}/{}/{:.3f}/{} day_path_prefixes(nodes/buckets/load)={}/{}/{:.3f} day_path_states(nodes/buckets/load)={}/{}/{:.3f} retained_complete={} retained_day_paths={} approx_direct_mb={:.2f}"
+                  "search storage: branch_slots={} live_branches={} released_branches={} projection_states={} tree_pruning(nodes/buckets/load/insertions)={}/{}/{:.3f}/{} path_identity=branch_payload od_day_label_states(nodes/buckets/load/reps)={}/{}/{:.3f}/{} retained_complete={} retained_day_paths={} approx_direct_mb={:.2f}"
                 , diagnostics.branch_slots
                 , diagnostics.live_branches
                 , diagnostics.released_branches
@@ -4748,12 +4847,10 @@ namespace timetable::domain::assignment {
                 , diagnostics.tree_pruning_buckets
                 , diagnostics.tree_pruning_load_factor
                 , diagnostics.tree_pruning_insertions
-                , diagnostics.day_path_prefix_nodes
-                , diagnostics.day_path_prefix_buckets
-                , diagnostics.day_path_prefix_load_factor
-                , diagnostics.day_path_state_nodes
-                , diagnostics.day_path_state_buckets
-                , diagnostics.day_path_state_load_factor
+                , diagnostics.od_day_label_state_nodes
+                , diagnostics.od_day_label_state_buckets
+                , diagnostics.od_day_label_state_load_factor
+                , diagnostics.od_day_label_representatives
                 , diagnostics.retained_complete_connections
                 , diagnostics.retained_day_paths
                 , static_cast<double>(diagnostics.approximate_direct_bytes)
@@ -4798,18 +4895,12 @@ namespace timetable::domain::assignment {
             if (frontier > limits.max_frontier_per_tree) {
                 return fail("frontier", frontier, limits.max_frontier_per_tree);
             }
-            if (diagnostics.day_path_prefix_nodes > limits.max_day_path_prefixes_per_tree) {
+            if (diagnostics.od_day_label_state_nodes
+                > limits.max_od_day_label_states_per_tree) {
                 return fail(
-                      "day_path_prefixes"
-                    , diagnostics.day_path_prefix_nodes
-                    , limits.max_day_path_prefixes_per_tree
-                );
-            }
-            if (diagnostics.day_path_state_nodes > limits.max_day_path_states_per_tree) {
-                return fail(
-                      "day_path_states"
-                    , diagnostics.day_path_state_nodes
-                    , limits.max_day_path_states_per_tree
+                      "od_day_label_states"
+                    , diagnostics.od_day_label_state_nodes
+                    , limits.max_od_day_label_states_per_tree
                 );
             }
             if (diagnostics.retained_day_paths > limits.max_retained_day_paths_per_tree) {
@@ -5274,12 +5365,12 @@ namespace timetable::domain::assignment {
              * structural path bucket and is never retained as a raw complete
              * alternative of the search slot.
              */
-            const auto incremental_signature = make_day_path_signature_from_tree_label(
-                  branch.day_path_prefix
+            auto finalized_signature = make_day_path_signature_from_tree_label(
+                  branch.od_day_carrier.path_identity
                 , slot.destination
             );
             const auto materialized_signature = day_path_signature_of(complete);
-            if (incremental_signature != materialized_signature) {
+            if (finalized_signature != materialized_signature) {
                 return mathfp::unexpected(
                     mathfp::internal_error("incremental OD-day path prefix disagrees with materialized connection")
                         .ctx("origin", slot.origin.get())
@@ -5294,9 +5385,11 @@ namespace timetable::domain::assignment {
             );
             MATHFP_TRY(retain_day_path_alternative(
                   retention.day_paths
+                , std::move(finalized_signature)
                 , std::move(complete)
                 , search_cost
                 , interval
+                , DayPathRetentionConfig{}
             ));
             return mathfp::kUnit;
         }
@@ -5429,6 +5522,8 @@ namespace timetable::domain::assignment {
             , std::size_t                       batch_index
             , std::size_t                       batch_count
             , const DayLevelSupplySearchGraph*  day_level_supply = nullptr
+            , OdDayLabelRetentionConfig         od_day_label_retention_config =
+                  OdDayLabelRetentionConfig{}
         ) {
             using timetable::infra::LogLevel;
             using timetable::infra::progress::log;
@@ -5581,7 +5676,9 @@ namespace timetable::domain::assignment {
                         , .fare             = 0.0
                         , .capacity_exposure = CapacityExposure{ Time{ 0.0 } }
                   }
-                  , .day_path_prefix = make_day_path_prefix(batch.key.origin)
+                  , .od_day_carrier = OdDayProductionCarrier{
+                        .path_identity = make_day_path_prefix(batch.key.origin)
+                    }
               }
             );
             if (diagnostics.validate_phase_invariants) {
@@ -5696,12 +5793,12 @@ namespace timetable::domain::assignment {
             if (od_day_slots) {
                 log(
                     fmt::format(
-                          "OD-day production memory limits: branch_slots={} live_branches={} frontier={} day_path_prefixes={} day_path_states={} retained_day_paths={} approx_direct_mb={:.2f}"
+                          "OD-day production memory limits: carrier=parentless_branch_payload_segments branch_slots={} live_branches={} frontier={} od_day_label_states={} label_representatives_per_state={} retained_day_paths={} approx_direct_mb={:.2f}"
                         , od_day_memory_limits.max_branch_slots_per_tree
                         , od_day_memory_limits.max_live_branches_per_tree
                         , od_day_memory_limits.max_frontier_per_tree
-                        , od_day_memory_limits.max_day_path_prefixes_per_tree
-                        , od_day_memory_limits.max_day_path_states_per_tree
+                        , od_day_memory_limits.max_od_day_label_states_per_tree
+                        , od_day_label_retention_config.max_representatives_per_label
                         , od_day_memory_limits.max_retained_day_paths_per_tree
                         , static_cast<double>(
                               od_day_memory_limits.max_approximate_direct_bytes_per_tree
@@ -6069,18 +6166,10 @@ namespace timetable::domain::assignment {
                         return;
                     }
 
-                    if (partial_retention_scope
-                        == SearchPartialRetentionScope::TreeGlobal) {
-                        auto pruning_decision = od_day_slots
-                            ? retain_day_path_prefix_branch(
-                                  *candidate
-                                , tree_partial_retention
-                                , params
-                                , search_cost
-                                , pruning_execution
-                                , stats.pruning
-                              )
-                            : retain_branch(
+                    if (!od_day_slots
+                        && partial_retention_scope
+                            == SearchPartialRetentionScope::TreeGlobal) {
+                        auto pruning_decision = retain_branch(
                                   *candidate
                                 , tree_partial_retention
                                 , params
@@ -6208,6 +6297,37 @@ namespace timetable::domain::assignment {
                         return;
                     }
 
+                    /*
+                     * OD-day label representatives are production frontier
+                     * carriers. They are retained only after reachability and
+                     * suffix lower bounds leave at least one live OD slot, so
+                     * bound-rejected candidates do not pollute the tree label
+                     * table.
+                     */
+                    if (od_day_slots
+                        && partial_retention_scope
+                            == SearchPartialRetentionScope::TreeGlobal) {
+                        auto pruning_decision = retain_od_day_label_branch(
+                              *candidate
+                            , tree_partial_retention
+                            , params
+                            , search_cost
+                            , pruning_execution
+                            , od_day_label_retention_config
+                            , stats.pruning
+                        );
+                        if (!pruning_decision) {
+                            successor_error = mathfp::unexpected(
+                                std::move(pruning_decision.error())
+                            );
+                            return;
+                        }
+                        if (!pruning_decision->accepted) {
+                            ++stats.rejected_dominance_or_tolerance;
+                            return;
+                        }
+                    }
+
                     ++stats.accepted_branches;
                     if (successor_ref.walk_transition.has_value()) {
                         increment_walk_kind_stats(
@@ -6222,6 +6342,15 @@ namespace timetable::domain::assignment {
                     const auto same_level =
                         is_walk_connection(successor) || !branch.metrics.departure.has_value();
                     const auto candidate_phase = candidate->trace.phase;
+                    if (od_day_slots) {
+                        /*
+                         * The OD-day frontier owns self-contained production
+                         * carriers. Keeping parent links here would silently
+                         * reintroduce timed-prefix retention into the
+                         * production contour.
+                         */
+                        candidate->trace.parent_branch = std::nullopt;
+                    }
                     const auto candidate_index = append_branch(
                           branches
                         , std::move(*candidate)
@@ -6304,6 +6433,12 @@ namespace timetable::domain::assignment {
                                     .ctx("destination", slot.destination.get())
                             );
                         }
+                        /*
+                         * Production OD-day search finalizes only OD path
+                         * alternatives. Raw completed SearchConnection objects
+                         * remain support payload under DayPathAlternative and
+                         * must not become the slot result.
+                         */
                         (void)choice_config;
                         day_path_alternatives = finalize_day_path_alternatives(
                             std::move(retention.day_paths)
@@ -7000,6 +7135,11 @@ namespace timetable::domain::assignment {
                     mathfp::invalid_arg("search execution maxParallelBatches must be positive")
                 );
             }
+            if (config.max_od_day_label_representatives_per_state == 0u) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("search execution maxOdDayLabelRepresentativesPerState must be positive")
+                );
+            }
             if (config.mode == SearchExecutionMode::IntervalLocal
                 && config.result_projection != SearchResultProjection::DemandTasks) {
                 return mathfp::unexpected(
@@ -7037,6 +7177,12 @@ namespace timetable::domain::assignment {
                                 .ctx("result_projection", std::string(to_string(config.result_projection)))
                                 .ctx("partial_retention_scope", std::string(to_string(config.partial_retention_scope)))
                                 .ctx("max_parallel_batches", static_cast<std::int64_t>(config.max_parallel_batches))
+                                .ctx(
+                                      "max_od_day_label_representatives_per_state"
+                                    , static_cast<std::int64_t>(
+                                          config.max_od_day_label_representatives_per_state
+                                      )
+                                  )
                         );
                     }
                     break;
@@ -8245,10 +8391,13 @@ namespace timetable::domain::assignment {
 
         both("search: OD-day branch-and-bound");
         const auto day_path_retention_config = DayPathRetentionConfig{};
+        const auto od_day_label_retention_config =
+            od_day_label_retention_config_of(execution.config);
         log(
             fmt::format(
-                  "OD-day projection contract: partial_retention_scope={} tree_labels=separate_from_od_alternatives complete_retention=day_path_od_pair_slot od_alternative_retention=production_slots_only signature=route_stop_line_pattern max_alternatives_per_od={} max_supports_per_path={} computation_contract={}"
+                  "OD-day projection contract: partial_retention_scope={} tree_labels=od_day_label_state production_carrier=parentless_branch_payload path_identity=branch_payload frontier=structural_label_frontier label_representatives_per_state={} complete_retention=day_path_od_pair_slot od_alternative_retention=production_slots_only signature=route_stop_line_pattern max_alternatives_per_od={} max_supports_per_path={} computation_contract={}"
                 , to_string(execution.config.partial_retention_scope)
+                , od_day_label_retention_config.max_representatives_per_label
                 , day_path_retention_config.max_alternatives_per_od
                 , day_path_retention_config.max_supports_per_path
                 , to_log_token(OdDaySearchComputationContract::StructuralEdgeExpansion)
@@ -8335,7 +8484,7 @@ namespace timetable::domain::assignment {
         }
         log(
             fmt::format(
-                  "OD-day computational profile: contour=production_day_path successor_generation=structural_day_edges tree_label_scope=search_only od_signature=route_stop_line_pattern timed_contour=diagnostics_only trees={} destinations={} time_horizon=service_day result=day_path_support_sets split_interval_admissibility=support_set primary_load=elementary_segment_loads max_parallel_batches={}"
+                  "OD-day computational profile: contour=production_day_path production_carrier=parentless_branch_payload_segments frontier=structural_label_frontier successor_generation=structural_day_edges tree_label_scope=od_day_label_state path_identity=branch_payload od_signature=route_stop_line_pattern timed_contour=diagnostics_only trees={} destinations={} time_horizon=service_day result=day_path_support_sets split_interval_admissibility=support_set primary_load=elementary_segment_loads max_parallel_batches={}"
                 , tree_jobs.size()
                 , execution.config.destination_scope == SearchDestinationScope::DeclaredZones
                     ? execution.declared_zones.size()
@@ -8385,10 +8534,11 @@ namespace timetable::domain::assignment {
         );
         log(
             fmt::format(
-                  "OD-day search parallel execution: workers={} batches={} max_parallel_batches={}"
+                  "OD-day search parallel execution: workers={} batches={} max_parallel_batches={} label_representatives_per_state={}"
                 , worker_count
                 , batches.size()
                 , execution.config.max_parallel_batches
+                , od_day_label_retention_config.max_representatives_per_label
             )
             , LogLevel::Info
         );
@@ -8455,6 +8605,7 @@ namespace timetable::domain::assignment {
                                       , i
                                       , batches.size()
                                       , &day_level_supply
+                                      , od_day_label_retention_config
                                   )
                               );
                               connection_count.fetch_add(

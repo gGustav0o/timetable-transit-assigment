@@ -30,14 +30,34 @@ namespace timetable::domain::assignment {
     namespace {
 
         struct SplitAlternative final {
-            SearchConnection  connection;
+            /*
+             * Split alternatives are lazy views over retained supports. The
+             * heavy SearchConnection/support payload is copied only when a
+             * positive demand share is emitted.
+             */
+            const SearchConnection* connection{};
             DemandShareAlternativeSource source{ DemandShareAlternativeSource::TimedConnection };
             DayPathSignature  day_path{};
-            std::optional<DayPathSupportDescriptor> day_path_support{};
+            const DayPathSupportDescriptor* day_path_support{};
             ConnectionMetrics metrics{};
             double            perceived_journey_time{};
             double            independence{};
         };
+
+        [[nodiscard]] const SearchConnection& connection_of(
+            const SplitAlternative& alternative
+        ) noexcept {
+            return *alternative.connection;
+        }
+
+        [[nodiscard]] std::optional<DayPathSupportDescriptor> materialize_day_path_support(
+            const SplitAlternative& alternative
+        ) {
+            if (alternative.day_path_support == nullptr) {
+                return std::nullopt;
+            }
+            return *alternative.day_path_support;
+        }
 
         struct IntervalAdmissibleDayPathSupport final {
             const DayPathAlternative*       path{};
@@ -484,10 +504,10 @@ namespace timetable::domain::assignment {
                 const auto metrics = metrics_of(*connection);
                 alternatives.push_back(
                     SplitAlternative{
-                          .connection             = *connection
+                          .connection             = connection
                         , .source                 = DemandShareAlternativeSource::TimedConnection
                         , .day_path               = day_path_signature_of(*connection)
-                        , .day_path_support       = std::nullopt
+                        , .day_path_support       = nullptr
                         , .metrics                = metrics
                         , .perceived_journey_time = perceived_journey_time(
                               metrics
@@ -514,10 +534,10 @@ namespace timetable::domain::assignment {
                 const auto& selected = *support.support;
                 alternatives.push_back(
                     SplitAlternative{
-                          .connection             = day_path_representative_connection(*support.path)
+                          .connection             = &day_path_representative_connection(*support.path)
                         , .source                 = DemandShareAlternativeSource::DayPath
                         , .day_path               = day_path_signature_of(*support.path)
-                        , .day_path_support       = selected
+                        , .day_path_support       = &selected
                         , .metrics                = selected.connection_metrics
                         , .perceived_journey_time = perceived_journey_time(
                               selected.connection_metrics
@@ -562,10 +582,10 @@ namespace timetable::domain::assignment {
 
             for (const auto& alternative : alternatives) {
                 MATHFP_TRY_LET(
-                      CapacityExposure
+                          CapacityExposure
                     , exposure
                     , connection_capacity_exposure(
-                          alternative.connection
+                          connection_of(alternative)
                         , interval
                         , *context->load_state
                         , *context->capacity_set
@@ -703,10 +723,10 @@ namespace timetable::domain::assignment {
                 }
 
                 const auto candidate = SplitAlternative{
-                      .connection             = day_path_representative_connection(path)
+                      .connection             = &day_path_representative_connection(path)
                     , .source                 = DemandShareAlternativeSource::DayPath
                     , .day_path               = day_path_signature_of(path)
-                    , .day_path_support       = support
+                    , .day_path_support       = &support
                     , .metrics                = metrics
                     , .perceived_journey_time = perceived_journey_time(
                           metrics
@@ -997,8 +1017,8 @@ namespace timetable::domain::assignment {
                         , .interval        = demand.interval
                         , .source          = alternatives[i].source
                         , .day_path        = alternatives[i].day_path
-                        , .connection      = alternatives[i].connection
-                        , .day_path_support = alternatives[i].day_path_support
+                        , .connection      = connection_of(alternatives[i])
+                        , .day_path_support = materialize_day_path_support(alternatives[i])
                         , .passengers      = passengers[i]
                         , .probability     = probabilities[i]
                         , .independence    = independences[i]
@@ -1212,8 +1232,8 @@ namespace timetable::domain::assignment {
                         , .interval        = demand.interval
                         , .source          = alternatives[i].source
                         , .day_path        = alternatives[i].day_path
-                        , .connection      = alternatives[i].connection
-                        , .day_path_support = alternatives[i].day_path_support
+                        , .connection      = connection_of(alternatives[i])
+                        , .day_path_support = materialize_day_path_support(alternatives[i])
                         , .passengers      = passengers[i]
                         , .probability     = probabilities[i]
                         , .independence    = independences[i]

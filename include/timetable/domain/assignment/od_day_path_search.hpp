@@ -59,6 +59,14 @@ namespace timetable::domain::assignment {
         StructuralSupplyEdges
     };
 
+    enum class OdDayPathProductionCarrierPolicy : std::uint8_t {
+        ParentlessBranchPayload
+    };
+
+    enum class OdDayPathFrontierPolicy : std::uint8_t {
+        StructuralLabelFrontier
+    };
+
     enum class OdDayPathTreeLabelPolicy : std::uint8_t {
         SeparateFromOdAlternatives
     };
@@ -95,6 +103,12 @@ namespace timetable::domain::assignment {
         OdDayPathSuccessorExpansionPolicy successor_expansion_policy{
             OdDayPathSuccessorExpansionPolicy::StructuralSupplyEdges
         };
+        OdDayPathProductionCarrierPolicy production_carrier_policy{
+            OdDayPathProductionCarrierPolicy::ParentlessBranchPayload
+        };
+        OdDayPathFrontierPolicy frontier_policy{
+            OdDayPathFrontierPolicy::StructuralLabelFrontier
+        };
         OdDayPathTreeLabelPolicy tree_label_policy{
             OdDayPathTreeLabelPolicy::SeparateFromOdAlternatives
         };
@@ -120,6 +134,10 @@ namespace timetable::domain::assignment {
             , .timed_support_policy   = OdDayPathTimedSupportPolicy::SupportSetWithRepresentative
             , .successor_expansion_policy =
                 OdDayPathSuccessorExpansionPolicy::StructuralSupplyEdges
+            , .production_carrier_policy =
+                OdDayPathProductionCarrierPolicy::ParentlessBranchPayload
+            , .frontier_policy =
+                OdDayPathFrontierPolicy::StructuralLabelFrontier
             , .tree_label_policy =
                 OdDayPathTreeLabelPolicy::SeparateFromOdAlternatives
             , .alternative_retention_policy =
@@ -141,6 +159,10 @@ namespace timetable::domain::assignment {
             && contract.timed_support_policy == OdDayPathTimedSupportPolicy::SupportSetWithRepresentative
             && contract.successor_expansion_policy
                 == OdDayPathSuccessorExpansionPolicy::StructuralSupplyEdges
+            && contract.production_carrier_policy
+                == OdDayPathProductionCarrierPolicy::ParentlessBranchPayload
+            && contract.frontier_policy
+                == OdDayPathFrontierPolicy::StructuralLabelFrontier
             && contract.tree_label_policy
                 == OdDayPathTreeLabelPolicy::SeparateFromOdAlternatives
             && contract.alternative_retention_policy

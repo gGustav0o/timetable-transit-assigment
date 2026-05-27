@@ -108,6 +108,12 @@ namespace timetable::domain::assignment::detail {
                     .ctx("partial_retention_scope", std::string(to_string(config.partial_retention_scope)))
                     .ctx("max_parallel_batches", static_cast<std::int64_t>(config.max_parallel_batches))
                     .ctx(
+                          "max_od_day_label_representatives_per_state"
+                        , static_cast<std::int64_t>(
+                              config.max_od_day_label_representatives_per_state
+                          )
+                      )
+                    .ctx(
                           "max_supported_parallel_batches"
                         , static_cast<std::int64_t>(
                               SearchExecutionConfig::kDefaultMaxParallelBatches
@@ -250,7 +256,7 @@ namespace timetable::domain::assignment::detail {
 
         log(
             fmt::format(
-                  "assignment search execution: formulation={} diagnostic={} mode={} origin_scope={} time_domain_source={} destination_scope={} result_projection={} partial_retention_scope={} max_parallel_batches={} validate_phase_invariants={} log_projection_details={}"
+                  "assignment search execution: formulation={} diagnostic={} mode={} origin_scope={} time_domain_source={} destination_scope={} result_projection={} partial_retention_scope={} max_parallel_batches={} max_od_day_label_representatives_per_state={} validate_phase_invariants={} log_projection_details={}"
                 , to_string(config.formulation)
                 , config.diagnostic_mode ? "true" : "false"
                 , to_string(config.mode)
@@ -260,6 +266,7 @@ namespace timetable::domain::assignment::detail {
                 , to_string(config.result_projection)
                 , to_string(config.partial_retention_scope)
                 , config.max_parallel_batches
+                , config.max_od_day_label_representatives_per_state
                 , config.validate_phase_invariants ? "true" : "false"
                 , config.log_projection_details ? "true" : "false"
             )
@@ -280,9 +287,10 @@ namespace timetable::domain::assignment::detail {
         if (config.formulation == AssignmentCalculationFormulation::OdDayAssignment) {
             log(
                 fmt::format(
-                      "production OD-day profile: day_path_search=true load_source=day_path primary_load=elementary_segment_loads workers={}/{}"
+                      "production OD-day profile: day_path_search=true load_source=day_path primary_load=elementary_segment_loads workers={}/{} label_representatives_per_state={}"
                     , config.max_parallel_batches
                     , SearchExecutionConfig::kDefaultMaxParallelBatches
+                    , config.max_od_day_label_representatives_per_state
                 )
                 , LogLevel::Info
             );

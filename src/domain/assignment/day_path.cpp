@@ -384,7 +384,24 @@ namespace timetable::domain::assignment {
         , IntervalId                    interval
         , const DayPathRetentionConfig& config
     ) {
-        auto signature = day_path_signature_of(connection);
+        return retain_day_path_alternative(
+              retention
+            , day_path_signature_of(connection)
+            , std::move(connection)
+            , search_cost
+            , interval
+            , config
+        );
+    }
+
+    mathfp::Expected<DayPathRetentionDecision> retain_day_path_alternative(
+          DayPathRetention&             retention
+        , DayPathSignature              signature
+        , SearchConnection              connection
+        , const SearchCostContext&      search_cost
+        , IntervalId                    interval
+        , const DayPathRetentionConfig& config
+    ) {
         MATHFP_TRY_LET(
               CompleteConnectionMetrics
             , metrics
