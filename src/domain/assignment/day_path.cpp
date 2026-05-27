@@ -122,9 +122,15 @@ namespace timetable::domain::assignment {
     std::span<const DayPathSupportDescriptor> day_path_support_descriptors(
         const DayPathAlternative& alternative
     ) noexcept {
+        return day_path_split_support_descriptors(alternative);
+    }
+
+    std::span<const DayPathSupportDescriptor> day_path_split_support_descriptors(
+        const DayPathAlternative& alternative
+    ) noexcept {
         return std::span<const DayPathSupportDescriptor>{
-              alternative.support.supports.data()
-            , alternative.support.supports.size()
+              alternative.support.split_support.supports.data()
+            , alternative.support.split_support.supports.size()
         };
     }
 
@@ -133,7 +139,7 @@ namespace timetable::domain::assignment {
         , std::size_t               alternative_index
     ) {
         const auto& identity = day_path_signature_of(alternative);
-        if (alternative.support.supports.empty()) {
+        if (alternative.support.split_support.supports.empty()) {
             return mathfp::unexpected(
                 mathfp::internal_error("day-path alternative has empty timed support")
                     .ctx("alternative_index", static_cast<std::int64_t>(alternative_index))
@@ -153,9 +159,9 @@ namespace timetable::domain::assignment {
             );
         }
 
-        for (std::size_t i = 0; i < alternative.support.supports.size(); ++i) {
+        for (std::size_t i = 0; i < alternative.support.split_support.supports.size(); ++i) {
             const auto support_signature =
-                day_path_signature_of(alternative.support.supports[i].connection);
+                day_path_signature_of(alternative.support.split_support.supports[i].connection);
             if (!(support_signature == identity)) {
                 return mathfp::unexpected(
                     mathfp::internal_error("day-path timed support disagrees with structural identity")
@@ -214,7 +220,9 @@ namespace timetable::domain::assignment {
                       .representative                    = std::move(connection)
                     , .representative_metrics            = metrics
                     , .representative_connection_metrics = connection_metrics
-                    , .supports                          = std::move(supports)
+                    , .split_support                     = DayPathSplitSupport{
+                          .supports = std::move(supports)
+                      }
                   }
             };
             const auto key = alternative.identity.signature;
@@ -230,7 +238,7 @@ namespace timetable::domain::assignment {
         }
 
         auto& alternative = it->second;
-        alternative.support.supports.push_back(
+        alternative.support.split_support.supports.push_back(
             DayPathSupportDescriptor{
                   .connection         = connection
                 , .complete_metrics   = metrics
@@ -243,14 +251,14 @@ namespace timetable::domain::assignment {
         );
         if (replaced) {
             alternative.support.representative =
-                alternative.support.supports.back().connection;
+                alternative.support.split_support.supports.back().connection;
             alternative.support.representative_metrics            = metrics;
             alternative.support.representative_connection_metrics = connection_metrics;
         }
         return DayPathRetentionDecision{
-              .inserted_path          = false
-            , .replaced_representative = replaced
-            , .timed_connection_count = alternative.support.supports.size()
+            .inserted_path          = false
+          , .replaced_representative = replaced
+          , .timed_connection_count = alternative.support.split_support.supports.size()
         };
     }
 
@@ -282,7 +290,9 @@ namespace timetable::domain::assignment {
                   .representative                    = std::move(connection)
                 , .representative_metrics            = metrics
                 , .representative_connection_metrics = connection_metrics
-                , .supports                          = std::move(supports)
+                , .split_support                     = DayPathSplitSupport{
+                      .supports = std::move(supports)
+                  }
               }
         };
     }
@@ -293,7 +303,8 @@ namespace timetable::domain::assignment {
         return DayPathMetrics{
               .complete               = alternative.support.representative_metrics
             , .representative         = alternative.support.representative_connection_metrics
-            , .timed_connection_count = alternative.support.supports.size()
+            , .timed_connection_count =
+                  alternative.support.split_support.supports.size()
         };
     }
 

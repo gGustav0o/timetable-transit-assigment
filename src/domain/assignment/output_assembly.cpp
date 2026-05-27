@@ -89,7 +89,7 @@ namespace timetable::domain::assignment::detail {
                         , .destination = pair_result.destination
                     }];
                     for (const auto& alternative : pair_result.alternatives) {
-                        for (const auto& support : day_path_support_descriptors(alternative)) {
+                        for (const auto& support : day_path_split_support_descriptors(alternative)) {
                             od_traces[grouping::connection_trace_key(support.connection)] = true;
                         }
                     }
@@ -191,7 +191,7 @@ namespace timetable::domain::assignment::detail {
                                     .ctx("path_index" , static_cast<std::int64_t>(i))
                             );
                         }
-                        for (const auto& support : day_path_support_descriptors(alternative)) {
+                        for (const auto& support : day_path_split_support_descriptors(alternative)) {
                             if (day_path_signature_of(alternative)
                                 != day_path_signature_of(support.connection)) {
                                 return mathfp::unexpected(

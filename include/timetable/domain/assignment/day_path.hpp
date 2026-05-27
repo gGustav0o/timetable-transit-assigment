@@ -100,6 +100,10 @@ namespace timetable::domain::assignment {
         const DayPathAlternative& alternative
     ) noexcept;
 
+    [[nodiscard]] std::span<const DayPathSupportDescriptor> day_path_split_support_descriptors(
+        const DayPathAlternative& alternative
+    ) noexcept;
+
     [[nodiscard]] mathfp::Expected<mathfp::Unit> validate_day_path_alternative(
           const DayPathAlternative& alternative
         , std::size_t               alternative_index

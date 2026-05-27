@@ -55,6 +55,10 @@ namespace timetable::domain::assignment {
         SupportSetWithRepresentative
     };
 
+    enum class OdDayPathSuccessorExpansionPolicy : std::uint8_t {
+        StructuralSupplyEdges
+    };
+
     /**
      * @brief Day-level path feasibility semantics.
      *
@@ -76,6 +80,9 @@ namespace timetable::domain::assignment {
         OdDayPathTimedSupportPolicy   timed_support_policy{
             OdDayPathTimedSupportPolicy::SupportSetWithRepresentative
         };
+        OdDayPathSuccessorExpansionPolicy successor_expansion_policy{
+            OdDayPathSuccessorExpansionPolicy::StructuralSupplyEdges
+        };
         OdDayPathFeasibilitySemantics feasibility_semantics{
             OdDayPathFeasibilitySemantics::ExistsTimedSupportLabelPath
         };
@@ -90,6 +97,8 @@ namespace timetable::domain::assignment {
             , .tree_contract          = OdDayPathTreeContract::OneTreePerDeclaredOrigin
             , .demand_interval_policy = OdDayPathDemandIntervalPolicy::AssignmentOnly
             , .timed_support_policy   = OdDayPathTimedSupportPolicy::SupportSetWithRepresentative
+            , .successor_expansion_policy =
+                OdDayPathSuccessorExpansionPolicy::StructuralSupplyEdges
             , .feasibility_semantics   =
                 OdDayPathFeasibilitySemantics::ExistsTimedSupportLabelPath
             , .declared_origin_count  = declared_origin_count
@@ -103,6 +112,8 @@ namespace timetable::domain::assignment {
             && contract.tree_contract == OdDayPathTreeContract::OneTreePerDeclaredOrigin
             && contract.demand_interval_policy == OdDayPathDemandIntervalPolicy::AssignmentOnly
             && contract.timed_support_policy == OdDayPathTimedSupportPolicy::SupportSetWithRepresentative
+            && contract.successor_expansion_policy
+                == OdDayPathSuccessorExpansionPolicy::StructuralSupplyEdges
             && contract.feasibility_semantics
                 == OdDayPathFeasibilitySemantics::ExistsTimedSupportLabelPath;
     }

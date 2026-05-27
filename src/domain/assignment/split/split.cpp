@@ -671,7 +671,12 @@ namespace timetable::domain::assignment {
             return lookup;
         }
 
-        std::optional<IntervalAdmissibleDayPathSupport> best_interval_support(
+        /*
+         * Interval admissibility belongs here, not to OD-day search. The search
+         * result is a service-day structural path set; split chooses the
+         * timetable support compatible with each demand interval.
+         */
+        std::optional<IntervalAdmissibleDayPathSupport> best_interval_split_support(
               const DayPathAlternative&             path
             , const TimeInterval&                   interval
             , const AssignmentPeriodConfig&         assignment_period
@@ -682,7 +687,7 @@ namespace timetable::domain::assignment {
             std::optional<IntervalAdmissibleDayPathSupport> best;
             auto best_impedance = std::numeric_limits<double>::infinity();
 
-            for (const auto& support : day_path_support_descriptors(path)) {
+            for (const auto& support : day_path_split_support_descriptors(path)) {
                 const auto& connection = support.connection;
                 const auto metrics = support.connection_metrics;
                 if (!connection_admissible_for_demand_segment(
@@ -738,7 +743,7 @@ namespace timetable::domain::assignment {
             for (std::size_t i = 0; i < pair_result.alternatives.size(); ++i) {
                 const auto& path = pair_result.alternatives[i];
                 MATHFP_TRY(validate_day_path_alternative(path, i));
-                if (auto support = best_interval_support(
+                if (auto support = best_interval_split_support(
                       path
                     , interval
                     , assignment_period
@@ -750,6 +755,103 @@ namespace timetable::domain::assignment {
                 }
             }
             return supports;
+        }
+
+        mathfp::Expected<mathfp::Unit> validate_interval_selected_day_path_split(
+              const DemandSplitResult&            split_result
+            , const IntervalLookup&               interval_lookup
+            , const AssignmentPeriodConfig&       assignment_period
+            , const ConnectionAdmissibilityConfig& admissibility_config
+            , DemandSegmentBasis                  demand_basis
+        ) {
+            if (admissibility_config.demand_time.basis != demand_basis) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("OD-day split demand basis disagrees with interval admissibility basis")
+                        .ctx("split_basis", std::string(to_string(demand_basis)))
+                        .ctx(
+                              "admissibility_basis"
+                            , std::string(to_string(admissibility_config.demand_time.basis))
+                        )
+                );
+            }
+
+            for (std::size_t i = 0; i < split_result.shares.size(); ++i) {
+                const auto& share = split_result.shares[i];
+                if (share.source != DemandShareAlternativeSource::DayPath) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("OD-day split share is not a day-path interval support")
+                            .ctx("share_index", static_cast<std::int64_t>(i))
+                            .ctx("origin"     , share.origin.get())
+                            .ctx("destination", share.destination.get())
+                            .ctx("interval_id", share.interval.get())
+                    );
+                }
+                if (share.day_path.origin != share.origin
+                    || share.day_path.destination != share.destination) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("OD-day split share path identity disagrees with demand OD")
+                            .ctx("share_index"     , static_cast<std::int64_t>(i))
+                            .ctx("origin"          , share.origin.get())
+                            .ctx("destination"     , share.destination.get())
+                            .ctx("path_origin"     , share.day_path.origin.get())
+                            .ctx("path_destination", share.day_path.destination.get())
+                    );
+                }
+                if (!(day_path_signature_of(share.connection) == share.day_path)) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("OD-day split share support connection disagrees with selected day path")
+                            .ctx("share_index", static_cast<std::int64_t>(i))
+                            .ctx("origin"     , share.origin.get())
+                            .ctx("destination", share.destination.get())
+                            .ctx("interval_id", share.interval.get())
+                    );
+                }
+                if (!(share.passengers > 0.0)
+                    || !(share.probability > 0.0)
+                    || !std::isfinite(share.passengers)
+                    || !std::isfinite(share.probability)
+                    || !std::isfinite(share.independence)
+                    || !std::isfinite(share.split_impedance)) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("OD-day split share has invalid numeric mass")
+                            .ctx("share_index"    , static_cast<std::int64_t>(i))
+                            .ctx("origin"         , share.origin.get())
+                            .ctx("destination"    , share.destination.get())
+                            .ctx("interval_id"    , share.interval.get())
+                            .ctx("passengers"     , share.passengers)
+                            .ctx("probability"    , share.probability)
+                            .ctx("independence"   , share.independence)
+                            .ctx("split_impedance", share.split_impedance)
+                    );
+                }
+
+                const auto interval = find_interval(interval_lookup, share.interval);
+                if (!interval) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("OD-day split share references unknown interval")
+                            .ctx("share_index", static_cast<std::int64_t>(i))
+                            .ctx("interval_id", share.interval.get())
+                    );
+                }
+                const auto metrics = metrics_of(share.connection);
+                if (!connection_admissible_for_demand_segment(
+                      metrics
+                    , *interval
+                    , assignment_period
+                    , admissibility_config
+                )) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("OD-day split share was not selected from an interval-admissible support")
+                            .ctx("share_index", static_cast<std::int64_t>(i))
+                            .ctx("origin"     , share.origin.get())
+                            .ctx("destination", share.destination.get())
+                            .ctx("interval_id", share.interval.get())
+                            .ctx("basis"      , std::string(to_string(demand_basis)))
+                    );
+                }
+            }
+
+            return mathfp::kUnit;
         }
 
         struct SplitDemandUnit final {
@@ -1286,9 +1388,16 @@ namespace timetable::domain::assignment {
             }
         }
 
+        MATHFP_TRY(validate_interval_selected_day_path_split(
+              result
+            , interval_lookup
+            , assignment_period
+            , admissibility_config
+            , demand_segment_time.basis
+        ));
         log(
             fmt::format(
-                  "OD-day split result: demand_od = {:>8}  demand_intervals = {:>8}  shares = {:>8}  skipped_empty_intervals = {:>8}  inadmissible_connections = {:>8}  suppressed_numerical_shares = {:>8}"
+                  "OD-day split result: support=interval_selected_day_path  demand_od = {:>8}  demand_intervals = {:>8}  shares = {:>8}  skipped_empty_intervals = {:>8}  inadmissible_connections = {:>8}  suppressed_numerical_shares = {:>8}"
                 , demand_intervals.size()
                 , interval_count
                 , result.shares.size()
@@ -1394,6 +1503,13 @@ namespace timetable::domain::assignment {
             (void)suppressed;
         }
 
+        MATHFP_TRY(validate_interval_selected_day_path_split(
+              result
+            , interval_lookup
+            , assignment_period
+            , admissibility_config
+            , demand_segment_time.basis
+        ));
         return result;
     }
 
@@ -1407,6 +1523,9 @@ namespace timetable::domain::assignment {
         , const AssignmentPeriodConfig&      assignment_period
         , const ConnectionAdmissibilityConfig& admissibility_config
     ) {
+        using timetable::infra::LogLevel;
+        using timetable::infra::progress::log;
+
         MATHFP_TRY_LET(
               OriginDayPathChoiceResult
             , alternatives
@@ -1433,6 +1552,15 @@ namespace timetable::domain::assignment {
               ElementarySegmentLoads
             , elementary_segment_loads
             , build_day_path_elementary_segment_loads(split_result)
+        );
+        log(
+            fmt::format(
+                  "OD-day origin load: origin={} support=interval_selected_day_path shares={} elementary_loads={}"
+                , search_result.origin.get()
+                , split_result.shares.size()
+                , elementary_segment_loads.items.size()
+            )
+            , LogLevel::Info
         );
         return OriginDayDemandLoadResult{
               .alternatives              = std::move(alternatives)

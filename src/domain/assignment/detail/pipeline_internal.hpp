@@ -1177,6 +1177,10 @@ namespace timetable::domain::assignment::detail {
                   "assignment: timed connection diagnostics contour"
                 , timetable::infra::LogLevel::Warning
             );
+            timetable::infra::progress::log(
+                  "timed connection diagnostics is search-only: choice=false split=false load=false"
+                , timetable::infra::LogLevel::Warning
+            );
             if (capacity_aware_search_enabled(input) || capacity_aware_split_enabled(input)) {
                 return mathfp::unexpected(
                     mathfp::invalid_arg("timed connection diagnostics contour does not support capacity-aware assignment")

@@ -768,7 +768,13 @@ namespace timetable::domain::assignment {
         for (std::size_t i = 0; i < split_result.shares.size(); ++i) {
             MATHFP_TRY(validate_day_path_load_share(split_result.shares[i], i));
         }
-        return build_vehicle_journey_item_loads(split_result);
+        MATHFP_TRY_LET(
+              ElementarySegmentLoads
+            , loads
+            , build_vehicle_journey_item_loads(split_result)
+        );
+        MATHFP_TRY(validate_elementary_segment_load_projection(split_result, loads));
+        return loads;
     }
 
     mathfp::Expected<mathfp::Unit> accumulate_elementary_segment_loads(

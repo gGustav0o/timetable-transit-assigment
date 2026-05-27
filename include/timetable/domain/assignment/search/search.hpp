@@ -203,12 +203,11 @@ namespace timetable::domain::assignment {
     };
 
     /**
-     * @brief Compact timed witness retained under one structural day path.
+     * @brief Split/load support retained under one structural day path.
      *
-     * The descriptor is not an OD alternative identity. It is the minimal
-     * materialized support currently needed by interval admissibility and
-     * elementary-load projection: one feasible timetable realization with its
-     * already derived metrics. Public choice remains keyed by DayPathSignature.
+     * The descriptor is not part of the search alternative identity. It is a
+     * timetable realization available to the split layer for demand-interval
+     * admissibility and elementary-load projection.
      */
     struct DayPathSupportDescriptor final {
         SearchConnection          connection;
@@ -216,11 +215,17 @@ namespace timetable::domain::assignment {
         ConnectionMetrics         connection_metrics{};
     };
 
+    struct DayPathSplitSupport final {
+        std::vector<DayPathSupportDescriptor> supports{};
+    };
+
     struct DayPathTimedSupport final {
+        // Search/choice representative of the structural path.
         SearchConnection          representative;
         CompleteConnectionMetrics representative_metrics{};
         ConnectionMetrics         representative_connection_metrics{};
-        std::vector<DayPathSupportDescriptor> supports{};
+        // Split/load support is consumed only after demand intervals are known.
+        DayPathSplitSupport       split_support{};
     };
 
     struct DayPathAlternative final {

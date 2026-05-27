@@ -97,6 +97,8 @@ namespace timetable::domain::assignment {
             SearchBranchPhase                  phase{ SearchBranchPhase::AtOrigin };
             std::optional<std::size_t>         parent_branch{};
             std::optional<ConnectionSegmentId> incoming_segment{};
+            std::optional<DayLevelSupplyEdgeRef> incoming_day_level_edge{};
+            std::optional<DayLevelSupplyEdgeRef> last_day_level_ride_edge{};
             const ConnectionSegment*           last_timed_segment{};
             const RouteSegment*                last_timed_route_segment{};
         };
@@ -383,7 +385,8 @@ namespace timetable::domain::assignment {
         >;
 
         enum class OdDaySearchComputationContract : std::uint8_t {
-            IncrementalDayPathRetention
+              IncrementalDayPathRetention
+            , StructuralEdgeExpansion
         };
 
         [[nodiscard]] constexpr const char* to_log_token(
@@ -392,14 +395,15 @@ namespace timetable::domain::assignment {
             switch (contract) {
                 case OdDaySearchComputationContract::IncrementalDayPathRetention:
                     return "incremental_day_path_retention";
+                case OdDaySearchComputationContract::StructuralEdgeExpansion:
+                    return "structural_edge_expansion";
             }
             return "unknown";
         }
 
         struct DayPathSupportEnvelopeState final {
-            ConnectionSegmentId          connection{};
+            std::optional<DayLevelSupplyEdgeRef> day_level_ride_edge{};
             RouteSegmentId               route_segment{};
-            std::optional<TripId>        trip{};
             std::optional<RoutePosition> from_index{};
             std::optional<RoutePosition> to_index{};
 
@@ -408,9 +412,9 @@ namespace timetable::domain::assignment {
 
         /**
          * OD-day dominance is extension-safe only at equal structural prefix and
-         * equal support-envelope context. The current envelope is intentionally
-         * exact: one last timetable label. Coarser envelopes may replace it only
-         * if they preserve all future transfer-feasibility extensions.
+         * equal structural support-envelope context. Timetable labels are
+         * feasibility witnesses and split support; they must not make the
+         * production OD-day state space proportional to departure count.
          */
         struct DayPathSearchNodeState final {
             EndpointKey                                  physical{};
@@ -480,12 +484,11 @@ namespace timetable::domain::assignment {
                 boost::hash_combine(seed, key.state.support_envelope.has_value());
                 if (key.state.support_envelope.has_value()) {
                     const auto& label = *key.state.support_envelope;
-                    boost::hash_combine(seed, label.connection.get());
-                    boost::hash_combine(seed, label.route_segment.get());
-                    boost::hash_combine(seed, label.trip.has_value());
-                    if (label.trip.has_value()) {
-                        boost::hash_combine(seed, label.trip->get());
+                    boost::hash_combine(seed, label.day_level_ride_edge.has_value());
+                    if (label.day_level_ride_edge.has_value()) {
+                        boost::hash_combine(seed, label.day_level_ride_edge->get());
                     }
+                    boost::hash_combine(seed, label.route_segment.get());
                     boost::hash_combine(seed, label.from_index.has_value());
                     if (label.from_index.has_value()) {
                         boost::hash_combine(seed, label.from_index->get());
@@ -2310,9 +2313,8 @@ namespace timetable::domain::assignment {
                 branch.trace.last_timed_segment != nullptr
                     ? std::optional<DayPathSupportEnvelopeState>{
                           DayPathSupportEnvelopeState{
-                                .connection    = branch.trace.last_timed_segment->id
+                                .day_level_ride_edge = branch.trace.last_day_level_ride_edge
                               , .route_segment = branch.trace.last_timed_segment->route_segment
-                              , .trip          = branch.trace.last_timed_segment->trip
                               , .from_index    = branch.trace.last_timed_segment->from_index
                               , .to_index      = branch.trace.last_timed_segment->to_index
                           }
@@ -3262,6 +3264,12 @@ namespace timetable::domain::assignment {
             );
         }
 
+        struct SearchSuccessor final {
+            ConnectionSegmentId                    connection{};
+            std::optional<WalkExtensionTransition> walk_transition{};
+            std::optional<DayLevelSupplyEdgeRef>   day_level_edge{};
+        };
+
         [[nodiscard]] BranchState day_level_support_branch_state(
             const SearchBranch& branch
         ) noexcept {
@@ -3334,16 +3342,13 @@ namespace timetable::domain::assignment {
             return label;
         }
 
-        template <typename Visitor>
-        void for_each_day_level_timed_support_label(
+        [[nodiscard]] std::optional<DayLevelTimedSupportLabel> select_day_level_timed_support_label(
               const PreprocessedNetwork& network
             , const SearchBranch&        branch
             , const DayLevelRideSupport& support
             , const TransferLimits&      limits
             , const SearchTimeDomain*    first_departure_domain
-            , Visitor&&                  visit
         ) {
-            auto&& visitor = visit;
             for (const auto connection_id : support.support_labels) {
                 const auto label = feasible_day_level_timed_support_label(
                       network
@@ -3353,9 +3358,10 @@ namespace timetable::domain::assignment {
                     , first_departure_domain
                 );
                 if (label.has_value()) {
-                    visitor(*label);
+                    return label;
                 }
             }
+            return std::nullopt;
         }
 
         template <typename Visitor, typename RejectedWalkVisitor>
@@ -3385,7 +3391,12 @@ namespace timetable::domain::assignment {
                         , branch
                         , route_segment
                     )) {
-                        visitor(connection_id, std::optional<WalkExtensionTransition>{ *transition });
+                        visitor(
+                            SearchSuccessor{
+                                  .connection      = connection_id
+                                , .walk_transition = *transition
+                            }
+                        );
                     }
                 }
             };
@@ -3432,16 +3443,21 @@ namespace timetable::domain::assignment {
             }
 
             for (const auto& support : ride_bucket->second) {
-                for_each_day_level_timed_support_label(
+                const auto label = select_day_level_timed_support_label(
                       network
                     , branch
                     , support
                     , limits
                     , first_departure_domain
-                    , [&](const DayLevelTimedSupportLabel& label) {
-                        visitor(label.connection, std::optional<WalkExtensionTransition>{});
-                    }
                 );
+                if (label.has_value()) {
+                    visitor(
+                        SearchSuccessor{
+                              .connection     = label->connection
+                            , .day_level_edge = support.edge
+                        }
+                    );
+                }
             }
         }
 
@@ -3581,6 +3597,7 @@ namespace timetable::domain::assignment {
             const auto next_physical = physical_to_key(route_segment);
             trace.parent_branch      = branch_index;
             trace.incoming_segment   = segment_id;
+            trace.incoming_day_level_edge = std::nullopt;
             trace.current_physical   = next_physical;
             trace.current_occurrence = std::nullopt;
             trace.phase              = transition.next_phase;
@@ -3661,10 +3678,13 @@ namespace timetable::domain::assignment {
             , const ConnectionSegment& segment
             , const RouteSegment&      route_segment
             , SearchBranchPhase         next_phase
+            , std::optional<DayLevelSupplyEdgeRef> day_level_edge
         ) {
             const auto next_occurrence = occurrence_key(line_topology_of(route_segment)->to);
             trace.parent_branch                  = branch_index;
             trace.incoming_segment               = segment.id;
+            trace.incoming_day_level_edge        = day_level_edge;
+            trace.last_day_level_ride_edge       = day_level_edge;
             trace.current_physical               = physical_to_key(route_segment);
             trace.current_occurrence             = next_occurrence;
             trace.phase                          = next_phase;
@@ -3768,6 +3788,7 @@ namespace timetable::domain::assignment {
             , const ConnectionSegment& segment
             , const RouteSegment&      route_segment
             , SearchBranchPhase         next_phase
+            , std::optional<DayLevelSupplyEdgeRef> day_level_edge
             , std::optional<IntervalId> interval
             , const SearchCostContext& search_cost
         ) {
@@ -3788,6 +3809,7 @@ namespace timetable::domain::assignment {
                       , segment
                       , route_segment
                       , next_phase
+                      , day_level_edge
                   )
                 , .metrics         = extend_metrics_with_timed(
                       branch.metrics
@@ -3945,14 +3967,14 @@ namespace timetable::domain::assignment {
             , std::size_t                branch_index
             , const SearchBranch&        branch
             , const PreprocessedNetwork& network
-            , const ConnectionSegment&   successor
-            , const std::optional<WalkExtensionTransition>& walk_transition
+            , const SearchSuccessor&     successor_ref
             , std::optional<IntervalId>   interval
             , const SearchCostContext&    search_cost
         ) {
+            const auto& successor = connection_segment_at(network, successor_ref.connection);
             const auto& route_segment = route_segment_at(network, successor.route_segment);
             if (is_walk_connection(successor)) {
-                if (!walk_transition.has_value()) {
+                if (!successor_ref.walk_transition.has_value()) {
                     return std::optional<SearchBranch>{};
                 }
                 const auto next_physical = physical_to_key(route_segment);
@@ -3965,7 +3987,7 @@ namespace timetable::domain::assignment {
                         , branch_index
                         , route_segment
                         , successor.id
-                        , *walk_transition
+                        , *successor_ref.walk_transition
                     )
                 };
             }
@@ -3987,6 +4009,7 @@ namespace timetable::domain::assignment {
                     , successor
                     , route_segment
                     , *next_phase
+                    , successor_ref.day_level_edge
                     , interval
                     , search_cost
                 )
@@ -4042,7 +4065,12 @@ namespace timetable::domain::assignment {
                         , branch
                         , route_segment
                     )) {
-                        visitor(connection_id, std::optional<WalkExtensionTransition>{ *transition });
+                        visitor(
+                            SearchSuccessor{
+                                  .connection      = connection_id
+                                , .walk_transition = *transition
+                            }
+                        );
                     }
                 }
             };
@@ -4067,7 +4095,7 @@ namespace timetable::domain::assignment {
             }
 
             auto visit_timed = [&](ConnectionSegmentId connection_id) {
-                visitor(connection_id, std::optional<WalkExtensionTransition>{});
+                visitor(SearchSuccessor{ .connection = connection_id });
             };
             for_each_timed_successor(
                   network
@@ -5165,6 +5193,12 @@ namespace timetable::domain::assignment {
             , const SearchCostContext&  search_cost
             , SearchProjectionRetention& retention
         ) {
+            /*
+             * Production OD-day retention is final at the day-path level: a
+             * completed timed witness is projected immediately into the
+             * structural path bucket and is never retained as a raw complete
+             * alternative of the search slot.
+             */
             const auto incremental_signature = complete_day_path_signature(
                   branch.day_path_prefix
                 , slot.destination
@@ -5529,6 +5563,11 @@ namespace timetable::domain::assignment {
                   current_frontier_by_phase
                 , SearchBranchPhase::AtOrigin
             );
+            auto retained_production_alternative_count = [&]() noexcept {
+                return od_day_slots
+                    ? retained_day_path_count(retentions)
+                    : retained_connection_count(retentions);
+            };
 
             status(
                 fmt::format(
@@ -5541,7 +5580,7 @@ namespace timetable::domain::assignment {
                     , batch.completion_targets.size()
                     , diagnostics.capacity_iteration
                     , current_frontier.size()
-                    , retained_connection_count(retentions)
+                    , retained_production_alternative_count()
                 )
             );
 
@@ -5607,7 +5646,7 @@ namespace timetable::domain::assignment {
                             , stats.expanded_branches
                             , stats.generated_successors
                             , stats.accepted_branches
-                            , retained_connection_count(retentions)
+                            , retained_production_alternative_count()
                             , current_frontier.size()
                             , next_frontier.size()
                             , format_branch_phase_stats(current_frontier_by_phase)
@@ -5679,7 +5718,7 @@ namespace timetable::domain::assignment {
                             , diagnostics.capacity_iteration
                             , stats.expanded_branches
                             , stats.accepted_branches
-                            , retained_connection_count(retentions)
+                            , retained_production_alternative_count()
                             , current_frontier.size()
                             , next_frontier.size()
                         )
@@ -5703,7 +5742,7 @@ namespace timetable::domain::assignment {
                             , stats.expanded_branches
                             , stats.generated_successors
                             , stats.accepted_branches
-                            , retained_connection_count(retentions)
+                            , retained_production_alternative_count()
                             , stats.rejected_time_domain
                             , stats.rejected_feasibility
                             , stats.rejected_reboarding
@@ -5755,18 +5794,18 @@ namespace timetable::domain::assignment {
                     , branch
                     , params.transfers
                     , first_departure_domain
-                    , [&](ConnectionSegmentId successor_id, std::optional<WalkExtensionTransition> walk_transition) {
+                    , [&](const SearchSuccessor& successor_ref) {
                     if (!successor_error) {
                         return;
                     }
                     ++stats.generated_successors;
-                    if (walk_transition.has_value()) {
-                        increment_walk_kind_stats(stats.generated_walk, walk_transition->kind);
+                    if (successor_ref.walk_transition.has_value()) {
+                        increment_walk_kind_stats(stats.generated_walk, successor_ref.walk_transition->kind);
                     }
                     if ((stats.generated_successors % kSearchWallClockSuccessorCheckStep) == 0) {
                         emit_wall_clock_heartbeat("successor", branch_index);
                     }
-                    const auto& successor               = connection_segment_at(network, successor_id);
+                    const auto& successor               = connection_segment_at(network, successor_ref.connection);
                     const auto& successor_route_segment = route_segment_at(
                           network
                         , successor.route_segment
@@ -5804,8 +5843,7 @@ namespace timetable::domain::assignment {
                         , branch_index
                         , branch
                         , network
-                        , successor
-                        , walk_transition
+                        , successor_ref
                         , batch.key.interval
                         , search_cost
                     );
@@ -5891,8 +5929,11 @@ namespace timetable::domain::assignment {
                                 retained_complete
                                 || task_stats[task_pos].completed_connections > completed_before;
                         }
-                        if (retained_complete && walk_transition.has_value()) {
-                            increment_walk_kind_stats(stats.accepted_walk, walk_transition->kind);
+                        if (retained_complete && successor_ref.walk_transition.has_value()) {
+                            increment_walk_kind_stats(
+                                  stats.accepted_walk
+                                , successor_ref.walk_transition->kind
+                            );
                         }
                         return;
                     }
@@ -6063,8 +6104,11 @@ namespace timetable::domain::assignment {
                     }
 
                     ++stats.accepted_branches;
-                    if (walk_transition.has_value()) {
-                        increment_walk_kind_stats(stats.accepted_walk, walk_transition->kind);
+                    if (successor_ref.walk_transition.has_value()) {
+                        increment_walk_kind_stats(
+                              stats.accepted_walk
+                            , successor_ref.walk_transition->kind
+                        );
                     }
                     increment_phase_stats(
                           stats.accepted_branches_by_phase
@@ -8076,7 +8120,7 @@ namespace timetable::domain::assignment {
             fmt::format(
                   "OD-day projection contract: partial_retention_scope={} complete_retention=day_path_od_pair_slot computation_contract={}"
                 , to_string(execution.config.partial_retention_scope)
-                , to_log_token(OdDaySearchComputationContract::IncrementalDayPathRetention)
+                , to_log_token(OdDaySearchComputationContract::StructuralEdgeExpansion)
             )
             , LogLevel::Info
         );
@@ -8160,7 +8204,7 @@ namespace timetable::domain::assignment {
         }
         log(
             fmt::format(
-                  "OD-day computational profile: contour=production_day_path timed_contour=diagnostics_only trees={} destinations={} time_horizon=service_day result=day_path_support_sets split_interval_admissibility=support_set primary_load=elementary_segment_loads max_parallel_batches={}"
+                  "OD-day computational profile: contour=production_day_path successor_generation=structural_day_edges timed_contour=diagnostics_only trees={} destinations={} time_horizon=service_day result=day_path_support_sets split_interval_admissibility=support_set primary_load=elementary_segment_loads max_parallel_batches={}"
                 , tree_jobs.size()
                 , execution.config.destination_scope == SearchDestinationScope::DeclaredZones
                     ? execution.declared_zones.size()

@@ -321,6 +321,13 @@ namespace timetable::domain::assignment {
         const DemandSplitResult& split_result
     );
 
+    /**
+     * @brief Project OD-day demand to elementary loads through interval-selected supports.
+     *
+     * The split result must contain DayPath shares only. Each share carries the
+     * concrete timetable support selected for its demand interval; this function
+     * expands exactly those supports to half-open vehicle journey items.
+     */
     [[nodiscard]] mathfp::Expected<ElementarySegmentLoads> build_day_path_elementary_segment_loads(
         const DemandSplitResult& split_result
     );
