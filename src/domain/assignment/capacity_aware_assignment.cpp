@@ -218,6 +218,77 @@ namespace timetable::domain::assignment {
             return mathfp::kUnit;
         }
 
+        [[nodiscard]] mathfp::Expected<double> ride_support_leg_duration_seconds(
+            const DayPathRideSupportLeg& leg
+        ) {
+            const auto duration = leg.arrival.value() - leg.departure.value();
+            if (finite_nonnegative(duration)) {
+                return duration;
+            }
+
+            return mathfp::unexpected(
+                mathfp::invalid_arg("capacity exposure cannot be computed from a negative or non-finite day-path support duration")
+                    .ctx("departure", leg.departure.value())
+                    .ctx("arrival", leg.arrival.value())
+                    .ctx("duration", duration)
+            );
+        }
+
+        [[nodiscard]] mathfp::Expected<mathfp::Unit> accumulate_ride_support_capacity_exposure(
+              mathfp::CompensatedSum<double>& exposure_seconds
+            , const DayPathRideSupportLeg&    leg
+            , IntervalId                       interval
+            , const LoadLookup&                load_lookup
+            , const CapacityLookup&            capacity_lookup
+            , CapacityPenaltyPolicy            policy
+        ) {
+            const auto item_count = leg.to_index.get() - leg.from_index.get();
+            if (!(item_count > 0)) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("day-path support ride leg must occupy at least one vehicle journey item")
+                        .ctx("trip_id", leg.trip.get())
+                        .ctx("from_index", leg.from_index.get())
+                        .ctx("to_index", leg.to_index.get())
+                );
+            }
+            MATHFP_TRY_LET(
+                  double
+                , leg_duration
+                , ride_support_leg_duration_seconds(leg)
+            );
+            const auto item_duration = leg_duration / static_cast<double>(item_count);
+
+            for (auto index = leg.from_index.get(); index < leg.to_index.get(); ++index) {
+                const auto item = VehicleJourneyItemKey{
+                      .trip       = leg.trip
+                    , .from_index = RoutePosition{ index }
+                };
+                MATHFP_TRY_LET(
+                      const VehicleJourneyItemCapacity*
+                    , capacity
+                    , capacity_for_item(capacity_lookup, item)
+                );
+                MATHFP_TRY_LET(
+                      Dimless
+                    , ratio
+                    , capacity_ratio(
+                          load_for_item(load_lookup, interval, item)
+                        , *capacity
+                      )
+                );
+                MATHFP_TRY_LET(
+                      Dimless
+                    , penalty
+                    , capacity_penalty(policy, ratio)
+                );
+                exposure_seconds.add(
+                    item_duration * mathfp::units::as_dimless(penalty)
+                );
+            }
+
+            return mathfp::kUnit;
+        }
+
     }  // namespace
 
     mathfp::Expected<mathfp::Unit> validate_capacity_penalty_policy(
@@ -509,6 +580,35 @@ namespace timetable::domain::assignment {
             , capacity_set
             , policy
         );
+    }
+
+    mathfp::Expected<CapacityExposure> day_path_support_capacity_exposure(
+          const DayPathSupportDescriptor&    support
+        , IntervalId                         interval
+        , const VehicleJourneyItemLoadState& load_state
+        , const VehicleJourneyItemCapacitySet& capacity_set
+        , CapacityPenaltyPolicy             policy
+    ) {
+        MATHFP_TRY(validate_vehicle_journey_item_load_state(load_state));
+        MATHFP_TRY(validate_vehicle_journey_item_capacity_set(capacity_set));
+        MATHFP_TRY(validate_capacity_penalty_policy(policy));
+
+        const auto load_lookup = build_load_lookup(load_state);
+        const auto capacity_lookup = build_capacity_lookup(capacity_set);
+
+        mathfp::CompensatedSum<double> exposure_seconds;
+        for (const auto& leg : support.ride_legs) {
+            MATHFP_TRY(accumulate_ride_support_capacity_exposure(
+                  exposure_seconds
+                , leg
+                , interval
+                , load_lookup
+                , capacity_lookup
+                , policy
+            ));
+        }
+
+        return make_capacity_exposure(Time{ exposure_seconds.value() });
     }
 
     mathfp::Expected<double> capacity_adjusted_perceived_journey_time(

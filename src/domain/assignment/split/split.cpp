@@ -36,6 +36,7 @@ namespace timetable::domain::assignment {
              * positive demand share is emitted.
              */
             const SearchConnection* connection{};
+            const DayPathAlternative* day_path_alternative{};
             DemandShareAlternativeSource source{ DemandShareAlternativeSource::TimedConnection };
             DayPathSignature  day_path{};
             const DayPathSupportDescriptor* day_path_support{};
@@ -46,7 +47,10 @@ namespace timetable::domain::assignment {
 
         [[nodiscard]] const SearchConnection& connection_of(
             const SplitAlternative& alternative
-        ) noexcept {
+        ) {
+            if (alternative.source == DemandShareAlternativeSource::DayPath) {
+                return day_path_representative_connection(*alternative.day_path_alternative);
+            }
             return *alternative.connection;
         }
 
@@ -505,6 +509,7 @@ namespace timetable::domain::assignment {
                 alternatives.push_back(
                     SplitAlternative{
                           .connection             = connection
+                        , .day_path_alternative   = nullptr
                         , .source                 = DemandShareAlternativeSource::TimedConnection
                         , .day_path               = day_path_signature_of(*connection)
                         , .day_path_support       = nullptr
@@ -534,7 +539,8 @@ namespace timetable::domain::assignment {
                 const auto& selected = *support.support;
                 alternatives.push_back(
                     SplitAlternative{
-                          .connection             = &day_path_representative_connection(*support.path)
+                          .connection             = nullptr
+                        , .day_path_alternative   = support.path
                         , .source                 = DemandShareAlternativeSource::DayPath
                         , .day_path               = day_path_signature_of(*support.path)
                         , .day_path_support       = &selected
@@ -567,6 +573,35 @@ namespace timetable::domain::assignment {
                 ) > 0.0;
         }
 
+        mathfp::Expected<CapacityExposure> capacity_exposure_of(
+              const SplitAlternative&      alternative
+            , IntervalId                   interval
+            , const SplitCapacityContext&  context
+        ) {
+            if (alternative.source == DemandShareAlternativeSource::DayPath) {
+                if (alternative.day_path_support == nullptr) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("day-path split alternative is missing support envelope")
+                    );
+                }
+                return day_path_support_capacity_exposure(
+                      *alternative.day_path_support
+                    , interval
+                    , *context.load_state
+                    , *context.capacity_set
+                    , context.config->penalty_policy
+                );
+            }
+
+            return connection_capacity_exposure(
+                  connection_of(alternative)
+                , interval
+                , *context.load_state
+                , *context.capacity_set
+                , context.config->penalty_policy
+            );
+        }
+
         mathfp::Expected<std::vector<SplitAlternative>> apply_capacity_to_split_alternatives(
               const std::vector<SplitAlternative>& alternatives
             , IntervalId                           interval
@@ -584,13 +619,7 @@ namespace timetable::domain::assignment {
                 MATHFP_TRY_LET(
                           CapacityExposure
                     , exposure
-                    , connection_capacity_exposure(
-                          connection_of(alternative)
-                        , interval
-                        , *context->load_state
-                        , *context->capacity_set
-                        , context->config->penalty_policy
-                      )
+                    , capacity_exposure_of(alternative, interval, *context)
                 );
                 MATHFP_TRY_LET(
                       double
@@ -605,6 +634,7 @@ namespace timetable::domain::assignment {
                 adjusted.push_back(
                     SplitAlternative{
                           .connection             = alternative.connection
+                        , .day_path_alternative   = alternative.day_path_alternative
                         , .source                 = alternative.source
                         , .day_path               = alternative.day_path
                         , .day_path_support       = alternative.day_path_support
@@ -723,7 +753,8 @@ namespace timetable::domain::assignment {
                 }
 
                 const auto candidate = SplitAlternative{
-                      .connection             = &day_path_representative_connection(path)
+                      .connection             = nullptr
+                    , .day_path_alternative   = &path
                     , .source                 = DemandShareAlternativeSource::DayPath
                     , .day_path               = day_path_signature_of(path)
                     , .day_path_support       = &support

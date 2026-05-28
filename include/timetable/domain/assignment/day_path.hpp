@@ -66,6 +66,13 @@ namespace timetable::domain::assignment {
         const DayPathRetention& retention
     ) noexcept;
 
+    [[nodiscard]] bool day_path_candidate_may_be_retained(
+          const DayPathRetention&       retention
+        , const DayPathSignature&       signature
+        , const CompleteConnectionMetrics& metrics
+        , const DayPathRetentionConfig& config
+    ) noexcept;
+
     [[nodiscard]] DayPathLeg day_path_leg_of(
         const ConnectionLeg& leg
     ) noexcept;

@@ -59,6 +59,10 @@ namespace timetable::domain::assignment {
         StructuralSupplyEdges
     };
 
+    enum class OdDayPathSupplyGraphPolicy : std::uint8_t {
+        ProductionIdentityEdges
+    };
+
     enum class OdDayPathProductionCarrierPolicy : std::uint8_t {
         ParentlessBranchPayload
     };
@@ -103,6 +107,9 @@ namespace timetable::domain::assignment {
         OdDayPathSuccessorExpansionPolicy successor_expansion_policy{
             OdDayPathSuccessorExpansionPolicy::StructuralSupplyEdges
         };
+        OdDayPathSupplyGraphPolicy supply_graph_policy{
+            OdDayPathSupplyGraphPolicy::ProductionIdentityEdges
+        };
         OdDayPathProductionCarrierPolicy production_carrier_policy{
             OdDayPathProductionCarrierPolicy::ParentlessBranchPayload
         };
@@ -134,6 +141,8 @@ namespace timetable::domain::assignment {
             , .timed_support_policy   = OdDayPathTimedSupportPolicy::SupportSetWithRepresentative
             , .successor_expansion_policy =
                 OdDayPathSuccessorExpansionPolicy::StructuralSupplyEdges
+            , .supply_graph_policy =
+                OdDayPathSupplyGraphPolicy::ProductionIdentityEdges
             , .production_carrier_policy =
                 OdDayPathProductionCarrierPolicy::ParentlessBranchPayload
             , .frontier_policy =
@@ -159,6 +168,8 @@ namespace timetable::domain::assignment {
             && contract.timed_support_policy == OdDayPathTimedSupportPolicy::SupportSetWithRepresentative
             && contract.successor_expansion_policy
                 == OdDayPathSuccessorExpansionPolicy::StructuralSupplyEdges
+            && contract.supply_graph_policy
+                == OdDayPathSupplyGraphPolicy::ProductionIdentityEdges
             && contract.production_carrier_policy
                 == OdDayPathProductionCarrierPolicy::ParentlessBranchPayload
             && contract.frontier_policy
@@ -177,9 +188,10 @@ namespace timetable::domain::assignment {
     /**
      * @brief Node of the day-level supply graph used by structural OD search.
      *
-     * endpoint is the physical stop/zone key. occurrence is present only for
-     * line-ride topology where repeated appearances of the same stop must be
-     * distinguished; walking and zone nodes stay in physical endpoint space.
+     * endpoint is the physical stop/zone key. Production OD-day supply graphs
+     * use the same normalized identity as DayPathSignature, so occurrence is
+     * normally empty there; concrete repeated-stop support remains a timed
+     * support-label property rather than a public path node.
      */
     struct DayLevelSupplyNode final {
         DayLevelSupplyNodeRef           index{};
