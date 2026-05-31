@@ -88,6 +88,16 @@ namespace timetable::domain::assignment::detail::grouping {
         };
     }
 
+    [[nodiscard]] inline DemandKey demand_key(
+        const UnassignedDemand& demand
+    ) noexcept {
+        return DemandKey{
+              .origin      = demand.origin
+            , .destination = demand.destination
+            , .interval    = demand.interval
+        };
+    }
+
     [[nodiscard]] inline std::map<OdKey, std::size_t> count_connections_by_od(
         std::span<const SearchConnection> connections
     ) {

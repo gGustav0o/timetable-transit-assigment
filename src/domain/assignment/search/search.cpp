@@ -58,6 +58,24 @@ namespace timetable::domain::assignment {
         using NodeMetricSet         = SearchPruningMetricSet;
         using SearchNodeKey         = SearchPruningStateKey;
 
+        struct SearchCancellationToken final {
+            std::atomic_bool requested{ false };
+        };
+
+        [[nodiscard]] bool search_cancelled(
+            const SearchCancellationToken* token
+        ) noexcept {
+            return token != nullptr
+                && token->requested.load(std::memory_order_acquire);
+        }
+
+        void request_search_cancellation(
+            SearchCancellationToken* token
+        ) noexcept {
+            if (token != nullptr) {
+                token->requested.store(true, std::memory_order_release);
+            }
+        }
 
         // TODO??
         struct SearchNodeKeyHash final {
@@ -130,25 +148,132 @@ namespace timetable::domain::assignment {
          * needed to validate future schedule support without making concrete
          * timed segments part of the day-path identity.
          */
+        struct TimedSupportLabel final {
+            ConnectionSegmentId          connection{};
+            RouteSegmentId               route_segment{};
+            std::optional<TripId>        trip{};
+            std::optional<RoutePosition> from_index{};
+            std::optional<RoutePosition> to_index{};
+            Time                         departure{};
+            Time                         arrival{};
+
+            bool operator==(const TimedSupportLabel&) const = default;
+        };
+
+        inline constexpr std::size_t kMaxTimedSupportEnvelopeLabels = 8u;
+
+        struct TimedSupportEnvelopeKey final {
+            std::optional<StopOccurrenceKey> last_timed_occurrence{};
+            std::optional<LineId>            last_line{};
+
+            bool operator==(const TimedSupportEnvelopeKey&) const = default;
+        };
+
         struct TimedSupportEnvelope final {
-            std::optional<StopOccurrenceKey>     last_timed_occurrence{};
-            SearchPruningTransferContext         transfer{};
+            TimedSupportEnvelopeKey      key{};
+            std::vector<TimedSupportLabel> labels{};
 
             bool operator==(const TimedSupportEnvelope&) const = default;
         };
 
+        struct OdDayPathPrefixNode final {
+            std::shared_ptr<const OdDayPathPrefixNode> parent{};
+            DayPathLeg                                leg{};
+            std::size_t                               length{};
+        };
+
+        struct OdDayPathPrefix final {
+            ZoneId                                     origin{};
+            std::shared_ptr<const OdDayPathPrefixNode> tail{};
+            std::size_t                                length{};
+        };
+
+        [[nodiscard]] OdDayPathPrefix make_od_day_path_prefix(
+            ZoneId origin
+        ) noexcept {
+            return OdDayPathPrefix{
+                  .origin = origin
+                , .tail   = nullptr
+                , .length = 0u
+            };
+        }
+
+        [[nodiscard]] OdDayPathPrefix append_od_day_path_leg(
+              OdDayPathPrefix prefix
+            , DayPathLeg       leg
+        ) {
+            prefix.tail = std::make_shared<OdDayPathPrefixNode>(
+                OdDayPathPrefixNode{
+                      .parent = std::move(prefix.tail)
+                    , .leg    = production_day_path_leg(std::move(leg))
+                    , .length = prefix.length + 1u
+                }
+            );
+            ++prefix.length;
+            return prefix;
+        }
+
+        [[nodiscard]] DayPathPrefix materialize_day_path_prefix(
+            const OdDayPathPrefix& prefix
+        ) {
+            std::vector<DayPathLeg> reversed;
+            reversed.reserve(prefix.length);
+            for (auto node = prefix.tail; node != nullptr; node = node->parent) {
+                reversed.push_back(node->leg);
+            }
+            std::reverse(reversed.begin(), reversed.end());
+            return DayPathPrefix{
+                  .origin = prefix.origin
+                , .legs   = std::move(reversed)
+            };
+        }
+
+        struct OdDaySupportPrefixNode final {
+            std::shared_ptr<const OdDaySupportPrefixNode> parent{};
+            ConnectionSegmentId                          segment{};
+            std::size_t                                  length{};
+        };
+
+        using OdDaySupportPrefix = std::shared_ptr<const OdDaySupportPrefixNode>;
+
+        [[nodiscard]] OdDaySupportPrefix append_od_day_support_segment(
+              OdDaySupportPrefix prefix
+            , ConnectionSegmentId segment
+        ) {
+            const auto next_length = prefix != nullptr ? prefix->length + 1u : 1u;
+            return std::make_shared<OdDaySupportPrefixNode>(
+                OdDaySupportPrefixNode{
+                      .parent  = std::move(prefix)
+                    , .segment = segment
+                    , .length  = next_length
+                }
+            );
+        }
+
+        [[nodiscard]] std::vector<ConnectionSegmentId> materialize_od_day_support_segments(
+            const OdDaySupportPrefix& prefix
+        ) {
+            std::vector<ConnectionSegmentId> reversed;
+            reversed.reserve(prefix != nullptr ? prefix->length : 0u);
+            for (auto node = prefix; node != nullptr; node = node->parent) {
+                reversed.push_back(node->segment);
+            }
+            std::reverse(reversed.begin(), reversed.end());
+            return reversed;
+        }
+
         /**
          * Production OD-day carrier. It is self-contained by construction:
-         * path_identity is the day-level alternative identity, support_segments
+         * path_identity is the day-level alternative identity, support_prefix
          * is the compact timed/walk witness needed for metrics and split/load.
          *
          * The carrier deliberately does not depend on parent_branch. Parent
          * chains remain available for the legacy timed diagnostic contour only.
          */
         struct OdDayProductionCarrier final {
-            DayPathPrefix                    path_identity{};
-            TimedSupportEnvelope             support_envelope{};
-            std::vector<ConnectionSegmentId> support_segments{};
+            OdDayPathPrefix      path_identity{};
+            TimedSupportEnvelope support_envelope{};
+            OdDaySupportPrefix   support_prefix{};
         };
 
         struct SearchBranch final {
@@ -438,7 +563,7 @@ namespace timetable::domain::assignment {
 
         struct OdDayLabelState final {
             StructuralLabelState structural{};
-            TimedSupportEnvelope support{};
+            TimedSupportEnvelopeKey support{};
 
             bool operator==(const OdDayLabelState&) const = default;
         };
@@ -466,23 +591,13 @@ namespace timetable::domain::assignment {
                     boost::hash_combine(seed, key.support.last_timed_occurrence->stop.get());
                     boost::hash_combine(seed, key.support.last_timed_occurrence->position.get());
                 }
-                boost::hash_combine(seed, key.support.transfer.last_trip.has_value());
-                if (key.support.transfer.last_trip.has_value()) {
-                    boost::hash_combine(seed, key.support.transfer.last_trip->get());
-                }
-                boost::hash_combine(seed, key.support.transfer.last_line.has_value());
-                if (key.support.transfer.last_line.has_value()) {
-                    boost::hash_combine(seed, key.support.transfer.last_line->get());
+                boost::hash_combine(seed, key.support.last_line.has_value());
+                if (key.support.last_line.has_value()) {
+                    boost::hash_combine(seed, key.support.last_line->get());
                 }
                 return seed;
             }
         };
-
-        using OdDayLabelStateMap = boost::unordered_flat_map<
-              OdDayLabelState
-            , NodeMetricSet
-            , OdDayLabelStateHash
-        >;
 
         struct OdDayProductionMemoryLimits final {
             std::size_t max_branch_slots_per_tree{ 750'000u };
@@ -498,6 +613,22 @@ namespace timetable::domain::assignment {
                 SearchExecutionConfig::kDefaultMaxOdDayLabelRepresentativesPerState
             };
         };
+
+        struct OdDayLabelRepresentative final {
+            SearchPruningMetrics metrics{};
+            TimedSupportEnvelope support{};
+        };
+
+        struct OdDayLabelRepresentativeSet final {
+            std::vector<OdDayLabelRepresentative> representatives{};
+            SearchPruningMetricSet                summary_metrics{};
+        };
+
+        using OdDayLabelStateMap = boost::unordered_flat_map<
+              OdDayLabelState
+            , OdDayLabelRepresentativeSet
+            , OdDayLabelStateHash
+        >;
 
         [[nodiscard]] OdDayLabelRetentionConfig od_day_label_retention_config_of(
             const SearchExecutionConfig& config
@@ -567,8 +698,8 @@ namespace timetable::domain::assignment {
          *
          * known_metrics is the legacy/timed state-local pruning memory.
          * od_day_label_states is the OD-day structural/support dominance table.
-         * DayPathPrefix remains branch-local path identity and is projected
-         * only into finalized OD alternatives.
+         * OdDayPathPrefix remains a compact branch-local path identity and is
+         * materialized only for finalized OD alternatives.
          */
         struct TreePartialRetention final {
             NodeMetricMap          known_metrics{};
@@ -942,15 +1073,7 @@ namespace timetable::domain::assignment {
             std::vector<ConnectionSegmentId> support_labels{};
         };
 
-        struct DayLevelTimedSupportLabel final {
-            ConnectionSegmentId          connection{};
-            RouteSegmentId               route_segment{};
-            std::optional<TripId>        trip{};
-            std::optional<RoutePosition> from_index{};
-            std::optional<RoutePosition> to_index{};
-            Time                         departure{};
-            Time                         arrival{};
-        };
+        using DayLevelTimedSupportLabel = TimedSupportLabel;
 
         struct DayLevelSupplySearchGraph final {
             DayLevelSupplyGraph graph{};
@@ -2437,7 +2560,7 @@ namespace timetable::domain::assignment {
         ) noexcept {
             return OdDayLabelState{
                   .structural = structural_label_state(branch)
-                , .support    = branch.od_day_carrier.support_envelope
+                , .support    = branch.od_day_carrier.support_envelope.key
             };
         }
 
@@ -2451,13 +2574,12 @@ namespace timetable::domain::assignment {
                 return true;
             }
 
-            if (!branch.od_day_carrier.support_segments.empty()) {
-                auto physical = endpoint_key(branch.trace.origin);
-                for (const auto segment_id : branch.od_day_carrier.support_segments) {
+            if (branch.od_day_carrier.support_prefix != nullptr) {
+                for (auto node = branch.od_day_carrier.support_prefix; node != nullptr; node = node->parent) {
+                    const auto segment_id = node->segment;
                     const auto& segment = connection_segment_at(network, segment_id);
                     const auto& route_segment = route_segment_at(network, segment.route_segment);
-                    physical = physical_to_key(route_segment);
-                    if (physical == next) {
+                    if (physical_to_key(route_segment) == next) {
                         return true;
                     }
                 }
@@ -2486,8 +2608,9 @@ namespace timetable::domain::assignment {
                 return true;
             }
 
-            if (!branch.od_day_carrier.support_segments.empty()) {
-                for (const auto segment_id : branch.od_day_carrier.support_segments) {
+            if (branch.od_day_carrier.support_prefix != nullptr) {
+                for (auto node = branch.od_day_carrier.support_prefix; node != nullptr; node = node->parent) {
+                    const auto segment_id = node->segment;
                     const auto& segment = connection_segment_at(network, segment_id);
                     if (!is_timed_connection(segment)) {
                         continue;
@@ -3425,6 +3548,40 @@ namespace timetable::domain::assignment {
             };
         }
 
+        [[nodiscard]] std::optional<Time> support_label_current_time(
+              const SearchBranch&          branch
+            , const DayLevelTimedSupportLabel& label
+        ) noexcept {
+            if (!branch.metrics.current_time.has_value()) {
+                return std::nullopt;
+            }
+            if (branch.trace.last_timed_segment == nullptr
+                || !branch.trace.last_timed_segment->arrival.has_value()) {
+                return label.arrival;
+            }
+
+            return Time{
+                label.arrival.value()
+                + branch.metrics.current_time->value()
+                - branch.trace.last_timed_segment->arrival->value()
+            };
+        }
+
+        [[nodiscard]] BranchState day_level_support_label_branch_state(
+              const PreprocessedNetwork&       network
+            , const SearchBranch&              branch
+            , const DayLevelTimedSupportLabel& label
+        ) noexcept {
+            return BranchState{
+                  .current_arrival_time = support_label_current_time(branch, label)
+                , .last_segment         = &connection_segment_at(network, label.connection)
+                , .last_route_segment   = &route_segment_at(network, label.route_segment)
+                , .transfer_count       = branch.metrics.departure.has_value()
+                    ? std::optional<TransferCount>{ branch.metrics.transfers }
+                    : std::nullopt
+            };
+        }
+
         [[nodiscard]] std::optional<DayLevelTimedSupportLabel> make_day_level_timed_support_label(
               const ConnectionSegment& connection
         ) noexcept {
@@ -3465,21 +3622,45 @@ namespace timetable::domain::assignment {
             )) {
                 return std::nullopt;
             }
-            if (!is_branch_extension_feasible(
-                      state
-                    , connection
-                    , route_segment
-                    , limits
-            )) {
-                return std::nullopt;
-            }
-            if (!improves_repeated_stop_reboarding(
-                      branch
-                    , network
-                    , connection
-                    , route_segment
-            )) {
-                return std::nullopt;
+
+            if (!branch.od_day_carrier.support_envelope.labels.empty()
+                && branch.metrics.departure.has_value()) {
+                const auto feasible_from_envelope = std::any_of(
+                      branch.od_day_carrier.support_envelope.labels.begin()
+                    , branch.od_day_carrier.support_envelope.labels.end()
+                    , [&](const DayLevelTimedSupportLabel& support_label) {
+                          return is_branch_extension_feasible(
+                                day_level_support_label_branch_state(
+                                      network
+                                    , branch
+                                    , support_label
+                                )
+                              , connection
+                              , route_segment
+                              , limits
+                          );
+                      }
+                );
+                if (!feasible_from_envelope) {
+                    return std::nullopt;
+                }
+            } else {
+                if (!is_branch_extension_feasible(
+                          state
+                        , connection
+                        , route_segment
+                        , limits
+                )) {
+                    return std::nullopt;
+                }
+                if (!improves_repeated_stop_reboarding(
+                          branch
+                        , network
+                        , connection
+                        , route_segment
+                )) {
+                    return std::nullopt;
+                }
             }
             return label;
         }
@@ -3492,13 +3673,71 @@ namespace timetable::domain::assignment {
         [[nodiscard]] TimedSupportEnvelope propagate_timed_support_envelope(
               const ConnectionSegment& connection
             , const RouteSegment&      route_segment
-        ) noexcept {
+        ) {
             return TimedSupportEnvelope{
-                  .last_timed_occurrence = occurrence_key(line_topology_of(route_segment)->to)
-                , .transfer              = SearchPruningTransferContext{
-                      .last_trip = connection.trip
-                    , .last_line = line_of(route_segment)
+                  .key = TimedSupportEnvelopeKey{
+                      .last_timed_occurrence = occurrence_key(line_topology_of(route_segment)->to)
+                    , .last_line             = line_of(route_segment)
                   }
+                , .labels = std::vector<TimedSupportLabel>{
+                      TimedSupportLabel{
+                          .connection    = connection.id
+                        , .route_segment = connection.route_segment
+                        , .trip          = connection.trip
+                        , .from_index    = connection.from_index
+                        , .to_index      = connection.to_index
+                        , .departure     = *connection.departure
+                        , .arrival       = *connection.arrival
+                      }
+                  }
+            };
+        }
+
+        [[nodiscard]] bool better_timed_support_label(
+              const DayLevelTimedSupportLabel& lhs
+            , const DayLevelTimedSupportLabel& rhs
+        ) noexcept {
+            if (lhs.arrival.value() != rhs.arrival.value()) {
+                return lhs.arrival.value() < rhs.arrival.value();
+            }
+            if (lhs.departure.value() != rhs.departure.value()) {
+                return lhs.departure.value() > rhs.departure.value();
+            }
+            return lhs.connection.get() < rhs.connection.get();
+        }
+
+        void retain_timed_support_label(
+              std::vector<TimedSupportLabel>& labels
+            , TimedSupportLabel               label
+        ) {
+            if (std::find(labels.begin(), labels.end(), label) != labels.end()) {
+                return;
+            }
+            labels.push_back(std::move(label));
+            std::sort(labels.begin(), labels.end(), better_timed_support_label);
+            if (labels.size() > kMaxTimedSupportEnvelopeLabels) {
+                labels.resize(kMaxTimedSupportEnvelopeLabels);
+            }
+        }
+
+        [[nodiscard]] TimedSupportEnvelope make_timed_support_envelope(
+              const RouteSegment&                    route_segment
+            , std::vector<TimedSupportLabel>          labels
+        ) {
+            std::sort(labels.begin(), labels.end(), better_timed_support_label);
+            labels.erase(
+                  std::unique(labels.begin(), labels.end())
+                , labels.end()
+            );
+            if (labels.size() > kMaxTimedSupportEnvelopeLabels) {
+                labels.resize(kMaxTimedSupportEnvelopeLabels);
+            }
+            return TimedSupportEnvelope{
+                  .key = TimedSupportEnvelopeKey{
+                      .last_timed_occurrence = occurrence_key(line_topology_of(route_segment)->to)
+                    , .last_line             = line_of(route_segment)
+                  }
+                , .labels = std::move(labels)
             };
         }
 
@@ -3509,6 +3748,15 @@ namespace timetable::domain::assignment {
             , const TransferLimits&      limits
             , const SearchTimeDomain*    first_departure_domain
         ) {
+            std::vector<TimedSupportLabel> feasible_labels;
+            feasible_labels.reserve(
+                std::min(
+                      support.support_labels.size()
+                    , kMaxTimedSupportEnvelopeLabels
+                )
+            );
+            std::optional<TimedSupportLabel> representative;
+            std::optional<RouteSegmentId> representative_route_segment;
             for (const auto connection_id : support.support_labels) {
                 const auto label = feasible_day_level_timed_support_label(
                       network
@@ -3518,18 +3766,24 @@ namespace timetable::domain::assignment {
                     , first_departure_domain
                 );
                 if (label.has_value()) {
-                    const auto& connection = connection_segment_at(network, label->connection);
-                    const auto& route_segment = route_segment_at(network, label->route_segment);
-                    return DayLevelTimedSupportPropagation{
-                          .label = *label
-                        , .envelope = propagate_timed_support_envelope(
-                              connection
-                            , route_segment
-                          )
-                    };
+                    if (!representative.has_value()
+                        || better_timed_support_label(*label, *representative)) {
+                        representative = *label;
+                        representative_route_segment = label->route_segment;
+                    }
+                    retain_timed_support_label(feasible_labels, *label);
                 }
             }
-            return std::nullopt;
+            if (!representative.has_value() || !representative_route_segment.has_value()) {
+                return std::nullopt;
+            }
+            return DayLevelTimedSupportPropagation{
+                  .label = *representative
+                , .envelope = make_timed_support_envelope(
+                      route_segment_at(network, *representative_route_segment)
+                    , std::move(feasible_labels)
+                  )
+            };
         }
 
         template <typename Visitor, typename RejectedWalkVisitor>
@@ -3830,8 +4084,6 @@ namespace timetable::domain::assignment {
                 , day_level_edge
                 , transition
             );
-            auto support_segments = branch.od_day_carrier.support_segments;
-            support_segments.push_back(segment_id);
             return SearchBranch{
                   .trace           = trace
                 , .metrics         = extend_metrics_with_walk(
@@ -3840,12 +4092,15 @@ namespace timetable::domain::assignment {
                     , transition.kind
                   )
                 , .od_day_carrier  = OdDayProductionCarrier{
-                      .path_identity = append_day_path_leg(
+                      .path_identity = append_od_day_path_leg(
                             branch.od_day_carrier.path_identity
                           , make_day_path_walk_leg(transition.kind, route_segment)
                       )
                     , .support_envelope = branch.od_day_carrier.support_envelope
-                    , .support_segments = std::move(support_segments)
+                    , .support_prefix   = append_od_day_support_segment(
+                          branch.od_day_carrier.support_prefix
+                        , segment_id
+                      )
                   }
             };
         }
@@ -3981,8 +4236,6 @@ namespace timetable::domain::assignment {
                     , search_cost
                 )
             );
-            auto support_segments = branch.od_day_carrier.support_segments;
-            support_segments.push_back(segment.id);
             return SearchBranch{
                   .trace           = extend_trace_with_timed(
                         branch.trace
@@ -3998,12 +4251,15 @@ namespace timetable::domain::assignment {
                     , capacity_exposure
                 )
                 , .od_day_carrier  = OdDayProductionCarrier{
-                      .path_identity = append_day_path_leg(
+                      .path_identity = append_od_day_path_leg(
                             branch.od_day_carrier.path_identity
                           , make_day_path_ride_leg(route_segment)
                       )
                     , .support_envelope = std::move(support_envelope)
-                    , .support_segments = std::move(support_segments)
+                    , .support_prefix   = append_od_day_support_segment(
+                          branch.od_day_carrier.support_prefix
+                        , segment.id
+                      )
                   }
             };
         }
@@ -4318,8 +4574,10 @@ namespace timetable::domain::assignment {
               const BranchArena&  branches
             , const SearchBranch& branch
         ) {
-            if (!branch.od_day_carrier.support_segments.empty()) {
-                return branch.od_day_carrier.support_segments;
+            if (branch.od_day_carrier.support_prefix != nullptr) {
+                return materialize_od_day_support_segments(
+                    branch.od_day_carrier.support_prefix
+                );
             }
 
             std::vector<ConnectionSegmentId> reversed_segments;
@@ -4753,6 +5011,70 @@ namespace timetable::domain::assignment {
             );
         }
 
+        [[nodiscard]] bool contains_od_day_label_representative(
+              const OdDayLabelRepresentativeSet& representatives
+            , const SearchPruningMetrics&        metrics
+            , const TimedSupportEnvelope&        support
+        ) noexcept {
+            return std::any_of(
+                  representatives.representatives.begin()
+                , representatives.representatives.end()
+                , [&](const OdDayLabelRepresentative& existing) {
+                      return same_pruning_metrics(existing.metrics, metrics)
+                          && existing.support == support;
+                  }
+            );
+        }
+
+        [[nodiscard]] bool timed_support_envelope_covers(
+              const TimedSupportEnvelope& existing
+            , const TimedSupportEnvelope& candidate
+        ) noexcept {
+            if (existing.key != candidate.key) {
+                return false;
+            }
+            if (candidate.labels.empty()) {
+                return existing.labels.empty();
+            }
+            return std::all_of(
+                  candidate.labels.begin()
+                , candidate.labels.end()
+                , [&](const TimedSupportLabel& label) {
+                      return std::find(
+                            existing.labels.begin()
+                          , existing.labels.end()
+                          , label
+                      ) != existing.labels.end();
+                  }
+            );
+        }
+
+        [[nodiscard]] SearchPruningMetricSet compatible_od_day_label_metrics(
+              const OdDayLabelRepresentativeSet& representatives
+            , const TimedSupportEnvelope&        support
+        ) {
+            SearchPruningMetricSet metric_set;
+            for (const auto& representative : representatives.representatives) {
+                if (timed_support_envelope_covers(representative.support, support)) {
+                    metric_set.metrics.push_back(representative.metrics);
+                }
+            }
+            std::sort(
+                  metric_set.metrics.begin()
+                , metric_set.metrics.end()
+                , [](const SearchPruningMetrics& lhs, const SearchPruningMetrics& rhs) {
+                      return lhs.arrival.value() < rhs.arrival.value();
+                  }
+            );
+            metric_set.summary = summarize_pruning_metrics(
+                std::span<const SearchPruningMetrics>{
+                      metric_set.metrics.data()
+                    , metric_set.metrics.size()
+                }
+            );
+            return metric_set;
+        }
+
         [[nodiscard]] bool worse_od_day_label_representative(
               const SearchPruningMetrics& lhs
             , const SearchPruningMetrics& rhs
@@ -4773,45 +5095,76 @@ namespace timetable::domain::assignment {
         }
 
         void enforce_bounded_od_day_label_representatives(
-              NodeMetricSet& metric_set
+              OdDayLabelRepresentativeSet& representatives
             , const OdDayLabelRetentionConfig& config
         ) {
-            while (metric_set.metrics.size() > config.max_representatives_per_label) {
-                auto worst = metric_set.metrics.begin();
-                for (auto it = std::next(metric_set.metrics.begin());
-                     it != metric_set.metrics.end();
+            while (representatives.representatives.size() > config.max_representatives_per_label) {
+                auto worst = representatives.representatives.begin();
+                for (auto it = std::next(representatives.representatives.begin());
+                     it != representatives.representatives.end();
                      ++it) {
-                    if (worse_od_day_label_representative(*it, *worst)) {
+                    if (worse_od_day_label_representative(it->metrics, worst->metrics)) {
                         worst = it;
                     }
                 }
-                metric_set.metrics.erase(worst);
+                representatives.representatives.erase(worst);
             }
-            metric_set.summary = summarize_pruning_metrics(
+            representatives.summary_metrics.metrics.clear();
+            representatives.summary_metrics.metrics.reserve(representatives.representatives.size());
+            for (const auto& representative : representatives.representatives) {
+                representatives.summary_metrics.metrics.push_back(representative.metrics);
+            }
+            std::sort(
+                  representatives.summary_metrics.metrics.begin()
+                , representatives.summary_metrics.metrics.end()
+                , [](const SearchPruningMetrics& lhs, const SearchPruningMetrics& rhs) {
+                      return lhs.arrival.value() < rhs.arrival.value();
+                  }
+            );
+            representatives.summary_metrics.summary = summarize_pruning_metrics(
                 std::span<const SearchPruningMetrics>{
-                      metric_set.metrics.data()
-                    , metric_set.metrics.size()
+                      representatives.summary_metrics.metrics.data()
+                    , representatives.summary_metrics.metrics.size()
                 }
             );
         }
 
         [[nodiscard]] bool insert_bounded_od_day_label_representative(
               const SearchPruningExecutionPlan& pruning_execution
-            , NodeMetricSet&                    metric_set
+            , OdDayLabelRepresentativeSet&      representatives
             , const SearchPruningMetrics&       metrics
+            , const TimedSupportEnvelope&       support
             , const OdDayLabelRetentionConfig&  config
         ) {
-            auto trial = metric_set;
-            insert_search_pruning_metrics_in_place(
-                  pruning_execution
-                , trial
-                , metrics
+            auto trial = representatives;
+            if (pruning_execution.exact_enabled) {
+                trial.representatives.erase(
+                      std::remove_if(
+                            trial.representatives.begin()
+                          , trial.representatives.end()
+                          , [&](const OdDayLabelRepresentative& existing) {
+                          return timed_support_envelope_covers(support, existing.support)
+                              && dominates_exactly(
+                                    pruning_execution.exact_policy
+                                  , metrics
+                                  , existing.metrics
+                              );
+                          }
+                      )
+                    , trial.representatives.end()
+                );
+            }
+            trial.representatives.push_back(
+                OdDayLabelRepresentative{
+                      .metrics = metrics
+                    , .support = support
+                }
             );
             enforce_bounded_od_day_label_representatives(trial, config);
-            if (!contains_pruning_metrics(trial, metrics)) {
+            if (!contains_od_day_label_representative(trial, metrics, support)) {
                 return false;
             }
-            metric_set = std::move(trial);
+            representatives = std::move(trial);
             return true;
         }
 
@@ -4830,15 +5183,17 @@ namespace timetable::domain::assignment {
                 , metrics
                 , make_day_path_pruning_metrics(branch, search_cost)
             );
+            const auto& support = branch.od_day_carrier.support_envelope;
             auto key = od_day_label_state(branch);
             auto it = retention.od_day_label_states.find(key);
             if (it == retention.od_day_label_states.end()) {
                 if (stores_search_pruning_metrics(pruning_execution)) {
-                    auto metric_set = NodeMetricSet{};
+                    auto representatives = OdDayLabelRepresentativeSet{};
                     const auto retained = insert_bounded_od_day_label_representative(
                           pruning_execution
-                        , metric_set
+                        , representatives
                         , metrics
+                        , support
                         , retention_config
                     );
                     if (!retained) {
@@ -4849,7 +5204,7 @@ namespace timetable::domain::assignment {
                             , .accepted = false
                         };
                     }
-                    retention.od_day_label_states.emplace(std::move(key), std::move(metric_set));
+                    retention.od_day_label_states.emplace(std::move(key), std::move(representatives));
                     ++pruning_stats.inserted_metrics;
                 } else {
                     ++pruning_stats.skipped_insertions;
@@ -4862,12 +5217,23 @@ namespace timetable::domain::assignment {
                 };
             }
 
-            const auto pruning_decision = evaluate_search_pruning(
-                  pruning_execution
-                , metrics
-                , it->second
-                , params.transfers
+            const auto compatible_metrics = compatible_od_day_label_metrics(
+                  it->second
+                , support
             );
+            auto pruning_decision = SearchPruningDecision{
+                  .layer    = SearchPruningLayer::Exact
+                , .reason   = SearchPruningReason::Accepted
+                , .accepted = true
+            };
+            if (!compatible_metrics.metrics.empty()) {
+                pruning_decision = evaluate_search_pruning(
+                      pruning_execution
+                    , metrics
+                    , compatible_metrics
+                    , params.transfers
+                );
+            }
             if (!pruning_decision.accepted) {
                 switch (pruning_decision.layer) {
                     case SearchPruningLayer::Exact:
@@ -4879,7 +5245,7 @@ namespace timetable::domain::assignment {
                 }
                 return pruning_decision;
             }
-            if (contains_pruning_metrics(it->second, metrics)) {
+            if (contains_od_day_label_representative(it->second, metrics, support)) {
                 ++pruning_stats.rejected_exact;
                 return SearchPruningDecision{
                       .layer    = SearchPruningLayer::Exact
@@ -4893,6 +5259,7 @@ namespace timetable::domain::assignment {
                       pruning_execution
                     , it->second
                     , metrics
+                    , support
                     , retention_config
                 );
                 if (!retained) {
@@ -4977,9 +5344,9 @@ namespace timetable::domain::assignment {
             const auto od_day_label_state_nodes = tree_retention.od_day_label_states.size();
             const auto od_day_label_state_buckets = tree_retention.od_day_label_states.bucket_count();
             std::size_t od_day_label_representatives = 0u;
-            for (const auto& [state, metric_set] : tree_retention.od_day_label_states) {
+            for (const auto& [state, representative_set] : tree_retention.od_day_label_states) {
                 (void)state;
-                od_day_label_representatives += metric_set.metrics.size();
+                od_day_label_representatives += representative_set.representatives.size();
             }
             const auto live_branches = branches.size() - released_branches;
             std::size_t compact_complete_metrics = 0;
@@ -4991,12 +5358,16 @@ namespace timetable::domain::assignment {
             const auto approximate_direct_bytes =
                   branches.size() * sizeof(BranchSlot)
                 + live_branches * sizeof(SearchBranch)
+                + branches.size() * (
+                      sizeof(OdDayPathPrefixNode)
+                    + sizeof(OdDaySupportPrefixNode)
+                  )
                 + projection_state_count * projection_state_size
                 + pruning_nodes * sizeof(NodeMetricMap::value_type)
                 + pruning_buckets * sizeof(void*)
                 + od_day_label_state_nodes * sizeof(OdDayLabelStateMap::value_type)
                 + od_day_label_state_buckets * sizeof(void*)
-                + od_day_label_representatives * sizeof(SearchPruningMetrics)
+                + od_day_label_representatives * sizeof(OdDayLabelRepresentative)
                 + compact_complete_metrics * sizeof(CompleteConnectionMetrics)
                 + day_path_alternatives * sizeof(DayPathAlternative);
             return SearchStorageDiagnostics{
@@ -5022,7 +5393,7 @@ namespace timetable::domain::assignment {
             const SearchStorageDiagnostics& diagnostics
         ) {
             return fmt::format(
-                  "search storage: branch_slots={} live_branches={} released_branches={} projection_states={} tree_pruning(nodes/buckets/load/insertions)={}/{}/{:.3f}/{} path_identity=branch_payload od_day_label_states(nodes/buckets/load/reps)={}/{}/{:.3f}/{} retained_complete={} retained_day_paths={} approx_direct_mb={:.2f}"
+                  "search storage: branch_slots={} live_branches={} released_branches={} projection_states={} tree_pruning(nodes/buckets/load/insertions)={}/{}/{:.3f}/{} path_identity=compact_prefix support=compact_prefix od_day_label_states(nodes/buckets/load/reps)={}/{}/{:.3f}/{} retained_complete={} retained_day_paths={} approx_direct_mb={:.2f}"
                 , diagnostics.branch_slots
                 , diagnostics.live_branches
                 , diagnostics.released_branches
@@ -5039,6 +5410,46 @@ namespace timetable::domain::assignment {
                 , diagnostics.retained_day_paths
                 , static_cast<double>(diagnostics.approximate_direct_bytes)
                     / (1024.0 * 1024.0)
+            );
+        }
+
+        [[nodiscard]] double ratio_or_zero(
+              std::size_t numerator
+            , std::size_t denominator
+        ) noexcept {
+            if (denominator == 0u) {
+                return 0.0;
+            }
+            return static_cast<double>(numerator)
+                 / static_cast<double>(denominator);
+        }
+
+        [[nodiscard]] std::string format_od_day_theory_diagnostics(
+              const SearchStorageDiagnostics& diagnostics
+            , const TaskSearchStats&          stats
+            , std::size_t                     current_frontier
+            , std::size_t                     next_frontier
+            , const OdDayLabelRetentionConfig& retention_config
+        ) {
+            return fmt::format(
+                  "OD-day theory diagnostics: carrier=compact_parent_link support=bounded_timed_envelope key_last_trip=false dominance=extension_safe_envelope_coverage bounds_before_enqueue=true finalized_alternatives=slot_day_path_retention materialize_support=completion_only live_branches={} frontier={} od_label_states={} label_reps={} reps_per_state={:.3f} live_per_state={:.3f} retained_day_paths={} max_reps_per_state={} accepted_after_bounds={} lower_bound_pruned={} dominance_pruned={}"
+                , diagnostics.live_branches
+                , current_frontier + next_frontier
+                , diagnostics.od_day_label_state_nodes
+                , diagnostics.od_day_label_representatives
+                , ratio_or_zero(
+                      diagnostics.od_day_label_representatives
+                    , diagnostics.od_day_label_state_nodes
+                  )
+                , ratio_or_zero(
+                      diagnostics.live_branches
+                    , diagnostics.od_day_label_state_nodes
+                  )
+                , diagnostics.retained_day_paths
+                , retention_config.max_representatives_per_label
+                , stats.accepted_branches
+                , stats.rejected_suffix_lower_bound
+                , stats.rejected_dominance_or_tolerance
             );
         }
 
@@ -5726,7 +6137,7 @@ namespace timetable::domain::assignment {
 
                 ++stats.completed_connections;
                 auto finalized_signature = make_day_path_signature_from_tree_label(
-                      branch.od_day_carrier.path_identity
+                      materialize_day_path_prefix(branch.od_day_carrier.path_identity)
                     , slot.destination
                 );
                 MATHFP_TRY_LET(
@@ -5842,6 +6253,7 @@ namespace timetable::domain::assignment {
             , const DayLevelSupplySearchGraph*  day_level_supply = nullptr
             , OdDayLabelRetentionConfig         od_day_label_retention_config =
                   OdDayLabelRetentionConfig{}
+            , const SearchCancellationToken*    cancellation = nullptr
         ) {
             using timetable::infra::LogLevel;
             using timetable::infra::progress::log;
@@ -5988,7 +6400,7 @@ namespace timetable::domain::assignment {
                         , .capacity_exposure = CapacityExposure{ Time{ 0.0 } }
                   }
                   , .od_day_carrier = OdDayProductionCarrier{
-                        .path_identity = make_day_path_prefix(batch.key.origin)
+                        .path_identity = make_od_day_path_prefix(batch.key.origin)
                     }
               }
             );
@@ -6094,17 +6506,25 @@ namespace timetable::domain::assignment {
                 );
             };
             auto emit_storage_diagnostics = [&]() {
-                log(
-                    format_search_storage_diagnostics(
-                        make_storage_diagnostics()
-                    )
-                    , LogLevel::Info
-                );
+                const auto storage_diagnostics = make_storage_diagnostics();
+                log(format_search_storage_diagnostics(storage_diagnostics), LogLevel::Info);
+                if (od_day_slots) {
+                    log(
+                        format_od_day_theory_diagnostics(
+                              storage_diagnostics
+                            , stats
+                            , current_frontier.size()
+                            , next_frontier.size()
+                            , od_day_label_retention_config
+                        )
+                        , LogLevel::Info
+                    );
+                }
             };
             if (od_day_slots) {
                 log(
                     fmt::format(
-                          "OD-day production memory limits: carrier=parentless_branch_payload_segments branch_slots={} live_branches={} frontier={} od_day_label_states={} label_representatives_per_state={} retained_day_paths={} approx_direct_mb={:.2f}"
+                          "OD-day production memory limits: carrier=compact_parent_link branch_slots={} live_branches={} frontier={} od_day_label_states={} label_representatives_per_state={} retained_day_paths={} approx_direct_mb={:.2f}"
                         , od_day_memory_limits.max_branch_slots_per_tree
                         , od_day_memory_limits.max_live_branches_per_tree
                         , od_day_memory_limits.max_frontier_per_tree
@@ -6178,6 +6598,22 @@ namespace timetable::domain::assignment {
             };
 
             while (!current_frontier.empty() || !next_frontier.empty()) {
+                if (search_cancelled(cancellation)) {
+                    log(
+                        fmt::format(
+                              "search batch cancelled: {}/{} origin={} interval={} expanded={} accepted={} found={} reason=sibling_failed"
+                            , batch_index + 1
+                            , batch_count
+                            , batch.key.origin.get()
+                            , format_batch_interval(batch.key.interval)
+                            , stats.expanded_branches
+                            , stats.accepted_branches
+                            , retained_production_alternative_count()
+                        )
+                        , LogLevel::Warning
+                    );
+                    return std::vector<SearchSlotResult>{};
+                }
                 if (current_frontier.empty()) {
                     current_frontier.swap(next_frontier);
                     current_frontier_by_phase = next_frontier_by_phase;
@@ -6298,6 +6734,7 @@ namespace timetable::domain::assignment {
                 }
 
                 mathfp::Expected<mathfp::Unit> successor_error = mathfp::kUnit;
+                bool batch_cancelled = false;
                 for_each_successor(
                       network
                     , od_day_supply
@@ -6308,6 +6745,10 @@ namespace timetable::domain::assignment {
                     , params.transfers
                     , first_departure_domain
                     , [&](const SearchSuccessor& successor_ref) {
+                    if (search_cancelled(cancellation)) {
+                        batch_cancelled = true;
+                        return;
+                    }
                     if (!successor_error) {
                         return;
                     }
@@ -6323,32 +6764,34 @@ namespace timetable::domain::assignment {
                           network
                         , successor.route_segment
                     );
-                    if (!first_timed_departure_allowed(
-                          branch
-                        , successor
-                        , first_departure_domain
-                        , params.transfers
-                    )) {
-                        ++stats.rejected_time_domain;
-                        return;
-                    }
-                    if (!is_branch_extension_feasible(
-                          feasibility_state(branch)
-                        , successor
-                        , successor_route_segment
-                        , params.transfers
-                    )) {
-                        ++stats.rejected_feasibility;
-                        return;
-                    }
-                    if (!improves_repeated_stop_reboarding(
-                          branch
-                        , network
-                        , successor
-                        , successor_route_segment
-                    )) {
-                        ++stats.rejected_reboarding;
-                        return;
+                    if (!od_day_slots || !successor_ref.support_envelope.has_value()) {
+                        if (!first_timed_departure_allowed(
+                              branch
+                            , successor
+                            , first_departure_domain
+                            , params.transfers
+                        )) {
+                            ++stats.rejected_time_domain;
+                            return;
+                        }
+                        if (!is_branch_extension_feasible(
+                              feasibility_state(branch)
+                            , successor
+                            , successor_route_segment
+                            , params.transfers
+                        )) {
+                            ++stats.rejected_feasibility;
+                            return;
+                        }
+                        if (!improves_repeated_stop_reboarding(
+                              branch
+                            , network
+                            , successor
+                            , successor_route_segment
+                        )) {
+                            ++stats.rejected_reboarding;
+                            return;
+                        }
                     }
 
                     auto candidate_result = extend_branch(
@@ -6370,6 +6813,16 @@ namespace timetable::domain::assignment {
                     if (!candidate.has_value()) {
                         ++stats.rejected_cycles;
                         return;
+                    }
+                    if (od_day_slots) {
+                        /*
+                         * Production OD-day candidates carry their structural
+                         * path and timed witness in compact prefixes. Detaching
+                         * the trace parent before any retention/materialization
+                         * keeps the production contour from falling back to
+                         * raw timed prefix chains.
+                         */
+                        candidate->trace.parent_branch = std::nullopt;
                     }
                     if (diagnostics.validate_phase_invariants) {
                         if (auto invariant_result = validate_search_branch_phase_invariants(*candidate);
@@ -6653,15 +7106,6 @@ namespace timetable::domain::assignment {
                     const auto same_level =
                         is_walk_connection(successor) || !branch.metrics.departure.has_value();
                     const auto candidate_phase = candidate->trace.phase;
-                    if (od_day_slots) {
-                        /*
-                         * The OD-day frontier owns self-contained production
-                         * carriers. Keeping parent links here would silently
-                         * reintroduce timed-prefix retention into the
-                         * production contour.
-                         */
-                        candidate->trace.parent_branch = std::nullopt;
-                    }
                     const auto candidate_index = append_branch(
                           branches
                         , std::move(*candidate)
@@ -6710,6 +7154,22 @@ namespace timetable::domain::assignment {
                     , branch_index
                     , release_projection_payload
                 );
+                if (batch_cancelled) {
+                    log(
+                        fmt::format(
+                              "search batch cancelled during successor scan: {}/{} origin={} interval={} expanded={} accepted={} found={} reason=sibling_failed"
+                            , batch_index + 1
+                            , batch_count
+                            , batch.key.origin.get()
+                            , format_batch_interval(batch.key.interval)
+                            , stats.expanded_branches
+                            , stats.accepted_branches
+                            , retained_production_alternative_count()
+                        )
+                        , LogLevel::Warning
+                    );
+                    return std::vector<SearchSlotResult>{};
+                }
                 MATHFP_TRY(std::move(successor_error));
             }
 
@@ -8542,7 +9002,7 @@ namespace timetable::domain::assignment {
         );
         log(
             fmt::format(
-                  "all-zone search parallel execution: workers={} batches={} max_parallel_batches={}"
+                  "all-zone search parallel execution: workers={} batches={} max_parallel_batches={} fast_fail=enabled"
                 , worker_count
                 , batches.size()
                 , execution.config.max_parallel_batches
@@ -8552,7 +9012,9 @@ namespace timetable::domain::assignment {
 
         std::atomic<std::size_t> next_batch{ 0u };
         std::atomic<std::size_t> completed_batches{ 0u };
+        std::atomic<std::size_t> cancelled_batches{ 0u };
         std::atomic<std::size_t> found_connections{ 0u };
+        SearchCancellationToken cancellation;
         CountOnlyAllZoneSearchResultSink result_sink;
         std::vector<std::future<mathfp::Expected<mathfp::Unit>>> workers;
         workers.reserve(worker_count);
@@ -8563,6 +9025,9 @@ namespace timetable::domain::assignment {
                       std::launch::async
                     , [&, worker]() -> mathfp::Expected<mathfp::Unit> {
                           for (;;) {
+                              if (search_cancelled(&cancellation)) {
+                                  return mathfp::kUnit;
+                              }
                               const auto i = next_batch.fetch_add(
                                     1u
                                   , std::memory_order_relaxed
@@ -8592,10 +9057,7 @@ namespace timetable::domain::assignment {
                                   );
                               }
 
-                              MATHFP_TRY_LET(
-                                    std::vector<SearchSlotResult>
-                                  , results
-                                  , search_batch_connections(
+                              auto results_result = search_batch_connections(
                                         batch
                                       , network
                                       , residual_reverse_graph
@@ -8610,13 +9072,28 @@ namespace timetable::domain::assignment {
                                       , diagnostics
                                       , i
                                       , batches.size()
-                                  )
-                              );
+                                      , nullptr
+                                      , OdDayLabelRetentionConfig{}
+                                      , &cancellation
+                                  );
+                              if (!results_result) {
+                                  request_search_cancellation(&cancellation);
+                                  return mathfp::unexpected(std::move(results_result.error()));
+                              }
+                              if (search_cancelled(&cancellation)) {
+                                  cancelled_batches.fetch_add(1u, std::memory_order_relaxed);
+                                  return mathfp::kUnit;
+                              }
+                              auto results = std::move(*results_result);
                               found_connections.fetch_add(
                                     search_slot_connection_count(results)
                                   , std::memory_order_relaxed
                               );
-                              MATHFP_TRY(result_sink.accept(std::move(results)));
+                              auto sink_result = result_sink.accept(std::move(results));
+                              if (!sink_result) {
+                                  request_search_cancellation(&cancellation);
+                                  return mathfp::unexpected(std::move(sink_result.error()));
+                              }
                               completed_batches.fetch_add(1u, std::memory_order_relaxed);
                           }
                       }
@@ -8624,9 +9101,26 @@ namespace timetable::domain::assignment {
             );
         }
 
+        mathfp::Expected<mathfp::Unit> first_worker_error = mathfp::kUnit;
         for (auto& worker : workers) {
-            MATHFP_TRY(worker.get());
+            auto worker_result = worker.get();
+            if (!worker_result && first_worker_error) {
+                request_search_cancellation(&cancellation);
+                first_worker_error = mathfp::unexpected(
+                    std::move(worker_result.error())
+                );
+            }
         }
+        if (cancelled_batches.load(std::memory_order_relaxed) != 0u) {
+            log(
+                fmt::format(
+                      "all-zone search fast-fail cancellation: cancelled_batches={}"
+                    , cancelled_batches.load(std::memory_order_relaxed)
+                )
+                , LogLevel::Warning
+            );
+        }
+        MATHFP_TRY(std::move(first_worker_error));
 
         auto result = result_sink.materialize();
         log(
@@ -8720,13 +9214,24 @@ namespace timetable::domain::assignment {
         const auto day_path_retention_config = DayPathRetentionConfig{};
         const auto od_day_label_retention_config =
             od_day_label_retention_config_of(execution.config);
+        const auto day_path_alternative_limit =
+            day_path_retention_config.max_alternatives_per_od.has_value()
+                ? std::to_string(*day_path_retention_config.max_alternatives_per_od)
+                : std::string("unbounded");
+        const auto day_path_support_limit =
+            day_path_retention_config.max_supports_per_path.has_value()
+                ? std::to_string(*day_path_retention_config.max_supports_per_path)
+                : std::string("unbounded");
         log(
             fmt::format(
-                  "OD-day projection contract: partial_retention_scope={} tree_label=structural_label_state support=timed_support_envelope dominance_key=structural_plus_support production_carrier=parentless_branch_payload path_identity=branch_payload supply_graph=production_identity_edges frontier=structural_label_frontier label_representatives_per_state={} complete_retention=day_path_od_pair_slot od_retention=before_connection_materialization od_alternative_retention=production_slots_only signature=route_stop_line_pattern max_alternatives_per_od={} max_supports_per_path={} computation_contract={}"
+                  "OD-day projection contract: partial_retention_scope={} tree_label=structural_label_state support=bounded_timed_envelope dominance_key=structural_plus_support_key_without_concrete_trip dominance=extension_safe_envelope_coverage production_carrier=compact_parent_link path_identity=compact_prefix supply_graph=production_identity_edges frontier=structural_label_frontier label_representatives_per_state={} bounds=before_enqueue complete_retention=day_path_od_pair_slot od_retention=before_connection_materialization od_alternative_retention=production_slots_only signature=route_stop_line_pattern day_path_retention_policy={} max_alternatives_per_od={} max_supports_per_path={} computation_contract={}"
                 , to_string(execution.config.partial_retention_scope)
                 , od_day_label_retention_config.max_representatives_per_label
-                , day_path_retention_config.max_alternatives_per_od
-                , day_path_retention_config.max_supports_per_path
+                , day_path_retention_limit_policy_name(
+                      day_path_retention_config.limit_policy
+                  )
+                , day_path_alternative_limit
+                , day_path_support_limit
                 , to_log_token(OdDaySearchComputationContract::StructuralEdgeExpansion)
             )
             , LogLevel::Info
@@ -8811,7 +9316,7 @@ namespace timetable::domain::assignment {
         }
         log(
             fmt::format(
-                  "OD-day computational profile: contour=production_day_path production_carrier=parentless_branch_payload_segments supply_graph=production_identity_edges frontier=structural_label_frontier successor_generation=structural_day_edges support_generation=propagate_timed_support_envelope tree_label_scope=structural_label_state dominance_key=structural_plus_support path_identity=branch_payload od_signature=route_stop_line_pattern timed_contour=diagnostics_only trees={} destinations={} time_horizon=service_day result=day_path_support_sets split_interval_admissibility=support_set split_load=lazy_support_envelope primary_load=elementary_segment_loads max_parallel_batches={}"
+                  "OD-day computational profile: contour=production_day_path production_carrier=compact_parent_link supply_graph=production_identity_edges frontier=structural_label_frontier successor_generation=structural_day_edges support_generation=bounded_timed_support_envelope tree_label_scope=structural_label_state dominance_key=structural_plus_support_key_without_concrete_trip dominance=extension_safe_envelope_coverage path_identity=compact_prefix od_signature=route_stop_line_pattern timed_contour=diagnostics_only trees={} destinations={} time_horizon=service_day result=day_path_support_sets split_interval_admissibility=support_set split_load=lazy_support_envelope primary_load=elementary_segment_loads max_parallel_batches={}"
                 , tree_jobs.size()
                 , execution.config.destination_scope == SearchDestinationScope::DeclaredZones
                     ? execution.declared_zones.size()
@@ -8865,7 +9370,7 @@ namespace timetable::domain::assignment {
         );
         log(
             fmt::format(
-                  "OD-day search parallel execution: workers={} batches={} max_parallel_batches={} label_representatives_per_state={}"
+                  "OD-day search parallel execution: workers={} batches={} max_parallel_batches={} label_representatives_per_state={} fast_fail=enabled"
                 , worker_count
                 , batches.size()
                 , execution.config.max_parallel_batches
@@ -8876,8 +9381,10 @@ namespace timetable::domain::assignment {
 
         std::atomic<std::size_t> next_batch{ 0u };
         std::atomic<std::size_t> completed_batches{ 0u };
+        std::atomic<std::size_t> cancelled_batches{ 0u };
         std::atomic<std::size_t> pair_count{ 0u };
         std::atomic<std::size_t> connection_count{ 0u };
+        SearchCancellationToken cancellation;
         std::mutex origin_sink_mutex;
         std::vector<std::future<mathfp::Expected<mathfp::Unit>>> workers;
         workers.reserve(worker_count);
@@ -8888,6 +9395,9 @@ namespace timetable::domain::assignment {
                       std::launch::async
                     , [&, worker]() -> mathfp::Expected<mathfp::Unit> {
                           for (;;) {
+                              if (search_cancelled(&cancellation)) {
+                                  return mathfp::kUnit;
+                              }
                               const auto i = next_batch.fetch_add(
                                     1u
                                   , std::memory_order_relaxed
@@ -8917,10 +9427,7 @@ namespace timetable::domain::assignment {
                                   );
                               }
 
-                              MATHFP_TRY_LET(
-                                    std::vector<SearchSlotResult>
-                                  , slot_results
-                                  , search_batch_connections(
+                              auto slot_results_result = search_batch_connections(
                                         batch
                                       , network
                                       , residual_reverse_graph
@@ -8937,8 +9444,17 @@ namespace timetable::domain::assignment {
                                       , batches.size()
                                       , &day_level_supply
                                       , od_day_label_retention_config
-                                  )
-                              );
+                                      , &cancellation
+                                  );
+                              if (!slot_results_result) {
+                                  request_search_cancellation(&cancellation);
+                                  return mathfp::unexpected(std::move(slot_results_result.error()));
+                              }
+                              if (search_cancelled(&cancellation)) {
+                                  cancelled_batches.fetch_add(1u, std::memory_order_relaxed);
+                                  return mathfp::kUnit;
+                              }
+                              auto slot_results = std::move(*slot_results_result);
                               connection_count.fetch_add(
                                     search_slot_connection_count(slot_results)
                                   , std::memory_order_relaxed
@@ -8953,7 +9469,11 @@ namespace timetable::domain::assignment {
                               );
                               {
                                   std::scoped_lock lock(origin_sink_mutex);
-                                  MATHFP_TRY(origin_sink(std::move(origin_result)));
+                                  auto sink_result = origin_sink(std::move(origin_result));
+                                  if (!sink_result) {
+                                      request_search_cancellation(&cancellation);
+                                      return mathfp::unexpected(std::move(sink_result.error()));
+                                  }
                               }
                               completed_batches.fetch_add(1u, std::memory_order_relaxed);
                           }
@@ -8962,9 +9482,26 @@ namespace timetable::domain::assignment {
             );
         }
 
+        mathfp::Expected<mathfp::Unit> first_worker_error = mathfp::kUnit;
         for (auto& worker : workers) {
-            MATHFP_TRY(worker.get());
+            auto worker_result = worker.get();
+            if (!worker_result && first_worker_error) {
+                request_search_cancellation(&cancellation);
+                first_worker_error = mathfp::unexpected(
+                    std::move(worker_result.error())
+                );
+            }
         }
+        if (cancelled_batches.load(std::memory_order_relaxed) != 0u) {
+            log(
+                fmt::format(
+                      "OD-day search fast-fail cancellation: cancelled_batches={}"
+                    , cancelled_batches.load(std::memory_order_relaxed)
+                )
+                , LogLevel::Warning
+            );
+        }
+        MATHFP_TRY(std::move(first_worker_error));
         log(
             fmt::format(
                   "OD-day by-origin search result: origins = {:>8}  pairs = {:>8}  expected_trees = {:>8}  connections = {:>8}"

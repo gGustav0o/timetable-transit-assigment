@@ -800,6 +800,11 @@ namespace timetable::domain::assignment::detail {
             , std::make_move_iterator(origin_split.shares.begin())
             , std::make_move_iterator(origin_split.shares.end())
         );
+        target.unassigned.insert(
+              target.unassigned.end()
+            , std::make_move_iterator(origin_split.unassigned.begin())
+            , std::make_move_iterator(origin_split.unassigned.end())
+        );
     }
 
     inline mathfp::Expected<AssignmentPipelineOdDayCalculatedResult>
@@ -895,19 +900,21 @@ namespace timetable::domain::assignment::detail {
 
         log(
             fmt::format(
-                  "OD-day load contour: production=elementary_segment_loads source=day_path demand_shares={:>8} elementary_loads={:>8} secondary_visum_aggregates=route_stop_totals overload_source=elementary_segment_loads"
+                  "OD-day load contour: production=elementary_segment_loads source=day_path demand_shares={:>8} unassigned_demand={:>8} elementary_loads={:>8} secondary_visum_aggregates=route_stop_totals overload_source=elementary_segment_loads"
                 , accumulation.split.shares.size()
+                , accumulation.split.unassigned.size()
                 , elementary_segment_loads.items.size()
             )
             , LogLevel::Info
         );
         log(
             fmt::format(
-                  "OD-day assignment result: od_pairs = {:>8}  search_connections = {:>8}  chosen_connections = {:>8}  demand_shares = {:>8}  elementary_loads = {:>8}"
+                  "OD-day assignment result: od_pairs = {:>8}  search_connections = {:>8}  chosen_connections = {:>8}  demand_shares = {:>8}  unassigned_demand = {:>8}  elementary_loads = {:>8}"
                 , accumulation.search_summary.pair_counts.size()
                 , search_connection_count(accumulation.search_summary)
                 , accumulation.choice.connections.size()
                 , accumulation.split.shares.size()
+                , accumulation.split.unassigned.size()
                 , elementary_segment_loads.items.size()
             )
             , LogLevel::Info

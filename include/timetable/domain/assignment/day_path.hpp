@@ -2,6 +2,7 @@
 
 #include <compare>
 #include <cstddef>
+#include <cstdint>
 #include <map>
 #include <optional>
 #include <span>
@@ -53,10 +54,42 @@ namespace timetable::domain::assignment {
         std::map<DayPathSignature, DayPathAlternative> alternatives_by_signature{};
     };
 
-    struct DayPathRetentionConfig final {
-        std::size_t max_alternatives_per_od{ 256u };
-        std::size_t max_supports_per_path{ 16u };
+    /**
+     * @brief Technical retention policy for OD-day alternatives.
+     *
+     * Unbounded is the truth-first production default: no structural path or
+     * split support is removed because of a storage cap. BoundedDropWorst is a
+     * performance profile and may change the resulting assignment. FailOnSaturation
+     * is a guarded bounded profile: hitting a configured cap is reported as an
+     * error instead of silently changing the alternative set.
+     */
+    enum class DayPathRetentionLimitPolicy : std::uint8_t {
+          Unbounded
+        , BoundedDropWorst
+        , FailOnSaturation
     };
+
+    struct DayPathRetentionConfig final {
+        DayPathRetentionLimitPolicy limit_policy{
+            DayPathRetentionLimitPolicy::Unbounded
+        };
+        std::optional<std::size_t> max_alternatives_per_od{};
+        std::optional<std::size_t> max_supports_per_path{};
+    };
+
+    [[nodiscard]] constexpr const char* day_path_retention_limit_policy_name(
+        DayPathRetentionLimitPolicy policy
+    ) noexcept {
+        switch (policy) {
+            case DayPathRetentionLimitPolicy::Unbounded:
+                return "unbounded";
+            case DayPathRetentionLimitPolicy::BoundedDropWorst:
+                return "bounded_drop_worst";
+            case DayPathRetentionLimitPolicy::FailOnSaturation:
+                return "fail_on_saturation";
+        }
+        return "unknown";
+    }
 
     [[nodiscard]] bool day_path_retention_empty(
         const DayPathRetention& retention

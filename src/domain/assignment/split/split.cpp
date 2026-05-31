@@ -924,6 +924,182 @@ namespace timetable::domain::assignment {
             double     passengers{};
         };
 
+        void append_unassigned_demand(
+              DemandSplitResult&      result
+            , const SplitDemandUnit&  demand
+            , UnassignedDemandReason  reason
+        ) {
+            result.unassigned.push_back(
+                UnassignedDemand{
+                      .origin      = demand.origin
+                    , .destination = demand.destination
+                    , .interval    = demand.interval
+                    , .passengers  = demand.passengers
+                    , .reason      = reason
+                }
+            );
+        }
+
+        struct OdDayDemandConservationSummary final {
+            std::size_t demand_intervals{};
+            std::size_t assigned_intervals{};
+            std::size_t unassigned_intervals{};
+            double      demand_passengers{};
+            double      assigned_passengers{};
+            double      unassigned_passengers{};
+        };
+
+        [[nodiscard]] bool same_demand_mass(
+              double actual
+            , double expected
+        ) noexcept {
+            return mathfp::almost_equal(
+                  actual
+                , expected
+                , mathfp::abs_tolerance(expected)
+                , mathfp::rel_tolerance_coeff<double>()
+            );
+        }
+
+        [[nodiscard]] mathfp::Expected<OdDayDemandConservationSummary>
+        validate_od_day_demand_conservation(
+              const DemandSplitResult&    split_result
+            , const InputModel&           input
+            , std::optional<ZoneId>       origin_filter = std::nullopt
+        ) {
+            std::map<detail::grouping::DemandKey, const DemandEntry*> demand_by_key;
+            mathfp::CompensatedSum<double> total_demand;
+            for (const auto& demand : input.demand) {
+                if (demand.passengers <= 0.0) {
+                    continue;
+                }
+                if (origin_filter.has_value() && demand.origin != *origin_filter) {
+                    continue;
+                }
+                const auto key = detail::grouping::demand_key(demand);
+                if (!demand_by_key.emplace(key, &demand).second) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("OD-day demand conservation received duplicate demand key")
+                            .ctx("origin"     , demand.origin     .get())
+                            .ctx("destination", demand.destination.get())
+                            .ctx("interval_id", demand.interval   .get())
+                    );
+                }
+                total_demand.add(demand.passengers);
+            }
+
+            std::map<detail::grouping::DemandKey, mathfp::CompensatedSum<double>>
+                passenger_sum_by_key;
+            std::map<detail::grouping::DemandKey, mathfp::CompensatedSum<double>>
+                probability_sum_by_key;
+            std::map<detail::grouping::DemandKey, mathfp::CompensatedSum<double>>
+                unassigned_sum_by_key;
+            mathfp::CompensatedSum<double> total_assigned;
+            mathfp::CompensatedSum<double> total_unassigned;
+
+            for (const auto& share : split_result.shares) {
+                if (origin_filter.has_value() && share.origin != *origin_filter) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("OD-day origin split contains share outside requested origin")
+                            .ctx("origin"      , origin_filter->get())
+                            .ctx("share_origin", share.origin.get())
+                    );
+                }
+                const auto key = detail::grouping::demand_key(share);
+                if (!demand_by_key.contains(key)) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("OD-day split conservation found share without positive demand")
+                            .ctx("origin"     , share.origin     .get())
+                            .ctx("destination", share.destination.get())
+                            .ctx("interval_id", share.interval   .get())
+                    );
+                }
+                passenger_sum_by_key[key].add(share.passengers);
+                probability_sum_by_key[key].add(share.probability);
+                total_assigned.add(share.passengers);
+            }
+
+            for (const auto& unassigned : split_result.unassigned) {
+                if (origin_filter.has_value() && unassigned.origin != *origin_filter) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("OD-day origin split contains unassigned demand outside requested origin")
+                            .ctx("origin"             , origin_filter->get())
+                            .ctx("unassigned_origin"  , unassigned.origin.get())
+                            .ctx("unassigned_reason"  , std::string(to_string(unassigned.reason)))
+                    );
+                }
+                if (!(unassigned.passengers > 0.0) || !std::isfinite(unassigned.passengers)) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("OD-day unassigned demand has invalid passenger mass")
+                            .ctx("origin"     , unassigned.origin     .get())
+                            .ctx("destination", unassigned.destination.get())
+                            .ctx("interval_id", unassigned.interval   .get())
+                            .ctx("passengers" , unassigned.passengers)
+                            .ctx("reason"     , std::string(to_string(unassigned.reason)))
+                    );
+                }
+                const auto key = detail::grouping::demand_key(unassigned);
+                if (!demand_by_key.contains(key)) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("OD-day split conservation found unassigned mass without positive demand")
+                            .ctx("origin"     , unassigned.origin     .get())
+                            .ctx("destination", unassigned.destination.get())
+                            .ctx("interval_id", unassigned.interval   .get())
+                            .ctx("reason"     , std::string(to_string(unassigned.reason)))
+                    );
+                }
+                unassigned_sum_by_key[key].add(unassigned.passengers);
+                total_unassigned.add(unassigned.passengers);
+            }
+
+            for (const auto& [key, demand] : demand_by_key) {
+                const auto passenger_sum =
+                    passenger_sum_by_key.contains(key)
+                        ? passenger_sum_by_key[key].value()
+                        : 0.0;
+                const auto unassigned_sum =
+                    unassigned_sum_by_key.contains(key)
+                        ? unassigned_sum_by_key[key].value()
+                        : 0.0;
+
+                if (passenger_sum > 0.0) {
+                    const auto probability_sum = probability_sum_by_key[key].value();
+                    if (!same_demand_mass(probability_sum, 1.0)) {
+                        return mathfp::unexpected(
+                            mathfp::internal_error("OD-day split probabilities do not conserve assigned unit mass")
+                                .ctx("origin"         , key.origin     .get())
+                                .ctx("destination"    , key.destination.get())
+                                .ctx("interval_id"    , key.interval   .get())
+                                .ctx("probability_sum", probability_sum)
+                        );
+                    }
+                }
+
+                const auto conserved_sum = passenger_sum + unassigned_sum;
+                if (!same_demand_mass(conserved_sum, demand->passengers)) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("OD-day split does not conserve demand as assigned plus explicit unassigned mass")
+                            .ctx("origin"           , key.origin     .get())
+                            .ctx("destination"      , key.destination.get())
+                            .ctx("interval_id"      , key.interval   .get())
+                            .ctx("assigned_sum"     , passenger_sum)
+                            .ctx("unassigned_sum"   , unassigned_sum)
+                            .ctx("conserved_sum"    , conserved_sum)
+                            .ctx("demand_passengers", demand->passengers)
+                    );
+                }
+            }
+
+            return OdDayDemandConservationSummary{
+                  .demand_intervals     = demand_by_key.size()
+                , .assigned_intervals   = passenger_sum_by_key.size()
+                , .unassigned_intervals = unassigned_sum_by_key.size()
+                , .demand_passengers    = total_demand.value()
+                , .assigned_passengers  = total_assigned.value()
+                , .unassigned_passengers = total_unassigned.value()
+            };
+        }
+
         mathfp::Expected<std::size_t> append_split_shares(
               DemandSplitResult&                    result
             , const SplitDemandUnit&                demand
@@ -1391,13 +1567,6 @@ namespace timetable::domain::assignment {
                 , .destination = od_demand.destination
             };
             const auto choice_it = choice_lookup.find(od_key);
-            if (choice_it == choice_lookup.end()) {
-                return mathfp::unexpected(
-                    mathfp::internal_error("positive OD demand has no matching OD-day choice alternatives")
-                        .ctx("origin"     , od_key.origin.get())
-                        .ctx("destination", od_key.destination.get())
-                );
-            }
 
             for (const auto& demand : od_demand.intervals) {
                 ++interval_count;
@@ -1407,6 +1576,21 @@ namespace timetable::domain::assignment {
                         mathfp::invalid_arg("OD demand interval references unknown time interval")
                             .ctx("interval_id", demand.interval.get())
                     );
+                }
+                const auto demand_unit = SplitDemandUnit{
+                      .origin      = demand.origin
+                    , .destination = demand.destination
+                    , .interval    = demand.interval
+                    , .passengers  = demand.passengers
+                };
+                if (choice_it == choice_lookup.end()) {
+                    ++skipped_empty_alternatives;
+                    append_unassigned_demand(
+                          result
+                        , demand_unit
+                        , UnassignedDemandReason::NoChosenAlternatives
+                    );
+                    continue;
                 }
 
                 MATHFP_TRY_LET(
@@ -1424,6 +1608,11 @@ namespace timetable::domain::assignment {
                 if (admissible_supports.empty()) {
                     ++skipped_empty_alternatives;
                     skipped_temporally_inadmissible += choice_it->second->alternatives.size();
+                    append_unassigned_demand(
+                          result
+                        , demand_unit
+                        , UnassignedDemandReason::NoIntervalAdmissibleSupport
+                    );
                     continue;
                 }
                 const auto base_alternatives = derive_split_alternatives(
@@ -1460,12 +1649,26 @@ namespace timetable::domain::assignment {
             , admissibility_config
             , demand_segment_time.basis
         ));
+        MATHFP_TRY_LET(
+              OdDayDemandConservationSummary
+            , conservation
+            , validate_od_day_demand_conservation(
+                  result
+                , input
+            )
+        );
         log(
             fmt::format(
-                  "OD-day split result: support=interval_selected_day_path  demand_od = {:>8}  demand_intervals = {:>8}  shares = {:>8}  skipped_empty_intervals = {:>8}  inadmissible_connections = {:>8}  suppressed_numerical_shares = {:>8}"
+                  "OD-day split result: support=interval_selected_day_path conservation=assigned_plus_unassigned demand_od = {:>8}  demand_intervals = {:>8}  assigned_intervals = {:>8}  unassigned_intervals = {:>8}  shares = {:>8}  unassigned = {:>8}  demand_passengers = {:.6f}  assigned_passengers = {:.6f}  unassigned_passengers = {:.6f}  skipped_empty_intervals = {:>8}  inadmissible_connections = {:>8}  suppressed_numerical_shares = {:>8}"
                 , demand_intervals.size()
                 , interval_count
+                , conservation.assigned_intervals
+                , conservation.unassigned_intervals
                 , result.shares.size()
+                , result.unassigned.size()
+                , conservation.demand_passengers
+                , conservation.assigned_passengers
+                , conservation.unassigned_passengers
                 , skipped_empty_alternatives
                 , skipped_temporally_inadmissible
                 , suppressed_numerical_shares
@@ -1518,9 +1721,20 @@ namespace timetable::domain::assignment {
             if (demand.passengers <= 0.0 || demand.origin != choice_result.origin) {
                 continue;
             }
+            const auto demand_unit = SplitDemandUnit{
+                  .origin      = demand.origin
+                , .destination = demand.destination
+                , .interval    = demand.interval
+                , .passengers  = demand.passengers
+            };
             const auto od_key = detail::grouping::od_key(demand);
             const auto choice_it = choice_lookup.find(od_key);
             if (choice_it == choice_lookup.end()) {
+                append_unassigned_demand(
+                      result
+                    , demand_unit
+                    , UnassignedDemandReason::NoChosenAlternatives
+                );
                 continue;
             }
             const auto interval = find_interval(interval_lookup, demand.interval);
@@ -1543,6 +1757,14 @@ namespace timetable::domain::assignment {
                 , demand_segment_time.basis
                 )
             );
+            if (admissible_supports.empty()) {
+                append_unassigned_demand(
+                      result
+                    , demand_unit
+                    , UnassignedDemandReason::NoIntervalAdmissibleSupport
+                );
+                continue;
+            }
             const auto base_alternatives = derive_split_alternatives(
                   admissible_supports
                 , params.split
@@ -1574,6 +1796,11 @@ namespace timetable::domain::assignment {
             , assignment_period
             , admissibility_config
             , demand_segment_time.basis
+        ));
+        MATHFP_TRY(validate_od_day_demand_conservation(
+              result
+            , input
+            , std::optional<ZoneId>{ choice_result.origin }
         ));
         return result;
     }
@@ -1618,11 +1845,27 @@ namespace timetable::domain::assignment {
             , elementary_segment_loads
             , build_day_path_elementary_segment_loads(split_result)
         );
+        MATHFP_TRY_LET(
+              OdDayDemandConservationSummary
+            , conservation
+            , validate_od_day_demand_conservation(
+                  split_result
+                , input
+                , std::optional<ZoneId>{ search_result.origin }
+            )
+        );
         log(
             fmt::format(
-                  "OD-day origin load: origin={} support=interval_selected_day_path shares={} elementary_loads={}"
+                  "OD-day origin load: origin={} support=interval_selected_day_path conservation=assigned_plus_unassigned demand_intervals={} assigned_intervals={} unassigned_intervals={} shares={} unassigned={} demand_passengers={:.6f} assigned_passengers={:.6f} unassigned_passengers={:.6f} elementary_loads={}"
                 , search_result.origin.get()
+                , conservation.demand_intervals
+                , conservation.assigned_intervals
+                , conservation.unassigned_intervals
                 , split_result.shares.size()
+                , split_result.unassigned.size()
+                , conservation.demand_passengers
+                , conservation.assigned_passengers
+                , conservation.unassigned_passengers
                 , elementary_segment_loads.items.size()
             )
             , LogLevel::Info

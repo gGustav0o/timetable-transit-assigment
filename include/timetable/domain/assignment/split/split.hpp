@@ -35,8 +35,34 @@ namespace timetable::domain::assignment {
         double                       split_impedance{};
     };
 
+    enum class UnassignedDemandReason : std::uint8_t {
+          NoChosenAlternatives
+        , NoIntervalAdmissibleSupport
+    };
+
+    [[nodiscard]] constexpr const char* to_string(
+        UnassignedDemandReason reason
+    ) noexcept {
+        switch (reason) {
+            case UnassignedDemandReason::NoChosenAlternatives:
+                return "no_chosen_alternatives";
+            case UnassignedDemandReason::NoIntervalAdmissibleSupport:
+                return "no_interval_admissible_support";
+        }
+        return "unknown";
+    }
+
+    struct UnassignedDemand final {
+        ZoneId                 origin{};
+        ZoneId                 destination{};
+        IntervalId             interval{};
+        double                 passengers{};
+        UnassignedDemandReason reason{ UnassignedDemandReason::NoChosenAlternatives };
+    };
+
     struct DemandSplitResult final {
         std::vector<ConnectionDemandShare> shares{};
+        std::vector<UnassignedDemand>      unassigned{};
     };
 
     struct OdDemandInterval final {

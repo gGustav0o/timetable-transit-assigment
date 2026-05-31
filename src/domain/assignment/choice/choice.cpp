@@ -44,6 +44,59 @@ namespace timetable::domain::assignment {
             OdDayPathChoicePairResult result{};
         };
 
+        CompleteConnectionMetricSummary summarize_day_path_alternative_supports(
+            const DayPathAlternative& alternative
+        ) noexcept {
+            CompleteConnectionMetricSummary summary{
+                  .min_impedance    = alternative.support.representative_metrics.impedance
+                , .min_journey_time =
+                      alternative.support.representative_metrics.journey_time.value()
+                , .min_transfers    = static_cast<double>(
+                      alternative.support.representative_metrics.transfers.get()
+                  )
+                , .empty            = false
+            };
+            for (const auto& support : day_path_split_support_descriptors(alternative)) {
+                summary.min_impedance = std::min(
+                      summary.min_impedance
+                    , support.complete_metrics.impedance
+                );
+                summary.min_journey_time = std::min(
+                      summary.min_journey_time
+                    , support.complete_metrics.journey_time.value()
+                );
+                summary.min_transfers = std::min(
+                      summary.min_transfers
+                    , static_cast<double>(support.complete_metrics.transfers.get())
+                );
+            }
+            return summary;
+        }
+
+        bool day_path_alternative_within_tolerances(
+              const DayPathAlternative&         alternative
+            , const CompleteConnectionMetricSummary& global_summary
+            , const ChoiceTolerances&           tolerances
+        ) noexcept {
+            if (within_complete_connection_tolerances(
+                  alternative.support.representative_metrics
+                , global_summary
+                , tolerances
+            )) {
+                return true;
+            }
+            for (const auto& support : day_path_split_support_descriptors(alternative)) {
+                if (within_complete_connection_tolerances(
+                      support.complete_metrics
+                    , global_summary
+                    , tolerances
+                )) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         CompleteConnectionMetricSummary summarize_day_path_alternatives(
             std::span<const DayPathAlternative> alternatives
         ) noexcept {
@@ -54,17 +107,19 @@ namespace timetable::domain::assignment {
                 , .empty            = alternatives.empty()
             };
             for (const auto& alternative : alternatives) {
+                const auto alternative_summary =
+                    summarize_day_path_alternative_supports(alternative);
                 summary.min_impedance = std::min(
                       summary.min_impedance
-                    , alternative.support.representative_metrics.impedance
+                    , alternative_summary.min_impedance
                 );
                 summary.min_journey_time = std::min(
                       summary.min_journey_time
-                    , alternative.support.representative_metrics.journey_time.value()
+                    , alternative_summary.min_journey_time
                 );
                 summary.min_transfers = std::min(
                       summary.min_transfers
-                    , static_cast<double>(alternative.support.representative_metrics.transfers.get())
+                    , alternative_summary.min_transfers
                 );
             }
             return summary;
@@ -90,8 +145,8 @@ namespace timetable::domain::assignment {
                         alternatives.begin()
                       , alternatives.end()
                       , [&](const DayPathAlternative& alternative) {
-                            return !within_complete_connection_tolerances(
-                                  alternative.support.representative_metrics
+                            return !day_path_alternative_within_tolerances(
+                                  alternative
                                 , summary
                                 , tolerances
                             );
