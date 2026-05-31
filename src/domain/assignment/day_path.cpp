@@ -180,29 +180,6 @@ namespace timetable::domain::assignment {
             return mathfp::kUnit;
         }
 
-        [[nodiscard]] bool split_support_candidate_may_be_retained(
-              const DayPathSplitSupport&       support
-            , const CompleteConnectionMetrics& metrics
-            , const DayPathRetentionConfig&    config
-        ) noexcept {
-            if (!bounded_day_path_retention(config)
-                || !support_limit_reached(support, config)) {
-                return true;
-            }
-            if (support.supports.empty()) {
-                return false;
-            }
-            if (config.limit_policy == DayPathRetentionLimitPolicy::FailOnSaturation) {
-                return true;
-            }
-
-            const auto worst = worst_support_index(support.supports);
-            return better_day_path_representative(
-                  metrics
-                , support.supports[worst].complete_metrics
-            );
-        }
-
         [[nodiscard]] std::vector<CompleteConnectionMetrics> support_metric_set_of(
             const DayPathAlternative& alternative
         ) {
@@ -498,68 +475,6 @@ namespace timetable::domain::assignment {
         const DayPathRetention& retention
     ) noexcept {
         return retention.alternatives_by_signature.size();
-    }
-
-    bool day_path_candidate_may_be_retained(
-          const DayPathRetention&          retention
-        , const DayPathSignature&          signature
-        , const CompleteConnectionMetrics& metrics
-        , const DayPathRetentionConfig&    config
-    ) noexcept {
-        if (!bounded_day_path_retention(config)) {
-            return true;
-        }
-
-        const auto known = retention.alternatives_by_signature.find(signature);
-        if (known != retention.alternatives_by_signature.end()) {
-            return better_day_path_representative(
-                      metrics
-                    , known->second.support.representative_metrics
-                  )
-                || split_support_candidate_may_be_retained(
-                      known->second.support.split_support
-                    , metrics
-                    , config
-                  );
-        }
-
-        if (config.limit_policy == DayPathRetentionLimitPolicy::FailOnSaturation) {
-            return true;
-        }
-
-        for (const auto& [_, alternative] : retention.alternatives_by_signature) {
-            if (complete_connection_dominates(
-                  alternative.support.representative_metrics
-                , metrics
-            )) {
-                return false;
-            }
-        }
-
-        if (!config.max_alternatives_per_od.has_value()
-            || retention.alternatives_by_signature.size()
-                < *config.max_alternatives_per_od) {
-            return true;
-        }
-        if (retention.alternatives_by_signature.empty()) {
-            return true;
-        }
-
-        const auto worst = std::max_element(
-              retention.alternatives_by_signature.begin()
-            , retention.alternatives_by_signature.end()
-            , [](const auto& lhs, const auto& rhs) {
-                  return better_day_path_representative(
-                        lhs.second.support.representative_metrics
-                      , rhs.second.support.representative_metrics
-                  );
-              }
-          );
-        return worst != retention.alternatives_by_signature.end()
-            && better_day_path_representative(
-                  metrics
-                , worst->second.support.representative_metrics
-            );
     }
 
     mathfp::Expected<DayPathRetentionDecision> retain_day_path_alternative(

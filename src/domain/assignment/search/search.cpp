@@ -58,6 +58,21 @@ namespace timetable::domain::assignment {
         using NodeMetricSet         = SearchPruningMetricSet;
         using SearchNodeKey         = SearchPruningStateKey;
 
+        struct PaperConnectionNodeKey final {
+            EndpointKey physical{};
+
+            bool operator==(const PaperConnectionNodeKey&) const = default;
+        };
+
+        struct PaperConnectionNodeKeyHash final {
+            std::size_t operator()(const PaperConnectionNodeKey& key) const noexcept {
+                std::size_t seed = 23u;
+                boost::hash_combine(seed, static_cast<std::uint8_t>(key.physical.kind));
+                boost::hash_combine(seed, key.physical.id);
+                return seed;
+            }
+        };
+
         struct SearchCancellationToken final {
             std::atomic_bool requested{ false };
         };
@@ -536,9 +551,16 @@ namespace timetable::domain::assignment {
             , SearchNodeKeyHash
         >;
 
+        using PaperConnectionNodeMetricMap = boost::unordered_flat_map<
+              PaperConnectionNodeKey
+            , NodeMetricSet
+            , PaperConnectionNodeKeyHash
+        >;
+
         enum class OdDaySearchComputationContract : std::uint8_t {
               IncrementalDayPathRetention
             , StructuralEdgeExpansion
+            , PaperConnectionSegmentTree
         };
 
         [[nodiscard]] constexpr const char* to_log_token(
@@ -549,6 +571,8 @@ namespace timetable::domain::assignment {
                     return "incremental_day_path_retention";
                 case OdDaySearchComputationContract::StructuralEdgeExpansion:
                     return "structural_edge_expansion";
+                case OdDaySearchComputationContract::PaperConnectionSegmentTree:
+                    return "paper_connection_segment_tree";
             }
             return "unknown";
         }
@@ -600,12 +624,12 @@ namespace timetable::domain::assignment {
         };
 
         struct OdDayProductionMemoryLimits final {
-            std::size_t max_branch_slots_per_tree{ 750'000u };
-            std::size_t max_live_branches_per_tree{ 300'000u };
-            std::size_t max_frontier_per_tree{ 300'000u };
-            std::size_t max_od_day_label_states_per_tree{ 500'000u };
-            std::size_t max_retained_day_paths_per_tree{ 65'536u };
-            std::size_t max_approximate_direct_bytes_per_tree{ 512u * 1024u * 1024u };
+            std::optional<std::size_t> max_branch_slots_per_tree{};
+            std::optional<std::size_t> max_live_branches_per_tree{};
+            std::optional<std::size_t> max_frontier_per_tree{};
+            std::optional<std::size_t> max_od_day_label_states_per_tree{};
+            std::optional<std::size_t> max_retained_day_paths_per_tree{};
+            std::optional<std::size_t> max_approximate_direct_bytes_per_tree{};
         };
 
         struct OdDayLabelRetentionConfig final {
@@ -680,8 +704,8 @@ namespace timetable::domain::assignment {
          *
          * Complete-alternative state is projection-local. DemandTasks keep
          * timed OD-interval alternatives. OdDayPairs never retain raw complete
-         * alternatives: every completed support is immediately projected to the
-         * final DayPathRetention of its OD slot. CompletionTargets keep only a
+         * alternatives: every completed relevant connection is projected to
+         * the final DayPathRetention of its OD slot. CompletionTargets keep only a
          * compact timed metric/count projection. Partial-prefix pruning may be
          * projection-local or tree-global depending on SearchPartialRetentionScope.
          */
@@ -696,14 +720,17 @@ namespace timetable::domain::assignment {
         /**
          * @brief Tree-level partial retention.
          *
-         * known_metrics is the legacy/timed state-local pruning memory.
-         * od_day_label_states is the OD-day structural/support dominance table.
+         * paper_connections is the paper-level node-local C_y memory for the
+         * connection segment tree, keyed only by the network node y.
+         * known_metrics and od_day_label_states are kept for legacy timed or
+         * structural diagnostics and projection-local contours.
          * OdDayPathPrefix remains a compact branch-local path identity and is
          * materialized only for finalized OD alternatives.
          */
         struct TreePartialRetention final {
-            NodeMetricMap          known_metrics{};
-            OdDayLabelStateMap     od_day_label_states{};
+            PaperConnectionNodeMetricMap paper_connections{};
+            NodeMetricMap                known_metrics{};
+            OdDayLabelStateMap           od_day_label_states{};
         };
 
         struct SearchSlotResult final {
@@ -2545,6 +2572,14 @@ namespace timetable::domain::assignment {
             );
         }
 
+        PaperConnectionNodeKey paper_connection_node_key(
+            const SearchBranch& branch
+        ) noexcept {
+            return PaperConnectionNodeKey{
+                .physical = branch.trace.current_physical
+            };
+        }
+
         StructuralLabelState structural_label_state(
             const SearchBranch& branch
         ) noexcept {
@@ -2763,6 +2798,20 @@ namespace timetable::domain::assignment {
               NodeMetricMap&                    known_metrics
             , const SearchPruningExecutionPlan& pruning_execution
             , SearchNodeKey                     node
+            , PartialPruningMetrics             metrics
+        ) {
+            auto& known = known_metrics[node];
+            insert_search_pruning_metrics_in_place(
+                  pruning_execution
+                , known
+                , std::move(metrics)
+            );
+        }
+
+        void insert_pruning_metrics(
+              PaperConnectionNodeMetricMap&     known_metrics
+            , const SearchPruningExecutionPlan& pruning_execution
+            , PaperConnectionNodeKey            node
             , PartialPruningMetrics             metrics
         ) {
             auto& known = known_metrics[node];
@@ -3078,61 +3127,6 @@ namespace timetable::domain::assignment {
               const SearchBranch&                       branch
             , ZoneId                                    destination
             , const ResidualReachability&               reachability
-            , const DayPathRetention&                   day_path_retention
-            , const SearchParams&                       params
-            , const SearchCostContext&                  search_cost
-            , const ChoiceConfig&                       choice_config
-            , const CompleteConnectionDominanceConfig&  dominance_config
-        ) {
-            (void)choice_config;
-            if (day_path_retention_empty(day_path_retention)) {
-                return SuffixLowerBoundPruningDecision{ .feasible = true };
-            }
-
-            const auto destination_it = reachability.destinations.find(destination);
-            if (destination_it == reachability.destinations.end()) {
-                return SuffixLowerBoundPruningDecision{ .feasible = true };
-            }
-
-            const auto state = residual_reachability_key(
-                relaxed_suffix_state(branch, destination, params.transfers)
-            );
-            const auto lower_bound_it = destination_it->second.suffix_lower_bounds.find(state);
-            if (lower_bound_it == destination_it->second.suffix_lower_bounds.end()) {
-                return SuffixLowerBoundPruningDecision{ .feasible = true };
-            }
-
-            MATHFP_TRY_LET(
-                  CompletionMetricLowerBound
-                , lower_bound
-                , completion_metric_lower_bound(
-                      branch
-                    , lower_bound_it->second
-                    , search_cost
-                )
-            );
-
-            for (const auto& [signature, path] : day_path_retention.alternatives_by_signature) {
-                (void)signature;
-                if (complete_connection_dominates_completion_lower_bound(
-                      dominance_config
-                    , path.support.representative_metrics
-                    , lower_bound
-                )) {
-                    return SuffixLowerBoundPruningDecision{
-                          .feasible = false
-                        , .rejection_reason = SuffixLowerBoundRejectionReason::ExactDominance
-                    };
-                }
-            }
-
-            return SuffixLowerBoundPruningDecision{ .feasible = true };
-        }
-
-        [[nodiscard]] mathfp::Expected<SuffixLowerBoundPruningDecision> evaluate_suffix_lower_bound_pruning(
-              const SearchBranch&                       branch
-            , ZoneId                                    destination
-            , const ResidualReachability&               reachability
             , const CompactCompleteConnectionRetention& complete_retention
             , const SearchParams&                       params
             , const SearchCostContext&                  search_cost
@@ -3434,21 +3428,44 @@ namespace timetable::domain::assignment {
             return successor.arrival->value() < continuation_arrival->value();
         }
 
+        struct ActiveDestinationMembership final {
+            const ActiveIndexSet*                       active_targets{};
+            std::span<const SearchCompletionTarget>     batch_targets{};
+            const std::unordered_set<std::int64_t>*     direct_destination_ids{};
+        };
+
         bool is_active_batch_destination(
-              EndpointKey                       endpoint
-            , const ActiveIndexSet&             active_targets
-            , std::span<const SearchCompletionTarget> batch_targets
+              EndpointKey                        endpoint
+            , const ActiveDestinationMembership& membership
         ) noexcept {
             if (endpoint.kind != EndpointKind::Zone) {
                 return false;
             }
+            if (membership.direct_destination_ids != nullptr) {
+                return membership.direct_destination_ids->find(endpoint.id)
+                    != membership.direct_destination_ids->end();
+            }
+            if (membership.active_targets == nullptr) {
+                return false;
+            }
+
             bool active = false;
-            active_targets.for_each_index([&](std::size_t target_pos) {
-                if (batch_targets[target_pos].destination.get() == endpoint.id) {
+            membership.active_targets->for_each_index([&](std::size_t target_pos) {
+                if (membership.batch_targets[target_pos].destination.get() == endpoint.id) {
                     active = true;
                 }
             });
             return active;
+        }
+
+        [[nodiscard]] bool can_start_transfer_walk(
+              const SearchBranch&   branch
+            , const TransferLimits& limits
+        ) noexcept {
+            if (!branch.metrics.departure.has_value()) {
+                return true;
+            }
+            return branch.metrics.transfers.get() < limits.max_transfers.get();
         }
 
         struct WalkExtensionTransition final {
@@ -3501,11 +3518,10 @@ namespace timetable::domain::assignment {
         }
 
         std::optional<WalkExtensionTransition> admissible_walk_extension_transition(
-              ZoneId                         origin
-            , const ActiveIndexSet&          active_targets
-            , std::span<const SearchCompletionTarget> batch_targets
-            , const SearchBranch&            branch
-            , const RouteSegment&            route_segment
+              ZoneId                              origin
+            , const ActiveDestinationMembership&  active_destinations
+            , const SearchBranch&                 branch
+            , const RouteSegment&                 route_segment
         ) noexcept {
             const auto from_physical = branch.trace.current_physical;
             const auto next_physical = physical_to_key(route_segment);
@@ -3522,8 +3538,7 @@ namespace timetable::domain::assignment {
                 , next_physical
                 , is_active_batch_destination(
                       next_physical
-                    , active_targets
-                    , batch_targets
+                    , active_destinations
                   )
             );
         }
@@ -3791,8 +3806,7 @@ namespace timetable::domain::assignment {
               const DayLevelSupplySearchGraph& day_graph
             , const PreprocessedNetwork&        network
             , ZoneId                            origin
-            , const ActiveIndexSet&             active_targets
-            , std::span<const SearchCompletionTarget> batch_targets
+            , const ActiveDestinationMembership& active_destinations
             , const SearchBranch&               branch
             , const TransferLimits&             limits
             , const SearchTimeDomain*           first_departure_domain
@@ -3811,8 +3825,7 @@ namespace timetable::domain::assignment {
                             const auto& route_segment = route_segment_at(network, connection.route_segment);
                             if (auto transition = admissible_walk_extension_transition(
                                   origin
-                                , active_targets
-                                , batch_targets
+                                , active_destinations
                                 , branch
                                 , route_segment
                             )) {
@@ -4467,8 +4480,7 @@ namespace timetable::domain::assignment {
               const PreprocessedNetwork& network
             , const DayLevelSupplySearchGraph* day_graph
             , ZoneId                      origin
-            , const ActiveIndexSet&       active_targets
-            , std::span<const SearchCompletionTarget> batch_targets
+            , const ActiveDestinationMembership& active_destinations
             , const SearchBranch&        branch
             , const TransferLimits&      limits
             , const SearchTimeDomain*    first_departure_domain
@@ -4482,8 +4494,7 @@ namespace timetable::domain::assignment {
                       *day_graph
                     , network
                     , origin
-                    , active_targets
-                    , batch_targets
+                    , active_destinations
                     , branch
                     , limits
                     , first_departure_domain
@@ -4494,9 +4505,9 @@ namespace timetable::domain::assignment {
             }
 
             /*
-             * Raw timetable successor enumeration is the preserved legacy
-             * diagnostics contour. Production OD-day batches are validated
-             * before reaching this point and always pass a day-level graph.
+             * Paper-level production contour: successors are enumerated from
+             * the preprocessed connection-segment index. The optional
+             * day-level graph is kept only for structural diagnostics.
              */
             const auto lookup = preprocessing::lookup_from(
                   network.route_index
@@ -4510,8 +4521,7 @@ namespace timetable::domain::assignment {
                     const auto& route_segment = route_segment_at(network, connection.route_segment);
                     if (auto transition = admissible_walk_extension_transition(
                           origin
-                        , active_targets
-                        , batch_targets
+                        , active_destinations
                         , branch
                         , route_segment
                     )) {
@@ -4532,7 +4542,11 @@ namespace timetable::domain::assignment {
 
                 case SearchBranchPhase::AfterTimedRide:
                     visit_walk_connections(lookup.egress_walk_connections);
-                    visit_walk_connections(lookup.transfer_walk_connections);
+                    if (can_start_transfer_walk(branch, limits)) {
+                        visit_walk_connections(lookup.transfer_walk_connections);
+                    } else {
+                        walk_rejection_visitor(lookup.transfer_walk_connections.size());
+                    }
                     break;
 
                 case SearchBranchPhase::BeforeFirstBoarding:
@@ -4985,6 +4999,88 @@ namespace timetable::domain::assignment {
             );
         }
 
+        mathfp::Expected<SearchPruningDecision> retain_paper_connection_tree_node(
+              const SearchBranch&               branch
+            , TreePartialRetention&             retention
+            , const SearchParams&               params
+            , const SearchCostContext&          search_cost
+            , const SearchPruningExecutionPlan& pruning_execution
+            , SearchPruningRuntimeStats&        pruning_stats
+        ) {
+            /*
+             * Paper C_y retention at the current tree node:
+             * - exact relevance: no known c in C_y dominates by DEP/ARR/IMP/NT;
+             * - tolerance: IMP, JT and NT must be within node-local minima;
+             * - transfer count is additionally bounded by MAXNT.
+             */
+            if (!branch.metrics.departure.has_value() || !branch.metrics.current_time.has_value()) {
+                return SearchPruningDecision{
+                      .layer    = SearchPruningLayer::Exact
+                    , .reason   = SearchPruningReason::Accepted
+                    , .accepted = true
+                };
+            }
+
+            ++pruning_stats.evaluated_candidates;
+            MATHFP_TRY_LET(
+                  PartialPruningMetrics
+                , metrics
+                , make_partial_pruning_metrics(branch, search_cost)
+            );
+            const auto node = paper_connection_node_key(branch);
+            auto it = retention.paper_connections.find(node);
+            if (it == retention.paper_connections.end()) {
+                if (stores_search_pruning_metrics(pruning_execution)) {
+                    insert_pruning_metrics(
+                          retention.paper_connections
+                        , pruning_execution
+                        , node
+                        , std::move(metrics)
+                    );
+                    ++pruning_stats.inserted_metrics;
+                } else {
+                    ++pruning_stats.skipped_insertions;
+                }
+                ++pruning_stats.accepted_candidates;
+                return SearchPruningDecision{
+                      .layer    = SearchPruningLayer::Exact
+                    , .reason   = SearchPruningReason::Accepted
+                    , .accepted = true
+                };
+            }
+
+            const auto pruning_decision = evaluate_search_pruning(
+                  pruning_execution
+                , metrics
+                , it->second
+                , params.transfers
+            );
+            if (!pruning_decision.accepted) {
+                switch (pruning_decision.layer) {
+                    case SearchPruningLayer::Exact:
+                        ++pruning_stats.rejected_exact;
+                        break;
+                    case SearchPruningLayer::Approximate:
+                        ++pruning_stats.rejected_approximate;
+                        break;
+                }
+                return pruning_decision;
+            }
+            if (stores_search_pruning_metrics(pruning_execution)) {
+                insert_pruning_metrics(
+                      retention.paper_connections
+                    , pruning_execution
+                    , node
+                    , std::move(metrics)
+                );
+                ++pruning_stats.inserted_metrics;
+            } else {
+                ++pruning_stats.skipped_insertions;
+            }
+            ++pruning_stats.accepted_candidates;
+            return pruning_decision;
+        }
+
         [[nodiscard]] bool same_pruning_metrics(
               const SearchPruningMetrics& lhs
             , const SearchPruningMetrics& rhs
@@ -5291,6 +5387,45 @@ namespace timetable::domain::assignment {
             };
         }
 
+        bool paper_connection_segment_successor_feasible_before_branch(
+              const SearchBranch&         branch
+            , const PreprocessedNetwork&  network
+            , const ConnectionSegment&    successor
+            , const RouteSegment&         successor_route_segment
+            , const SearchTimeDomain*     first_departure_domain
+            , const TransferLimits&       limits
+            , TaskSearchStats&            stats
+        ) noexcept {
+            if (!first_timed_departure_allowed(
+                  branch
+                , successor
+                , first_departure_domain
+                , limits
+            )) {
+                ++stats.rejected_time_domain;
+                return false;
+            }
+            if (!is_branch_extension_feasible(
+                  feasibility_state(branch)
+                , successor
+                , successor_route_segment
+                , limits
+            )) {
+                ++stats.rejected_feasibility;
+                return false;
+            }
+            if (!improves_repeated_stop_reboarding(
+                  branch
+                , network
+                , successor
+                , successor_route_segment
+            )) {
+                ++stats.rejected_reboarding;
+                return false;
+            }
+            return true;
+        }
+
         [[nodiscard]] std::size_t retained_connection_count(
             std::span<const SearchProjectionRetention> retentions
         ) noexcept {
@@ -5320,6 +5455,7 @@ namespace timetable::domain::assignment {
             std::size_t tree_pruning_nodes{};
             std::size_t tree_pruning_buckets{};
             float       tree_pruning_load_factor{};
+            std::size_t tree_pruning_metrics{};
             std::size_t od_day_label_state_nodes{};
             std::size_t od_day_label_state_buckets{};
             float       od_day_label_state_load_factor{};
@@ -5339,8 +5475,13 @@ namespace timetable::domain::assignment {
             , std::span<const SearchProjectionRetention> retentions
             , const SearchPruningRuntimeStats&           pruning_stats
         ) noexcept {
-            const auto pruning_nodes = tree_retention.known_metrics.size();
-            const auto pruning_buckets = tree_retention.known_metrics.bucket_count();
+            const auto pruning_nodes = tree_retention.paper_connections.size();
+            const auto pruning_buckets = tree_retention.paper_connections.bucket_count();
+            std::size_t pruning_metrics = 0u;
+            for (const auto& [node, metric_set] : tree_retention.paper_connections) {
+                (void)node;
+                pruning_metrics += metric_set.metrics.size();
+            }
             const auto od_day_label_state_nodes = tree_retention.od_day_label_states.size();
             const auto od_day_label_state_buckets = tree_retention.od_day_label_states.bucket_count();
             std::size_t od_day_label_representatives = 0u;
@@ -5363,8 +5504,9 @@ namespace timetable::domain::assignment {
                     + sizeof(OdDaySupportPrefixNode)
                   )
                 + projection_state_count * projection_state_size
-                + pruning_nodes * sizeof(NodeMetricMap::value_type)
+                + pruning_nodes * sizeof(PaperConnectionNodeMetricMap::value_type)
                 + pruning_buckets * sizeof(void*)
+                + pruning_metrics * sizeof(SearchPruningMetrics)
                 + od_day_label_state_nodes * sizeof(OdDayLabelStateMap::value_type)
                 + od_day_label_state_buckets * sizeof(void*)
                 + od_day_label_representatives * sizeof(OdDayLabelRepresentative)
@@ -5377,7 +5519,8 @@ namespace timetable::domain::assignment {
                 , .projection_states = projection_state_count
                 , .tree_pruning_nodes = pruning_nodes
                 , .tree_pruning_buckets = pruning_buckets
-                , .tree_pruning_load_factor = tree_retention.known_metrics.load_factor()
+                , .tree_pruning_load_factor = tree_retention.paper_connections.load_factor()
+                , .tree_pruning_metrics = pruning_metrics
                 , .od_day_label_state_nodes = od_day_label_state_nodes
                 , .od_day_label_state_buckets = od_day_label_state_buckets
                 , .od_day_label_state_load_factor = tree_retention.od_day_label_states.load_factor()
@@ -5393,7 +5536,7 @@ namespace timetable::domain::assignment {
             const SearchStorageDiagnostics& diagnostics
         ) {
             return fmt::format(
-                  "search storage: branch_slots={} live_branches={} released_branches={} projection_states={} tree_pruning(nodes/buckets/load/insertions)={}/{}/{:.3f}/{} path_identity=compact_prefix support=compact_prefix od_day_label_states(nodes/buckets/load/reps)={}/{}/{:.3f}/{} retained_complete={} retained_day_paths={} approx_direct_mb={:.2f}"
+                  "search storage: branch_slots={} live_branches={} released_branches={} projection_states={} c_y(nodes/buckets/load/metrics/insertions)={}/{}/{:.3f}/{}/{} path_identity=compact_prefix support=compact_prefix legacy_od_day_label_states(nodes/buckets/load/reps)={}/{}/{:.3f}/{} retained_complete={} post_layer_day_paths={} approx_direct_mb={:.2f}"
                 , diagnostics.branch_slots
                 , diagnostics.live_branches
                 , diagnostics.released_branches
@@ -5401,6 +5544,7 @@ namespace timetable::domain::assignment {
                 , diagnostics.tree_pruning_nodes
                 , diagnostics.tree_pruning_buckets
                 , diagnostics.tree_pruning_load_factor
+                , diagnostics.tree_pruning_metrics
                 , diagnostics.tree_pruning_insertions
                 , diagnostics.od_day_label_state_nodes
                 , diagnostics.od_day_label_state_buckets
@@ -5413,17 +5557,6 @@ namespace timetable::domain::assignment {
             );
         }
 
-        [[nodiscard]] double ratio_or_zero(
-              std::size_t numerator
-            , std::size_t denominator
-        ) noexcept {
-            if (denominator == 0u) {
-                return 0.0;
-            }
-            return static_cast<double>(numerator)
-                 / static_cast<double>(denominator);
-        }
-
         [[nodiscard]] std::string format_od_day_theory_diagnostics(
               const SearchStorageDiagnostics& diagnostics
             , const TaskSearchStats&          stats
@@ -5432,25 +5565,91 @@ namespace timetable::domain::assignment {
             , const OdDayLabelRetentionConfig& retention_config
         ) {
             return fmt::format(
-                  "OD-day theory diagnostics: carrier=compact_parent_link support=bounded_timed_envelope key_last_trip=false dominance=extension_safe_envelope_coverage bounds_before_enqueue=true finalized_alternatives=slot_day_path_retention materialize_support=completion_only live_branches={} frontier={} od_label_states={} label_reps={} reps_per_state={:.3f} live_per_state={:.3f} retained_day_paths={} max_reps_per_state={} accepted_after_bounds={} lower_bound_pruned={} dominance_pruned={}"
+                  "OD-day theory diagnostics: paper=connection_segment_tree carrier=compact_connection_segment_prefix branch_projection_state=none reachability_prefilter=disabled_not_built reachability_masks=disabled c_y=network_node_known_connections c_y_key=physical_y dominance=dep_arr_imp_nt tolerance=node_local tree_bounds=c_y_before_day_path_sink day_path_retention=immediate_day_path_projection suffix_bound=disabled_for_od_day live_branches={} frontier={} projection_states={} c_y_nodes={} c_y_labels={} post_layer_day_paths={} enqueued_after_c_y={} suffix_bound_pruned_legacy={} c_y_pruned={} legacy_od_label_states={} legacy_label_reps={} max_reps_per_state={}"
                 , diagnostics.live_branches
                 , current_frontier + next_frontier
-                , diagnostics.od_day_label_state_nodes
-                , diagnostics.od_day_label_representatives
-                , ratio_or_zero(
-                      diagnostics.od_day_label_representatives
-                    , diagnostics.od_day_label_state_nodes
-                  )
-                , ratio_or_zero(
-                      diagnostics.live_branches
-                    , diagnostics.od_day_label_state_nodes
-                  )
+                , diagnostics.projection_states
+                , diagnostics.tree_pruning_nodes
+                , diagnostics.tree_pruning_metrics
                 , diagnostics.retained_day_paths
-                , retention_config.max_representatives_per_label
                 , stats.accepted_branches
                 , stats.rejected_suffix_lower_bound
                 , stats.rejected_dominance_or_tolerance
+                , diagnostics.od_day_label_state_nodes
+                , diagnostics.od_day_label_representatives
+                , retention_config.max_representatives_per_label
             );
+        }
+
+        [[nodiscard]] std::string format_optional_size_limit(
+            std::optional<std::size_t> limit
+        ) {
+            return limit.has_value()
+                ? std::to_string(*limit)
+                : std::string("unbounded");
+        }
+
+        [[nodiscard]] std::string format_optional_mb_limit(
+            std::optional<std::size_t> limit
+        ) {
+            return limit.has_value()
+                ? fmt::format("{:.2f}", static_cast<double>(*limit) / (1024.0 * 1024.0))
+                : std::string("unbounded");
+        }
+
+        mathfp::Expected<mathfp::Unit> validate_od_day_production_batch_invariants(
+              const SearchBatch&               batch
+            , const TaskSearchStats&           stats
+            , const SearchStorageDiagnostics&  storage
+        ) {
+            if (storage.projection_states != 0u) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("OD-day production batch retained branch projection states")
+                        .ctx("origin", batch.key.origin.get())
+                        .ctx("projection_states", static_cast<std::int64_t>(storage.projection_states))
+                );
+            }
+            if (storage.retained_complete_connections != 0u) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("OD-day production batch retained raw complete alternatives")
+                        .ctx("origin", batch.key.origin.get())
+                        .ctx(
+                              "retained_complete_connections"
+                            , static_cast<std::int64_t>(storage.retained_complete_connections)
+                          )
+                );
+            }
+            if (storage.od_day_label_state_nodes != 0u
+                || storage.od_day_label_representatives != 0u) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("OD-day production batch used legacy OD-day label storage")
+                        .ctx("origin", batch.key.origin.get())
+                        .ctx(
+                              "legacy_label_nodes"
+                            , static_cast<std::int64_t>(storage.od_day_label_state_nodes)
+                          )
+                        .ctx(
+                              "legacy_label_representatives"
+                            , static_cast<std::int64_t>(storage.od_day_label_representatives)
+                          )
+                );
+            }
+            if (stats.rejected_reachability != 0u
+                || stats.rejected_suffix_lower_bound != 0u) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("OD-day production batch used disabled reachability/suffix pruning")
+                        .ctx("origin", batch.key.origin.get())
+                        .ctx(
+                              "reachability_rejections"
+                            , static_cast<std::int64_t>(stats.rejected_reachability)
+                          )
+                        .ctx(
+                              "suffix_lower_bound_rejections"
+                            , static_cast<std::int64_t>(stats.rejected_suffix_lower_bound)
+                          )
+                );
+            }
+            return mathfp::kUnit;
         }
 
         mathfp::Expected<mathfp::Unit> validate_od_day_production_memory_limits(
@@ -5472,45 +5671,51 @@ namespace timetable::domain::assignment {
                     );
                 };
 
-            if (diagnostics.branch_slots > limits.max_branch_slots_per_tree) {
+            if (limits.max_branch_slots_per_tree.has_value()
+                && diagnostics.branch_slots > *limits.max_branch_slots_per_tree) {
                 return fail(
                       "branch_slots"
                     , diagnostics.branch_slots
-                    , limits.max_branch_slots_per_tree
+                    , *limits.max_branch_slots_per_tree
                 );
             }
-            if (diagnostics.live_branches > limits.max_live_branches_per_tree) {
+            if (limits.max_live_branches_per_tree.has_value()
+                && diagnostics.live_branches > *limits.max_live_branches_per_tree) {
                 return fail(
                       "live_branches"
                     , diagnostics.live_branches
-                    , limits.max_live_branches_per_tree
+                    , *limits.max_live_branches_per_tree
                 );
             }
             const auto frontier = current_frontier + next_frontier;
-            if (frontier > limits.max_frontier_per_tree) {
-                return fail("frontier", frontier, limits.max_frontier_per_tree);
+            if (limits.max_frontier_per_tree.has_value()
+                && frontier > *limits.max_frontier_per_tree) {
+                return fail("frontier", frontier, *limits.max_frontier_per_tree);
             }
-            if (diagnostics.od_day_label_state_nodes
-                > limits.max_od_day_label_states_per_tree) {
+            if (limits.max_od_day_label_states_per_tree.has_value()
+                && diagnostics.od_day_label_state_nodes
+                    > *limits.max_od_day_label_states_per_tree) {
                 return fail(
                       "od_day_label_states"
                     , diagnostics.od_day_label_state_nodes
-                    , limits.max_od_day_label_states_per_tree
+                    , *limits.max_od_day_label_states_per_tree
                 );
             }
-            if (diagnostics.retained_day_paths > limits.max_retained_day_paths_per_tree) {
+            if (limits.max_retained_day_paths_per_tree.has_value()
+                && diagnostics.retained_day_paths > *limits.max_retained_day_paths_per_tree) {
                 return fail(
-                      "retained_day_paths"
+                      "post_layer_day_paths"
                     , diagnostics.retained_day_paths
-                    , limits.max_retained_day_paths_per_tree
+                    , *limits.max_retained_day_paths_per_tree
                 );
             }
-            if (diagnostics.approximate_direct_bytes
-                > limits.max_approximate_direct_bytes_per_tree) {
+            if (limits.max_approximate_direct_bytes_per_tree.has_value()
+                && diagnostics.approximate_direct_bytes
+                    > *limits.max_approximate_direct_bytes_per_tree) {
                 return fail(
                       "approximate_direct_bytes"
                     , diagnostics.approximate_direct_bytes
-                    , limits.max_approximate_direct_bytes_per_tree
+                    , *limits.max_approximate_direct_bytes_per_tree
                 );
             }
 
@@ -5669,6 +5874,7 @@ namespace timetable::domain::assignment {
         mathfp::Expected<mathfp::Unit> validate_od_day_production_batch_runtime_contract(
               const SearchBatch&                batch
             , SearchPartialRetentionScope       partial_retention_scope
+            , const SearchPruningExecutionPlan& pruning_execution
             , const DayLevelSupplySearchGraph*  day_level_supply
         ) {
             const auto slots = std::span<const SearchProjectionSlot>{
@@ -5681,6 +5887,12 @@ namespace timetable::domain::assignment {
             );
             if (!has_od_day_slots) {
                 return mathfp::kUnit;
+            }
+            if (day_level_supply != nullptr) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("OD-day production search must use paper connection-segment carrier, not structural day-level graph")
+                        .ctx("origin", batch.key.origin.get())
+                );
             }
             if (!od_day_projection_slots(slots)) {
                 return mathfp::unexpected(
@@ -5698,15 +5910,19 @@ namespace timetable::domain::assignment {
             }
             if (partial_retention_scope != SearchPartialRetentionScope::TreeGlobal) {
                 return mathfp::unexpected(
-                    mathfp::internal_error("OD-day search requires tree-global incremental day-path retention")
+                    mathfp::internal_error("OD-day production search requires tree-global paper C_y retention")
                         .ctx("origin", batch.key.origin.get())
                         .ctx("partial_retention_scope", std::string(to_string(partial_retention_scope)))
                 );
             }
-            if (day_level_supply == nullptr) {
+            if (!pruning_execution.exact_enabled
+                || !pruning_execution.approximate_enabled
+                || !pruning_execution.approximate_policy.has_value()) {
                 return mathfp::unexpected(
-                    mathfp::internal_error("OD-day production search requires day-level supply graph; timed enumeration is diagnostics-only")
+                    mathfp::internal_error("OD-day production search requires paper-level node-local C_y relevance and tolerance retention")
                         .ctx("origin", batch.key.origin.get())
+                        .ctx("exact_enabled", pruning_execution.exact_enabled ? "true" : "false")
+                        .ctx("approximate_enabled", pruning_execution.approximate_enabled ? "true" : "false")
                 );
             }
             if (batch.completion_targets.size() != batch.projection_slots.size()) {
@@ -5715,6 +5931,12 @@ namespace timetable::domain::assignment {
                         .ctx("origin", batch.key.origin.get())
                         .ctx("completion_targets", static_cast<std::int64_t>(batch.completion_targets.size()))
                         .ctx("projection_slots", static_cast<std::int64_t>(batch.projection_slots.size()))
+                );
+            }
+            if (batch.departure_domain == nullptr) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("OD-day production batch must carry the service-day first-boarding domain")
+                        .ctx("origin", batch.key.origin.get())
                 );
             }
             for (std::size_t slot_pos = 0; slot_pos < batch.projection_slots.size(); ++slot_pos) {
@@ -5739,6 +5961,85 @@ namespace timetable::domain::assignment {
                             .ctx("slot_destination", slot.destination.get())
                             .ctx("target_destination", batch.completion_targets[slot_pos].destination.get())
                     );
+                }
+            }
+            return mathfp::kUnit;
+        }
+
+        mathfp::Expected<mathfp::Unit> validate_od_day_production_batches(
+              std::span<const SearchBatch> batches
+            , std::size_t                  expected_tree_count
+            , SearchDestinationScope       destination_scope
+            , std::size_t                  declared_destination_count
+        ) {
+            if (batches.size() != expected_tree_count) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("OD-day production must have exactly one batch/tree per declared origin")
+                        .ctx("batches", static_cast<std::int64_t>(batches.size()))
+                        .ctx("expected_tree_count", static_cast<std::int64_t>(expected_tree_count))
+                );
+            }
+            for (std::size_t batch_pos = 0; batch_pos < batches.size(); ++batch_pos) {
+                const auto& batch = batches[batch_pos];
+                const auto slots = std::span<const SearchProjectionSlot>{
+                      batch.projection_slots.data()
+                    , batch.projection_slots.size()
+                };
+                if (!od_day_projection_slots(slots)) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("OD-day production batch contains non-OD-day projection slots")
+                            .ctx("batch", static_cast<std::int64_t>(batch_pos))
+                            .ctx("origin", batch.key.origin.get())
+                    );
+                }
+                if (batch.key.interval.has_value()) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("OD-day production batch key must not be demand-interval-local")
+                            .ctx("batch", static_cast<std::int64_t>(batch_pos))
+                            .ctx("origin", batch.key.origin.get())
+                            .ctx("interval", batch.key.interval->get())
+                    );
+                }
+                if (batch.completion_targets.size() != batch.projection_slots.size()) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("OD-day production completion targets and OD sinks disagree")
+                            .ctx("batch", static_cast<std::int64_t>(batch_pos))
+                            .ctx("origin", batch.key.origin.get())
+                            .ctx("targets", static_cast<std::int64_t>(batch.completion_targets.size()))
+                            .ctx("projection_slots", static_cast<std::int64_t>(batch.projection_slots.size()))
+                    );
+                }
+                if (destination_scope == SearchDestinationScope::DeclaredZones
+                    && batch.completion_targets.size() != declared_destination_count) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("OD-day production tree must target all declared destination zones")
+                            .ctx("batch", static_cast<std::int64_t>(batch_pos))
+                            .ctx("origin", batch.key.origin.get())
+                            .ctx("targets", static_cast<std::int64_t>(batch.completion_targets.size()))
+                            .ctx("declared_destinations", static_cast<std::int64_t>(declared_destination_count))
+                    );
+                }
+                for (std::size_t slot_pos = 0; slot_pos < batch.projection_slots.size(); ++slot_pos) {
+                    const auto& slot = batch.projection_slots[slot_pos];
+                    if (slot.origin != batch.key.origin) {
+                        return mathfp::unexpected(
+                            mathfp::internal_error("OD-day production slot origin disagrees with tree origin")
+                                .ctx("batch", static_cast<std::int64_t>(batch_pos))
+                                .ctx("slot", static_cast<std::int64_t>(slot_pos))
+                                .ctx("tree_origin", batch.key.origin.get())
+                                .ctx("slot_origin", slot.origin.get())
+                        );
+                    }
+                    if (!slot.completion_target.has_value()
+                        || slot.completion_target->get() != static_cast<std::int64_t>(slot_pos)
+                        || batch.completion_targets[slot_pos].destination != slot.destination) {
+                        return mathfp::unexpected(
+                            mathfp::internal_error("OD-day production sink is not aligned with completion target")
+                                .ctx("batch", static_cast<std::int64_t>(batch_pos))
+                                .ctx("origin", batch.key.origin.get())
+                                .ctx("slot", static_cast<std::int64_t>(slot_pos))
+                        );
+                    }
                 }
             }
             return mathfp::kUnit;
@@ -6021,6 +6322,16 @@ namespace timetable::domain::assignment {
             return positions;
         }
 
+        [[nodiscard]] std::map<ZoneId, std::size_t> projection_slot_position_by_destination(
+            std::span<const SearchProjectionSlot> batch_slots
+        ) {
+            std::map<ZoneId, std::size_t> positions;
+            for (std::size_t slot_pos = 0; slot_pos < batch_slots.size(); ++slot_pos) {
+                positions[batch_slots[slot_pos].destination] = slot_pos;
+            }
+            return positions;
+        }
+
         [[nodiscard]] mathfp::Expected<IntervalId> complete_retention_interval(
               const SearchProjectionSlot& slot
             , const SearchCostContext&    search_cost
@@ -6038,20 +6349,21 @@ namespace timetable::domain::assignment {
             return IntervalId{ 0 };
         }
 
-        mathfp::Expected<mathfp::Unit> retain_completed_day_path_for_slot(
-              SearchConnection          complete
-            , DayPathSignature          finalized_signature
+        mathfp::Expected<mathfp::Unit> retain_timed_witness_as_day_path(
+              SearchConnection            timed_witness
+            , DayPathSignature            finalized_signature
             , const SearchProjectionSlot& slot
-            , const SearchCostContext&  search_cost
-            , SearchProjectionRetention& retention
+            , const SearchCostContext&    search_cost
+            , SearchProjectionRetention&  retention
         ) {
             /*
              * Production OD-day retention is final at the day-path level: a
-             * completed timed witness is projected immediately into the
-             * structural path bucket and is never retained as a raw complete
-             * alternative of the search slot.
+             * completed timed witness has only statement-local lifetime here.
+             * It is folded into the structural DayPath bucket immediately and
+             * is never retained as a raw complete alternative of the search
+             * slot.
              */
-            const auto materialized_signature = day_path_signature_of(complete);
+            const auto materialized_signature = day_path_signature_of(timed_witness);
             if (finalized_signature != materialized_signature) {
                 return mathfp::unexpected(
                     mathfp::internal_error("incremental OD-day path prefix disagrees with materialized connection")
@@ -6068,12 +6380,59 @@ namespace timetable::domain::assignment {
             MATHFP_TRY(retain_day_path_alternative(
                   retention.day_paths
                 , std::move(finalized_signature)
-                , std::move(complete)
+                , std::move(timed_witness)
                 , search_cost
                 , interval
                 , DayPathRetentionConfig{}
             ));
             return mathfp::kUnit;
+        }
+
+        mathfp::Expected<mathfp::Unit> retain_od_day_completed_branch_as_day_path(
+              const SearchBranch&        branch
+            , const BranchArena&         branches
+            , const PreprocessedNetwork& network
+            , const SearchParams&        params
+            , const SearchCostContext&   search_cost
+            , const SearchProjectionSlot& slot
+            , SearchProjectionRetention& retention
+            , TaskSearchStats&           stats
+        ) {
+            if (!complete_branch_can_finish(
+                  branch
+                , network
+                , params.transfers
+                , slot.destination
+            )) {
+                return mathfp::kUnit;
+            }
+
+            ++stats.completed_connections;
+            auto finalized_signature = make_day_path_signature_from_tree_label(
+                  materialize_day_path_prefix(branch.od_day_carrier.path_identity)
+                , slot.destination
+            );
+            MATHFP_TRY_LET(
+                  std::optional<SearchConnection>
+                , timed_witness
+                , complete_connection(
+                      branches
+                    , branch
+                    , network
+                    , params.transfers
+                    , slot.destination
+                  )
+            );
+            if (!timed_witness.has_value()) {
+                return mathfp::kUnit;
+            }
+            return retain_timed_witness_as_day_path(
+                  std::move(*timed_witness)
+                , std::move(finalized_signature)
+                , slot
+                , search_cost
+                , retention
+            );
         }
 
         mathfp::Expected<mathfp::Unit> retain_complete_for_slot(
@@ -6126,58 +6485,15 @@ namespace timetable::domain::assignment {
             }
 
             if (slot.kind == SearchProjectionSlotKind::OdDayPair) {
-                if (!complete_branch_can_finish(
+                return retain_od_day_completed_branch_as_day_path(
                       branch
+                    , branches
                     , network
-                    , params.transfers
-                    , slot.destination
-                )) {
-                    return mathfp::kUnit;
-                }
-
-                ++stats.completed_connections;
-                auto finalized_signature = make_day_path_signature_from_tree_label(
-                      materialize_day_path_prefix(branch.od_day_carrier.path_identity)
-                    , slot.destination
-                );
-                MATHFP_TRY_LET(
-                      CompleteConnectionMetrics
-                    , metrics
-                    , complete_connection_metrics_from_branch(
-                          branch
-                        , search_cost
-                      )
-                );
-                if (!day_path_candidate_may_be_retained(
-                      retention.day_paths
-                    , finalized_signature
-                    , metrics
-                    , DayPathRetentionConfig{}
-                )) {
-                    ++stats.rejected_complete_dominance;
-                    return mathfp::kUnit;
-                }
-
-                MATHFP_TRY_LET(
-                      std::optional<SearchConnection>
-                    , complete
-                    , complete_connection(
-                          branches
-                        , branch
-                        , network
-                        , params.transfers
-                        , slot.destination
-                      )
-                );
-                if (!complete.has_value()) {
-                    return mathfp::kUnit;
-                }
-                return retain_completed_day_path_for_slot(
-                      std::move(*complete)
-                    , std::move(finalized_signature)
-                    , slot
+                    , params
                     , search_cost
+                    , slot
                     , retention
+                    , stats
                 );
             }
 
@@ -6284,6 +6600,7 @@ namespace timetable::domain::assignment {
             MATHFP_TRY(validate_od_day_production_batch_runtime_contract(
                   batch
                 , partial_retention_scope
+                , pruning_execution
                 , day_level_supply
             ));
 
@@ -6315,10 +6632,20 @@ namespace timetable::domain::assignment {
                 completion_target_projection_slots(batch_task_span);
             const auto od_day_slots =
                 od_day_projection_slots(batch_task_span);
-            const auto* od_day_supply = od_day_slots ? day_level_supply : nullptr;
+            const auto* od_day_supply = od_day_slots ? nullptr : day_level_supply;
             const auto target_positions_by_destination = target_projection_slots
                 ? completion_target_position_by_destination(batch_target_span)
                 : std::map<ZoneId, std::size_t>{};
+            const auto od_day_slot_positions_by_destination = od_day_slots
+                ? projection_slot_position_by_destination(batch_task_span)
+                : std::map<ZoneId, std::size_t>{};
+            std::unordered_set<std::int64_t> od_day_destination_ids;
+            if (od_day_slots) {
+                od_day_destination_ids.reserve(batch.completion_targets.size());
+                for (const auto& target : batch.completion_targets) {
+                    od_day_destination_ids.insert(target.destination.get());
+                }
+            }
             if (target_projection_slots
                 && batch.projection_slots.size() > FixedActiveMask::max_size) {
                 return mathfp::unexpected(
@@ -6353,24 +6680,30 @@ namespace timetable::domain::assignment {
                     }
                 }
             }
-            const auto                        reachability = build_residual_reachability(
-                  reverse_graph
-                , batch_target_span
-                , params.transfers.max_transfers
-                , search_cost.impedance
-                , search_cost.fare_scale
-            );
-            MATHFP_TRY(validate_residual_reachability(
-                  reachability
-                , params.transfers.max_transfers
-            ));
-            ReachabilityMaskCache reachability_cache{
-                  .reachability   = reachability
-                , .targets        = batch_target_span
-                , .slots          = batch_task_span
-                , .max_transfers  = params.transfers.max_transfers
-                , .unified_completion_targets = target_projection_slots
-            };
+            std::optional<ResidualReachability> reachability;
+            std::optional<ReachabilityMaskCache> reachability_cache;
+            if (!od_day_slots) {
+                reachability.emplace(build_residual_reachability(
+                      reverse_graph
+                    , batch_target_span
+                    , params.transfers.max_transfers
+                    , search_cost.impedance
+                    , search_cost.fare_scale
+                ));
+                MATHFP_TRY(validate_residual_reachability(
+                      *reachability
+                    , params.transfers.max_transfers
+                ));
+                reachability_cache.emplace(
+                    ReachabilityMaskCache{
+                          .reachability   = *reachability
+                        , .targets        = batch_target_span
+                        , .slots          = batch_task_span
+                        , .max_transfers  = params.transfers.max_transfers
+                        , .unified_completion_targets = target_projection_slots
+                    }
+                );
+            }
 
             std::deque<std::size_t> current_frontier;
             std::deque<std::size_t> next_frontier;
@@ -6409,27 +6742,27 @@ namespace timetable::domain::assignment {
                     branch_at(branches, root_branch_index)
                 ));
             }
-            const auto root_reachability_key = reachability_mask_key(
-                  branch_at(branches, root_branch_index)
-                , params.transfers
-            );
-            auto root_reachable_targets = filter_target_positions_by_reachability(
-                  ActiveIndexSet::full(batch.completion_targets.size())
-                , reachability_cache.target_entry(root_reachability_key)
-            );
-            auto root_reachability = filter_task_positions_by_reachability(
-                  ActiveIndexSet::full(batch.projection_slots.size())
-                , reachability_cache.slot_entry(root_reachability_key)
-            );
-            record_reachability_rejections(
-                  std::span<const RejectedReachabilityTask>{
-                      root_reachability.unreachable.data()
-                    , root_reachability.unreachable.size()
-                  }
-                , task_stats
-                , stats
-            );
-            if (target_projection_slots) {
+            if (!od_day_slots && target_projection_slots) {
+                const auto root_reachability_key = reachability_mask_key(
+                      branch_at(branches, root_branch_index)
+                    , params.transfers
+                );
+                auto root_reachable_targets = filter_target_positions_by_reachability(
+                      ActiveIndexSet::full(batch.completion_targets.size())
+                    , reachability_cache->target_entry(root_reachability_key)
+                );
+                auto root_reachability = filter_task_positions_by_reachability(
+                      ActiveIndexSet::full(batch.projection_slots.size())
+                    , reachability_cache->slot_entry(root_reachability_key)
+                );
+                record_reachability_rejections(
+                      std::span<const RejectedReachabilityTask>{
+                          root_reachability.unreachable.data()
+                        , root_reachability.unreachable.size()
+                      }
+                    , task_stats
+                    , stats
+                );
                 if (!root_reachability.reachable.equals(root_reachable_targets)) {
                     return mathfp::unexpected(
                         mathfp::internal_error("completion-target root reachability masks disagree")
@@ -6441,7 +6774,27 @@ namespace timetable::domain::assignment {
                         FixedActiveMask::from(root_reachability.reachable)
                     )
                 );
-            } else {
+            } else if (!od_day_slots) {
+                const auto root_reachability_key = reachability_mask_key(
+                      branch_at(branches, root_branch_index)
+                    , params.transfers
+                );
+                auto root_reachable_targets = filter_target_positions_by_reachability(
+                      ActiveIndexSet::full(batch.completion_targets.size())
+                    , reachability_cache->target_entry(root_reachability_key)
+                );
+                auto root_reachability = filter_task_positions_by_reachability(
+                      ActiveIndexSet::full(batch.projection_slots.size())
+                    , reachability_cache->slot_entry(root_reachability_key)
+                );
+                record_reachability_rejections(
+                      std::span<const RejectedReachabilityTask>{
+                          root_reachability.unreachable.data()
+                        , root_reachability.unreachable.size()
+                      }
+                    , task_stats
+                    , stats
+                );
                 demand_projection_states.push_back(
                     std::make_unique<DemandBranchProjectionState>(
                         DemandBranchProjectionState{
@@ -6483,13 +6836,18 @@ namespace timetable::domain::assignment {
             const auto batch_started_at = Clock::now();
             auto last_wall_clock_heartbeat = batch_started_at;
             auto projection_state_count = [&]() noexcept {
+                if (od_day_slots) {
+                    return std::size_t{ 0u };
+                }
                 return target_projection_slots
                     ? completion_projection_states.size() - released_branches
                     : demand_projection_states.size() - released_branches;
             };
-            const auto projection_state_size = target_projection_slots
-                ? sizeof(FixedActiveMask)
-                : sizeof(DemandBranchProjectionState);
+            const auto projection_state_size = od_day_slots
+                ? std::size_t{ 0u }
+                : (target_projection_slots
+                    ? sizeof(FixedActiveMask)
+                    : sizeof(DemandBranchProjectionState));
             const OdDayProductionMemoryLimits od_day_memory_limits{};
             auto make_storage_diagnostics = [&]() noexcept {
                 return search_storage_diagnostics(
@@ -6524,16 +6882,14 @@ namespace timetable::domain::assignment {
             if (od_day_slots) {
                 log(
                     fmt::format(
-                          "OD-day production memory limits: carrier=compact_parent_link branch_slots={} live_branches={} frontier={} od_day_label_states={} label_representatives_per_state={} retained_day_paths={} approx_direct_mb={:.2f}"
-                        , od_day_memory_limits.max_branch_slots_per_tree
-                        , od_day_memory_limits.max_live_branches_per_tree
-                        , od_day_memory_limits.max_frontier_per_tree
-                        , od_day_memory_limits.max_od_day_label_states_per_tree
+                          "OD-day production memory limits: carrier=compact_connection_segment_prefix branch_slots={} live_branches={} frontier={} legacy_od_day_label_states={} label_representatives_per_state={} post_layer_day_paths={} approx_direct_mb={}"
+                        , format_optional_size_limit(od_day_memory_limits.max_branch_slots_per_tree)
+                        , format_optional_size_limit(od_day_memory_limits.max_live_branches_per_tree)
+                        , format_optional_size_limit(od_day_memory_limits.max_frontier_per_tree)
+                        , format_optional_size_limit(od_day_memory_limits.max_od_day_label_states_per_tree)
                         , od_day_label_retention_config.max_representatives_per_label
-                        , od_day_memory_limits.max_retained_day_paths_per_tree
-                        , static_cast<double>(
-                              od_day_memory_limits.max_approximate_direct_bytes_per_tree
-                          ) / (1024.0 * 1024.0)
+                        , format_optional_size_limit(od_day_memory_limits.max_retained_day_paths_per_tree)
+                        , format_optional_mb_limit(od_day_memory_limits.max_approximate_direct_bytes_per_tree)
                     )
                     , LogLevel::Info
                 );
@@ -6585,6 +6941,10 @@ namespace timetable::domain::assignment {
                     emit_storage_diagnostics();
                 };
             auto release_projection_payload = [&](std::size_t released_index) noexcept {
+                if (od_day_slots) {
+                    ++released_branches;
+                    return;
+                }
                 if (target_projection_slots) {
                     if (released_index < completion_projection_states.size()) {
                         completion_projection_states[released_index].reset();
@@ -6596,6 +6956,10 @@ namespace timetable::domain::assignment {
                 }
                 ++released_branches;
             };
+            const auto paper_connection_tree_targets =
+                od_day_slots
+                    ? ActiveIndexSet::full(batch.completion_targets.size())
+                    : ActiveIndexSet{};
 
             while (!current_frontier.empty() || !next_frontier.empty()) {
                 if (search_cancelled(cancellation)) {
@@ -6631,7 +6995,10 @@ namespace timetable::domain::assignment {
                 ActiveIndexSet completion_active;
                 const ActiveIndexSet* active_tasks_ptr{};
                 const ActiveIndexSet* active_targets_ptr{};
-                if (target_projection_slots) {
+                if (od_day_slots) {
+                    active_tasks_ptr   = &paper_connection_tree_targets;
+                    active_targets_ptr = &paper_connection_tree_targets;
+                } else if (target_projection_slots) {
                     completion_active =
                         completion_projection_states[branch_index]->to_active_index_set();
                     active_tasks_ptr   = &completion_active;
@@ -6643,6 +7010,14 @@ namespace timetable::domain::assignment {
                 }
                 const auto& active_tasks   = *active_tasks_ptr;
                 const auto& active_targets = *active_targets_ptr;
+                const auto active_destinations = od_day_slots
+                    ? ActiveDestinationMembership{
+                          .direct_destination_ids = &od_day_destination_ids
+                      }
+                    : ActiveDestinationMembership{
+                          .active_targets = &active_targets
+                        , .batch_targets  = batch_target_span
+                      };
                 ++stats.expanded_branches;
                 if (od_day_slots && ((stats.expanded_branches % 1024u) == 0u)) {
                     MATHFP_TRY(validate_od_day_production_memory_limits(
@@ -6739,8 +7114,7 @@ namespace timetable::domain::assignment {
                       network
                     , od_day_supply
                     , batch.key.origin
-                    , active_targets
-                    , batch_target_span
+                    , active_destinations
                     , branch
                     , params.transfers
                     , first_departure_domain
@@ -6765,31 +7139,21 @@ namespace timetable::domain::assignment {
                         , successor.route_segment
                     );
                     if (!od_day_slots || !successor_ref.support_envelope.has_value()) {
-                        if (!first_timed_departure_allowed(
-                              branch
-                            , successor
-                            , first_departure_domain
-                            , params.transfers
-                        )) {
-                            ++stats.rejected_time_domain;
-                            return;
-                        }
-                        if (!is_branch_extension_feasible(
-                              feasibility_state(branch)
-                            , successor
-                            , successor_route_segment
-                            , params.transfers
-                        )) {
-                            ++stats.rejected_feasibility;
-                            return;
-                        }
-                        if (!improves_repeated_stop_reboarding(
+                        /*
+                         * The paper contour filters temporal/transfer
+                         * feasibility immediately after retrieving a concrete
+                         * connection segment from the time-indexed buckets and
+                         * before materializing a new branch.
+                         */
+                        if (!paper_connection_segment_successor_feasible_before_branch(
                               branch
                             , network
                             , successor
                             , successor_route_segment
+                            , first_departure_domain
+                            , params.transfers
+                            , stats
                         )) {
-                            ++stats.rejected_reboarding;
                             return;
                         }
                     }
@@ -6839,9 +7203,52 @@ namespace timetable::domain::assignment {
                         return;
                     }
 
+                    /*
+                     * Paper-level Branch & Bound: C_y is the set of known
+                     * partial connections to the current tree node y. A new
+                     * c*_y is inserted only if it is node-locally relevant and
+                     * satisfies the search tolerances. Same-line, same-trip
+                     * and loop-related restrictions stay in extension
+                     * feasibility; they are not part of the C_y identity.
+                     */
+                    if (od_day_slots
+                        && partial_retention_scope
+                            == SearchPartialRetentionScope::TreeGlobal
+                        && candidate->metrics.departure.has_value()
+                        && candidate->metrics.current_time.has_value()) {
+                        auto pruning_decision = retain_paper_connection_tree_node(
+                              *candidate
+                            , tree_partial_retention
+                            , params
+                            , search_cost
+                            , pruning_execution
+                            , stats.pruning
+                        );
+                        if (!pruning_decision) {
+                            successor_error = mathfp::unexpected(
+                                std::move(pruning_decision.error())
+                            );
+                            return;
+                        }
+                        if (!pruning_decision->accepted) {
+                            ++stats.rejected_dominance_or_tolerance;
+                            return;
+                        }
+                    }
+
                     std::vector<std::size_t> complete_task_positions;
                     bool completed_target = false;
-                    if (target_projection_slots
+                    if (od_day_slots
+                        && candidate->metrics.departure.has_value()
+                        && candidate->trace.current_physical.kind == EndpointKind::Zone) {
+                        const auto position_it = od_day_slot_positions_by_destination.find(
+                            ZoneId{ candidate->trace.current_physical.id }
+                        );
+                        if (position_it != od_day_slot_positions_by_destination.end()) {
+                            completed_target = true;
+                            complete_task_positions.push_back(position_it->second);
+                        }
+                    } else if (target_projection_slots
                         && candidate->metrics.departure.has_value()
                         && candidate->trace.current_physical.kind == EndpointKind::Zone) {
                         const auto position_it = target_positions_by_destination.find(
@@ -6909,12 +7316,52 @@ namespace timetable::domain::assignment {
                         return;
                     }
 
+                    if (od_day_slots) {
+                        ++stats.accepted_branches;
+                        if (successor_ref.walk_transition.has_value()) {
+                            increment_walk_kind_stats(
+                                  stats.accepted_walk
+                                , successor_ref.walk_transition->kind
+                            );
+                        }
+                        increment_phase_stats(
+                              stats.accepted_branches_by_phase
+                            , candidate->trace.phase
+                        );
+                        const auto same_level =
+                            is_walk_connection(successor) || !branch.metrics.departure.has_value();
+                        const auto candidate_phase = candidate->trace.phase;
+                        const auto candidate_index = append_branch(
+                              branches
+                            , std::move(*candidate)
+                        );
+                        if (same_level) {
+                            current_frontier.push_back(candidate_index);
+                            increment_phase_stats(current_frontier_by_phase, candidate_phase);
+                        } else {
+                            next_frontier.push_back(candidate_index);
+                            increment_phase_stats(next_frontier_by_phase, candidate_phase);
+                        }
+                        if (od_day_memory_limits.max_frontier_per_tree.has_value()
+                            && (current_frontier.size() + next_frontier.size()
+                                > *od_day_memory_limits.max_frontier_per_tree)) {
+                            successor_error = validate_od_day_production_memory_limits(
+                                  make_storage_diagnostics()
+                                , current_frontier.size()
+                                , next_frontier.size()
+                                , od_day_memory_limits
+                                , batch.key.origin
+                            );
+                        }
+                        return;
+                    }
+
                     const auto candidate_reachability_key = reachability_mask_key(
                           *candidate
                         , params.transfers
                     );
                     const auto& target_reachability_entry =
-                        reachability_cache.target_entry(candidate_reachability_key);
+                        reachability_cache->target_entry(candidate_reachability_key);
                     auto next_active_targets = filter_target_positions_by_reachability(
                           active_targets
                         , target_reachability_entry
@@ -6955,7 +7402,7 @@ namespace timetable::domain::assignment {
 
                     const auto reachable_tasks = filter_task_positions_by_reachability(
                           active_tasks
-                        , reachability_cache.slot_entry(candidate_reachability_key)
+                        , reachability_cache->slot_entry(candidate_reachability_key)
                     );
                     record_reachability_rejections(
                           std::span<const RejectedReachabilityTask>{
@@ -6973,38 +7420,32 @@ namespace timetable::domain::assignment {
                         if (!successor_error) {
                             return;
                         }
+                        if (batch.projection_slots[task_pos].kind
+                            == SearchProjectionSlotKind::OdDayPair) {
+                            next_active_tasks.set(task_pos);
+                            return;
+                        }
                         auto lower_bound_decision = target_projection_slots
                             ? evaluate_suffix_lower_bound_pruning(
                                   *candidate
                                 , batch.projection_slots[task_pos].destination
-                                , reachability
+                                , *reachability
                                 , retentions[task_pos].compact_complete_connections
                                 , params
                                 , search_cost
                                 , choice_config
                                 , complete_connection_dominance
                               )
-                            : batch.projection_slots[task_pos].kind == SearchProjectionSlotKind::OdDayPair
-                                ? evaluate_suffix_lower_bound_pruning(
-                                      *candidate
-                                    , batch.projection_slots[task_pos].destination
-                                    , reachability
-                                    , retentions[task_pos].day_paths
-                                    , params
-                                    , search_cost
-                                    , choice_config
-                                    , complete_connection_dominance
-                                  )
-                                : evaluate_suffix_lower_bound_pruning(
-                                      *candidate
-                                    , batch.projection_slots[task_pos].destination
-                                    , reachability
-                                    , retentions[task_pos].complete_connections
-                                    , params
-                                    , search_cost
-                                    , choice_config
-                                    , complete_connection_dominance
-                                  );
+                            : evaluate_suffix_lower_bound_pruning(
+                                  *candidate
+                                , batch.projection_slots[task_pos].destination
+                                , *reachability
+                                , retentions[task_pos].complete_connections
+                                , params
+                                , search_cost
+                                , choice_config
+                                , complete_connection_dominance
+                              );
                         if (!lower_bound_decision) {
                             successor_error = mathfp::unexpected(
                                 std::move(lower_bound_decision.error())
@@ -7061,37 +7502,6 @@ namespace timetable::domain::assignment {
                         return;
                     }
 
-                    /*
-                     * OD-day label representatives are production frontier
-                     * carriers. They are retained only after reachability and
-                     * suffix lower bounds leave at least one live OD slot, so
-                     * bound-rejected candidates do not pollute the tree label
-                     * table.
-                     */
-                    if (od_day_slots
-                        && partial_retention_scope
-                            == SearchPartialRetentionScope::TreeGlobal) {
-                        auto pruning_decision = retain_od_day_label_branch(
-                              *candidate
-                            , tree_partial_retention
-                            , params
-                            , search_cost
-                            , pruning_execution
-                            , od_day_label_retention_config
-                            , stats.pruning
-                        );
-                        if (!pruning_decision) {
-                            successor_error = mathfp::unexpected(
-                                std::move(pruning_decision.error())
-                            );
-                            return;
-                        }
-                        if (!pruning_decision->accepted) {
-                            ++stats.rejected_dominance_or_tolerance;
-                            return;
-                        }
-                    }
-
                     ++stats.accepted_branches;
                     if (successor_ref.walk_transition.has_value()) {
                         increment_walk_kind_stats(
@@ -7134,8 +7544,9 @@ namespace timetable::domain::assignment {
                         increment_phase_stats(next_frontier_by_phase, candidate_phase);
                     }
                     if (od_day_slots
+                        && od_day_memory_limits.max_frontier_per_tree.has_value()
                         && (current_frontier.size() + next_frontier.size()
-                            > od_day_memory_limits.max_frontier_per_tree)) {
+                            > *od_day_memory_limits.max_frontier_per_tree)) {
                         successor_error = validate_od_day_production_memory_limits(
                               make_storage_diagnostics()
                             , current_frontier.size()
@@ -7365,6 +7776,13 @@ namespace timetable::domain::assignment {
                 , LogLevel::Info
             );
             emit_storage_diagnostics();
+            if (od_day_slots) {
+                MATHFP_TRY(validate_od_day_production_batch_invariants(
+                      batch
+                    , stats
+                    , make_storage_diagnostics()
+                ));
+            }
 
             return slot_results;
         }
@@ -8662,6 +9080,18 @@ namespace timetable::domain::assignment {
             )
             , LogLevel::Info
         );
+        log(
+            fmt::format(
+                  "timed/task contour: status=diagnostic_only formulation={} diagnostic_mode={} carrier=raw_timed_branch_trace result_projection={} demand_intervals_in_search={} od_day_production_separate=yes"
+                , to_string(execution.config.formulation)
+                , execution.config.diagnostic_mode ? "true" : "false"
+                , to_string(execution.config.result_projection)
+                , execution_mode == SearchExecutionMode::IntervalLocal
+                    ? "interval_local"
+                    : "origin_period_domain"
+            )
+            , LogLevel::Info
+        );
 
         if (tasks.empty()) {
             status("search: no positive-demand search tasks available");
@@ -9224,7 +9654,7 @@ namespace timetable::domain::assignment {
                 : std::string("unbounded");
         log(
             fmt::format(
-                  "OD-day projection contract: partial_retention_scope={} tree_label=structural_label_state support=bounded_timed_envelope dominance_key=structural_plus_support_key_without_concrete_trip dominance=extension_safe_envelope_coverage production_carrier=compact_parent_link path_identity=compact_prefix supply_graph=production_identity_edges frontier=structural_label_frontier label_representatives_per_state={} bounds=before_enqueue complete_retention=day_path_od_pair_slot od_retention=before_connection_materialization od_alternative_retention=production_slots_only signature=route_stop_line_pattern day_path_retention_policy={} max_alternatives_per_od={} max_supports_per_path={} computation_contract={}"
+                  "OD-day projection contract: paper=connection_tree partial_retention_scope={} tree_label=network_node_c_y c_y_key=physical_y support=connection_segment_witness dominance=dep_arr_imp_nt tolerance=node_local production_carrier=compact_connection_segment_prefix path_identity=compact_prefix supply_graph=preprocessed_connection_segment_index frontier=connection_tree_level_queues label_representatives_per_state={} tree_bounds=c_y_before_day_path_sink suffix_bound=disabled_for_od_day completed_connection_projection=immediate_day_path_sink od_alternative_retention=production_slots_only signature=route_stop_line_pattern day_path_retention_policy={} max_alternatives_per_od={} max_supports_per_path={} computation_contract={}"
                 , to_string(execution.config.partial_retention_scope)
                 , od_day_label_retention_config.max_representatives_per_label
                 , day_path_retention_limit_policy_name(
@@ -9232,7 +9662,7 @@ namespace timetable::domain::assignment {
                   )
                 , day_path_alternative_limit
                 , day_path_support_limit
-                , to_log_token(OdDaySearchComputationContract::StructuralEdgeExpansion)
+                , to_log_token(OdDaySearchComputationContract::PaperConnectionSegmentTree)
             )
             , LogLevel::Info
         );
@@ -9287,10 +9717,13 @@ namespace timetable::domain::assignment {
             , tasks
         ));
 
-        const auto residual_reverse_graph = build_residual_reverse_graph(
-              network.route_segments
-            , network.connection_segments
-        );
+        /*
+         * The paper OD-day production contour does not use suffix reachability
+         * masks as a branch filter. Keep an empty graph only to satisfy the
+         * shared batch-search signature; timed/diagnostic contours still build
+         * and use residual reachability in their own entry points.
+         */
+        const ResidualReverseGraph residual_reverse_graph{};
         const auto batch_execution_diagnostics = summarize_search_batches(batches);
         const auto expected_tree_count = expected_search_tree_count(
               execution.config.origin_scope
@@ -9314,9 +9747,17 @@ namespace timetable::domain::assignment {
                     .ctx("declared_zone_request_count", static_cast<std::int64_t>(execution.declared_zones.size()))
             );
         }
+        MATHFP_TRY(validate_od_day_production_batches(
+              batches
+            , expected_tree_count
+            , execution.config.destination_scope
+            , execution.config.destination_scope == SearchDestinationScope::DeclaredZones
+                ? execution.declared_zones.size()
+                : batch_execution_diagnostics.max_completion_targets_per_tree
+        ));
         log(
             fmt::format(
-                  "OD-day computational profile: contour=production_day_path production_carrier=compact_parent_link supply_graph=production_identity_edges frontier=structural_label_frontier successor_generation=structural_day_edges support_generation=bounded_timed_support_envelope tree_label_scope=structural_label_state dominance_key=structural_plus_support_key_without_concrete_trip dominance=extension_safe_envelope_coverage path_identity=compact_prefix od_signature=route_stop_line_pattern timed_contour=diagnostics_only trees={} destinations={} time_horizon=service_day result=day_path_support_sets split_interval_admissibility=support_set split_load=lazy_support_envelope primary_load=elementary_segment_loads max_parallel_batches={}"
+                  "OD-day computational profile: contour=paper_branch_and_bound production_carrier=compact_connection_segment_prefix branch_projection_state=none reachability_prefilter=disabled_not_built reachability_masks=disabled supply_graph=preprocessed_connection_segment_index frontier=connection_tree_level_queues successor_generation=time_indexed_connection_segments tree_label_scope=network_node_c_y c_y_key=physical_y dominance=dep_arr_imp_nt tolerance=node_local path_identity=compact_prefix od_signature=route_stop_line_pattern structural_day_contour=diagnostics_only trees={} destinations={} time_horizon=service_day result=post_layer_day_path_support_sets split_interval_admissibility=support_set split_load=lazy_support_envelope primary_load=elementary_segment_loads max_parallel_batches={}"
                 , tree_jobs.size()
                 , execution.config.destination_scope == SearchDestinationScope::DeclaredZones
                     ? execution.declared_zones.size()
@@ -9325,33 +9766,22 @@ namespace timetable::domain::assignment {
             )
             , LogLevel::Info
         );
-        status("OD-day search: building day-level supply graph");
-        const auto day_level_supply = build_day_level_supply_search_graph(network);
-        MATHFP_TRY(validate_production_day_level_supply_graph(day_level_supply));
-        const auto supply_profile = summarize_day_level_supply_search_profile(day_level_supply);
         log(
             fmt::format(
-                  "OD-day day-level supply graph: identity=production_day_path nodes={} edges={} access_walk_buckets={} transfer_walk_buckets={} egress_walk_buckets={} ride_buckets={} walk_edges(access/transfer/egress)={}/{}/{} walk_support_labels(access/transfer/egress)={}/{}/{} ride_edges={} ride_support_labels={}"
-                , day_level_supply.graph.nodes.size()
-                , day_level_supply.graph.edges.size()
-                , day_level_supply.access_walks_by_from.size()
-                , day_level_supply.transfer_walks_by_from.size()
-                , day_level_supply.egress_walks_by_from.size()
-                , day_level_supply.rides_by_from.size()
-                , supply_profile.access_walk_edges
-                , supply_profile.transfer_walk_edges
-                , supply_profile.egress_walk_edges
-                , supply_profile.access_walk_labels
-                , supply_profile.transfer_walk_labels
-                , supply_profile.egress_walk_labels
-                , supply_profile.ride_edges
-                , supply_profile.ride_support_labels
+                  "OD-day paper connection segment tree: connection_segments={} route_segments={} timed_buckets={} boarding_stop_buckets={} access_walks={} transfer_walks={} egress_walks={}"
+                , network.connection_segments.size()
+                , network.route_segments.size()
+                , network.connection_index.timed_buckets.size()
+                , network.connection_index.boarding_stop_buckets.size()
+                , network.connection_index.access_walk_order.size()
+                , network.connection_index.transfer_walk_order.size()
+                , network.connection_index.egress_walk_order.size()
             )
             , LogLevel::Info
         );
         log(
             fmt::format(
-                  "OD-day search diagnostics: trees={} expected_trees={} tree_count_delta={} batches={} targets={} projection_slots={} partial_retention_scope={} phase_invariant_validation={} result_sink=origin"
+                  "OD-day search diagnostics: paper_clauses=successor_then_c_y_then_sink c_y_scope=node_local destination_in_expansion=no demand_intervals_in_search=no raw_complete_retention=no trees={} expected_trees={} tree_count_delta={} batches={} targets={} projection_slots={} partial_retention_scope={} phase_invariant_validation={} result_sink=origin"
                 , tree_jobs.size()
                 , expected_tree_count
                 , signed_count_delta(tree_jobs.size(), expected_tree_count)
@@ -9442,7 +9872,7 @@ namespace timetable::domain::assignment {
                                       , diagnostics
                                       , i
                                       , batches.size()
-                                      , &day_level_supply
+                                      , nullptr
                                       , od_day_label_retention_config
                                       , &cancellation
                                   );

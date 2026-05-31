@@ -52,27 +52,27 @@ namespace timetable::domain::assignment {
     };
 
     enum class OdDayPathTimedSupportPolicy : std::uint8_t {
-        SupportSetWithRepresentative
+        ConnectionSegmentWitness
     };
 
     enum class OdDayPathSuccessorExpansionPolicy : std::uint8_t {
-        StructuralSupplyEdges
+        ConnectionSegmentSuccessors
     };
 
     enum class OdDayPathSupplyGraphPolicy : std::uint8_t {
-        ProductionIdentityEdges
+        PreprocessedConnectionSegmentIndex
     };
 
     enum class OdDayPathProductionCarrierPolicy : std::uint8_t {
-        ParentlessBranchPayload
+        CompactConnectionSegmentPrefix
     };
 
     enum class OdDayPathFrontierPolicy : std::uint8_t {
-        StructuralLabelFrontier
+        ConnectionTreeLevelQueues
     };
 
     enum class OdDayPathTreeLabelPolicy : std::uint8_t {
-        SeparateFromOdAlternatives
+        NodeLocalKnownConnections
     };
 
     enum class OdDayPathAlternativeRetentionPolicy : std::uint8_t {
@@ -86,13 +86,13 @@ namespace timetable::domain::assignment {
     /**
      * @brief Day-level path feasibility semantics.
      *
-     * A structural OD-day path is feasible iff its structural leg sequence has
-     * at least one chronologically feasible chain of concrete timetable support
-     * labels. The public alternative remains day-level; the concrete labels are
-     * search witnesses and representative/metric support, not OD alternatives.
+     * Production search follows the paper's connection-tree semantics:
+     * connection segments are concatenated only when temporal suitability,
+     * node-local relevance and node-local tolerances hold. DayPath is a result
+     * projection over completed relevant connections, not the tree carrier.
      */
     enum class OdDayPathFeasibilitySemantics : std::uint8_t {
-        ExistsTimedSupportLabelPath
+        TimetableTemporalSuitability
     };
 
     struct OdDayPathSearchContract final {
@@ -102,22 +102,22 @@ namespace timetable::domain::assignment {
             OdDayPathDemandIntervalPolicy::AssignmentOnly
         };
         OdDayPathTimedSupportPolicy   timed_support_policy{
-            OdDayPathTimedSupportPolicy::SupportSetWithRepresentative
+            OdDayPathTimedSupportPolicy::ConnectionSegmentWitness
         };
         OdDayPathSuccessorExpansionPolicy successor_expansion_policy{
-            OdDayPathSuccessorExpansionPolicy::StructuralSupplyEdges
+            OdDayPathSuccessorExpansionPolicy::ConnectionSegmentSuccessors
         };
         OdDayPathSupplyGraphPolicy supply_graph_policy{
-            OdDayPathSupplyGraphPolicy::ProductionIdentityEdges
+            OdDayPathSupplyGraphPolicy::PreprocessedConnectionSegmentIndex
         };
         OdDayPathProductionCarrierPolicy production_carrier_policy{
-            OdDayPathProductionCarrierPolicy::ParentlessBranchPayload
+            OdDayPathProductionCarrierPolicy::CompactConnectionSegmentPrefix
         };
         OdDayPathFrontierPolicy frontier_policy{
-            OdDayPathFrontierPolicy::StructuralLabelFrontier
+            OdDayPathFrontierPolicy::ConnectionTreeLevelQueues
         };
         OdDayPathTreeLabelPolicy tree_label_policy{
-            OdDayPathTreeLabelPolicy::SeparateFromOdAlternatives
+            OdDayPathTreeLabelPolicy::NodeLocalKnownConnections
         };
         OdDayPathAlternativeRetentionPolicy alternative_retention_policy{
             OdDayPathAlternativeRetentionPolicy::ProductionOdPairSlotsOnly
@@ -126,7 +126,7 @@ namespace timetable::domain::assignment {
             OdDayPathSignaturePolicy::RouteStopLinePattern
         };
         OdDayPathFeasibilitySemantics feasibility_semantics{
-            OdDayPathFeasibilitySemantics::ExistsTimedSupportLabelPath
+            OdDayPathFeasibilitySemantics::TimetableTemporalSuitability
         };
         std::size_t                   declared_origin_count{};
     };
@@ -138,23 +138,23 @@ namespace timetable::domain::assignment {
               .horizon                = OdDayPathSearchHorizon::ServiceDay
             , .tree_contract          = OdDayPathTreeContract::OneTreePerDeclaredOrigin
             , .demand_interval_policy = OdDayPathDemandIntervalPolicy::AssignmentOnly
-            , .timed_support_policy   = OdDayPathTimedSupportPolicy::SupportSetWithRepresentative
+            , .timed_support_policy   = OdDayPathTimedSupportPolicy::ConnectionSegmentWitness
             , .successor_expansion_policy =
-                OdDayPathSuccessorExpansionPolicy::StructuralSupplyEdges
+                OdDayPathSuccessorExpansionPolicy::ConnectionSegmentSuccessors
             , .supply_graph_policy =
-                OdDayPathSupplyGraphPolicy::ProductionIdentityEdges
+                OdDayPathSupplyGraphPolicy::PreprocessedConnectionSegmentIndex
             , .production_carrier_policy =
-                OdDayPathProductionCarrierPolicy::ParentlessBranchPayload
+                OdDayPathProductionCarrierPolicy::CompactConnectionSegmentPrefix
             , .frontier_policy =
-                OdDayPathFrontierPolicy::StructuralLabelFrontier
+                OdDayPathFrontierPolicy::ConnectionTreeLevelQueues
             , .tree_label_policy =
-                OdDayPathTreeLabelPolicy::SeparateFromOdAlternatives
+                OdDayPathTreeLabelPolicy::NodeLocalKnownConnections
             , .alternative_retention_policy =
                 OdDayPathAlternativeRetentionPolicy::ProductionOdPairSlotsOnly
             , .signature_policy =
                 OdDayPathSignaturePolicy::RouteStopLinePattern
             , .feasibility_semantics   =
-                OdDayPathFeasibilitySemantics::ExistsTimedSupportLabelPath
+                OdDayPathFeasibilitySemantics::TimetableTemporalSuitability
             , .declared_origin_count  = declared_origin_count
         };
     }
@@ -165,23 +165,23 @@ namespace timetable::domain::assignment {
         return contract.horizon == OdDayPathSearchHorizon::ServiceDay
             && contract.tree_contract == OdDayPathTreeContract::OneTreePerDeclaredOrigin
             && contract.demand_interval_policy == OdDayPathDemandIntervalPolicy::AssignmentOnly
-            && contract.timed_support_policy == OdDayPathTimedSupportPolicy::SupportSetWithRepresentative
+            && contract.timed_support_policy == OdDayPathTimedSupportPolicy::ConnectionSegmentWitness
             && contract.successor_expansion_policy
-                == OdDayPathSuccessorExpansionPolicy::StructuralSupplyEdges
+                == OdDayPathSuccessorExpansionPolicy::ConnectionSegmentSuccessors
             && contract.supply_graph_policy
-                == OdDayPathSupplyGraphPolicy::ProductionIdentityEdges
+                == OdDayPathSupplyGraphPolicy::PreprocessedConnectionSegmentIndex
             && contract.production_carrier_policy
-                == OdDayPathProductionCarrierPolicy::ParentlessBranchPayload
+                == OdDayPathProductionCarrierPolicy::CompactConnectionSegmentPrefix
             && contract.frontier_policy
-                == OdDayPathFrontierPolicy::StructuralLabelFrontier
+                == OdDayPathFrontierPolicy::ConnectionTreeLevelQueues
             && contract.tree_label_policy
-                == OdDayPathTreeLabelPolicy::SeparateFromOdAlternatives
+                == OdDayPathTreeLabelPolicy::NodeLocalKnownConnections
             && contract.alternative_retention_policy
                 == OdDayPathAlternativeRetentionPolicy::ProductionOdPairSlotsOnly
             && contract.signature_policy
                 == OdDayPathSignaturePolicy::RouteStopLinePattern
             && contract.feasibility_semantics
-                == OdDayPathFeasibilitySemantics::ExistsTimedSupportLabelPath
+                == OdDayPathFeasibilitySemantics::TimetableTemporalSuitability
             && contract.declared_origin_count > 0u;
     }
 

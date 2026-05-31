@@ -243,6 +243,13 @@ namespace timetable::domain::assignment {
             return candidate.transfers <= limits.max_transfers;
         }
 
+        /*
+         * Paper node-local tolerance constraints for C_y:
+         * IMP(c*y) <= b1 * min IMP(C_y) + b2,
+         * JT (c*y) <= d1 * min JT (C_y) + d2,
+         * NT (c*y) <= e1 * min NT (C_y) + e2,
+         * NT (c*y) <= MAXNT.
+         */
         return
                candidate.transfers <= limits.max_transfers
             && candidate.impedance
