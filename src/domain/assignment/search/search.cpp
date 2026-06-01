@@ -291,10 +291,17 @@ namespace timetable::domain::assignment {
             OdDaySupportPrefix   support_prefix{};
         };
 
+        struct PaperConnectionLabelId final {
+            std::size_t value{};
+
+            bool operator==(const PaperConnectionLabelId&) const = default;
+        };
+
         struct SearchBranch final {
             SearchPartialTrace      trace{};
             SearchPartialMetrics    metrics{};
             OdDayProductionCarrier  od_day_carrier{};
+            std::optional<PaperConnectionLabelId> paper_connection_label{};
         };
 
         struct BranchSlot final {
@@ -531,6 +538,13 @@ namespace timetable::domain::assignment {
             WalkKindStats generated_walk{};
             WalkKindStats accepted_walk{};
             std::size_t rejected_consecutive_walk{};
+            std::size_t stale_frontier_skipped{};
+            std::size_t c_y_removed_dominated{};
+            std::size_t c_y_removed_stale{};
+            std::size_t post_layer_day_path_candidates{};
+            std::size_t post_layer_day_path_inserted{};
+            std::size_t post_layer_day_path_representative_replaced{};
+            std::size_t post_layer_day_path_supports{};
             BranchPhaseStats accepted_branches_by_phase{};
             std::size_t rejected_time_domain{};
             std::size_t rejected_feasibility{};
@@ -583,8 +597,52 @@ namespace timetable::domain::assignment {
          */
         struct PaperNodeConnectionSet final {
             SearchPruningMetricVector metrics{};
+            std::vector<PaperConnectionLabelId> labels{};
             SearchPruningSummary      summary{};
         };
+
+        struct PaperConnectionLabelRegistry final {
+            std::vector<bool> active{};
+            std::vector<std::optional<PaperConnectionLabelId>> parent{};
+        };
+
+        [[nodiscard]] PaperConnectionLabelId allocate_paper_connection_label(
+              PaperConnectionLabelRegistry&          registry
+            , std::optional<PaperConnectionLabelId>  parent
+        ) {
+            const auto id = PaperConnectionLabelId{ .value = registry.active.size() };
+            registry.active.push_back(true);
+            registry.parent.push_back(parent);
+            return id;
+        }
+
+        void deactivate_paper_connection_label(
+              PaperConnectionLabelRegistry& registry
+            , PaperConnectionLabelId        label
+        ) noexcept {
+            if (label.value < registry.active.size()) {
+                registry.active[label.value] = false;
+            }
+        }
+
+        [[nodiscard]] bool paper_connection_label_active(
+              const PaperConnectionLabelRegistry& registry
+            , std::optional<PaperConnectionLabelId> label
+        ) noexcept {
+            if (!label.has_value()) {
+                return true;
+            }
+            auto cursor = label;
+            while (cursor.has_value()) {
+                if (cursor->value >= registry.active.size()
+                    || cursor->value >= registry.parent.size()
+                    || !registry.active[cursor->value]) {
+                    return false;
+                }
+                cursor = registry.parent[cursor->value];
+            }
+            return true;
+        }
 
         using PaperConnectionNodeMetricMap = boost::unordered_flat_map<
               PaperConnectionNodeKey
@@ -2845,6 +2903,89 @@ namespace timetable::domain::assignment {
             };
         }
 
+        [[nodiscard]] std::size_t remove_inactive_paper_node_connection_metrics(
+              PaperNodeConnectionSet&             set
+            , const PaperConnectionLabelRegistry& registry
+        ) {
+            auto write = std::size_t{ 0u };
+            for (std::size_t read = 0u; read < set.metrics.size(); ++read) {
+                if (read >= set.labels.size()) {
+                    continue;
+                }
+                if (!paper_connection_label_active(
+                      registry
+                    , std::optional<PaperConnectionLabelId>{ set.labels[read] }
+                )) {
+                    continue;
+                }
+                if (write != read) {
+                    set.metrics[write] = set.metrics[read];
+                    set.labels[write] = set.labels[read];
+                }
+                ++write;
+            }
+            const auto removed = set.metrics.size() - write;
+            set.metrics.resize(write);
+            set.labels.resize(write);
+            if (removed != 0u) {
+                set.summary = summarize_pruning_metrics(paper_metric_span(set));
+            }
+            return removed;
+        }
+
+        [[nodiscard]] std::size_t remove_inactive_paper_connection_metrics(
+              PaperConnectionNodeMetricMap&       retention
+            , const PaperConnectionLabelRegistry& registry
+        ) {
+            auto removed = std::size_t{ 0u };
+            for (auto it = retention.begin(); it != retention.end();) {
+                removed += remove_inactive_paper_node_connection_metrics(
+                      it->second
+                    , registry
+                );
+                if (it->second.metrics.empty()) {
+                    it = retention.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+            return removed;
+        }
+
+        [[nodiscard]] mathfp::Expected<mathfp::Unit> validate_paper_connection_label_sync(
+              const PaperConnectionNodeMetricMap&   retention
+            , const PaperConnectionLabelRegistry&   registry
+            , ZoneId                                origin
+        ) {
+            for (const auto& [node, set] : retention) {
+                if (set.metrics.size() != set.labels.size()) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("paper C_y metric/label cardinality mismatch")
+                            .ctx("origin", origin.get())
+                            .ctx("node_kind", static_cast<std::int64_t>(node.physical.kind))
+                            .ctx("node_id", node.physical.id)
+                            .ctx("metrics", static_cast<std::int64_t>(set.metrics.size()))
+                            .ctx("labels", static_cast<std::int64_t>(set.labels.size()))
+                    );
+                }
+                for (const auto label : set.labels) {
+                    if (!paper_connection_label_active(
+                          registry
+                        , std::optional<PaperConnectionLabelId>{ label }
+                    )) {
+                        return mathfp::unexpected(
+                            mathfp::internal_error("paper C_y retained inactive frontier label")
+                                .ctx("origin", origin.get())
+                                .ctx("node_kind", static_cast<std::int64_t>(node.physical.kind))
+                                .ctx("node_id", node.physical.id)
+                                .ctx("label", static_cast<std::int64_t>(label.value))
+                        );
+                    }
+                }
+            }
+            return mathfp::kUnit;
+        }
+
         void update_paper_node_summary_with_metrics(
               SearchPruningSummary&      summary
             , const SearchPruningMetrics& metrics
@@ -2940,6 +3081,8 @@ namespace timetable::domain::assignment {
               const SearchPruningExecutionPlan& execution
             , PaperNodeConnectionSet&           set
             , SearchPruningMetrics              metrics
+            , PaperConnectionLabelId            label
+            , std::vector<PaperConnectionLabelId>& removed_labels
         ) {
             if (!stores_search_pruning_metrics(execution)) {
                 return;
@@ -2954,17 +3097,22 @@ namespace timetable::domain::assignment {
                 }
             );
 
-            const auto old_size = set.metrics.size();
-            set.metrics.erase(
-                  std::remove_if(
-                      dominated_begin
-                    , set.metrics.end()
-                    , [&](const SearchPruningMetrics& known) {
-                        return dominates_exactly(execution.exact_policy, metrics, known);
-                    }
-                )
-              , set.metrics.end()
+            auto erase_pos = static_cast<std::size_t>(
+                std::distance(set.metrics.begin(), dominated_begin)
             );
+            auto removed_any = false;
+            while (erase_pos < set.metrics.size()) {
+                if (!dominates_exactly(execution.exact_policy, metrics, set.metrics[erase_pos])) {
+                    ++erase_pos;
+                    continue;
+                }
+                if (erase_pos < set.labels.size()) {
+                    removed_labels.push_back(set.labels[erase_pos]);
+                    set.labels.erase(set.labels.begin() + static_cast<std::ptrdiff_t>(erase_pos));
+                }
+                set.metrics.erase(set.metrics.begin() + static_cast<std::ptrdiff_t>(erase_pos));
+                removed_any = true;
+            }
 
             const auto insertion = std::lower_bound(
                   set.metrics.begin()
@@ -2975,8 +3123,15 @@ namespace timetable::domain::assignment {
                 }
             );
             const auto inserted_metrics = metrics;
+            const auto insertion_pos = static_cast<std::size_t>(
+                std::distance(set.metrics.begin(), insertion)
+            );
             set.metrics.insert(insertion, std::move(metrics));
-            if (set.metrics.size() != old_size + 1u) {
+            set.labels.insert(
+                  set.labels.begin() + static_cast<std::ptrdiff_t>(insertion_pos)
+                , label
+            );
+            if (removed_any) {
                 set.summary = summarize_pruning_metrics(paper_metric_span(set));
             } else {
                 update_paper_node_summary_with_metrics(set.summary, inserted_metrics);
@@ -3002,12 +3157,16 @@ namespace timetable::domain::assignment {
             , const SearchPruningExecutionPlan& pruning_execution
             , PaperConnectionNodeKey            node
             , PartialPruningMetrics             metrics
+            , PaperConnectionLabelId            label
+            , std::vector<PaperConnectionLabelId>& removed_labels
         ) {
             auto& known = known_metrics[node];
             insert_paper_node_connection_metrics(
                   pruning_execution
                 , known
                 , std::move(metrics)
+                , label
+                , removed_labels
             );
         }
 
@@ -4750,13 +4909,23 @@ namespace timetable::domain::assignment {
             return std::optional<SearchBranch>{ std::move(extended) };
         }
 
+        enum class PaperConnectionPrefixKind : std::uint8_t {
+              UntimedAccessPrefix
+            , TimedConnectionPrefix
+        };
+
         struct PaperConnectionCandidateMetrics final {
             PaperConnectionNodeKey node{};
             PartialPruningMetrics  metrics{};
         };
 
-        mathfp::Expected<std::optional<PaperConnectionCandidateMetrics>>
-        make_paper_connection_candidate_metrics_before_branch(
+        struct PaperConnectionPrefixEvaluation final {
+            PaperConnectionPrefixKind kind{ PaperConnectionPrefixKind::UntimedAccessPrefix };
+            std::optional<PaperConnectionCandidateMetrics> timed_candidate{};
+        };
+
+        mathfp::Expected<PaperConnectionPrefixEvaluation>
+        evaluate_paper_connection_prefix_before_branch(
               const BranchArena&         branches
             , const SearchBranch&        branch
             , const PreprocessedNetwork& network
@@ -4774,11 +4943,11 @@ namespace timetable::domain::assignment {
 
             if (is_walk_connection(successor)) {
                 if (!successor_ref.walk_transition.has_value()) {
-                    return std::optional<PaperConnectionCandidateMetrics>{};
+                    return PaperConnectionPrefixEvaluation{};
                 }
                 if (branch_revisits_physical(branches, branch, network, next_physical)) {
                     rejected_cycle = true;
-                    return std::optional<PaperConnectionCandidateMetrics>{};
+                    return PaperConnectionPrefixEvaluation{};
                 }
                 metrics = extend_metrics_with_walk(
                       std::move(metrics)
@@ -4787,14 +4956,14 @@ namespace timetable::domain::assignment {
                 );
             } else {
                 if (!timed_extension_transition(branch.trace.phase).has_value()) {
-                    return std::optional<PaperConnectionCandidateMetrics>{};
+                    return PaperConnectionPrefixEvaluation{};
                 }
                 const auto next_occurrence = occurrence_key(
                     line_topology_of(route_segment)->to
                 );
                 if (branch_revisits_occurrence(branches, branch, network, next_occurrence)) {
                     rejected_cycle = true;
-                    return std::optional<PaperConnectionCandidateMetrics>{};
+                    return PaperConnectionPrefixEvaluation{};
                 }
                 MATHFP_TRY_LET(
                       CapacityExposure
@@ -4814,7 +4983,7 @@ namespace timetable::domain::assignment {
             }
 
             if (!metrics.departure.has_value() || !metrics.current_time.has_value()) {
-                return std::optional<PaperConnectionCandidateMetrics>{};
+                return PaperConnectionPrefixEvaluation{};
             }
 
             MATHFP_TRY_LET(
@@ -4822,8 +4991,9 @@ namespace timetable::domain::assignment {
                 , pruning_metrics
                 , make_partial_pruning_metrics(metrics, search_cost)
             );
-            return std::optional<PaperConnectionCandidateMetrics>{
-                PaperConnectionCandidateMetrics{
+            return PaperConnectionPrefixEvaluation{
+                  .kind = PaperConnectionPrefixKind::TimedConnectionPrefix
+                , .timed_candidate = PaperConnectionCandidateMetrics{
                       .node = PaperConnectionNodeKey{ .physical = next_physical }
                     , .metrics = std::move(pruning_metrics)
                 }
@@ -5377,9 +5547,22 @@ namespace timetable::domain::assignment {
             );
         }
 
-        mathfp::Expected<SearchPruningDecision> retain_paper_connection_tree_node(
+        struct PaperConnectionRetentionDecision final {
+            SearchPruningDecision pruning{};
+            PaperConnectionLabelId label{};
+            std::vector<PaperConnectionLabelId> removed_labels{};
+            std::size_t removed_stale_labels{};
+
+            [[nodiscard]] bool accepted() const noexcept {
+                return pruning.accepted;
+            }
+        };
+
+        mathfp::Expected<PaperConnectionRetentionDecision> retain_paper_connection_tree_node(
               PaperConnectionNodeKey            node
             , PartialPruningMetrics             metrics
+            , PaperConnectionLabelId            label
+            , const PaperConnectionLabelRegistry& label_registry
             , TreePartialRetention&             retention
             , const SearchParams&               params
             , const SearchPruningExecutionPlan& pruning_execution
@@ -5394,22 +5577,62 @@ namespace timetable::domain::assignment {
             ++pruning_stats.evaluated_candidates;
             auto it = retention.paper_connections.find(node);
             if (it == retention.paper_connections.end()) {
+                std::vector<PaperConnectionLabelId> removed_labels;
                 if (stores_search_pruning_metrics(pruning_execution)) {
                     insert_pruning_metrics(
                           retention.paper_connections
                         , pruning_execution
                         , node
                         , std::move(metrics)
+                        , label
+                        , removed_labels
                     );
                     ++pruning_stats.inserted_metrics;
                 } else {
                     ++pruning_stats.skipped_insertions;
                 }
                 ++pruning_stats.accepted_candidates;
-                return SearchPruningDecision{
-                      .layer    = SearchPruningLayer::Exact
-                    , .reason   = SearchPruningReason::Accepted
-                    , .accepted = true
+                return PaperConnectionRetentionDecision{
+                      .pruning = SearchPruningDecision{
+                          .layer    = SearchPruningLayer::Exact
+                        , .reason   = SearchPruningReason::Accepted
+                        , .accepted = true
+                      }
+                    , .label = label
+                    , .removed_labels = std::move(removed_labels)
+                };
+            }
+
+            const auto removed_stale_labels =
+                remove_inactive_paper_node_connection_metrics(
+                      it->second
+                    , label_registry
+                );
+            if (it->second.metrics.empty()) {
+                std::vector<PaperConnectionLabelId> removed_labels;
+                if (stores_search_pruning_metrics(pruning_execution)) {
+                    insert_pruning_metrics(
+                          retention.paper_connections
+                        , pruning_execution
+                        , node
+                        , std::move(metrics)
+                        , label
+                        , removed_labels
+                    );
+                    ++pruning_stats.inserted_metrics;
+                } else {
+                    ++pruning_stats.skipped_insertions;
+                }
+                ++pruning_stats.accepted_candidates;
+                return PaperConnectionRetentionDecision{
+                      .pruning = SearchPruningDecision{
+                          .layer    = SearchPruningLayer::Exact
+                        , .reason   = SearchPruningReason::Accepted
+                        , .accepted = true
+                      }
+                    , .label = label
+                    , .removed_labels = std::move(removed_labels)
+                    , .removed_stale_labels = removed_stale_labels
                 };
             }
 
@@ -5428,52 +5651,39 @@ namespace timetable::domain::assignment {
                         ++pruning_stats.rejected_approximate;
                         break;
                 }
-                return pruning_decision;
+                return PaperConnectionRetentionDecision{
+                      .pruning = pruning_decision
+                    , .label = label
+                    , .removed_stale_labels = removed_stale_labels
+                };
             }
             if (stores_search_pruning_metrics(pruning_execution)) {
+                std::vector<PaperConnectionLabelId> removed_labels;
                 insert_pruning_metrics(
                       retention.paper_connections
                     , pruning_execution
                     , node
                     , std::move(metrics)
+                    , label
+                    , removed_labels
                 );
                 ++pruning_stats.inserted_metrics;
+                pruning_stats.accepted_candidates++;
+                return PaperConnectionRetentionDecision{
+                      .pruning = pruning_decision
+                    , .label = label
+                    , .removed_labels = std::move(removed_labels)
+                    , .removed_stale_labels = removed_stale_labels
+                };
             } else {
                 ++pruning_stats.skipped_insertions;
             }
             ++pruning_stats.accepted_candidates;
-            return pruning_decision;
-        }
-
-        mathfp::Expected<SearchPruningDecision> retain_paper_connection_tree_node(
-              const SearchBranch&               branch
-            , TreePartialRetention&             retention
-            , const SearchParams&               params
-            , const SearchCostContext&          search_cost
-            , const SearchPruningExecutionPlan& pruning_execution
-            , SearchPruningRuntimeStats&        pruning_stats
-        ) {
-            if (!branch.metrics.departure.has_value() || !branch.metrics.current_time.has_value()) {
-                return SearchPruningDecision{
-                      .layer    = SearchPruningLayer::Exact
-                    , .reason   = SearchPruningReason::Accepted
-                    , .accepted = true
-                };
-            }
-
-            MATHFP_TRY_LET(
-                  PartialPruningMetrics
-                , metrics
-                , make_partial_pruning_metrics(branch, search_cost)
-            );
-            return retain_paper_connection_tree_node(
-                  paper_connection_node_key(branch)
-                , std::move(metrics)
-                , retention
-                , params
-                , pruning_execution
-                , pruning_stats
-            );
+            return PaperConnectionRetentionDecision{
+                  .pruning = pruning_decision
+                , .label = label
+                , .removed_stale_labels = removed_stale_labels
+            };
         }
 
         [[nodiscard]] bool same_pruning_metrics(
@@ -5851,6 +6061,7 @@ namespace timetable::domain::assignment {
             std::size_t tree_pruning_buckets{};
             float       tree_pruning_load_factor{};
             std::size_t tree_pruning_metrics{};
+            std::size_t tree_pruning_labels{};
             std::size_t od_day_label_state_nodes{};
             std::size_t od_day_label_state_buckets{};
             float       od_day_label_state_load_factor{};
@@ -5873,9 +6084,11 @@ namespace timetable::domain::assignment {
             const auto pruning_nodes = tree_retention.paper_connections.size();
             const auto pruning_buckets = tree_retention.paper_connections.bucket_count();
             std::size_t pruning_metrics = 0u;
+            std::size_t pruning_labels = 0u;
             for (const auto& [node, metric_set] : tree_retention.paper_connections) {
                 (void)node;
                 pruning_metrics += metric_set.metrics.size();
+                pruning_labels += metric_set.labels.size();
             }
             const auto od_day_label_state_nodes = tree_retention.od_day_label_states.size();
             const auto od_day_label_state_buckets = tree_retention.od_day_label_states.bucket_count();
@@ -5902,6 +6115,7 @@ namespace timetable::domain::assignment {
                 + pruning_nodes * sizeof(PaperConnectionNodeMetricMap::value_type)
                 + pruning_buckets * sizeof(void*)
                 + pruning_metrics * sizeof(SearchPruningMetrics)
+                + pruning_labels * sizeof(PaperConnectionLabelId)
                 + od_day_label_state_nodes * sizeof(OdDayLabelStateMap::value_type)
                 + od_day_label_state_buckets * sizeof(void*)
                 + od_day_label_representatives * sizeof(OdDayLabelRepresentative)
@@ -5916,6 +6130,7 @@ namespace timetable::domain::assignment {
                 , .tree_pruning_buckets = pruning_buckets
                 , .tree_pruning_load_factor = tree_retention.paper_connections.load_factor()
                 , .tree_pruning_metrics = pruning_metrics
+                , .tree_pruning_labels = pruning_labels
                 , .od_day_label_state_nodes = od_day_label_state_nodes
                 , .od_day_label_state_buckets = od_day_label_state_buckets
                 , .od_day_label_state_load_factor = tree_retention.od_day_label_states.load_factor()
@@ -5931,7 +6146,7 @@ namespace timetable::domain::assignment {
             const SearchStorageDiagnostics& diagnostics
         ) {
             return fmt::format(
-                  "search storage: branch_slots={} live_branches={} released_branches={} projection_states={} c_y(nodes/buckets/load/metrics/insertions)={}/{}/{:.3f}/{}/{} path_identity=compact_prefix support=compact_prefix legacy_od_day_label_states(nodes/buckets/load/reps)={}/{}/{:.3f}/{} retained_complete={} post_layer_day_paths={} approx_direct_mb={:.2f}"
+                  "search storage: branch_slots={} live_branches={} released_branches={} projection_states={} c_y(nodes/buckets/load/metrics/labels/insertions)={}/{}/{:.3f}/{}/{}/{} path_identity=compact_prefix support=compact_prefix legacy_od_day_label_states(nodes/buckets/load/reps)={}/{}/{:.3f}/{} retained_complete={} post_layer_day_paths={} approx_direct_mb={:.2f}"
                 , diagnostics.branch_slots
                 , diagnostics.live_branches
                 , diagnostics.released_branches
@@ -5940,6 +6155,7 @@ namespace timetable::domain::assignment {
                 , diagnostics.tree_pruning_buckets
                 , diagnostics.tree_pruning_load_factor
                 , diagnostics.tree_pruning_metrics
+                , diagnostics.tree_pruning_labels
                 , diagnostics.tree_pruning_insertions
                 , diagnostics.od_day_label_state_nodes
                 , diagnostics.od_day_label_state_buckets
@@ -5960,13 +6176,21 @@ namespace timetable::domain::assignment {
             , const OdDayLabelRetentionConfig& retention_config
         ) {
             return fmt::format(
-                  "OD-day theory diagnostics: paper=connection_segment_tree carrier=compact_connection_segment_prefix branch_projection_state=none reachability_prefilter=disabled_not_built reachability_masks=disabled c_y=network_node_known_connections c_y_key=physical_y dominance=dep_arr_imp_nt tolerance=node_local tree_bounds=c_y_before_day_path_sink day_path_retention=immediate_day_path_projection suffix_bound=disabled_for_od_day walk_lookup=lazy_phase_specific live_branches={} frontier={} projection_states={} c_y_nodes={} c_y_labels={} post_layer_day_paths={} enqueued_after_c_y={} suffix_bound_pruned_legacy={} c_y_pruned={} walk_lookup_counts({}) legacy_od_label_states={} legacy_label_reps={} max_reps_per_state={}"
+                  "OD-day theory diagnostics: paper=connection_segment_tree carrier=compact_connection_segment_prefix branch_projection_state=none reachability_prefilter=disabled_not_built reachability_masks=disabled c_y=network_node_known_connections c_y_key=physical_y dominance=dep_arr_imp_nt tolerance=node_local tree_bounds=c_y_before_day_path_sink frontier_sync=label_registry_with_parent_closure day_path_retention=immediate_day_path_projection suffix_bound=disabled_for_od_day walk_lookup=lazy_phase_specific live_branches={} frontier={} projection_states={} c_y_nodes={} c_y_metrics={} c_y_labels={} c_y_removed(dominated/stale)={}/{} stale_frontier_skipped={} post_layer_day_paths={} post_layer(candidates/inserted/replaced/max_supports)={}/{}/{}/{} enqueued_after_c_y={} suffix_bound_pruned_legacy={} c_y_pruned={} walk_lookup_counts({}) legacy_od_label_states={} legacy_label_reps={} max_reps_per_state={}"
                 , diagnostics.live_branches
                 , current_frontier + next_frontier
                 , diagnostics.projection_states
                 , diagnostics.tree_pruning_nodes
                 , diagnostics.tree_pruning_metrics
+                , diagnostics.tree_pruning_labels
+                , stats.c_y_removed_dominated
+                , stats.c_y_removed_stale
+                , stats.stale_frontier_skipped
                 , diagnostics.retained_day_paths
+                , stats.post_layer_day_path_candidates
+                , stats.post_layer_day_path_inserted
+                , stats.post_layer_day_path_representative_replaced
+                , stats.post_layer_day_path_supports
                 , stats.accepted_branches
                 , stats.rejected_suffix_lower_bound
                 , stats.rejected_dominance_or_tolerance
@@ -6015,6 +6239,20 @@ namespace timetable::domain::assignment {
                           )
                 );
             }
+            if (storage.tree_pruning_metrics != storage.tree_pruning_labels) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("OD-day production C_y metrics and frontier labels are not synchronized")
+                        .ctx("origin", batch.key.origin.get())
+                        .ctx(
+                              "c_y_metrics"
+                            , static_cast<std::int64_t>(storage.tree_pruning_metrics)
+                          )
+                        .ctx(
+                              "c_y_labels"
+                            , static_cast<std::int64_t>(storage.tree_pruning_labels)
+                          )
+                );
+            }
             if (storage.od_day_label_state_nodes != 0u
                 || storage.od_day_label_representatives != 0u) {
                 return mathfp::unexpected(
@@ -6027,6 +6265,39 @@ namespace timetable::domain::assignment {
                         .ctx(
                               "legacy_label_representatives"
                             , static_cast<std::int64_t>(storage.od_day_label_representatives)
+                          )
+                );
+            }
+            if (stats.completed_connections != stats.post_layer_day_path_candidates) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("OD-day completed branches were not fully projected to DayPath post-layer")
+                        .ctx("origin", batch.key.origin.get())
+                        .ctx(
+                              "completed_connections"
+                            , static_cast<std::int64_t>(stats.completed_connections)
+                          )
+                        .ctx(
+                              "post_layer_candidates"
+                            , static_cast<std::int64_t>(stats.post_layer_day_path_candidates)
+                          )
+                );
+            }
+            if (stats.post_layer_day_path_inserted > stats.post_layer_day_path_candidates
+                || storage.retained_day_paths > stats.post_layer_day_path_candidates) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("OD-day DayPath post-layer counters are inconsistent")
+                        .ctx("origin", batch.key.origin.get())
+                        .ctx(
+                              "post_layer_candidates"
+                            , static_cast<std::int64_t>(stats.post_layer_day_path_candidates)
+                          )
+                        .ctx(
+                              "post_layer_inserted"
+                            , static_cast<std::int64_t>(stats.post_layer_day_path_inserted)
+                          )
+                        .ctx(
+                              "retained_day_paths"
+                            , static_cast<std::int64_t>(storage.retained_day_paths)
                           )
                 );
             }
@@ -6745,12 +7016,107 @@ namespace timetable::domain::assignment {
             return IntervalId{ 0 };
         }
 
+        [[nodiscard]] mathfp::Expected<mathfp::Unit> validate_od_day_post_layer_retention(
+              const SearchProjectionSlot&       slot
+            , const SearchProjectionRetention&  retention
+        ) {
+            if (slot.kind != SearchProjectionSlotKind::OdDayPair) {
+                return mathfp::kUnit;
+            }
+            if (!retention.complete_connections.alternatives.empty()
+                || !retention.compact_complete_connections.metrics.empty()) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("OD-day post-layer retained raw complete alternatives")
+                        .ctx("origin", slot.origin.get())
+                        .ctx("destination", slot.destination.get())
+                        .ctx(
+                              "raw_complete"
+                            , static_cast<std::int64_t>(
+                                  retention.complete_connections.alternatives.size()
+                              )
+                          )
+                        .ctx(
+                              "compact_complete"
+                            , static_cast<std::int64_t>(
+                                  retention.compact_complete_connections.metrics.size()
+                              )
+                          )
+                );
+            }
+            for (const auto& [signature, alternative] : retention.day_paths.alternatives_by_signature) {
+                if (signature.origin != slot.origin
+                    || signature.destination != slot.destination) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("OD-day post-layer retained path outside projection slot")
+                            .ctx("slot_origin", slot.origin.get())
+                            .ctx("slot_destination", slot.destination.get())
+                            .ctx("path_origin", signature.origin.get())
+                            .ctx("path_destination", signature.destination.get())
+                    );
+                }
+                if (alternative.identity.signature != signature) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("OD-day post-layer path key and alternative identity disagree")
+                            .ctx("origin", slot.origin.get())
+                            .ctx("destination", slot.destination.get())
+                    );
+                }
+            }
+            return mathfp::kUnit;
+        }
+
+        [[nodiscard]] mathfp::Expected<mathfp::Unit> validate_od_day_post_layer_result(
+              const SearchSlotResult& result
+        ) {
+            if (result.slot.kind != SearchProjectionSlotKind::OdDayPair) {
+                return mathfp::kUnit;
+            }
+            if (!result.connections.empty()
+                || result.connection_count != result.day_path_alternatives.size()) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("OD-day production slot result must contain only DayPath alternatives")
+                        .ctx("origin", result.slot.origin.get())
+                        .ctx("destination", result.slot.destination.get())
+                        .ctx("connections", static_cast<std::int64_t>(result.connections.size()))
+                        .ctx(
+                              "day_paths"
+                            , static_cast<std::int64_t>(result.day_path_alternatives.size())
+                          )
+                );
+            }
+            for (std::size_t i = 0; i < result.day_path_alternatives.size(); ++i) {
+                const auto& alternative = result.day_path_alternatives[i];
+                const auto& signature = alternative.identity.signature;
+                if (signature.origin != result.slot.origin
+                    || signature.destination != result.slot.destination) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("OD-day result path outside projection slot")
+                            .ctx("slot_origin", result.slot.origin.get())
+                            .ctx("slot_destination", result.slot.destination.get())
+                            .ctx("path_origin", signature.origin.get())
+                            .ctx("path_destination", signature.destination.get())
+                            .ctx("alternative", static_cast<std::int64_t>(i))
+                    );
+                }
+                if (alternative.support.split_support.supports.empty()) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("OD-day result path has no timed split support")
+                            .ctx("origin", result.slot.origin.get())
+                            .ctx("destination", result.slot.destination.get())
+                            .ctx("alternative", static_cast<std::int64_t>(i))
+                    );
+                }
+            }
+            return mathfp::kUnit;
+        }
+
         mathfp::Expected<mathfp::Unit> retain_timed_witness_as_day_path(
               SearchConnection            timed_witness
             , DayPathSignature            finalized_signature
             , const SearchProjectionSlot& slot
             , const SearchCostContext&    search_cost
             , SearchProjectionRetention&  retention
+            , TaskSearchStats&            stats
         ) {
             /*
              * Production OD-day retention is final at the day-path level: a
@@ -6767,20 +7133,45 @@ namespace timetable::domain::assignment {
                         .ctx("destination", slot.destination.get())
                 );
             }
+            if (finalized_signature.origin != slot.origin
+                || finalized_signature.destination != slot.destination) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("OD-day post-layer path signature does not match projection slot")
+                        .ctx("slot_origin", slot.origin.get())
+                        .ctx("slot_destination", slot.destination.get())
+                        .ctx("path_origin", finalized_signature.origin.get())
+                        .ctx("path_destination", finalized_signature.destination.get())
+                );
+            }
 
             MATHFP_TRY_LET(
                   IntervalId
                 , interval
                 , complete_retention_interval(slot, search_cost)
             );
-            MATHFP_TRY(retain_day_path_alternative(
+            MATHFP_TRY_LET(
+                  DayPathRetentionDecision
+                , decision
+                , retain_day_path_alternative(
                   retention.day_paths
                 , std::move(finalized_signature)
                 , std::move(timed_witness)
                 , search_cost
                 , interval
                 , DayPathRetentionConfig{}
-            ));
+                )
+            );
+            ++stats.post_layer_day_path_candidates;
+            if (decision.inserted_path) {
+                ++stats.post_layer_day_path_inserted;
+            }
+            if (decision.replaced_representative) {
+                ++stats.post_layer_day_path_representative_replaced;
+            }
+            stats.post_layer_day_path_supports = std::max(
+                  stats.post_layer_day_path_supports
+                , decision.timed_connection_count
+            );
             return mathfp::kUnit;
         }
 
@@ -6820,7 +7211,11 @@ namespace timetable::domain::assignment {
                   )
             );
             if (!timed_witness.has_value()) {
-                return mathfp::kUnit;
+                return mathfp::unexpected(
+                    mathfp::internal_error("OD-day completed branch cannot be materialized as timed witness")
+                        .ctx("origin", slot.origin.get())
+                        .ctx("destination", slot.destination.get())
+                );
             }
             return retain_timed_witness_as_day_path(
                   std::move(*timed_witness)
@@ -6828,6 +7223,7 @@ namespace timetable::domain::assignment {
                 , slot
                 , search_cost
                 , retention
+                , stats
             );
         }
 
@@ -7006,6 +7402,7 @@ namespace timetable::domain::assignment {
                 retentions.push_back(SearchProjectionRetention{ .slot = slot });
             }
             TreePartialRetention tree_partial_retention{};
+            PaperConnectionLabelRegistry paper_label_registry{};
 
             TaskSearchStats                   stats;
             std::vector<TaskSearchStats>      task_stats(batch.projection_slots.size());
@@ -7307,6 +7704,7 @@ namespace timetable::domain::assignment {
                               " tasks={:>5} targets={:>5} capacity_iteration={:>4} stage={} branch={} elapsed_ms={}"
                               " expanded={:>8} generated={:>8} accepted={:>8} found={:>8}"
                               " frontier={}/{}"
+                              " frontier_sync(stale_skipped={} c_y_removed_dominated={} c_y_removed_stale={})"
                               " frontier_phase(current={}, next={})"
                               " walk_lookup({}) walk_generated({}) walk_accepted({}) rejected_consecutive_walk={}"
                               " accepted_phase({})"
@@ -7325,6 +7723,9 @@ namespace timetable::domain::assignment {
                             , retained_production_alternative_count()
                             , current_frontier.size()
                             , next_frontier.size()
+                            , stats.stale_frontier_skipped
+                            , stats.c_y_removed_dominated
+                            , stats.c_y_removed_stale
                             , format_branch_phase_stats(current_frontier_by_phase)
                             , format_branch_phase_stats(next_frontier_by_phase)
                             , format_walk_lookup_stats(stats.walk_lookup)
@@ -7388,6 +7789,19 @@ namespace timetable::domain::assignment {
                 current_frontier.pop_front();
                 const auto& branch = branch_at(branches, branch_index);
                 decrement_phase_stats(current_frontier_by_phase, branch.trace.phase);
+                if (od_day_slots
+                    && !paper_connection_label_active(
+                          paper_label_registry
+                        , branch.paper_connection_label
+                    )) {
+                    ++stats.stale_frontier_skipped;
+                    release_branch_if_closed(
+                          branches
+                        , branch_index
+                        , release_projection_payload
+                    );
+                    continue;
+                }
                 emit_wall_clock_heartbeat("branch", branch_index);
                 ActiveIndexSet completion_active;
                 const ActiveIndexSet* active_tasks_ptr{};
@@ -7451,6 +7865,7 @@ namespace timetable::domain::assignment {
                               " lower_bound_pruned={}"
                               " pruning(exact/approx/inserted/skipped)={}/{}/{}/{}"
                               " frontier={}/{}"
+                              " frontier_sync(stale_skipped={} c_y_removed_dominated={} c_y_removed_stale={})"
                               " frontier_phase(current={}, next={})"
                               " walk_lookup({}) walk_generated({}) walk_accepted({}) rejected_consecutive_walk={}"
                               " accepted_phase({})"
@@ -7478,6 +7893,9 @@ namespace timetable::domain::assignment {
                             , stats.pruning.skipped_insertions
                             , current_frontier.size()
                             , next_frontier   .size()
+                            , stats.stale_frontier_skipped
+                            , stats.c_y_removed_dominated
+                            , stats.c_y_removed_stale
                             , format_branch_phase_stats(current_frontier_by_phase)
                             , format_branch_phase_stats(next_frontier_by_phase)
                             , format_walk_lookup_stats(stats.walk_lookup)
@@ -7557,12 +7975,13 @@ namespace timetable::domain::assignment {
                         }
                     }
 
+                    std::optional<PaperConnectionLabelId> accepted_paper_label;
                     if (od_day_slots
                         && partial_retention_scope
                             == SearchPartialRetentionScope::TreeGlobal) {
                         bool rejected_cycle = false;
-                        auto paper_candidate =
-                            make_paper_connection_candidate_metrics_before_branch(
+                        auto paper_prefix =
+                            evaluate_paper_connection_prefix_before_branch(
                                   branches
                                 , branch
                                 , network
@@ -7571,41 +7990,63 @@ namespace timetable::domain::assignment {
                                 , search_cost
                                 , rejected_cycle
                             );
-                        if (!paper_candidate) {
+                        if (!paper_prefix) {
                             successor_error = mathfp::unexpected(
-                                std::move(paper_candidate.error())
+                                std::move(paper_prefix.error())
                             );
                             return;
                         }
-                        if (!paper_candidate->has_value()) {
+                        if (!paper_prefix->timed_candidate.has_value()) {
                             if (rejected_cycle) {
                                 ++stats.rejected_cycles;
+                                return;
                             }
-                            return;
-                        }
-                        if ((*paper_candidate)->metrics.transfers
-                            > params.transfers.max_transfers) {
-                            ++stats.rejected_transfer_limit;
-                            return;
-                        }
+                        } else {
+                            if (paper_prefix->timed_candidate->metrics.transfers
+                                > params.transfers.max_transfers) {
+                                ++stats.rejected_transfer_limit;
+                                return;
+                            }
 
-                        auto pruning_decision = retain_paper_connection_tree_node(
-                              (*paper_candidate)->node
-                            , std::move((*paper_candidate)->metrics)
-                            , tree_partial_retention
-                            , params
-                            , pruning_execution
-                            , stats.pruning
-                        );
-                        if (!pruning_decision) {
-                            successor_error = mathfp::unexpected(
-                                std::move(pruning_decision.error())
+                            auto paper_label = allocate_paper_connection_label(
+                                  paper_label_registry
+                                , branch.paper_connection_label
                             );
-                            return;
-                        }
-                        if (!pruning_decision->accepted) {
-                            ++stats.rejected_dominance_or_tolerance;
-                            return;
+                            auto pruning_decision = retain_paper_connection_tree_node(
+                                  paper_prefix->timed_candidate->node
+                                , std::move(paper_prefix->timed_candidate->metrics)
+                                , paper_label
+                                , paper_label_registry
+                                , tree_partial_retention
+                                , params
+                                , pruning_execution
+                                , stats.pruning
+                            );
+                            if (!pruning_decision) {
+                                successor_error = mathfp::unexpected(
+                                    std::move(pruning_decision.error())
+                                );
+                                return;
+                            }
+                            if (!pruning_decision->accepted()) {
+                                deactivate_paper_connection_label(
+                                      paper_label_registry
+                                    , paper_label
+                                );
+                                ++stats.rejected_dominance_or_tolerance;
+                                return;
+                            }
+                            for (const auto removed_label : pruning_decision->removed_labels) {
+                                deactivate_paper_connection_label(
+                                      paper_label_registry
+                                    , removed_label
+                                );
+                            }
+                            stats.c_y_removed_dominated +=
+                                pruning_decision->removed_labels.size();
+                            stats.c_y_removed_stale +=
+                                pruning_decision->removed_stale_labels;
+                            accepted_paper_label = pruning_decision->label;
                         }
                     }
 
@@ -7638,6 +8079,7 @@ namespace timetable::domain::assignment {
                          * raw timed prefix chains.
                          */
                         candidate->trace.parent_branch = std::nullopt;
+                        candidate->paper_connection_label = accepted_paper_label;
                     }
                     if (diagnostics.validate_phase_invariants) {
                         if (auto invariant_result = validate_search_branch_phase_invariants(*candidate);
@@ -7694,7 +8136,14 @@ namespace timetable::domain::assignment {
                     if (completed_target) {
                         bool retained_complete = false;
                         for (const auto task_pos : complete_task_positions) {
-                            const auto completed_before = task_stats[task_pos].completed_connections;
+                            const auto completed_before =
+                                task_stats[task_pos].completed_connections;
+                            const auto post_layer_candidates_before =
+                                task_stats[task_pos].post_layer_day_path_candidates;
+                            const auto post_layer_inserted_before =
+                                task_stats[task_pos].post_layer_day_path_inserted;
+                            const auto post_layer_replaced_before =
+                                task_stats[task_pos].post_layer_day_path_representative_replaced;
                             auto complete_result = retain_complete_for_slot(
                                   *candidate
                                 , branches
@@ -7716,6 +8165,19 @@ namespace timetable::domain::assignment {
                             }
                             stats.completed_connections +=
                                 task_stats[task_pos].completed_connections - completed_before;
+                            stats.post_layer_day_path_candidates +=
+                                  task_stats[task_pos].post_layer_day_path_candidates
+                                - post_layer_candidates_before;
+                            stats.post_layer_day_path_inserted +=
+                                  task_stats[task_pos].post_layer_day_path_inserted
+                                - post_layer_inserted_before;
+                            stats.post_layer_day_path_representative_replaced +=
+                                  task_stats[task_pos].post_layer_day_path_representative_replaced
+                                - post_layer_replaced_before;
+                            stats.post_layer_day_path_supports = std::max(
+                                  stats.post_layer_day_path_supports
+                                , task_stats[task_pos].post_layer_day_path_supports
+                            );
                             retained_complete =
                                 retained_complete
                                 || task_stats[task_pos].completed_connections > completed_before;
@@ -8002,6 +8464,18 @@ namespace timetable::domain::assignment {
                 MATHFP_TRY(std::move(successor_error));
             }
 
+            if (od_day_slots) {
+                stats.c_y_removed_stale += remove_inactive_paper_connection_metrics(
+                      tree_partial_retention.paper_connections
+                    , paper_label_registry
+                );
+                MATHFP_TRY(validate_paper_connection_label_sync(
+                      tree_partial_retention.paper_connections
+                    , paper_label_registry
+                    , batch.key.origin
+                ));
+            }
+
             std::vector<SearchSlotResult> slot_results;
             slot_results.reserve(batch.projection_slots.size());
             std::size_t batch_final_found = 0;
@@ -8009,6 +8483,7 @@ namespace timetable::domain::assignment {
             for (std::size_t task_pos = 0; task_pos < batch.projection_slots.size(); ++task_pos) {
                 const auto& slot = batch.projection_slots[task_pos];
                 auto& retention   = retentions[task_pos];
+                MATHFP_TRY(validate_od_day_post_layer_retention(slot, retention));
                 const auto before_tolerance = target_projection_slots
                     ? retention.compact_complete_connections.metrics.size()
                     : slot.kind == SearchProjectionSlotKind::OdDayPair
@@ -8025,14 +8500,6 @@ namespace timetable::domain::assignment {
                     );
                 } else {
                     if (slot.kind == SearchProjectionSlotKind::OdDayPair) {
-                        if (!retention.complete_connections.alternatives.empty()
-                            || !retention.compact_complete_connections.metrics.empty()) {
-                            return mathfp::unexpected(
-                                mathfp::internal_error("OD-day slot retained non-path complete alternatives")
-                                    .ctx("origin", slot.origin.get())
-                                    .ctx("destination", slot.destination.get())
-                            );
-                        }
                         /*
                          * Production OD-day search finalizes only OD path
                          * alternatives. Raw completed SearchConnection objects
@@ -8079,22 +8546,7 @@ namespace timetable::domain::assignment {
                         , .day_path_alternatives = std::move(day_path_alternatives)
                     }
                 );
-                if (slot.kind == SearchProjectionSlotKind::OdDayPair) {
-                    const auto& result = slot_results.back();
-                    if (!result.connections.empty()
-                        || result.connection_count != result.day_path_alternatives.size()) {
-                        return mathfp::unexpected(
-                            mathfp::internal_error("OD-day production slot result must contain only DayPath alternatives")
-                                .ctx("origin", slot.origin.get())
-                                .ctx("destination", slot.destination.get())
-                                .ctx("connections", static_cast<std::int64_t>(result.connections.size()))
-                                .ctx(
-                                      "day_paths"
-                                    , static_cast<std::int64_t>(result.day_path_alternatives.size())
-                                  )
-                        );
-                    }
-                }
+                MATHFP_TRY(validate_od_day_post_layer_result(slot_results.back()));
                 MATHFP_TRY(validate_reachability_rejection_stats(task_stats[task_pos]));
                 MATHFP_TRY(validate_suffix_lower_bound_rejection_stats(task_stats[task_pos]));
 
@@ -8148,6 +8600,8 @@ namespace timetable::domain::assignment {
                       " rejected(time_domain/feasibility/reboarding/cycles/limit/reachability/dominance)={}/{}/{}/{}/{}/{}/{}"
                       " reachability_detail(phase/budget/unreachable)={}/{}/{} max_frontier={}/{}"
                       " lower_bound_pruned={} lower_bound_detail(exact/imp/jt/nt)={}/{}/{}/{}"
+                      " frontier_sync(stale_skipped={} c_y_removed_dominated={} c_y_removed_stale={})"
+                      " post_layer(candidates/inserted/replaced/max_supports)={}/{}/{}/{}"
                       " walk_lookup({}) walk_generated({}) walk_accepted({}) rejected_consecutive_walk={}"
                       " accepted_phase({})"
                     , batch_index + 1
@@ -8182,6 +8636,13 @@ namespace timetable::domain::assignment {
                     , stats.suffix_lower_bound_rejections.tolerance_impedance
                     , stats.suffix_lower_bound_rejections.tolerance_journey_time
                     , stats.suffix_lower_bound_rejections.tolerance_transfers
+                    , stats.stale_frontier_skipped
+                    , stats.c_y_removed_dominated
+                    , stats.c_y_removed_stale
+                    , stats.post_layer_day_path_candidates
+                    , stats.post_layer_day_path_inserted
+                    , stats.post_layer_day_path_representative_replaced
+                    , stats.post_layer_day_path_supports
                     , format_walk_lookup_stats(stats.walk_lookup)
                     , format_walk_kind_stats(stats.generated_walk)
                     , format_walk_kind_stats(stats.accepted_walk)
@@ -10232,7 +10693,8 @@ namespace timetable::domain::assignment {
         std::atomic<std::size_t> completed_batches{ 0u };
         std::atomic<std::size_t> cancelled_batches{ 0u };
         std::atomic<std::size_t> pair_count{ 0u };
-        std::atomic<std::size_t> connection_count{ 0u };
+        std::atomic<std::size_t> day_path_alternative_count{ 0u };
+        std::atomic<std::size_t> empty_pair_count{ 0u };
         SearchCancellationToken cancellation;
         std::mutex origin_sink_mutex;
         std::vector<std::future<mathfp::Expected<mathfp::Unit>>> workers;
@@ -10271,7 +10733,7 @@ namespace timetable::domain::assignment {
                                           , batch.completion_targets.size()
                                           , batch.projection_slots.size()
                                           , completed_batches.load(std::memory_order_relaxed)
-                                          , connection_count.load(std::memory_order_relaxed)
+                                          , day_path_alternative_count.load(std::memory_order_relaxed)
                                       )
                                   );
                               }
@@ -10304,13 +10766,25 @@ namespace timetable::domain::assignment {
                                   return mathfp::kUnit;
                               }
                               auto slot_results = std::move(*slot_results_result);
-                              connection_count.fetch_add(
-                                    search_slot_connection_count(slot_results)
-                                  , std::memory_order_relaxed
-                              );
                               auto origin_result = materialize_origin_day_search_result(
                                     batch.key.origin
                                   , std::move(slot_results)
+                              );
+                              auto origin_alternatives = std::size_t{ 0u };
+                              auto origin_empty_pairs = std::size_t{ 0u };
+                              for (const auto& pair_result : origin_result.pair_results) {
+                                  origin_alternatives += pair_result.alternatives.size();
+                                  if (pair_result.alternatives.empty()) {
+                                      ++origin_empty_pairs;
+                                  }
+                              }
+                              day_path_alternative_count.fetch_add(
+                                    origin_alternatives
+                                  , std::memory_order_relaxed
+                              );
+                              empty_pair_count.fetch_add(
+                                    origin_empty_pairs
+                                  , std::memory_order_relaxed
                               );
                               pair_count.fetch_add(
                                     origin_result.pair_results.size()
@@ -10353,11 +10827,13 @@ namespace timetable::domain::assignment {
         MATHFP_TRY(std::move(first_worker_error));
         log(
             fmt::format(
-                  "OD-day by-origin search result: origins = {:>8}  pairs = {:>8}  expected_trees = {:>8}  connections = {:>8}"
+                  "OD-day by-origin search result: carrier=paper_connection_tree result=day_path_post_layer origins={:>8} pairs={:>8} empty_pairs={:>8} expected_trees={:>8} day_path_alternatives={:>8} raw_complete_connections={:>8}"
                 , batches.size()
                 , pair_count.load(std::memory_order_relaxed)
+                , empty_pair_count.load(std::memory_order_relaxed)
                 , expected_tree_count
-                , connection_count.load(std::memory_order_relaxed)
+                , day_path_alternative_count.load(std::memory_order_relaxed)
+                , std::size_t{ 0u }
             )
             , LogLevel::Info
         );
