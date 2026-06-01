@@ -545,6 +545,10 @@ namespace timetable::domain::assignment {
             std::size_t post_layer_day_path_inserted{};
             std::size_t post_layer_day_path_representative_replaced{};
             std::size_t post_layer_day_path_supports{};
+            std::size_t paper_timed_lookup_skipped_phase{};
+            std::size_t paper_timed_lookup_skipped_transfer_budget{};
+            std::size_t paper_timed_successor_rejected_same_trip{};
+            std::size_t paper_timed_successor_rejected_same_line{};
             BranchPhaseStats accepted_branches_by_phase{};
             std::size_t rejected_time_domain{};
             std::size_t rejected_feasibility{};
@@ -5000,6 +5004,198 @@ namespace timetable::domain::assignment {
             };
         }
 
+        struct PaperSuccessorGenerator final {
+            /*
+             * Paper successor contract:
+             * state -> insertable connection segments.
+             *
+             * The generator applies branch phase, temporal lookup windows and
+             * the hard transfer bound before exposing a candidate to C_y. The
+             * later feasibility predicate is intentionally kept as a defensive
+             * invariant for bugs in this lookup layer.
+             */
+            const PreprocessedNetwork&            network;
+            ZoneId                                origin{};
+            const ActiveDestinationMembership&    active_destinations;
+            const SearchBranch&                   branch;
+            const TransferLimits&                 limits;
+            const SearchTimeDomain*               first_departure_domain{};
+            TaskSearchStats*                      stats{};
+
+            [[nodiscard]] bool timed_lookup_allowed() const {
+                if (!timed_extension_transition(branch.trace.phase).has_value()) {
+                    if (stats != nullptr) {
+                        ++stats->paper_timed_lookup_skipped_phase;
+                    }
+                    return false;
+                }
+                if (!branch.metrics.departure.has_value()) {
+                    return true;
+                }
+                if (branch.metrics.transfers >= limits.max_transfers) {
+                    if (stats != nullptr) {
+                        ++stats->paper_timed_lookup_skipped_transfer_budget;
+                    }
+                    return false;
+                }
+                return true;
+            }
+
+            [[nodiscard]] bool timed_successor_insertable_before_visitor(
+                ConnectionSegmentId connection_id
+            ) const {
+                const auto& successor = connection_segment_at(network, connection_id);
+                const auto& route_segment = route_segment_at(
+                      network
+                    , successor.route_segment
+                );
+                if (branch.trace.last_timed_segment != nullptr
+                    && transfer_reuses_same_trip(
+                          *branch.trace.last_timed_segment
+                        , successor
+                    )) {
+                    if (stats != nullptr) {
+                        ++stats->paper_timed_successor_rejected_same_trip;
+                    }
+                    return false;
+                }
+                if (is_same_line_transfer_candidate(
+                      branch
+                    , successor
+                    , route_segment
+                )
+                    && !improves_repeated_stop_reboarding(
+                          branch
+                        , network
+                        , successor
+                        , route_segment
+                    )) {
+                    if (stats != nullptr) {
+                        ++stats->paper_timed_successor_rejected_same_line;
+                    }
+                    return false;
+                }
+                return true;
+            }
+
+            template <typename Visitor>
+            void for_each_walk_successor(
+                  std::span<const ConnectionSegmentId> connections
+                , Visitor&&                            visit
+            ) const {
+                auto&& visitor = visit;
+                for (const auto connection_id : connections) {
+                    const auto& connection = connection_segment_at(network, connection_id);
+                    const auto& route_segment = route_segment_at(
+                          network
+                        , connection.route_segment
+                    );
+                    if (auto transition = admissible_walk_extension_transition(
+                          origin
+                        , active_destinations
+                        , branch
+                        , route_segment
+                    )) {
+                        visitor(
+                            SearchSuccessor{
+                                  .connection      = connection_id
+                                , .walk_transition = *transition
+                            }
+                        );
+                    }
+                }
+            }
+
+            template <typename Visitor>
+            void for_each_timed_ride_successor(
+                Visitor&& visit
+            ) const {
+                if (!timed_lookup_allowed()) {
+                    return;
+                }
+
+                auto&& visitor = visit;
+                auto visit_timed = [&](ConnectionSegmentId connection_id) {
+                    if (!timed_successor_insertable_before_visitor(connection_id)) {
+                        return;
+                    }
+                    visitor(SearchSuccessor{ .connection = connection_id });
+                };
+                for_each_timed_successor(
+                      network
+                    , branch.trace.current_physical
+                    , branch.metrics.current_time
+                    , limits
+                    , first_departure_domain
+                    , visit_timed
+                );
+            }
+
+            template <typename Visitor, typename RejectedWalkVisitor>
+            void for_each(
+                  Visitor&&             visit
+                , RejectedWalkVisitor&& reject_walk
+            ) const {
+                auto&& visitor = visit;
+                auto&& walk_rejection_visitor = reject_walk;
+
+                switch (branch.trace.phase) {
+                    case SearchBranchPhase::AtOrigin:
+                        if (stats != nullptr) {
+                            ++stats->walk_lookup.access;
+                        }
+                        for_each_walk_successor(
+                            access_walk_connections_from(
+                                  network.connection_index
+                                , branch.trace.current_physical
+                            )
+                          , visitor
+                        );
+                        break;
+
+                    case SearchBranchPhase::AfterTimedRide:
+                        if (stats != nullptr) {
+                            ++stats->walk_lookup.egress;
+                        }
+                        for_each_walk_successor(
+                            egress_walk_connections_from(
+                                  network.connection_index
+                                , branch.trace.current_physical
+                            )
+                          , visitor
+                        );
+                        if (can_start_transfer_walk(branch, limits)) {
+                            if (stats != nullptr) {
+                                ++stats->walk_lookup.transfer;
+                            }
+                            for_each_walk_successor(
+                                transfer_walk_connections_from(
+                                      network.connection_index
+                                    , branch.trace.current_physical
+                                )
+                              , visitor
+                            );
+                        } else if (stats != nullptr) {
+                            ++stats->walk_lookup.skipped_by_transfer_budget;
+                        }
+                        break;
+
+                    case SearchBranchPhase::BeforeFirstBoarding:
+                    case SearchBranchPhase::AfterTransferWalk:
+                        if (stats != nullptr) {
+                            ++stats->walk_lookup.skipped_by_phase;
+                        }
+                        break;
+
+                    case SearchBranchPhase::Completed:
+                        break;
+                }
+
+                for_each_timed_ride_successor(visitor);
+                (void)walk_rejection_visitor;
+            }
+        };
+
         template <typename Visitor, typename RejectedWalkVisitor>
         void for_each_successor(
               const PreprocessedNetwork& network
@@ -5030,93 +5226,15 @@ namespace timetable::domain::assignment {
                 return;
             }
 
-            /*
-             * Paper-level production contour: successors are enumerated from
-             * phase-specific preprocessed connection-segment indices. The
-             * optional day-level graph is kept only for structural diagnostics.
-             */
-            auto visit_walk_connections = [&](std::span<const ConnectionSegmentId> connections) {
-                for (const auto connection_id : connections) {
-                    const auto& connection = connection_segment_at(network, connection_id);
-                    const auto& route_segment = route_segment_at(network, connection.route_segment);
-                    if (auto transition = admissible_walk_extension_transition(
-                          origin
-                        , active_destinations
-                        , branch
-                        , route_segment
-                    )) {
-                        visitor(
-                            SearchSuccessor{
-                                  .connection      = connection_id
-                                , .walk_transition = *transition
-                            }
-                        );
-                    }
-                }
-            };
-
-            switch (branch.trace.phase) {
-                case SearchBranchPhase::AtOrigin:
-                    if (stats != nullptr) {
-                        ++stats->walk_lookup.access;
-                    }
-                    visit_walk_connections(
-                        access_walk_connections_from(
-                              network.connection_index
-                            , branch.trace.current_physical
-                        )
-                    );
-                    break;
-
-                case SearchBranchPhase::AfterTimedRide:
-                    if (stats != nullptr) {
-                        ++stats->walk_lookup.egress;
-                    }
-                    visit_walk_connections(
-                        egress_walk_connections_from(
-                              network.connection_index
-                            , branch.trace.current_physical
-                        )
-                    );
-                    if (can_start_transfer_walk(branch, limits)) {
-                        if (stats != nullptr) {
-                            ++stats->walk_lookup.transfer;
-                        }
-                        visit_walk_connections(
-                            transfer_walk_connections_from(
-                                  network.connection_index
-                                , branch.trace.current_physical
-                            )
-                        );
-                    } else {
-                        if (stats != nullptr) {
-                            ++stats->walk_lookup.skipped_by_transfer_budget;
-                        }
-                    }
-                    break;
-
-                case SearchBranchPhase::BeforeFirstBoarding:
-                case SearchBranchPhase::AfterTransferWalk:
-                    if (stats != nullptr) {
-                        ++stats->walk_lookup.skipped_by_phase;
-                    }
-                    break;
-
-                case SearchBranchPhase::Completed:
-                    break;
-            }
-
-            auto visit_timed = [&](ConnectionSegmentId connection_id) {
-                visitor(SearchSuccessor{ .connection = connection_id });
-            };
-            for_each_timed_successor(
-                  network
-                , branch.trace.current_physical
-                , branch.metrics.current_time
-                , limits
-                , first_departure_domain
-                , visit_timed
-            );
+            PaperSuccessorGenerator{
+                  .network                = network
+                , .origin                 = origin
+                , .active_destinations    = active_destinations
+                , .branch                 = branch
+                , .limits                 = limits
+                , .first_departure_domain = first_departure_domain
+                , .stats                  = stats
+            }.for_each(visitor, walk_rejection_visitor);
         }
 
         std::vector<ConnectionSegmentId> connection_segments_of(
@@ -6176,7 +6294,7 @@ namespace timetable::domain::assignment {
             , const OdDayLabelRetentionConfig& retention_config
         ) {
             return fmt::format(
-                  "OD-day theory diagnostics: paper=connection_segment_tree carrier=compact_connection_segment_prefix branch_projection_state=none reachability_prefilter=disabled_not_built reachability_masks=disabled c_y=network_node_known_connections c_y_key=physical_y dominance=dep_arr_imp_nt tolerance=node_local tree_bounds=c_y_before_day_path_sink frontier_sync=label_registry_with_parent_closure day_path_retention=immediate_day_path_projection suffix_bound=disabled_for_od_day walk_lookup=lazy_phase_specific live_branches={} frontier={} projection_states={} c_y_nodes={} c_y_metrics={} c_y_labels={} c_y_removed(dominated/stale)={}/{} stale_frontier_skipped={} post_layer_day_paths={} post_layer(candidates/inserted/replaced/max_supports)={}/{}/{}/{} enqueued_after_c_y={} suffix_bound_pruned_legacy={} c_y_pruned={} walk_lookup_counts({}) legacy_od_label_states={} legacy_label_reps={} max_reps_per_state={}"
+                  "OD-day theory diagnostics: paper=connection_segment_tree carrier=compact_connection_segment_prefix branch_projection_state=none reachability_prefilter=disabled_not_built reachability_masks=disabled c_y=network_node_known_connections c_y_key=physical_y dominance=dep_arr_imp_nt tolerance=node_local tree_bounds=c_y_before_day_path_sink frontier_sync=label_registry_with_parent_closure successor_contract=insertable_connection_segments day_path_retention=immediate_day_path_projection suffix_bound=disabled_for_od_day walk_lookup=lazy_phase_specific live_branches={} frontier={} projection_states={} c_y_nodes={} c_y_metrics={} c_y_labels={} c_y_removed(dominated/stale)={}/{} stale_frontier_skipped={} post_layer_day_paths={} post_layer(candidates/inserted/replaced/max_supports)={}/{}/{}/{} enqueued_after_c_y={} suffix_bound_pruned_legacy={} c_y_pruned={} paper_lookup_pruned(phase/budget/same_trip/same_line)={}/{}/{}/{} late_guard(time_domain/feasibility/reboarding)={}/{}/{} walk_lookup_counts({}) legacy_od_label_states={} legacy_label_reps={} max_reps_per_state={}"
                 , diagnostics.live_branches
                 , current_frontier + next_frontier
                 , diagnostics.projection_states
@@ -6194,6 +6312,13 @@ namespace timetable::domain::assignment {
                 , stats.accepted_branches
                 , stats.rejected_suffix_lower_bound
                 , stats.rejected_dominance_or_tolerance
+                , stats.paper_timed_lookup_skipped_phase
+                , stats.paper_timed_lookup_skipped_transfer_budget
+                , stats.paper_timed_successor_rejected_same_trip
+                , stats.paper_timed_successor_rejected_same_line
+                , stats.rejected_time_domain
+                , stats.rejected_feasibility
+                , stats.rejected_reboarding
                 , format_walk_lookup_stats(stats.walk_lookup)
                 , diagnostics.od_day_label_state_nodes
                 , diagnostics.od_day_label_representatives
@@ -6603,6 +6728,12 @@ namespace timetable::domain::assignment {
             if (batch.departure_domain == nullptr) {
                 return mathfp::unexpected(
                     mathfp::internal_error("OD-day production batch must carry the service-day first-boarding domain")
+                        .ctx("origin", batch.key.origin.get())
+                );
+            }
+            if (batch.departure_domain->windows.empty()) {
+                return mathfp::unexpected(
+                    mathfp::internal_error("OD-day production first-boarding domain must not be empty")
                         .ctx("origin", batch.key.origin.get())
                 );
             }
@@ -7866,6 +7997,8 @@ namespace timetable::domain::assignment {
                               " pruning(exact/approx/inserted/skipped)={}/{}/{}/{}"
                               " frontier={}/{}"
                               " frontier_sync(stale_skipped={} c_y_removed_dominated={} c_y_removed_stale={})"
+                              " paper_lookup_pruned(phase/budget/same_trip/same_line)={}/{}/{}/{}"
+                              " late_guard(time_domain/feasibility/reboarding)={}/{}/{}"
                               " frontier_phase(current={}, next={})"
                               " walk_lookup({}) walk_generated({}) walk_accepted({}) rejected_consecutive_walk={}"
                               " accepted_phase({})"
@@ -7896,6 +8029,13 @@ namespace timetable::domain::assignment {
                             , stats.stale_frontier_skipped
                             , stats.c_y_removed_dominated
                             , stats.c_y_removed_stale
+                            , stats.paper_timed_lookup_skipped_phase
+                            , stats.paper_timed_lookup_skipped_transfer_budget
+                            , stats.paper_timed_successor_rejected_same_trip
+                            , stats.paper_timed_successor_rejected_same_line
+                            , stats.rejected_time_domain
+                            , stats.rejected_feasibility
+                            , stats.rejected_reboarding
                             , format_branch_phase_stats(current_frontier_by_phase)
                             , format_branch_phase_stats(next_frontier_by_phase)
                             , format_walk_lookup_stats(stats.walk_lookup)
@@ -8602,6 +8742,8 @@ namespace timetable::domain::assignment {
                       " lower_bound_pruned={} lower_bound_detail(exact/imp/jt/nt)={}/{}/{}/{}"
                       " frontier_sync(stale_skipped={} c_y_removed_dominated={} c_y_removed_stale={})"
                       " post_layer(candidates/inserted/replaced/max_supports)={}/{}/{}/{}"
+                      " paper_lookup_pruned(phase/budget/same_trip/same_line)={}/{}/{}/{}"
+                      " late_guard(time_domain/feasibility/reboarding)={}/{}/{}"
                       " walk_lookup({}) walk_generated({}) walk_accepted({}) rejected_consecutive_walk={}"
                       " accepted_phase({})"
                     , batch_index + 1
@@ -8643,6 +8785,13 @@ namespace timetable::domain::assignment {
                     , stats.post_layer_day_path_inserted
                     , stats.post_layer_day_path_representative_replaced
                     , stats.post_layer_day_path_supports
+                    , stats.paper_timed_lookup_skipped_phase
+                    , stats.paper_timed_lookup_skipped_transfer_budget
+                    , stats.paper_timed_successor_rejected_same_trip
+                    , stats.paper_timed_successor_rejected_same_line
+                    , stats.rejected_time_domain
+                    , stats.rejected_feasibility
+                    , stats.rejected_reboarding
                     , format_walk_lookup_stats(stats.walk_lookup)
                     , format_walk_kind_stats(stats.generated_walk)
                     , format_walk_kind_stats(stats.accepted_walk)
@@ -10534,7 +10683,7 @@ namespace timetable::domain::assignment {
                 : std::string("unbounded");
         log(
             fmt::format(
-                  "OD-day projection contract: paper=connection_tree partial_retention_scope={} tree_label=network_node_c_y c_y_key=physical_y support=connection_segment_witness dominance=dep_arr_imp_nt tolerance=node_local production_carrier=compact_connection_segment_prefix path_identity=compact_prefix supply_graph=preprocessed_connection_segment_index frontier=connection_tree_level_queues label_representatives_per_state={} tree_bounds=c_y_before_day_path_sink suffix_bound=disabled_for_od_day completed_connection_projection=immediate_day_path_sink od_alternative_retention=production_slots_only signature=route_stop_line_pattern day_path_retention_policy={} max_alternatives_per_od={} max_supports_per_path={} computation_contract={}"
+                  "OD-day projection contract: paper=connection_tree partial_retention_scope={} tree_label=network_node_c_y c_y_key=physical_y support=connection_segment_witness dominance=dep_arr_imp_nt tolerance=node_local production_carrier=compact_connection_segment_prefix path_identity=compact_prefix supply_graph=preprocessed_connection_segment_index frontier=connection_tree_level_queues successor_contract=insertable_connection_segments label_representatives_per_state={} tree_bounds=c_y_before_day_path_sink suffix_bound=disabled_for_od_day completed_connection_projection=immediate_day_path_sink od_alternative_retention=production_slots_only signature=route_stop_line_pattern day_path_retention_policy={} max_alternatives_per_od={} max_supports_per_path={} computation_contract={}"
                 , to_string(execution.config.partial_retention_scope)
                 , od_day_label_retention_config.max_representatives_per_label
                 , day_path_retention_limit_policy_name(
@@ -10637,7 +10786,7 @@ namespace timetable::domain::assignment {
         ));
         log(
             fmt::format(
-                  "OD-day computational profile: contour=paper_branch_and_bound production_carrier=compact_connection_segment_prefix branch_projection_state=none reachability_prefilter=disabled_not_built reachability_masks=disabled supply_graph=preprocessed_connection_segment_index frontier=connection_tree_level_queues successor_generation=time_indexed_connection_segments walk_successor_lookup=lazy_phase_specific walk_indices=access_transfer_egress tree_label_scope=network_node_c_y c_y_key=physical_y dominance=dep_arr_imp_nt tolerance=node_local path_identity=compact_prefix od_signature=route_stop_line_pattern structural_day_contour=diagnostics_only trees={} destinations={} time_horizon=service_day result=post_layer_day_path_support_sets split_interval_admissibility=support_set split_load=lazy_support_envelope primary_load=elementary_segment_loads max_parallel_batches={}"
+                  "OD-day computational profile: contour=paper_branch_and_bound production_carrier=compact_connection_segment_prefix branch_projection_state=none reachability_prefilter=disabled_not_built reachability_masks=disabled supply_graph=preprocessed_connection_segment_index frontier=connection_tree_level_queues successor_generation=paper_insertable_connection_segments walk_successor_lookup=lazy_phase_specific walk_indices=access_transfer_egress tree_label_scope=network_node_c_y c_y_key=physical_y dominance=dep_arr_imp_nt tolerance=node_local path_identity=compact_prefix od_signature=route_stop_line_pattern structural_day_contour=diagnostics_only trees={} destinations={} time_horizon=service_day result=post_layer_day_path_support_sets split_interval_admissibility=support_set split_load=lazy_support_envelope primary_load=elementary_segment_loads max_parallel_batches={}"
                 , tree_jobs.size()
                 , execution.config.destination_scope == SearchDestinationScope::DeclaredZones
                     ? execution.declared_zones.size()

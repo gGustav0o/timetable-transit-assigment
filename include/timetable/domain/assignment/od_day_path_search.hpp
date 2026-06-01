@@ -59,6 +59,18 @@ namespace timetable::domain::assignment {
         ConnectionSegmentSuccessors
     };
 
+    /**
+     * @brief Paper-level successor contract for production OD-day search.
+     *
+     * A successor generator may emit only connection segments that can be
+     * inserted into the connection tree with respect to branch phase, temporal
+     * suitability and the hard transfer bound. Later validation is retained as
+     * a defensive invariant, not as the primary filtering stage.
+     */
+    enum class OdDayPathSuccessorContract : std::uint8_t {
+        InsertableConnectionSegments
+    };
+
     enum class OdDayPathSupplyGraphPolicy : std::uint8_t {
         PreprocessedConnectionSegmentIndex
     };
@@ -107,6 +119,9 @@ namespace timetable::domain::assignment {
         OdDayPathSuccessorExpansionPolicy successor_expansion_policy{
             OdDayPathSuccessorExpansionPolicy::ConnectionSegmentSuccessors
         };
+        OdDayPathSuccessorContract successor_contract{
+            OdDayPathSuccessorContract::InsertableConnectionSegments
+        };
         OdDayPathSupplyGraphPolicy supply_graph_policy{
             OdDayPathSupplyGraphPolicy::PreprocessedConnectionSegmentIndex
         };
@@ -141,6 +156,8 @@ namespace timetable::domain::assignment {
             , .timed_support_policy   = OdDayPathTimedSupportPolicy::ConnectionSegmentWitness
             , .successor_expansion_policy =
                 OdDayPathSuccessorExpansionPolicy::ConnectionSegmentSuccessors
+            , .successor_contract =
+                OdDayPathSuccessorContract::InsertableConnectionSegments
             , .supply_graph_policy =
                 OdDayPathSupplyGraphPolicy::PreprocessedConnectionSegmentIndex
             , .production_carrier_policy =
@@ -168,6 +185,8 @@ namespace timetable::domain::assignment {
             && contract.timed_support_policy == OdDayPathTimedSupportPolicy::ConnectionSegmentWitness
             && contract.successor_expansion_policy
                 == OdDayPathSuccessorExpansionPolicy::ConnectionSegmentSuccessors
+            && contract.successor_contract
+                == OdDayPathSuccessorContract::InsertableConnectionSegments
             && contract.supply_graph_policy
                 == OdDayPathSupplyGraphPolicy::PreprocessedConnectionSegmentIndex
             && contract.production_carrier_policy
