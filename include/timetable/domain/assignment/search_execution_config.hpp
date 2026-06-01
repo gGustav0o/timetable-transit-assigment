@@ -498,7 +498,6 @@ namespace timetable::domain::assignment {
             && config.result_projection == SearchResultProjection::OdDayPairs
             && config.partial_retention_scope == SearchPartialRetentionScope::TreeGlobal
             && config.max_parallel_batches > 0u
-            && config.max_parallel_batches <= SearchExecutionConfig::kDefaultMaxParallelBatches
             && config.max_od_day_label_representatives_per_state > 0u;
     }
 

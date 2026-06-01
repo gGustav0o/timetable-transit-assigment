@@ -114,7 +114,7 @@ namespace timetable::domain::assignment::detail {
                           )
                       )
                     .ctx(
-                          "max_supported_parallel_batches"
+                          "default_max_parallel_batches"
                         , static_cast<std::int64_t>(
                               SearchExecutionConfig::kDefaultMaxParallelBatches
                           )
