@@ -40,7 +40,7 @@ namespace timetable::infra {
     /**
      * @brief Write the complete assignment result artifact set.
      *
-     * The current output policy always writes:
+     * The standard output policy writes:
      * - assignment_summary.txt
      * - assignment_output.json
      * - metadata.csv
@@ -53,6 +53,11 @@ namespace timetable::infra {
      * - elementary_segment_loads.csv
      * - skim_matrix.csv
      * - vehicle_journey_item_loads.csv
+     *
+     * For large production OD-day results the writer may use a compact export
+     * profile: aggregate/load files are written normally, while path-level JSON,
+     * connections.csv and segments.csv are reduced to avoid materializing
+     * millions of path rows after the mathematically complete calculation.
      *
      * All files are written into the results directory located next to the
      * configured log directory.

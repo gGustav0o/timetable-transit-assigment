@@ -3038,11 +3038,26 @@ namespace timetable::domain::assignment {
             , const ExactPruningPolicy&     policy
             , const SearchPruningMetrics&   candidate
         ) noexcept {
-            for (const auto& known : set.metrics) {
-                if (known.arrival.value() > candidate.arrival.value()) {
-                    break;
+            const auto prefix_end = std::upper_bound(
+                  set.metrics.begin()
+                , set.metrics.end()
+                , candidate.arrival.value()
+                , [](double arrival_value, const SearchPruningMetrics& rhs) {
+                    return arrival_value < rhs.arrival.value();
                 }
-                if (dominates_exactly(policy, known, candidate)) {
+            );
+
+            /*
+             * The predicate is unchanged: only labels with ARR(c) <= ARR(c*)
+             * can dominate c*. Walking the arrival prefix backwards usually
+             * meets a relevant late-departing dominator much earlier.
+             */
+            auto prefix_count = static_cast<std::size_t>(
+                std::distance(set.metrics.begin(), prefix_end)
+            );
+            while (prefix_count > 0u) {
+                --prefix_count;
+                if (dominates_exactly(policy, set.metrics[prefix_count], candidate)) {
                     return false;
                 }
             }
@@ -3116,17 +3131,26 @@ namespace timetable::domain::assignment {
                 std::distance(set.metrics.begin(), dominated_begin)
             );
             auto removed_any = false;
-            while (erase_pos < set.metrics.size()) {
-                if (!dominates_exactly(execution.exact_policy, metrics, set.metrics[erase_pos])) {
-                    ++erase_pos;
+            auto write_pos = erase_pos;
+            for (auto read_pos = erase_pos; read_pos < set.metrics.size(); ++read_pos) {
+                if (dominates_exactly(execution.exact_policy, metrics, set.metrics[read_pos])) {
+                    if (read_pos < set.labels.size()) {
+                        removed_labels.push_back(set.labels[read_pos]);
+                    }
+                    removed_any = true;
                     continue;
                 }
-                if (erase_pos < set.labels.size()) {
-                    removed_labels.push_back(set.labels[erase_pos]);
-                    set.labels.erase(set.labels.begin() + static_cast<std::ptrdiff_t>(erase_pos));
+                if (write_pos != read_pos) {
+                    set.metrics[write_pos] = std::move(set.metrics[read_pos]);
+                    if (read_pos < set.labels.size() && write_pos < set.labels.size()) {
+                        set.labels[write_pos] = set.labels[read_pos];
+                    }
                 }
-                set.metrics.erase(set.metrics.begin() + static_cast<std::ptrdiff_t>(erase_pos));
-                removed_any = true;
+                ++write_pos;
+            }
+            if (removed_any) {
+                set.metrics.resize(write_pos);
+                set.labels.resize(write_pos);
             }
 
             const auto insertion = std::lower_bound(

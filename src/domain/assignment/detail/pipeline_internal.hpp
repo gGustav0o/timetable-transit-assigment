@@ -788,6 +788,9 @@ namespace timetable::domain::assignment::detail {
         , OriginDayPathChoiceResult   origin_choice
     ) {
         append_unique_od_day_choice_connections(accumulation, origin_choice);
+        for (auto& pair_result : origin_choice.pair_results) {
+            std::vector<DayPathAlternative>{}.swap(pair_result.alternatives);
+        }
         accumulation.choice.origin_results.push_back(std::move(origin_choice));
     }
 

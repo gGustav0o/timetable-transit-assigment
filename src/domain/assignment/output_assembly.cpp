@@ -87,8 +87,14 @@ namespace timetable::domain::assignment::detail {
                           .origin      = pair_result.origin
                         , .destination = pair_result.destination
                     }];
-                    for (const auto& alternative : pair_result.alternatives) {
-                        od_paths[day_path_signature_of(alternative)] = true;
+                    if (!pair_result.alternatives.empty()) {
+                        for (const auto& alternative : pair_result.alternatives) {
+                            od_paths[day_path_signature_of(alternative)] = true;
+                        }
+                    } else {
+                        for (const auto& connection : pair_result.connections) {
+                            od_paths[day_path_signature_of(connection)] = true;
+                        }
                     }
                 }
             }
@@ -142,7 +148,8 @@ namespace timetable::domain::assignment::detail {
             std::map<grouping::ConnectionTraceKey, bool> pair_traces;
             for (const auto& origin_result : choice_result.origin_results) {
                 for (const auto& pair_result : origin_result.pair_results) {
-                    if (pair_result.alternatives.size() != pair_result.connections.size()) {
+                    if (!pair_result.alternatives.empty()
+                        && pair_result.alternatives.size() != pair_result.connections.size()) {
                         return mathfp::unexpected(
                             mathfp::internal_error("output input: OD-day choice alternatives disagree with representative projection size")
                                 .ctx("origin"       , pair_result.origin.get())
@@ -157,28 +164,30 @@ namespace timetable::domain::assignment::detail {
                                   )
                         );
                     }
-                    for (std::size_t i = 0; i < pair_result.alternatives.size(); ++i) {
-                        const auto& alternative = pair_result.alternatives[i];
-                        const auto& representative = pair_result.connections[i];
-                        if (grouping::connection_trace_key(day_path_representative_connection(alternative))
-                                != grouping::connection_trace_key(representative)
-                            || day_path_signature_of(alternative) != day_path_signature_of(representative)) {
-                            return mathfp::unexpected(
-                                mathfp::internal_error("output input: OD-day choice representative is not the projection of its day path")
-                                    .ctx("origin"     , pair_result.origin.get())
-                                    .ctx("destination", pair_result.destination.get())
-                                    .ctx("path_index" , static_cast<std::int64_t>(i))
-                            );
-                        }
-                        for (const auto& support : day_path_split_support_descriptors(alternative)) {
-                            if (day_path_signature_of(alternative)
-                                != support.signature) {
+                    if (!pair_result.alternatives.empty()) {
+                        for (std::size_t i = 0; i < pair_result.alternatives.size(); ++i) {
+                            const auto& alternative = pair_result.alternatives[i];
+                            const auto& representative = pair_result.connections[i];
+                            if (grouping::connection_trace_key(day_path_representative_connection(alternative))
+                                    != grouping::connection_trace_key(representative)
+                                || day_path_signature_of(alternative) != day_path_signature_of(representative)) {
                                 return mathfp::unexpected(
-                                    mathfp::internal_error("output input: OD-day compact support is not a support of its day-path identity")
+                                    mathfp::internal_error("output input: OD-day choice representative is not the projection of its day path")
                                         .ctx("origin"     , pair_result.origin.get())
                                         .ctx("destination", pair_result.destination.get())
                                         .ctx("path_index" , static_cast<std::int64_t>(i))
                                 );
+                            }
+                            for (const auto& support : day_path_split_support_descriptors(alternative)) {
+                                if (day_path_signature_of(alternative)
+                                    != support.signature) {
+                                    return mathfp::unexpected(
+                                        mathfp::internal_error("output input: OD-day compact support is not a support of its day-path identity")
+                                            .ctx("origin"     , pair_result.origin.get())
+                                            .ctx("destination", pair_result.destination.get())
+                                            .ctx("path_index" , static_cast<std::int64_t>(i))
+                                    );
+                                }
                             }
                         }
                     }

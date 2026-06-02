@@ -23,8 +23,8 @@ namespace timetable::domain::assignment {
         using OdKey = detail::grouping::OdKey;
         using ChoiceTaskLookup = std::map<DemandKey, const ChoiceTaskResult*>;
         using DemandLookup = std::map<DemandKey, const DemandEntry*>;
-        using OdDayChoiceLookup = std::map<OdKey, const OdDayPathChoicePairResult*>;
         using TaskConnectionTraceMap = std::map<DemandKey, std::map<detail::grouping::ConnectionTraceKey, bool>>;
+        using OdDayPathMap = std::map<OdKey, std::map<DayPathSignature, bool>>;
         using SkimEntryKey = std::tuple<std::int64_t, std::int64_t, std::int64_t>;
 
         struct SkimAlternative final {
@@ -205,62 +205,95 @@ namespace timetable::domain::assignment {
             return lookup;
         }
 
-        [[nodiscard]] mathfp::Expected<OdDayChoiceLookup> build_od_day_choice_lookup(
+        [[nodiscard]] OdDayPathMap build_od_day_path_map(
             const OdDayPathChoiceResult& choice_result
         ) {
-            OdDayChoiceLookup lookup;
+            OdDayPathMap paths;
             for (const auto& origin_result : choice_result.origin_results) {
                 for (const auto& pair_result : origin_result.pair_results) {
-                    const auto key = OdKey{
+                    auto& od_paths = paths[OdKey{
                           .origin      = pair_result.origin
                         , .destination = pair_result.destination
-                    };
-                    if (!lookup.emplace(key, &pair_result).second) {
-                        return mathfp::unexpected(
-                            mathfp::internal_error("skim input: OD-day choice result contains duplicate OD pair")
-                                .ctx("origin"     , key.origin.get())
-                                .ctx("destination", key.destination.get())
-                        );
+                    }];
+                    if (!pair_result.alternatives.empty()) {
+                        for (const auto& alternative : pair_result.alternatives) {
+                            od_paths[day_path_signature_of(alternative)] = true;
+                        }
+                    } else {
+                        for (const auto& connection : pair_result.connections) {
+                            od_paths[day_path_signature_of(connection)] = true;
+                        }
                     }
                 }
             }
-            return lookup;
+            return paths;
         }
 
-        [[nodiscard]] std::vector<SearchConnection> admissible_od_day_connections(
-              const OdDayPathChoicePairResult&  pair_result
-            , const TimeInterval&               interval
-            , const AssignmentPeriodConfig&     assignment_period
-            , const ConnectionAdmissibilityConfig& admissibility_config
+        [[nodiscard]] mathfp::Expected<mathfp::Unit> validate_od_day_split_shares_are_choice_local(
+              const OdDayPathChoiceResult& choice_result
+            , const DemandSplitResult&     split_result
         ) {
-            std::vector<SearchConnection> connections;
-            connections.reserve(pair_result.connections.size());
-            for (const auto& connection : pair_result.connections) {
-                if (connection_admissible_for_demand_segment(
-                      metrics_of(connection)
-                    , interval
-                    , assignment_period
-                    , admissibility_config
-                )) {
-                    connections.push_back(connection);
+            const auto od_paths = build_od_day_path_map(choice_result);
+            for (std::size_t i = 0; i < split_result.shares.size(); ++i) {
+                const auto& share = split_result.shares[i];
+                const auto key = OdKey{
+                      .origin      = share.origin
+                    , .destination = share.destination
+                };
+                const auto od_path_it = od_paths.find(key);
+                if (od_path_it == od_paths.end()) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("skim input: OD-day split share has no matching OD choice")
+                            .ctx("share_index", static_cast<std::int64_t>(i))
+                            .ctx("origin"     , share.origin.get())
+                            .ctx("destination", share.destination.get())
+                            .ctx("interval_id", share.interval.get())
+                    );
+                }
+                if (share.source != DemandShareAlternativeSource::DayPath) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("skim input: OD-day split share is not a day-path alternative")
+                            .ctx("share_index", static_cast<std::int64_t>(i))
+                            .ctx("origin"     , share.origin.get())
+                            .ctx("destination", share.destination.get())
+                            .ctx("interval_id", share.interval.get())
+                    );
+                }
+                if (!od_path_it->second.contains(share.day_path)) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("skim input: OD-day split share path is outside its OD choice")
+                            .ctx("share_index", static_cast<std::int64_t>(i))
+                            .ctx("origin"     , share.origin.get())
+                            .ctx("destination", share.destination.get())
+                            .ctx("interval_id", share.interval.get())
+                    );
+                }
+                if (!share.day_path_support.has_value()
+                    || !(share.day_path_support->signature == share.day_path)) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("skim input: OD-day split share compact support is outside its OD choice")
+                            .ctx("share_index", static_cast<std::int64_t>(i))
+                            .ctx("origin"     , share.origin.get())
+                            .ctx("destination", share.destination.get())
+                            .ctx("interval_id", share.interval.get())
+                    );
                 }
             }
-            return connections;
+            return mathfp::kUnit;
         }
 
-        [[nodiscard]] mathfp::Expected<ConnectionChoiceResult> make_interval_choice_projection(
-              const OdDayPathChoiceResult&       choice_result
-            , const InputModel&                  input
-            , const AssignmentPeriodConfig&      assignment_period
-            , const ConnectionAdmissibilityConfig& admissibility_config
+        [[nodiscard]] mathfp::Expected<ConnectionChoiceResult> make_interval_choice_projection_from_split(
+              const OdDayPathChoiceResult& choice_result
+            , const InputModel&            input
+            , const DemandSplitResult&     split_result
         ) {
-            MATHFP_TRY_LET(OdDayChoiceLookup, choice_lookup, build_od_day_choice_lookup(choice_result));
-
             ConnectionChoiceResult projection{
-                  .connections  = choice_result.connections
+                  .connections  = {}
                 , .task_results = {}
             };
             projection.task_results.reserve(input.demand.size());
+            const auto shares_by_key = detail::grouping::group_shares_by_demand_key(split_result.shares);
+            std::map<detail::grouping::ConnectionTraceKey, bool> flat_traces;
 
             for (std::size_t i = 0; i < input.demand.size(); ++i) {
                 const auto& demand = input.demand[i];
@@ -272,18 +305,22 @@ namespace timetable::domain::assignment {
                         , .destination      = demand.destination
                         , .interval         = *interval
                         , .departure_domain = {}
-                      }
+                    }
                     , .connections = {}
                 };
 
-                const auto choice_it = choice_lookup.find(detail::grouping::od_key(demand));
-                if (choice_it != choice_lookup.end()) {
-                    task_result.connections = admissible_od_day_connections(
-                          *choice_it->second
-                        , *interval
-                        , assignment_period
-                        , admissibility_config
-                    );
+                if (auto shares_it = shares_by_key.find(detail::grouping::demand_key(demand));
+                    shares_it != shares_by_key.end()) {
+                    task_result.connections.reserve(shares_it->second.size());
+                    for (const auto* share : shares_it->second) {
+                        task_result.connections.push_back(share->connection);
+                        if (flat_traces.emplace(
+                              detail::grouping::connection_trace_key(share->connection)
+                            , true
+                        ).second) {
+                            projection.connections.push_back(share->connection);
+                        }
+                    }
                 }
                 projection.task_results.push_back(std::move(task_result));
             }
@@ -878,14 +915,16 @@ namespace timetable::domain::assignment {
             };
         }
 
+        (void)assignment_period;
+        (void)admissibility_config;
+        MATHFP_TRY(validate_od_day_split_shares_are_choice_local(choice_result, split_result));
         MATHFP_TRY_LET(
               ConnectionChoiceResult
             , interval_choice_projection
-            , make_interval_choice_projection(
+            , make_interval_choice_projection_from_split(
                   choice_result
                 , input
-                , assignment_period
-                , admissibility_config
+                , split_result
             )
         );
         return build_assignment_skim_matrix(
