@@ -87,6 +87,14 @@ namespace timetable::domain::assignment {
         NodeLocalKnownConnections
     };
 
+    enum class OdDayPathBoundLayerPolicy : std::uint8_t {
+        PaperNodeLocalConnectionSets
+    };
+
+    enum class OdDayPathResultProjectionPolicy : std::uint8_t {
+        DayPathPostLayer
+    };
+
     enum class OdDayPathAlternativeRetentionPolicy : std::uint8_t {
         ProductionOdPairSlotsOnly
     };
@@ -134,6 +142,12 @@ namespace timetable::domain::assignment {
         OdDayPathTreeLabelPolicy tree_label_policy{
             OdDayPathTreeLabelPolicy::NodeLocalKnownConnections
         };
+        OdDayPathBoundLayerPolicy bound_layer_policy{
+            OdDayPathBoundLayerPolicy::PaperNodeLocalConnectionSets
+        };
+        OdDayPathResultProjectionPolicy result_projection_policy{
+            OdDayPathResultProjectionPolicy::DayPathPostLayer
+        };
         OdDayPathAlternativeRetentionPolicy alternative_retention_policy{
             OdDayPathAlternativeRetentionPolicy::ProductionOdPairSlotsOnly
         };
@@ -166,6 +180,10 @@ namespace timetable::domain::assignment {
                 OdDayPathFrontierPolicy::ConnectionTreeLevelQueues
             , .tree_label_policy =
                 OdDayPathTreeLabelPolicy::NodeLocalKnownConnections
+            , .bound_layer_policy =
+                OdDayPathBoundLayerPolicy::PaperNodeLocalConnectionSets
+            , .result_projection_policy =
+                OdDayPathResultProjectionPolicy::DayPathPostLayer
             , .alternative_retention_policy =
                 OdDayPathAlternativeRetentionPolicy::ProductionOdPairSlotsOnly
             , .signature_policy =
@@ -195,6 +213,10 @@ namespace timetable::domain::assignment {
                 == OdDayPathFrontierPolicy::ConnectionTreeLevelQueues
             && contract.tree_label_policy
                 == OdDayPathTreeLabelPolicy::NodeLocalKnownConnections
+            && contract.bound_layer_policy
+                == OdDayPathBoundLayerPolicy::PaperNodeLocalConnectionSets
+            && contract.result_projection_policy
+                == OdDayPathResultProjectionPolicy::DayPathPostLayer
             && contract.alternative_retention_policy
                 == OdDayPathAlternativeRetentionPolicy::ProductionOdPairSlotsOnly
             && contract.signature_policy

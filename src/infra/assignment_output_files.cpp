@@ -34,7 +34,6 @@ namespace timetable::infra {
         };
 
         using PreparedArtifacts = std::array<PreparedArtifact, 12>;
-        constexpr std::size_t kFullPathLevelExportConnectionLimit = 500000u;
 
         std::filesystem::path sibling_results_dir(
             const std::filesystem::path& log_dir
@@ -267,11 +266,11 @@ namespace timetable::infra {
             return mathfp::kUnit;
         }
 
-        bool compact_large_od_day_export_required(
+        bool production_aggregate_export_required(
             const timetable::domain::AssignmentOutput& output
         ) noexcept {
-            return output.mode == timetable::domain::AssignmentOutputMode::Calculated
-                && output.summary.chosen_connection_count > kFullPathLevelExportConnectionLimit;
+            return output.export_profile
+                == timetable::domain::assignment::AssignmentOutputExportProfile::ProductionAggregate;
         }
 
         projection::AssignmentMetadataCsvRow compact_metadata_row(
@@ -335,34 +334,13 @@ namespace timetable::infra {
             };
         }
 
-        void append_compact_od_rows(
+        void append_production_od_summary_rows(
               projection::AssignmentCsvProjection& projection
             , const timetable::domain::AssignmentOutput& output
         ) {
             projection.od_summary_rows.reserve(output.od_results.size());
-            projection.share_rows.reserve(output.summary.demand_share_count);
             for (const auto& od_result : output.od_results) {
                 projection.od_summary_rows.push_back(compact_od_summary_row(od_result));
-                for (const auto& interval : od_result.intervals) {
-                    for (const auto& share : interval.shares) {
-                        projection.share_rows.push_back(
-                            projection::AssignmentShareCsvRow{
-                                  .origin                       = od_result.origin
-                                , .destination                  = od_result.destination
-                                , .interval_id                  = interval.interval.id
-                                , .interval_start               = interval.interval.start
-                                , .interval_end                 = interval.interval.end
-                                , .interval_demand_passengers   = interval.demand_passengers
-                                , .interval_assigned_passengers = interval.assigned_passengers
-                                , .connection_index             = share.connection_index
-                                , .share_passengers             = share.passengers
-                                , .probability                  = share.probability
-                                , .independence                 = share.independence
-                                , .split_impedance              = share.split_impedance
-                            }
-                        );
-                    }
-                }
             }
         }
 
@@ -532,12 +510,12 @@ namespace timetable::infra {
             }
         }
 
-        projection::AssignmentCsvProjection build_compact_large_od_day_csv_projection(
+        projection::AssignmentCsvProjection build_production_aggregate_csv_projection(
             const timetable::domain::AssignmentOutput& output
         ) {
             projection::AssignmentCsvProjection projection{};
             projection.metadata_rows.push_back(compact_metadata_row(output));
-            append_compact_od_rows(projection, output);
+            append_production_od_summary_rows(projection, output);
             append_compact_load_rows(projection, output.loads);
             append_compact_stop_load_rows(projection, output.loads);
             append_compact_elementary_load_rows(projection, output.elementary_segment_loads);
@@ -546,14 +524,14 @@ namespace timetable::infra {
             return projection;
         }
 
-        std::string compact_large_od_day_json(
+        std::string production_aggregate_json(
             const timetable::domain::AssignmentOutput& output
         ) {
             return fmt::format(
                 "{{\n"
-                "  \"schema\": \"timetable.assignment_output.compact_large_od_day.v1\",\n"
-                "  \"export_profile\": \"compact_large_od_day\",\n"
-                "  \"note\": \"Full path-level JSON is omitted for large OD-day production output; use CSV aggregate/load files.\",\n"
+                "  \"schema\": \"timetable.assignment_output.production_aggregate.v1\",\n"
+                "  \"export_profile\": \"production_aggregate\",\n"
+                "  \"note\": \"Full path-level JSON is diagnostic-only; production output keeps aggregate/load files.\",\n"
                 "  \"summary\": {{\n"
                 "    \"od_count\": {},\n"
                 "    \"search_connection_count\": {},\n"
@@ -561,6 +539,11 @@ namespace timetable::infra {
                 "    \"demand_share_count\": {},\n"
                 "    \"total_demand_passengers\": {:.17g},\n"
                 "    \"assigned_passengers\": {:.17g}\n"
+                "  }},\n"
+                "  \"share_summary\": {{\n"
+                "    \"profile\": \"aggregate_only\",\n"
+                "    \"share_rows_written\": 0,\n"
+                "    \"share_count\": {}\n"
                 "  }}\n"
                 "}}\n"
               , output.summary.od_count
@@ -569,20 +552,22 @@ namespace timetable::infra {
               , output.summary.demand_share_count
               , output.summary.total_demand_passengers
               , output.summary.assigned_passengers
+              , output.summary.demand_share_count
             );
         }
 
-        std::string compact_large_od_day_summary_text(
+        std::string production_aggregate_summary_text(
             const timetable::domain::AssignmentOutput& output
         ) {
             return fmt::format(
                 "Assignment Summary\n"
-                "Mode:                calculated\n"
-                "Export profile:      compact_large_od_day\n"
+                "Mode:                {}\n"
+                "Export profile:      production_aggregate\n"
                 "OD pairs:            {}\n"
                 "Search connections:  {}\n"
                 "Chosen connections:  {}\n"
                 "Demand shares:       {}\n"
+                "Share export:        aggregate summary only\n"
                 "Elementary loads:    {}\n"
                 "VISUM segment loads: {}\n"
                 "Route totals:        {}\n"
@@ -590,7 +575,14 @@ namespace timetable::infra {
                 "Overload rows:       {}\n"
                 "Total demand:        {:.3f}\n"
                 "Assigned passengers: {:.3f}\n"
-                "Note: full path-level JSON, connections.csv, and segments.csv are omitted for this large OD-day production export.\n"
+                "Note: full path-level JSON, connections.csv, shares.csv rows, and segments.csv are diagnostic-only and are omitted in production aggregate export.\n"
+              , output.mode == timetable::domain::AssignmentOutputMode::Calculated
+                    ? "calculated"
+                    : output.mode == timetable::domain::AssignmentOutputMode::AllZoneSearch
+                        ? "all_zone_search"
+                        : output.mode == timetable::domain::AssignmentOutputMode::TimedConnectionDiagnostics
+                            ? "timed_connection_diagnostics"
+                            : "assignment_disabled"
               , output.summary.od_count
               , output.summary.search_connection_count
               , output.summary.chosen_connection_count
@@ -619,7 +611,7 @@ namespace timetable::infra {
             return mathfp::kUnit;
         }
 
-        mathfp::Expected<AssignmentOutputPaths> write_compact_large_od_day_output_files(
+        mathfp::Expected<AssignmentOutputPaths> write_production_aggregate_output_files(
               const timetable::domain::AssignmentOutput& output
             , const std::filesystem::path&               log_dir
         ) {
@@ -628,24 +620,23 @@ namespace timetable::infra {
 
             timetable::infra::progress::log(
                 fmt::format(
-                      "assignment output export: profile=compact_large_od_day chosen_connections={} threshold={} full_path_json=omitted connections_csv=header_only segments_csv=header_only"
+                      "assignment output export: profile=production_aggregate chosen_connections={} full_path_json=diagnostic_only connections_csv=header_only shares_csv=header_only share_summary=od_summary_and_json segments_csv=header_only primary_load=elementary_segment_loads visum_aggregates=route_stop_totals overload=vehicle_journey_item_loads"
                     , output.summary.chosen_connection_count
-                    , kFullPathLevelExportConnectionLimit
                 )
             );
 
             MATHFP_TRY(write_string_artifact(
                   "summary_text"
                 , paths.summary_text_path
-                , compact_large_od_day_summary_text(output)
+                , production_aggregate_summary_text(output)
             ));
             MATHFP_TRY(write_string_artifact(
                   "canonical_json"
                 , paths.canonical_json_path
-                , compact_large_od_day_json(output)
+                , production_aggregate_json(output)
             ));
 
-            auto projection = build_compact_large_od_day_csv_projection(output);
+            auto projection = build_production_aggregate_csv_projection(output);
             MATHFP_TRY(write_string_artifact("metadata_csv", paths.metadata_csv_path, serialize_assignment_metadata_csv(projection)));
             MATHFP_TRY(write_string_artifact("od_summary_csv", paths.od_summary_csv_path, serialize_assignment_od_summary_csv(projection)));
             MATHFP_TRY(write_string_artifact("connections_csv", paths.connections_csv_path, serialize_assignment_connections_csv(projection)));
@@ -697,9 +688,16 @@ namespace timetable::infra {
           const timetable::domain::AssignmentOutput& output
         , const std::filesystem::path&               log_dir
     ) {
-        if (compact_large_od_day_export_required(output)) {
-            return write_compact_large_od_day_output_files(output, log_dir);
+        if (production_aggregate_export_required(output)) {
+            return write_production_aggregate_output_files(output, log_dir);
         }
+
+        timetable::infra::progress::log(
+            fmt::format(
+                  "assignment output export: profile=diagnostic_full_path chosen_connections={} full_path_json=enabled connections_csv=full segments_csv=full"
+                , output.summary.chosen_connection_count
+            )
+        );
 
         MATHFP_TRY_LET(
               projection::AssignmentCsvProjection

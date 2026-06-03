@@ -235,42 +235,71 @@ namespace timetable::domain::assignment {
             );
         }
 
+        [[nodiscard]] std::vector<DayPathSignature> sorted_day_path_signatures(
+            const DayPathRetention& retention
+        ) {
+            std::vector<DayPathSignature> signatures;
+            signatures.reserve(retention.alternatives_by_signature.size());
+            for (const auto& [signature, _] : retention.alternatives_by_signature) {
+                signatures.push_back(signature);
+            }
+            std::sort(signatures.begin(), signatures.end());
+            return signatures;
+        }
+
         void remove_support_dominated_paths(
             DayPathRetention& retention
         ) {
-            for (auto it = retention.alternatives_by_signature.begin();
-                 it != retention.alternatives_by_signature.end();) {
+            const auto signatures = sorted_day_path_signatures(retention);
+            for (const auto& signature : signatures) {
+                const auto candidate_it =
+                    retention.alternatives_by_signature.find(signature);
+                if (candidate_it == retention.alternatives_by_signature.end()) {
+                    continue;
+                }
                 bool dominated = false;
-                for (const auto& [other_signature, other] : retention.alternatives_by_signature) {
-                    if (other_signature == it->first) {
+                for (const auto& other_signature : signatures) {
+                    if (other_signature == signature) {
                         continue;
                     }
-                    if (support_set_dominates(other, it->second)) {
+                    const auto other_it =
+                        retention.alternatives_by_signature.find(other_signature);
+                    if (other_it == retention.alternatives_by_signature.end()) {
+                        continue;
+                    }
+                    if (support_set_dominates(other_it->second, candidate_it->second)) {
                         dominated = true;
                         break;
                     }
                 }
 
                 if (dominated) {
-                    it = retention.alternatives_by_signature.erase(it);
-                } else {
-                    ++it;
+                    retention.alternatives_by_signature.erase(signature);
                 }
             }
         }
 
-        [[nodiscard]] auto worst_alternative_iterator(
+        [[nodiscard]] DayPathSignature worst_alternative_signature(
             DayPathRetention& retention
         ) {
-            auto worst = retention.alternatives_by_signature.begin();
-            for (auto it = std::next(retention.alternatives_by_signature.begin());
-                 it != retention.alternatives_by_signature.end();
+            auto signatures = sorted_day_path_signatures(retention);
+            auto worst = signatures.front();
+            for (auto it = std::next(signatures.begin());
+                 it != signatures.end();
                  ++it) {
+                const auto current_it =
+                    retention.alternatives_by_signature.find(*it);
+                const auto worst_it =
+                    retention.alternatives_by_signature.find(worst);
+                if (current_it == retention.alternatives_by_signature.end()
+                    || worst_it == retention.alternatives_by_signature.end()) {
+                    continue;
+                }
                 if (worse_day_path_representative(
-                      best_support_metrics_of(it->second)
-                    , best_support_metrics_of(worst->second)
+                      best_support_metrics_of(current_it->second)
+                    , best_support_metrics_of(worst_it->second)
                 )) {
-                    worst = it;
+                    worst = *it;
                 }
             }
             return worst;
@@ -287,7 +316,7 @@ namespace timetable::domain::assignment {
             }
             if (config.limit_policy == DayPathRetentionLimitPolicy::FailOnSaturation
                 && alternative_limit_exceeded(retention, config)) {
-                const auto& signature = retention.alternatives_by_signature.rbegin()->first;
+                const auto signature = sorted_day_path_signatures(retention).back();
                 return day_path_retention_saturation_error(
                       "alternative"
                     , signature
@@ -296,7 +325,7 @@ namespace timetable::domain::assignment {
             }
             while (alternative_limit_exceeded(retention, config)) {
                 retention.alternatives_by_signature.erase(
-                    worst_alternative_iterator(retention)
+                    worst_alternative_signature(retention)
                 );
             }
             return mathfp::kUnit;
@@ -554,7 +583,8 @@ namespace timetable::domain::assignment {
             );
             MATHFP_TRY(enforce_day_path_retention(retention, config));
             const auto retained =
-                retention.alternatives_by_signature.contains(key);
+                retention.alternatives_by_signature.find(key)
+                    != retention.alternatives_by_signature.end();
             return DayPathRetentionDecision{
                   .inserted_path          = retained
                 , .replaced_representative = retained
@@ -657,6 +687,13 @@ namespace timetable::domain::assignment {
         for (auto& entry : retention.alternatives_by_signature) {
             alternatives.push_back(std::move(entry.second));
         }
+        std::sort(
+              alternatives.begin()
+            , alternatives.end()
+            , [](const DayPathAlternative& lhs, const DayPathAlternative& rhs) {
+                  return lhs.identity.signature < rhs.identity.signature;
+              }
+        );
         return alternatives;
     }
 

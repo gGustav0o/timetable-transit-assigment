@@ -321,6 +321,9 @@ namespace timetable::domain {
         };
 
         AssignmentOutputMode             mode{ AssignmentOutputMode::Calculated };
+        assignment::AssignmentOutputExportProfile export_profile{
+            assignment::AssignmentOutputExportProfile::ProductionAggregate
+        };
         Summary                          summary{};
         std::vector<AssignmentOdResult>  od_results{};
         AssignmentLoads                  loads{};

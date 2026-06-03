@@ -311,6 +311,7 @@ namespace timetable::domain::assignment {
     struct SearchExecutionConfig final {
         static constexpr std::size_t kDefaultMaxParallelBatches = 6;
         static constexpr std::size_t kDefaultMaxOdDayLabelRepresentativesPerState = 8;
+        static constexpr std::size_t kDefaultEstimatedMemoryMbPerParallelBatch = 4096;
 
         AssignmentCalculationFormulation formulation{
             AssignmentCalculationFormulation::OdDayAssignment
@@ -327,6 +328,10 @@ namespace timetable::domain::assignment {
         std::size_t max_parallel_batches{ kDefaultMaxParallelBatches };
         std::size_t max_od_day_label_representatives_per_state{
             kDefaultMaxOdDayLabelRepresentativesPerState
+        };
+        std::optional<std::size_t> max_parallel_memory_mb{};
+        std::size_t estimated_memory_mb_per_parallel_batch{
+            kDefaultEstimatedMemoryMbPerParallelBatch
         };
         bool validate_phase_invariants{ false };
         bool log_projection_details{ false };
@@ -498,6 +503,7 @@ namespace timetable::domain::assignment {
             && config.result_projection == SearchResultProjection::OdDayPairs
             && config.partial_retention_scope == SearchPartialRetentionScope::TreeGlobal
             && config.max_parallel_batches > 0u
+            && config.estimated_memory_mb_per_parallel_batch > 0u
             && config.max_od_day_label_representatives_per_state > 0u;
     }
 
@@ -512,7 +518,8 @@ namespace timetable::domain::assignment {
             && config.destination_scope == SearchDestinationScope::DemandDestinations
             && config.result_projection == SearchResultProjection::DemandTasks
             && config.partial_retention_scope == SearchPartialRetentionScope::ProjectionSlotLocal
-            && config.max_parallel_batches > 0u;
+            && config.max_parallel_batches > 0u
+            && config.estimated_memory_mb_per_parallel_batch > 0u;
     }
 
     [[nodiscard]] inline constexpr bool is_all_zone_search_diagnostics_profile(
@@ -526,7 +533,8 @@ namespace timetable::domain::assignment {
             && config.destination_scope == SearchDestinationScope::DeclaredZones
             && config.result_projection == SearchResultProjection::CompletionTargets
             && config.partial_retention_scope == SearchPartialRetentionScope::TreeGlobal
-            && config.max_parallel_batches > 0u;
+            && config.max_parallel_batches > 0u
+            && config.estimated_memory_mb_per_parallel_batch > 0u;
     }
 
     [[nodiscard]] inline constexpr bool is_demand_task_assignment_profile(

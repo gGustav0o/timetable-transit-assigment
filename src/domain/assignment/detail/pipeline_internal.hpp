@@ -108,6 +108,18 @@ namespace timetable::domain::assignment::detail {
                     .ctx("partial_retention_scope", std::string(to_string(config.partial_retention_scope)))
                     .ctx("max_parallel_batches", static_cast<std::int64_t>(config.max_parallel_batches))
                     .ctx(
+                          "max_parallel_memory_mb"
+                        , config.max_parallel_memory_mb.has_value()
+                            ? static_cast<std::int64_t>(*config.max_parallel_memory_mb)
+                            : std::int64_t{ -1 }
+                      )
+                    .ctx(
+                          "estimated_memory_mb_per_parallel_batch"
+                        , static_cast<std::int64_t>(
+                              config.estimated_memory_mb_per_parallel_batch
+                          )
+                      )
+                    .ctx(
                           "max_od_day_label_representatives_per_state"
                         , static_cast<std::int64_t>(
                               config.max_od_day_label_representatives_per_state
@@ -175,6 +187,32 @@ namespace timetable::domain::assignment::detail {
             mathfp::invalid_arg("unsupported assignment calculation formulation")
                 .ctx("formulation", static_cast<std::int64_t>(config.formulation))
         );
+    }
+
+    inline mathfp::Expected<mathfp::Unit> validate_assignment_output_export_profile(
+          const AssignmentExecutionConfig& execution
+        , const SearchExecutionConfig&     search_execution
+    ) {
+        if (execution.output_export_profile
+                == AssignmentOutputExportProfile::DiagnosticFullPath
+            && !search_execution.diagnostic_mode) {
+            return mathfp::unexpected(
+                mathfp::invalid_arg("full path-level output is diagnostic-only")
+                    .ctx(
+                          "output_export_profile"
+                        , std::string(to_string(execution.output_export_profile))
+                      )
+                    .ctx(
+                          "search_formulation"
+                        , std::string(to_string(search_execution.formulation))
+                      )
+                    .ctx(
+                          "diagnostic_mode"
+                        , search_execution.diagnostic_mode ? "true" : "false"
+                      )
+            );
+        }
+        return mathfp::kUnit;
     }
 
     inline mathfp::Expected<mathfp::Unit> validate_od_day_split_sources(
@@ -256,7 +294,7 @@ namespace timetable::domain::assignment::detail {
 
         log(
             fmt::format(
-                  "assignment search execution: formulation={} diagnostic={} mode={} origin_scope={} time_domain_source={} destination_scope={} result_projection={} partial_retention_scope={} max_parallel_batches={} max_od_day_label_representatives_per_state={} validate_phase_invariants={} log_projection_details={}"
+                  "assignment search execution: formulation={} diagnostic={} mode={} origin_scope={} time_domain_source={} destination_scope={} result_projection={} partial_retention_scope={} max_parallel_batches={} max_parallel_memory_mb={} estimated_memory_mb_per_parallel_batch={} max_od_day_label_representatives_per_state={} validate_phase_invariants={} log_projection_details={}"
                 , to_string(config.formulation)
                 , config.diagnostic_mode ? "true" : "false"
                 , to_string(config.mode)
@@ -266,6 +304,10 @@ namespace timetable::domain::assignment::detail {
                 , to_string(config.result_projection)
                 , to_string(config.partial_retention_scope)
                 , config.max_parallel_batches
+                , config.max_parallel_memory_mb.has_value()
+                    ? std::to_string(*config.max_parallel_memory_mb)
+                    : std::string("unbounded")
+                , config.estimated_memory_mb_per_parallel_batch
                 , config.max_od_day_label_representatives_per_state
                 , config.validate_phase_invariants ? "true" : "false"
                 , config.log_projection_details ? "true" : "false"
@@ -287,14 +329,37 @@ namespace timetable::domain::assignment::detail {
         if (config.formulation == AssignmentCalculationFormulation::OdDayAssignment) {
             log(
                 fmt::format(
-                      "production OD-day profile: day_path_search=true load_source=day_path primary_load=elementary_segment_loads workers={}/{} label_representatives_per_state={}"
+                      "production OD-day profile: day_path_search=true load_source=day_path primary_load=elementary_segment_loads workers={}/{} memory_cap_mb={} worker_memory_mb={} label_representatives_per_state={}"
                     , config.max_parallel_batches
                     , SearchExecutionConfig::kDefaultMaxParallelBatches
+                    , config.max_parallel_memory_mb.has_value()
+                        ? std::to_string(*config.max_parallel_memory_mb)
+                        : std::string("unbounded")
+                    , config.estimated_memory_mb_per_parallel_batch
                     , config.max_od_day_label_representatives_per_state
                 )
                 , LogLevel::Info
             );
         }
+    }
+
+    inline void log_assignment_output_export_profile(
+        const AssignmentExecutionConfig& execution
+    ) {
+        using timetable::infra::LogLevel;
+        using timetable::infra::progress::log;
+
+        log(
+            fmt::format(
+                  "assignment output export profile: profile={} production_files=summary,metadata,od_summary,share_summary,loads,stop_loads,elementary_segment_loads,skim_matrix,vehicle_journey_item_loads full_path_dump={}"
+                , to_string(execution.output_export_profile)
+                , execution.output_export_profile
+                    == AssignmentOutputExportProfile::DiagnosticFullPath
+                    ? "enabled_diagnostic"
+                    : "disabled_by_default"
+            )
+            , LogLevel::Info
+        );
     }
 
     [[nodiscard]] inline SearchExecutionMode pipeline_search_execution_mode(
@@ -912,6 +977,19 @@ namespace timetable::domain::assignment::detail {
         );
         log(
             fmt::format(
+                  "OD-day production output contract: output_profile={} full_path_dump={} primary_output=elementary_segment_loads route_aggregate=visum_secondary stop_aggregate=visum_secondary overload_source=elementary_segment_loads skim_summary={} share_summary_count={}"
+                , to_string(input.execution.output_export_profile)
+                , input.execution.output_export_profile
+                    == AssignmentOutputExportProfile::DiagnosticFullPath
+                    ? "enabled_diagnostic"
+                    : "disabled_by_default"
+                , input.skim_matrix.enabled ? "enabled" : "disabled"
+                , accumulation.split.shares.size()
+            )
+            , LogLevel::Info
+        );
+        log(
+            fmt::format(
                   "OD-day assignment result: od_pairs = {:>8}  search_connections = {:>8}  chosen_connections = {:>8}  demand_shares = {:>8}  unassigned_demand = {:>8}  elementary_loads = {:>8}"
                 , accumulation.search_summary.pair_counts.size()
                 , search_connection_count(accumulation.search_summary)
@@ -1125,7 +1203,12 @@ namespace timetable::domain::assignment::detail {
             , timetable::infra::LogLevel::Info
         );
         log_search_execution_summary(input.search_execution);
+        log_assignment_output_export_profile(input.execution);
         MATHFP_TRY(validate_assignment_execution_config(input.execution));
+        MATHFP_TRY(validate_assignment_output_export_profile(
+              input.execution
+            , input.search_execution
+        ));
 
         if (!input.execution.calculate_assignment) {
             timetable::infra::progress::both(

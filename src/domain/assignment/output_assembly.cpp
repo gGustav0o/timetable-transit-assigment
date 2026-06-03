@@ -771,6 +771,7 @@ namespace timetable::domain::assignment::detail {
 
         AssignmentOutput output{
               .mode        = AssignmentOutputMode::Calculated
+            , .export_profile = execution.output_export_profile
             , .summary     = build_output_summary(input, search_result, choice_result, split_result)
             , .od_results  = {}
             , .loads       = std::move(loads)
@@ -866,6 +867,7 @@ namespace timetable::domain::assignment::detail {
 
         AssignmentOutput output{
               .mode        = AssignmentOutputMode::Calculated
+            , .export_profile = execution.output_export_profile
             , .summary     = build_od_day_output_summary(input, search_summary, choice_result, split_result)
             , .od_results  = {}
             , .loads       = std::move(visum_loads)
@@ -916,6 +918,7 @@ namespace timetable::domain::assignment::detail {
         const auto search_counts = grouping::count_connections_by_od(search_result);
         AssignmentOutput output{
               .mode        = AssignmentOutputMode::TimedConnectionDiagnostics
+            , .export_profile = execution.output_export_profile
             , .summary     = build_timed_connection_diagnostics_output_summary(search_result)
             , .od_results  = {}
             , .loads       = AssignmentLoads{}
@@ -976,6 +979,7 @@ namespace timetable::domain::assignment::detail {
 
         AssignmentOutput output{
               .mode        = AssignmentOutputMode::AssignmentDisabled
+            , .export_profile = execution.output_export_profile
             , .summary     = build_disabled_output_summary(input)
             , .od_results  = {}
             , .loads       = AssignmentLoads{}
@@ -1026,6 +1030,7 @@ namespace timetable::domain::assignment::detail {
 
         AssignmentOutput output{
               .mode        = AssignmentOutputMode::AllZoneSearch
+            , .export_profile = execution.output_export_profile
             , .summary     = build_all_zone_search_output_summary(search_result)
             , .od_results  = {}
             , .loads       = AssignmentLoads{}

@@ -54,10 +54,11 @@ namespace timetable::infra {
      * - skim_matrix.csv
      * - vehicle_journey_item_loads.csv
      *
-     * For large production OD-day results the writer may use a compact export
-     * profile: aggregate/load files are written normally, while path-level JSON,
-     * connections.csv and segments.csv are reduced to avoid materializing
-     * millions of path rows after the mathematically complete calculation.
+     * The default production profile writes aggregate/load artifacts only:
+     * elementary segment loads, route/stop/load aggregates, overload rows,
+     * skim rows and demand-share summaries. Full path-level JSON,
+     * connections.csv and segments.csv are diagnostic-only and are written only
+     * when the domain output explicitly requests DiagnosticFullPath.
      *
      * All files are written into the results directory located next to the
      * configured log directory.

@@ -115,7 +115,8 @@ namespace timetable::infra::params_txt {
                   "  pre_assign_period_sec = {}  post_assign_period_sec = {}"
                   "  delete_outside_assignment_period = {}  demand_segment_basis = {}"
                   "  deactivate_direct_dominance = {}"
-                  "  search_execution(formulation/projection/retention/workers/label_reps/diagnostic) = {}/{}/{}/{}/{}/{}"
+                  "  output_export_profile = {}"
+                  "  search_execution(formulation/projection/retention/workers/memory_cap_mb/worker_memory_mb/label_reps/diagnostic) = {}/{}/{}/{}/{}/{}/{}/{}"
                 , params.search.transfers.max_transfers.get()
                 , params.skim_matrix.enabled ? "true" : "false"
                 , timetable::domain::assignment::to_string(params.skim_matrix.func)
@@ -132,10 +133,17 @@ namespace timetable::infra::params_txt {
                 , params.complete_connection_dominance.deactivate_dominance_of_direct_connections
                     ? "true"
                     : "false"
+                , timetable::domain::assignment::to_string(
+                      params.execution.output_export_profile
+                  )
                 , timetable::domain::assignment::to_string(params.search_execution.formulation)
                 , timetable::domain::assignment::to_string(params.search_execution.result_projection)
                 , timetable::domain::assignment::to_string(params.search_execution.partial_retention_scope)
                 , params.search_execution.max_parallel_batches
+                , params.search_execution.max_parallel_memory_mb.has_value()
+                    ? std::to_string(*params.search_execution.max_parallel_memory_mb)
+                    : std::string("unbounded")
+                , params.search_execution.estimated_memory_mb_per_parallel_batch
                 , params.search_execution.max_od_day_label_representatives_per_state
                 , params.search_execution.diagnostic_mode ? "true" : "false"
             )

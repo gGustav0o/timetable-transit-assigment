@@ -968,6 +968,19 @@ namespace timetable::infra::params_txt::detail {
             return *parsed;
         }
 
+        mathfp::Expected<timetable::domain::assignment::AssignmentOutputExportProfile>
+        parse_assignment_output_export_profile_token(const std::string& token) {
+            const auto parsed =
+                timetable::domain::assignment::assignment_output_export_profile_from_string(token);
+            if (!parsed.has_value()) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("unsupported assignment output export profile")
+                        .ctx("outputExportProfile", token)
+                );
+            }
+            return *parsed;
+        }
+
         mathfp::Expected<std::optional<std::string>> optional_string_at(
               const Object&    obj
             , std::string_view key
@@ -1152,6 +1165,33 @@ namespace timetable::infra::params_txt::detail {
 
             MATHFP_TRY_LET(
                   std::optional<std::size_t>
+                , max_parallel_memory_mb
+                , optional_positive_size_at(
+                      *obj
+                    , "maxParallelMemoryMb"
+                    , "root.searchExecution"
+                  )
+            );
+            if (max_parallel_memory_mb.has_value()) {
+                config.max_parallel_memory_mb = *max_parallel_memory_mb;
+            }
+
+            MATHFP_TRY_LET(
+                  std::optional<std::size_t>
+                , estimated_memory_mb_per_parallel_batch
+                , optional_positive_size_at(
+                      *obj
+                    , "estimatedMemoryMbPerParallelBatch"
+                    , "root.searchExecution"
+                  )
+            );
+            if (estimated_memory_mb_per_parallel_batch.has_value()) {
+                config.estimated_memory_mb_per_parallel_batch =
+                    *estimated_memory_mb_per_parallel_batch;
+            }
+
+            MATHFP_TRY_LET(
+                  std::optional<std::size_t>
                 , max_od_day_label_representatives_per_state
                 , optional_positive_size_at(
                       *obj
@@ -1206,6 +1246,25 @@ namespace timetable::infra::params_txt::detail {
             AssignmentExecutionConfig config{
                 .calculate_assignment = calculate_assignment
             };
+            MATHFP_TRY_LET(
+                  std::optional<std::string>
+                , output_export_profile_token
+                , optional_string_at(
+                      *base_para
+                    , "outputExportProfile"
+                    , "root.basePara"
+                  )
+            );
+            if (output_export_profile_token.has_value()) {
+                MATHFP_TRY_LET(
+                      AssignmentOutputExportProfile
+                    , profile
+                    , parse_assignment_output_export_profile_token(
+                          *output_export_profile_token
+                      )
+                );
+                config.output_export_profile = profile;
+            }
             MATHFP_TRY(validate_assignment_execution_config(config));
             return config;
         }

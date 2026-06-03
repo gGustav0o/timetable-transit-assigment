@@ -25,7 +25,9 @@
 #include <utility>
 #include <vector>
 
+#include <boost/container/small_vector.hpp>
 #include <boost/container_hash/hash.hpp>
+#include <boost/intrusive_ptr.hpp>
 #include <boost/unordered/unordered_flat_map.hpp>
 
 #include <mathfp/core/error.hpp>
@@ -182,6 +184,11 @@ namespace timetable::domain::assignment {
 
         inline constexpr std::size_t kMaxTimedSupportEnvelopeLabels = 8u;
 
+        using TimedSupportLabelVector = boost::container::small_vector<
+              TimedSupportLabel
+            , kMaxTimedSupportEnvelopeLabels
+        >;
+
         struct TimedSupportEnvelopeKey final {
             std::optional<StopOccurrenceKey> last_timed_occurrence{};
             std::optional<LineId>            last_line{};
@@ -191,7 +198,7 @@ namespace timetable::domain::assignment {
 
         struct TimedSupportEnvelope final {
             TimedSupportEnvelopeKey      key{};
-            std::vector<TimedSupportLabel> labels{};
+            TimedSupportLabelVector      labels{};
 
             bool operator==(const TimedSupportEnvelope&) const = default;
         };
@@ -248,26 +255,44 @@ namespace timetable::domain::assignment {
             };
         }
 
+        struct OdDaySupportPrefixNode;
+
+        void intrusive_ptr_add_ref(const OdDaySupportPrefixNode* node) noexcept;
+        void intrusive_ptr_release(const OdDaySupportPrefixNode* node) noexcept;
+
+        using OdDaySupportPrefix = boost::intrusive_ptr<const OdDaySupportPrefixNode>;
+
         struct OdDaySupportPrefixNode final {
-            std::shared_ptr<const OdDaySupportPrefixNode> parent{};
-            ConnectionSegmentId                          segment{};
-            std::size_t                                  length{};
+            mutable std::size_t ref_count{};
+            OdDaySupportPrefix  parent{};
+            ConnectionSegmentId segment{};
+            std::size_t         length{};
         };
 
-        using OdDaySupportPrefix = std::shared_ptr<const OdDaySupportPrefixNode>;
+        void intrusive_ptr_add_ref(const OdDaySupportPrefixNode* node) noexcept {
+            ++node->ref_count;
+        }
+
+        void intrusive_ptr_release(const OdDaySupportPrefixNode* node) noexcept {
+            --node->ref_count;
+            if (node->ref_count == 0u) {
+                delete node;
+            }
+        }
 
         [[nodiscard]] OdDaySupportPrefix append_od_day_support_segment(
               OdDaySupportPrefix prefix
             , ConnectionSegmentId segment
         ) {
             const auto next_length = prefix != nullptr ? prefix->length + 1u : 1u;
-            return std::make_shared<OdDaySupportPrefixNode>(
-                OdDaySupportPrefixNode{
-                      .parent  = std::move(prefix)
-                    , .segment = segment
-                    , .length  = next_length
-                }
-            );
+            return OdDaySupportPrefix{
+                  new OdDaySupportPrefixNode{
+                        .parent  = std::move(prefix)
+                      , .segment = segment
+                      , .length  = next_length
+                  }
+                , true
+            };
         }
 
         [[nodiscard]] std::vector<ConnectionSegmentId> materialize_od_day_support_segments(
@@ -301,6 +326,11 @@ namespace timetable::domain::assignment {
 
             bool operator==(const PaperConnectionLabelId&) const = default;
         };
+
+        using PaperConnectionLabelVector = boost::container::small_vector<
+              PaperConnectionLabelId
+            , 1
+        >;
 
         struct SearchBranch final {
             SearchPartialTrace      trace{};
@@ -612,7 +642,7 @@ namespace timetable::domain::assignment {
          */
         struct PaperNodeConnectionSet final {
             SearchPruningMetricVector metrics{};
-            std::vector<PaperConnectionLabelId> labels{};
+            PaperConnectionLabelVector labels{};
             SearchPruningSummary      summary{};
         };
 
@@ -1174,6 +1204,43 @@ namespace timetable::domain::assignment {
         constexpr std::size_t kInitialTaskBranchReserve = 4'096;
         constexpr auto kSearchWallClockHeartbeatInterval =
             std::chrono::seconds{ 30 };
+
+        struct LevelFrontierBuffer final {
+            std::vector<std::size_t> entries{};
+            std::size_t              head{};
+
+            [[nodiscard]] bool empty() const noexcept {
+                return head >= entries.size();
+            }
+
+            [[nodiscard]] std::size_t size() const noexcept {
+                return empty() ? 0u : entries.size() - head;
+            }
+
+            [[nodiscard]] std::size_t front() const {
+                return entries.at(head);
+            }
+
+            void pop_front() noexcept {
+                if (head < entries.size()) {
+                    ++head;
+                }
+            }
+
+            void push_back(std::size_t value) {
+                entries.push_back(value);
+            }
+
+            void clear() noexcept {
+                entries.clear();
+                head = 0u;
+            }
+
+            void swap(LevelFrontierBuffer& rhs) noexcept {
+                entries.swap(rhs.entries);
+                std::swap(head, rhs.head);
+            }
+        };
 
         const RouteSegment& route_segment_at(
               const PreprocessedNetwork& network
@@ -2882,15 +2949,16 @@ namespace timetable::domain::assignment {
               const SearchBranch&      branch
             , const SearchCostContext& search_cost
         ) {
-            if (branch.metrics.departure.has_value()
-                && branch.metrics.current_time.has_value()) {
-                return make_partial_pruning_metrics(branch, search_cost);
+            const auto& metrics = branch.metrics;
+            if (metrics.departure.has_value()
+                && metrics.current_time.has_value()) {
+                return make_partial_pruning_metrics(metrics, search_cost);
             }
 
-            const auto elapsed = partial_walk_time(branch.metrics);
+            const auto elapsed = partial_walk_time(metrics);
             const auto cost_components = SearchCostComponents{
-                  .base = partial_impedance_components(branch.metrics)
-                , .capacity_exposure = branch.metrics.capacity_exposure
+                  .base = partial_impedance_components(metrics)
+                , .capacity_exposure = metrics.capacity_exposure
             };
             MATHFP_TRY_LET(
                   double
@@ -2903,8 +2971,39 @@ namespace timetable::domain::assignment {
                 , .arrival      = elapsed
                 , .journey_time = elapsed
                 , .walk_time    = elapsed
-                , .transfers    = branch.metrics.transfers
-                , .fare         = branch.metrics.fare
+                , .transfers    = metrics.transfers
+                , .fare         = metrics.fare
+                , .impedance    = impedance
+            };
+        }
+
+        mathfp::Expected<PartialPruningMetrics> make_day_path_pruning_metrics(
+              const SearchPartialMetrics& metrics
+            , const SearchCostContext&     search_cost
+        ) {
+            if (metrics.departure.has_value()
+                && metrics.current_time.has_value()) {
+                return make_partial_pruning_metrics(metrics, search_cost);
+            }
+
+            const auto elapsed = partial_walk_time(metrics);
+            const auto cost_components = SearchCostComponents{
+                  .base = partial_impedance_components(metrics)
+                , .capacity_exposure = metrics.capacity_exposure
+            };
+            MATHFP_TRY_LET(
+                  double
+                , impedance
+                , search_impedance(cost_components, search_cost)
+            );
+
+            return PartialPruningMetrics{
+                  .departure    = Time{ 0.0 }
+                , .arrival      = elapsed
+                , .journey_time = elapsed
+                , .walk_time    = elapsed
+                , .transfers    = metrics.transfers
+                , .fare         = metrics.fare
                 , .impedance    = impedance
             };
         }
@@ -4167,7 +4266,7 @@ namespace timetable::domain::assignment {
                       .last_timed_occurrence = occurrence_key(line_topology_of(route_segment)->to)
                     , .last_line             = line_of(route_segment)
                   }
-                , .labels = std::vector<TimedSupportLabel>{
+                , .labels = TimedSupportLabelVector{
                       TimedSupportLabel{
                           .connection    = connection.id
                         , .route_segment = connection.route_segment
@@ -4195,7 +4294,7 @@ namespace timetable::domain::assignment {
         }
 
         void retain_timed_support_label(
-              std::vector<TimedSupportLabel>& labels
+              TimedSupportLabelVector& labels
             , TimedSupportLabel               label
         ) {
             if (std::find(labels.begin(), labels.end(), label) != labels.end()) {
@@ -4210,7 +4309,7 @@ namespace timetable::domain::assignment {
 
         [[nodiscard]] TimedSupportEnvelope make_timed_support_envelope(
               const RouteSegment&                    route_segment
-            , std::vector<TimedSupportLabel>          labels
+            , TimedSupportLabelVector                 labels
         ) {
             std::sort(labels.begin(), labels.end(), better_timed_support_label);
             labels.erase(
@@ -4236,7 +4335,7 @@ namespace timetable::domain::assignment {
             , const TransferLimits&      limits
             , const SearchTimeDomain*    first_departure_domain
         ) {
-            std::vector<TimedSupportLabel> feasible_labels;
+            TimedSupportLabelVector feasible_labels;
             feasible_labels.reserve(
                 std::min(
                       support.support_labels.size()
@@ -5021,12 +5120,10 @@ namespace timetable::domain::assignment {
                 );
             }
 
-            auto prefix_for_pruning = SearchBranch{};
-            prefix_for_pruning.metrics = metrics;
             MATHFP_TRY_LET(
                   PartialPruningMetrics
                 , pruning_metrics
-                , make_day_path_pruning_metrics(prefix_for_pruning, search_cost)
+                , make_day_path_pruning_metrics(metrics, search_cost)
             );
             return PaperConnectionPrefixEvaluation{
                   .kind = PaperConnectionPrefixKind::ConnectionPrefix
@@ -5231,7 +5328,21 @@ namespace timetable::domain::assignment {
                     )) {
                         return;
                     }
-                    visitor(SearchSuccessor{ .connection = connection_id });
+                    const auto& connection = connection_segment_at(network, connection_id);
+                    const auto& route_segment = route_segment_at(
+                          network
+                        , connection.route_segment
+                    );
+                    visitor(
+                        SearchSuccessor{
+                              .connection = connection_id
+                            , .support_envelope =
+                                propagate_timed_support_envelope(
+                                      connection
+                                    , route_segment
+                                )
+                        }
+                    );
                 };
                 for_each_timed_successor(
                       network
@@ -5791,8 +5902,8 @@ namespace timetable::domain::assignment {
         mathfp::Expected<PaperConnectionRetentionDecision> retain_paper_connection_tree_node(
               PaperConnectionNodeKey            node
             , PartialPruningMetrics             metrics
-            , PaperConnectionLabelId            label
-            , const PaperConnectionLabelRegistry& label_registry
+            , std::optional<PaperConnectionLabelId> parent_label
+            , PaperConnectionLabelRegistry&      label_registry
             , TreePartialRetention&             retention
             , const SearchParams&               params
             , const SearchPruningExecutionPlan& pruning_execution
@@ -5807,6 +5918,10 @@ namespace timetable::domain::assignment {
             ++pruning_stats.evaluated_candidates;
             auto it = retention.paper_connections.find(node);
             if (it == retention.paper_connections.end()) {
+                const auto label = allocate_paper_connection_label(
+                      label_registry
+                    , parent_label
+                );
                 std::vector<PaperConnectionLabelId> removed_labels;
                 if (stores_search_pruning_metrics(pruning_execution)) {
                     insert_pruning_metrics(
@@ -5839,6 +5954,10 @@ namespace timetable::domain::assignment {
                     , label_registry
                 );
             if (it->second.metrics.empty()) {
+                const auto label = allocate_paper_connection_label(
+                      label_registry
+                    , parent_label
+                );
                 std::vector<PaperConnectionLabelId> removed_labels;
                 if (stores_search_pruning_metrics(pruning_execution)) {
                     insert_pruning_metrics(
@@ -5883,11 +6002,14 @@ namespace timetable::domain::assignment {
                 }
                 return PaperConnectionRetentionDecision{
                       .pruning = pruning_decision
-                    , .label = label
                     , .removed_stale_labels = removed_stale_labels
                 };
             }
             if (stores_search_pruning_metrics(pruning_execution)) {
+                const auto label = allocate_paper_connection_label(
+                      label_registry
+                    , parent_label
+                );
                 std::vector<PaperConnectionLabelId> removed_labels;
                 insert_pruning_metrics(
                       retention.paper_connections
@@ -5906,14 +6028,18 @@ namespace timetable::domain::assignment {
                     , .removed_stale_labels = removed_stale_labels
                 };
             } else {
+                const auto label = allocate_paper_connection_label(
+                      label_registry
+                    , parent_label
+                );
                 ++pruning_stats.skipped_insertions;
+                ++pruning_stats.accepted_candidates;
+                return PaperConnectionRetentionDecision{
+                      .pruning = pruning_decision
+                    , .label = label
+                    , .removed_stale_labels = removed_stale_labels
+                };
             }
-            ++pruning_stats.accepted_candidates;
-            return PaperConnectionRetentionDecision{
-                  .pruning = pruning_decision
-                , .label = label
-                , .removed_stale_labels = removed_stale_labels
-            };
         }
 
         [[nodiscard]] bool same_pruning_metrics(
@@ -7811,8 +7937,8 @@ namespace timetable::domain::assignment {
                 );
             }
 
-            std::deque<std::size_t> current_frontier;
-            std::deque<std::size_t> next_frontier;
+            LevelFrontierBuffer current_frontier;
+            LevelFrontierBuffer next_frontier;
             const auto root_branch_index = append_branch(
                 branches
               , SearchBranch{
@@ -8073,10 +8199,12 @@ namespace timetable::domain::assignment {
             constexpr auto kOdDayFrontierCompactionMinSize    = std::size_t{ 4096u };
             auto c_y_removed_since_frontier_compaction = std::size_t{ 0u };
             auto compact_frontier_queue =
-                [&](std::deque<std::size_t>& queue, BranchPhaseStats& phase_stats) {
-                    auto kept = std::deque<std::size_t>{};
+                [&](LevelFrontierBuffer& queue, BranchPhaseStats& phase_stats) {
+                    auto kept = std::vector<std::size_t>{};
+                    kept.reserve(queue.size());
                     auto removed = std::size_t{ 0u };
-                    for (const auto queued_index : queue) {
+                    for (auto i = queue.head; i < queue.entries.size(); ++i) {
+                        const auto queued_index = queue.entries[i];
                         auto& slot = branches.at(queued_index);
                         if (slot.branch == nullptr) {
                             ++removed;
@@ -8098,7 +8226,8 @@ namespace timetable::domain::assignment {
                         );
                         ++removed;
                     }
-                    queue.swap(kept);
+                    queue.entries = std::move(kept);
+                    queue.head = 0u;
                     return removed;
                 };
             auto compact_od_day_frontiers = [&](const char* reason) {
@@ -8410,14 +8539,10 @@ namespace timetable::domain::assignment {
                                 return;
                             }
 
-                            auto paper_label = allocate_paper_connection_label(
-                                  paper_label_registry
-                                , branch.paper_connection_label
-                            );
                             auto pruning_decision = retain_paper_connection_tree_node(
                                   paper_prefix->connection_candidate->node
                                 , std::move(paper_prefix->connection_candidate->metrics)
-                                , paper_label
+                                , branch.paper_connection_label
                                 , paper_label_registry
                                 , tree_partial_retention
                                 , params
@@ -8431,10 +8556,6 @@ namespace timetable::domain::assignment {
                                 return;
                             }
                             if (!pruning_decision->accepted()) {
-                                deactivate_paper_connection_label(
-                                      paper_label_registry
-                                    , paper_label
-                                );
                                 ++stats.rejected_dominance_or_tolerance;
                                 return;
                             }
@@ -9646,6 +9767,11 @@ namespace timetable::domain::assignment {
                     mathfp::invalid_arg("search execution maxOdDayLabelRepresentativesPerState must be positive")
                 );
             }
+            if (config.estimated_memory_mb_per_parallel_batch == 0u) {
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("search execution estimatedMemoryMbPerParallelBatch must be positive")
+                );
+            }
             if (config.mode == SearchExecutionMode::IntervalLocal
                 && config.result_projection != SearchResultProjection::DemandTasks) {
                 return mathfp::unexpected(
@@ -10012,22 +10138,32 @@ namespace timetable::domain::assignment {
 
         [[nodiscard]] std::size_t search_batch_worker_count(
               std::size_t batch_count
-            , std::size_t max_parallel_batches
+            , const SearchExecutionConfig& config
         ) noexcept {
-            if (batch_count == 0u || max_parallel_batches == 0u) {
+            if (batch_count == 0u || config.max_parallel_batches == 0u) {
                 return 0u;
             }
             const auto hardware = std::max(
                   1u
                 , std::thread::hardware_concurrency()
             );
-            return std::min(
+            auto worker_count = std::min(
                   batch_count
                 , std::min<std::size_t>(
                       static_cast<std::size_t>(hardware)
-                    , max_parallel_batches
+                    , config.max_parallel_batches
                   )
             );
+            if (config.max_parallel_memory_mb.has_value()
+                && config.estimated_memory_mb_per_parallel_batch > 0u) {
+                const auto memory_limited_workers = std::max<std::size_t>(
+                      1u
+                    , *config.max_parallel_memory_mb
+                        / config.estimated_memory_mb_per_parallel_batch
+                );
+                worker_count = std::min(worker_count, memory_limited_workers);
+            }
+            return worker_count;
         }
 
         [[nodiscard]] ConnectionSearchResult materialize_demand_task_search_result(
@@ -10729,14 +10865,16 @@ namespace timetable::domain::assignment {
 
         const auto worker_count = search_batch_worker_count(
               batches.size()
-            , execution.config.max_parallel_batches
+            , execution.config
         );
         log(
             fmt::format(
-                  "all-zone search parallel execution: workers={} batches={} max_parallel_batches={} fast_fail=enabled"
+                  "all-zone search parallel execution: workers={} batches={} max_parallel_batches={} max_parallel_memory_mb={} estimated_memory_mb_per_parallel_batch={} fast_fail=enabled"
                 , worker_count
                 , batches.size()
                 , execution.config.max_parallel_batches
+                , format_optional_size_limit(execution.config.max_parallel_memory_mb)
+                , execution.config.estimated_memory_mb_per_parallel_batch
             )
             , LogLevel::Info
         );
@@ -11058,12 +11196,14 @@ namespace timetable::domain::assignment {
         ));
         log(
             fmt::format(
-                  "OD-day computational profile: contour=paper_branch_and_bound production_carrier=compact_connection_segment_prefix branch_projection_state=none reachability_prefilter=disabled_not_built reachability_masks=disabled supply_graph=preprocessed_connection_segment_index frontier=connection_segment_level_queues frontier_sync=label_registry_with_compaction successor_generation=single_paper_connection_segment_before_visitor temporal_suitability=timed_window_walk_always_available transfer_walk_successor=first_class_connection_segment composite_transfer_walk=disabled_in_production walk_successor_lookup=lazy_phase_specific walk_indices=access_transfer_egress tree_label_scope=network_node_c_y c_y_key=physical_y c_y_carrier=physical_node_only c_y_applies_to=all_connection_segments_before_sink dominance=dep_arr_imp_nt tolerance=node_local path_identity=compact_prefix od_signature=route_stop_line_pattern structural_day_contour=diagnostics_only trees={} destinations={} time_horizon=service_day result=post_layer_day_path_support_sets split_interval_admissibility=support_set split_load=lazy_support_envelope primary_load=elementary_segment_loads max_parallel_batches={}"
+                  "OD-day computational profile: contour=paper_branch_and_bound production_carrier=compact_connection_segment_prefix branch_projection_state=none reachability_prefilter=disabled_not_built reachability_masks=disabled supply_graph=preprocessed_connection_segment_index frontier=connection_segment_level_queues frontier_sync=label_registry_with_compaction successor_generation=single_paper_connection_segment_before_visitor temporal_suitability=timed_window_walk_always_available transfer_walk_successor=first_class_connection_segment composite_transfer_walk=disabled_in_production walk_successor_lookup=lazy_phase_specific walk_indices=access_transfer_egress tree_label_scope=network_node_c_y c_y_key=physical_y c_y_carrier=physical_node_only c_y_applies_to=all_connection_segments_before_sink dominance=dep_arr_imp_nt tolerance=node_local path_identity=compact_prefix od_signature=route_stop_line_pattern structural_day_contour=diagnostics_only trees={} destinations={} time_horizon=service_day result=post_layer_day_path_support_sets split_interval_admissibility=support_set split_load=lazy_support_envelope primary_load=elementary_segment_loads max_parallel_batches={} max_parallel_memory_mb={} estimated_memory_mb_per_parallel_batch={}"
                 , tree_jobs.size()
                 , execution.config.destination_scope == SearchDestinationScope::DeclaredZones
                     ? execution.declared_zones.size()
                     : batch_execution_diagnostics.max_completion_targets_per_tree
                 , execution.config.max_parallel_batches
+                , format_optional_size_limit(execution.config.max_parallel_memory_mb)
+                , execution.config.estimated_memory_mb_per_parallel_batch
             )
             , LogLevel::Info
         );
@@ -11094,17 +11234,28 @@ namespace timetable::domain::assignment {
             )
             , LogLevel::Info
         );
+        log(
+            fmt::format(
+                  "OD-day paper compliance: paper_reference=connection_segment_tree one_tree_per_origin={} trees={} expected_trees={} service_period=day demand_intervals_in_tree=no destination_in_expansion=no successor_order=lookup_then_feasibility_then_c_y_then_enqueue c_y_scope=node_local c_y_key=physical_y c_y_applies_to=all_connection_segments day_path_layer=post_layer production_result=day_path_support_sets raw_completed_connections_retained=no"
+                , tree_jobs.size() == expected_tree_count ? "true" : "false"
+                , tree_jobs.size()
+                , expected_tree_count
+            )
+            , LogLevel::Info
+        );
 
         const auto worker_count = search_batch_worker_count(
               batches.size()
-            , execution.config.max_parallel_batches
+            , execution.config
         );
         log(
             fmt::format(
-                  "OD-day search parallel execution: workers={} batches={} max_parallel_batches={} label_representatives_per_state={} fast_fail=enabled"
+                  "OD-day search parallel execution: workers={} batches={} max_parallel_batches={} max_parallel_memory_mb={} estimated_memory_mb_per_parallel_batch={} label_representatives_per_state={} merge=origin_sink_associative fast_fail=enabled"
                 , worker_count
                 , batches.size()
                 , execution.config.max_parallel_batches
+                , format_optional_size_limit(execution.config.max_parallel_memory_mb)
+                , execution.config.estimated_memory_mb_per_parallel_batch
                 , od_day_label_retention_config.max_representatives_per_label
             )
             , LogLevel::Info
