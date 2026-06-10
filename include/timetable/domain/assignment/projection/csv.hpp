@@ -31,10 +31,15 @@ namespace timetable::domain::assignment::projection {
         ZoneId                       destination{};
         std::size_t                  search_connection_count{};
         std::size_t                  chosen_connection_count{};
+        std::size_t                  structural_day_path_count{};
+        std::size_t                  timed_support_alternative_count{};
+        std::size_t                  interval_admissible_split_alternative_count{};
+        std::size_t                  unassigned_demand_count{};
         std::size_t                  interval_count{};
         std::size_t                  share_count{};
         double                       total_demand_passengers{};
         double                       assigned_passengers{};
+        double                       unassigned_passengers{};
         std::optional<Time>          fastest_journey_time{};
         std::optional<double>        lowest_fare{};
         std::optional<TransferCount> minimum_transfers{};
@@ -220,9 +225,14 @@ namespace timetable::domain::assignment::projection {
         std::size_t                search_connection_count{};
         std::size_t                chosen_connection_count{};
         std::size_t                demand_share_count{};
+        std::size_t                structural_day_path_count{};
+        std::size_t                timed_support_alternative_count{};
+        std::size_t                interval_admissible_split_alternative_count{};
+        std::size_t                unassigned_demand_count{};
         std::size_t                skim_entry_count{};
         double                     total_demand_passengers{};
         double                     assigned_passengers{};
+        double                     unassigned_passengers{};
         std::optional<double>      runtime_seconds{};
     };
 

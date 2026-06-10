@@ -54,6 +54,11 @@ namespace timetable::domain::assignment {
      * - no tolerance filtering has been applied yet, because final tolerance
      *   bounds depend on task-final minima.
      */
+    //tex:
+    // This is the bridge between search and connection choice. During search it
+    // retains complete OD candidates exactly; final choice tolerances are delayed
+    // until all retained complete connections for the OD task are known, because
+    // their bounds depend on $$\min IMP,\min JT,\min NT$$ over the whole set.
     struct CompleteConnectionRetention final {
         std::vector<CompleteConnectionAlternative> alternatives{};
     };

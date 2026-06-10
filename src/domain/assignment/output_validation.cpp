@@ -768,16 +768,27 @@ namespace timetable::domain::assignment::detail {
         std::size_t search_count = 0;
         std::size_t chosen_count = 0;
         std::size_t share_count  = 0;
+        std::size_t structural_day_path_count = 0;
+        std::size_t timed_support_alternative_count = 0;
+        std::size_t interval_admissible_split_alternative_count = 0;
+        std::size_t unassigned_demand_count = 0;
 
         mathfp::CompensatedSum<double> total_demand;
         mathfp::CompensatedSum<double> assigned;
+        mathfp::CompensatedSum<double> unassigned;
 
         for (const auto& od_result : output.od_results) {
             MATHFP_TRY(validate_od_result_semantics(od_result));
             search_count += od_result.search_connection_count;
             chosen_count += od_result.chosen_connection_count;
+            structural_day_path_count += od_result.paper_split.structural_day_path_count;
+            timed_support_alternative_count += od_result.paper_split.timed_support_alternative_count;
+            interval_admissible_split_alternative_count +=
+                od_result.paper_split.interval_admissible_split_alternative_count;
+            unassigned_demand_count += od_result.paper_split.unassigned_demand_count;
             total_demand.add(od_result.total_demand_passengers);
             assigned.add(od_result.assigned_passengers);
+            unassigned.add(od_result.paper_split.unassigned_passengers);
             for (const auto& interval : od_result.intervals) {
                 share_count += interval.shares.size();
             }
@@ -801,8 +812,14 @@ namespace timetable::domain::assignment::detail {
         if (output.summary.search_connection_count != search_count
             || output.summary.chosen_connection_count != chosen_count
             || output.summary.demand_share_count != share_count
+            || output.summary.structural_day_path_count != structural_day_path_count
+            || output.summary.timed_support_alternative_count != timed_support_alternative_count
+            || output.summary.interval_admissible_split_alternative_count
+                != interval_admissible_split_alternative_count
+            || output.summary.unassigned_demand_count != unassigned_demand_count
             || !almost_equal_scalar(output.summary.total_demand_passengers, total_demand.value())
-            || !almost_equal_scalar(output.summary.assigned_passengers, assigned.value())) {
+            || !almost_equal_scalar(output.summary.assigned_passengers, assigned.value())
+            || !almost_equal_scalar(output.summary.unassigned_passengers, unassigned.value())) {
             return mathfp::unexpected(
                 mathfp::internal_error("assignment output summary disagrees with OD aggregates")
                     .ctx("declared_search_connections", static_cast<std::int64_t>(output.summary.search_connection_count))
@@ -811,10 +828,46 @@ namespace timetable::domain::assignment::detail {
                     .ctx("actual_chosen_connections"  , static_cast<std::int64_t>(chosen_count))
                     .ctx("declared_share_count"       , static_cast<std::int64_t>(output.summary.demand_share_count))
                     .ctx("actual_share_count"         , static_cast<std::int64_t>(share_count))
+                    .ctx(
+                          "declared_structural_day_paths"
+                        , static_cast<std::int64_t>(output.summary.structural_day_path_count)
+                      )
+                    .ctx(
+                          "actual_structural_day_paths"
+                        , static_cast<std::int64_t>(structural_day_path_count)
+                      )
+                    .ctx(
+                          "declared_timed_support_alternatives"
+                        , static_cast<std::int64_t>(output.summary.timed_support_alternative_count)
+                      )
+                    .ctx(
+                          "actual_timed_support_alternatives"
+                        , static_cast<std::int64_t>(timed_support_alternative_count)
+                      )
+                    .ctx(
+                          "declared_interval_admissible_split_alternatives"
+                        , static_cast<std::int64_t>(
+                              output.summary.interval_admissible_split_alternative_count
+                          )
+                      )
+                    .ctx(
+                          "actual_interval_admissible_split_alternatives"
+                        , static_cast<std::int64_t>(interval_admissible_split_alternative_count)
+                      )
+                    .ctx(
+                          "declared_unassigned_demand_count"
+                        , static_cast<std::int64_t>(output.summary.unassigned_demand_count)
+                      )
+                    .ctx(
+                          "actual_unassigned_demand_count"
+                        , static_cast<std::int64_t>(unassigned_demand_count)
+                      )
                     .ctx("declared_total_demand"      , output.summary.total_demand_passengers)
                     .ctx("actual_total_demand"        , total_demand.value())
                     .ctx("declared_assigned"          , output.summary.assigned_passengers)
                     .ctx("actual_assigned"            , assigned.value())
+                    .ctx("declared_unassigned"        , output.summary.unassigned_passengers)
+                    .ctx("actual_unassigned"          , unassigned.value())
             );
         }
 

@@ -60,11 +60,10 @@ namespace timetable::domain::assignment {
         using NodeMetricSet         = SearchPruningMetricSet;
         using SearchNodeKey         = SearchPruningStateKey;
 
-        /*
-         * Paper C_y identity. This key is intentionally only the physical
-         * network node y; phase, path identity and timed support stay in the
-         * branch carrier and must not split the paper node-local connection set.
-         */
+        //tex:
+        // Paper $$C_y$$ identity. This key is intentionally only the physical
+        // network node $$y$$; phase, path identity and timed support stay in the
+        // branch carrier and must not split the node-local connection set.
         struct PaperConnectionNodeKey final {
             EndpointKey physical{};
 
@@ -150,6 +149,11 @@ namespace timetable::domain::assignment {
          * exogenous load snapshot for capacity-aware search; it is not a
          * post-assignment overload assessment.
          */
+        //tex:
+        // These are the incrementally maintained characteristics of a partial
+        // connection $$c_y$$. The algorithm extends $$c_y$$ by whole connection
+        // segments, so tree depth is controlled by the number of ride/transfer
+        // events while width reflects service frequency.
         struct SearchPartialMetrics final {
             std::optional<Time> departure{};
             std::optional<Time> current_time{};
@@ -332,6 +336,12 @@ namespace timetable::domain::assignment {
             , 1
         >;
 
+        //tex:
+        // One SearchBranch is one node of the dynamic multi-path connection tree.
+        // Its incoming edge is a whole connection segment: access walk, timed ride,
+        // transfer walk or egress walk. This follows the article's reason for a
+        // shallow tree: connection legs are coarse edges, and feasible depth is
+        // bounded by $$MAXNT$$ plus the necessary walk legs.
         struct SearchBranch final {
             SearchPartialTrace      trace{};
             SearchPartialMetrics    metrics{};
@@ -640,6 +650,11 @@ namespace timetable::domain::assignment {
          * only when its arrival is not later than the candidate arrival, so the
          * relevance scan stops at the first later-arriving label.
          */
+        //tex:
+        // The set $$C_y$$ stores retained partial connections reaching physical
+        // node $$y$$. Its metrics are kept arrival-sorted; a candidate $$c_y^*$$
+        // can be made irrelevant only by some $$c_y\in C_y$$ with
+        // $$ARR(c_y)\le ARR(c_y^*)$$ and no worse retained metric vector.
         struct PaperNodeConnectionSet final {
             SearchPruningMetricVector metrics{};
             PaperConnectionLabelVector labels{};
@@ -2916,6 +2931,11 @@ namespace timetable::domain::assignment {
               const SearchPartialMetrics& metrics
             , const SearchCostContext&     search_cost
         ) {
+            //tex:
+            // Projection from incremental branch state to the paper comparison
+            // vector. For the current prefix $$c_y$$:
+            // $$JT(c_y)=ARR(c_y)-DEP(c_y),\qquad TT(c_y)=TWait(c_y)+TWalk(c_y).$$
+            // The last coordinate is evaluated by SearchCostContext as $$IMP(c_y)$$.
             const auto journey_time = partial_journey_time(metrics);
             const auto cost_components = SearchCostComponents{
                   .base = partial_impedance_components(metrics)
@@ -3735,6 +3755,12 @@ namespace timetable::domain::assignment {
             , const SearchTimeDomain*    first_departure_domain
             , Visitor&&                  visit
         ) {
+            //tex:
+            // Timed successors from physical stop $$x$$ are traversed through
+            // prebuilt departure buckets. For transfers the scanned interval is
+            // $$[ARR(c_x)+MINTWT,\ ARR(c_x)+MAXTWT]$$; for the first boarding it
+            // is the configured service-day departure domain. No route/trip table
+            // scan is needed inside the tree loop.
             auto&& visitor = visit;
             if (physical_from.kind != EndpointKind::Stop) {
                 return;
@@ -3832,13 +3858,24 @@ namespace timetable::domain::assignment {
             if (!current_line || !successor_line) {
                 return false;
             }
+            if (current_line->route != successor_line->route) {
+                return false;
+            }
             if (current_line->to.stop != successor_line->from.stop) {
                 return false;
             }
             if (!branch.trace.last_timed_segment->to_index.has_value() || !successor.from_index.has_value()) {
                 return false;
             }
-            return successor.from_index.value() < branch.trace.last_timed_segment->to_index.value();
+            /*
+             * The paper allows same-line reboarding only on loop lines when an
+             * earlier service trip saves time at the loop intersection. In the
+             * occurrence-aware route model this comparison is meaningful only
+             * inside one route pattern; the boarded vehicle is reached at a later
+             * occurrence of the same physical stop. The route-position axis must
+             * not wrap from the maximal occurrence to the minimal one.
+             */
+            return branch.trace.last_timed_segment->to_index.value() < successor.from_index.value();
         }
 
         std::optional<Time> same_trip_continuation_arrival(
@@ -3873,7 +3910,13 @@ namespace timetable::domain::assignment {
                       network
                     , continuation.route_segment
                 );
-                if (!same_line(*branch.trace.last_timed_route_segment, continuation_route_segment)) {
+                const auto* continuation_line = line_topology_of(continuation_route_segment);
+                const auto* current_line = line_topology_of(*branch.trace.last_timed_route_segment);
+                if (!continuation_line || !current_line) {
+                    continue;
+                }
+                if (continuation_line->line != current_line->line
+                    || continuation_line->route != current_line->route) {
                     continue;
                 }
                 if (continuation.trip != branch.trace.last_timed_segment->trip) {
@@ -3884,6 +3927,69 @@ namespace timetable::domain::assignment {
                 }
                 // Repeated-stop geometry must match the same downstream route
                 // occurrence, not merely the same physical stop.
+                if (continuation.to_index != desired_route_to_index) {
+                    continue;
+                }
+                return continuation.arrival;
+            }
+
+            return std::nullopt;
+        }
+
+        std::optional<Time> same_trip_continuation_arrival_from_label(
+              const PreprocessedNetwork&       network
+            , const DayLevelTimedSupportLabel& label
+            , const ConnectionSegment&         successor
+            , const RouteSegment&              successor_route_segment
+        ) noexcept {
+            if (
+                   !label.trip.has_value()
+                || !label.to_index.has_value()
+                || !successor.to_index.has_value()
+            ) {
+                return std::nullopt;
+            }
+
+            const auto& current_route_segment = route_segment_at(network, label.route_segment);
+            const auto* current_line          = line_topology_of(current_route_segment);
+            const auto* successor_line        = line_topology_of(successor_route_segment);
+            if (!current_line || !successor_line) {
+                return std::nullopt;
+            }
+            if (current_line->line != successor_line->line
+                || current_line->route != successor_line->route) {
+                return std::nullopt;
+            }
+
+            const auto current_stop           = occurrence_key(current_line->to);
+            const auto desired_route_to_index = successor.to_index.value();
+            const auto range                  = timed_bucket_range(network.connection_index, current_stop);
+            if (!range) {
+                return std::nullopt;
+            }
+
+            const auto [start, end] = *range;
+            for (std::size_t i = start; i < end; ++i) {
+                const auto  connection_id              = network.connection_index.timed_order[i];
+                const auto& continuation               = connection_segment_at(network, connection_id);
+                const auto& continuation_route_segment = route_segment_at(
+                      network
+                    , continuation.route_segment
+                );
+                const auto* continuation_line = line_topology_of(continuation_route_segment);
+                if (!continuation_line) {
+                    continue;
+                }
+                if (continuation_line->line != current_line->line
+                    || continuation_line->route != current_line->route) {
+                    continue;
+                }
+                if (continuation.trip != label.trip) {
+                    continue;
+                }
+                if (continuation.from_index != label.to_index) {
+                    continue;
+                }
                 if (continuation.to_index != desired_route_to_index) {
                     continue;
                 }
@@ -3905,6 +4011,56 @@ namespace timetable::domain::assignment {
             const auto continuation_arrival = same_trip_continuation_arrival(
                   branch
                 , network
+                , successor
+                , successor_route_segment
+            );
+            if (!continuation_arrival.has_value() || !successor.arrival.has_value()) {
+                return false;
+            }
+            return successor.arrival->value() < continuation_arrival->value();
+        }
+
+        bool improves_repeated_stop_reboarding_from_label(
+              const PreprocessedNetwork&       network
+            , const SearchBranch&              branch
+            , const DayLevelTimedSupportLabel& label
+            , const ConnectionSegment&         successor
+            , const RouteSegment&              successor_route_segment
+        ) noexcept {
+            if (!branch.metrics.departure.has_value()) {
+                return true;
+            }
+            if (!is_timed_connection(successor)) {
+                return true;
+            }
+
+            const auto& current_route_segment = route_segment_at(network, label.route_segment);
+            const auto* current_line          = line_topology_of(current_route_segment);
+            const auto* successor_line        = line_topology_of(successor_route_segment);
+            if (!current_line || !successor_line) {
+                return true;
+            }
+            if (current_line->line != successor_line->line
+                || current_line->route != successor_line->route) {
+                return true;
+            }
+            if (!label.trip.has_value() || !successor.trip.has_value()
+                || label.trip == successor.trip) {
+                return true;
+            }
+            if (current_line->to.stop != successor_line->from.stop) {
+                return true;
+            }
+            if (!label.to_index.has_value() || !successor.from_index.has_value()) {
+                return true;
+            }
+            if (!(label.to_index.value() < successor.from_index.value())) {
+                return true;
+            }
+
+            const auto continuation_arrival = same_trip_continuation_arrival_from_label(
+                  network
+                , label
                 , successor
                 , successor_route_segment
             );
@@ -4225,6 +4381,13 @@ namespace timetable::domain::assignment {
                               , connection
                               , route_segment
                               , limits
+                          )
+                          && improves_repeated_stop_reboarding_from_label(
+                                network
+                              , branch
+                              , support_label
+                              , connection
+                              , route_segment
                           );
                       }
                 );
@@ -5135,15 +5298,13 @@ namespace timetable::domain::assignment {
         }
 
         struct PaperSuccessorGenerator final {
-            /*
-             * Paper successor contract:
-             * state -> insertable connection segments.
-             *
-             * The generator applies branch phase, temporal lookup windows and
-             * the hard transfer bound before exposing a candidate to C_y. The
-             * later feasibility predicate is intentionally kept as a defensive
-             * invariant for bugs in this lookup layer.
-             */
+            //tex:
+            // Paper successor contract:
+            // $$c_x^*\mapsto\{s^*_{x,y}\mid s^*_{x,y}\ \text{is insertable before }C_y\}.$$
+            // The generator applies branch phase, temporal lookup windows,
+            // same-trip/same-line rules and the hard transfer bound before
+            // exposing a candidate to $$C_y$$. The later feasibility predicate is
+            // retained only as a defensive invariant.
             const PreprocessedNetwork&            network;
             ZoneId                                origin{};
             const ActiveDestinationMembership&    active_destinations;
@@ -5909,12 +6070,13 @@ namespace timetable::domain::assignment {
             , const SearchPruningExecutionPlan& pruning_execution
             , SearchPruningRuntimeStats&        pruning_stats
         ) {
-            /*
-             * Paper C_y retention at the current tree node:
-             * - exact relevance: no known c in C_y dominates by DEP/ARR/IMP/NT;
-             * - tolerance: IMP, JT and NT must be within node-local minima;
-             * - transfer count is additionally bounded by MAXNT.
-             */
+            //tex:
+            // Paper $$C_y$$ retention at the current tree node. A candidate
+            // $$c_y^*=c_x^*+s^*_{x,y}$$ is accepted only if no retained
+            // $$c\in C_y$$ dominates it by $$DEP,ARR,IMP,NT$$ and the node-local
+            // tolerance bounds for $$IMP,JT,NT$$ and $$MAXNT$$ are satisfied.
+            // The map is created per origin batch, so $$C_y$$ contains only
+            // connections that start from the same origin.
             ++pruning_stats.evaluated_candidates;
             auto it = retention.paper_connections.find(node);
             if (it == retention.paper_connections.end()) {
@@ -7939,6 +8101,12 @@ namespace timetable::domain::assignment {
 
             LevelFrontierBuffer current_frontier;
             LevelFrontierBuffer next_frontier;
+            //tex:
+            // The tree is traversed with two frontier buffers. `current_frontier`
+            // is exhausted before `next_frontier` becomes current. In this
+            // implementation the level is transfer-depth oriented: walk legs and
+            // the first boarding stay in the current level, while a later timed
+            // boarding after a transfer moves the branch to the next level.
             const auto root_branch_index = append_branch(
                 branches
               , SearchBranch{
@@ -8922,6 +9090,11 @@ namespace timetable::domain::assignment {
                     );
                     const auto same_level =
                         is_walk_connection(successor) || !branch.metrics.departure.has_value();
+                    //tex:
+                    // Frontier placement follows the transfer-depth level used
+                    // above: always-available walk segments and the first timed
+                    // boarding do not increase $$NT$$, while subsequent timed
+                    // boardings represent the next transfer level.
                     const auto candidate_phase = candidate->trace.phase;
                     const auto candidate_index = append_branch(
                           branches
@@ -11196,7 +11369,7 @@ namespace timetable::domain::assignment {
         ));
         log(
             fmt::format(
-                  "OD-day computational profile: contour=paper_branch_and_bound production_carrier=compact_connection_segment_prefix branch_projection_state=none reachability_prefilter=disabled_not_built reachability_masks=disabled supply_graph=preprocessed_connection_segment_index frontier=connection_segment_level_queues frontier_sync=label_registry_with_compaction successor_generation=single_paper_connection_segment_before_visitor temporal_suitability=timed_window_walk_always_available transfer_walk_successor=first_class_connection_segment composite_transfer_walk=disabled_in_production walk_successor_lookup=lazy_phase_specific walk_indices=access_transfer_egress tree_label_scope=network_node_c_y c_y_key=physical_y c_y_carrier=physical_node_only c_y_applies_to=all_connection_segments_before_sink dominance=dep_arr_imp_nt tolerance=node_local path_identity=compact_prefix od_signature=route_stop_line_pattern structural_day_contour=diagnostics_only trees={} destinations={} time_horizon=service_day result=post_layer_day_path_support_sets split_interval_admissibility=support_set split_load=lazy_support_envelope primary_load=elementary_segment_loads max_parallel_batches={} max_parallel_memory_mb={} estimated_memory_mb_per_parallel_batch={}"
+                  "OD-day computational profile: contour=paper_branch_and_bound production_carrier=compact_connection_segment_prefix branch_projection_state=none reachability_prefilter=disabled_not_built reachability_masks=disabled supply_graph=preprocessed_connection_segment_index frontier=connection_segment_level_queues frontier_sync=label_registry_with_compaction successor_generation=single_paper_connection_segment_before_visitor temporal_suitability=timed_window_walk_always_available transfer_walk_successor=first_class_connection_segment composite_transfer_walk=disabled_in_production walk_successor_lookup=lazy_phase_specific walk_indices=access_transfer_egress tree_label_scope=network_node_c_y c_y_key=physical_y c_y_carrier=physical_node_only c_y_applies_to=all_connection_segments_before_sink dominance=dep_arr_imp_nt tolerance=node_local path_identity=compact_prefix od_signature=route_stop_line_pattern structural_day_contour=diagnostics_only trees={} destinations={} time_horizon=service_day result=post_layer_day_path_support_sets split_contract=paper_connection_split split_interval_admissibility=all_interval_admissible_timed_supports single_best_support=disabled split_load=lazy_support_envelope primary_load=elementary_segment_loads max_parallel_batches={} max_parallel_memory_mb={} estimated_memory_mb_per_parallel_batch={}"
                 , tree_jobs.size()
                 , execution.config.destination_scope == SearchDestinationScope::DeclaredZones
                     ? execution.declared_zones.size()

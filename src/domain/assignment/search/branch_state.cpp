@@ -43,16 +43,27 @@ namespace timetable::domain::assignment {
             return std::get<StopId>(current_to) == std::get<StopId>(candidate_from);
         }
 
+        bool same_line_route(
+              const RouteSegment& current
+            , const RouteSegment& candidate
+        ) noexcept {
+            const auto* current_line  = line_topology_of(current);
+            const auto* candidate_line = line_topology_of(candidate);
+            return current_line != nullptr
+                && candidate_line != nullptr
+                && current_line->line == candidate_line->line
+                && current_line->route == candidate_line->route;
+        }
+
         bool is_repeated_stop_reboarding_transfer(
               const BranchState&       state
             , const ConnectionSegment& candidate
             , const RouteSegment&      candidate_route_segment
         ) noexcept {
-            // TODO: ?
             if (!state.last_segment || !state.last_route_segment) {
                 return false;
             }
-            if (!same_line(*state.last_route_segment, candidate_route_segment)) {
+            if (!same_line_route(*state.last_route_segment, candidate_route_segment)) {
                 return false;
             }
             if (!same_transfer_stop(*state.last_route_segment, candidate_route_segment)) {
@@ -63,9 +74,11 @@ namespace timetable::domain::assignment {
             }
 
             // The same physical stop may appear at multiple route positions on
-            // a line. Reboarding is only meaningful if the candidate boards the
-            // same stop at an earlier route position.
-            return candidate.from_index.value() < state.last_segment->to_index.value();
+            // a loop line. The paper's "earlier service trip" case means that
+            // the boarded vehicle is already farther along the loop at the same
+            // physical stop. Thus the route-position axis stays linear: after
+            // reaching an occurrence, the search must not wrap to an earlier one.
+            return state.last_segment->to_index.value() < candidate.from_index.value();
         }
 
         bool violates_same_line_transfer_rule(
@@ -121,6 +134,15 @@ namespace timetable::domain::assignment {
         , const RouteSegment&      candidate_route_segment
         , const TransferLimits&    limits
     ) noexcept {
+        //tex:
+        // Temporal suitability for a timed successor $$s^*_{x,y}$$ is checked
+        // against the current partial connection $$c^*_x$$:
+        // $$DEP(s^*_{x,y})-ARR(c^*_x)\in[MINTWT,MAXTWT].$$
+        // Walk successors are always available, and the hard bound
+        // $$NT(c^*_y)\le MAXNT$$ is enforced before a new timed transfer is accepted.
+        // Same-line transfer is rejected except for the explicit repeated-stop
+        // reboarding case on the same route pattern, where the candidate boards
+        // a later occurrence of the same physical stop on a loop.
         if (!transfer_count_within_limits(state, candidate, limits)) {
             return false;
         }

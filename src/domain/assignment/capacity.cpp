@@ -78,6 +78,11 @@ namespace timetable::domain::assignment {
                             .ctx("interval_id", share.interval.get())
                     );
                 }
+                /*
+                 * The OD-day split has already selected a concrete timed
+                 * support c in C(a). Elementary loading must use that support,
+                 * not the structural DayPath representative.
+                 */
                 for (const auto& leg : share.day_path_support->ride_legs) {
                     for (auto index = leg.from_index.get(); index < leg.to_index.get(); ++index) {
                         loads[VehicleJourneyItemLoadKey{

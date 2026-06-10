@@ -283,9 +283,18 @@ namespace timetable::infra {
                 , .search_connection_count = output.summary.search_connection_count
                 , .chosen_connection_count = output.summary.chosen_connection_count
                 , .demand_share_count      = output.summary.demand_share_count
+                , .structural_day_path_count =
+                      output.summary.structural_day_path_count
+                , .timed_support_alternative_count =
+                      output.summary.timed_support_alternative_count
+                , .interval_admissible_split_alternative_count =
+                      output.summary.interval_admissible_split_alternative_count
+                , .unassigned_demand_count =
+                      output.summary.unassigned_demand_count
                 , .skim_entry_count        = output.skim_matrix.entries.size()
                 , .total_demand_passengers = output.summary.total_demand_passengers
                 , .assigned_passengers     = output.summary.assigned_passengers
+                , .unassigned_passengers   = output.summary.unassigned_passengers
                 , .runtime_seconds         = output.summary.runtime_seconds
             };
         }
@@ -324,10 +333,19 @@ namespace timetable::infra {
                 , .destination              = od_result.destination
                 , .search_connection_count  = od_result.search_connection_count
                 , .chosen_connection_count  = od_result.chosen_connection_count
+                , .structural_day_path_count =
+                      od_result.paper_split.structural_day_path_count
+                , .timed_support_alternative_count =
+                      od_result.paper_split.timed_support_alternative_count
+                , .interval_admissible_split_alternative_count =
+                      od_result.paper_split.interval_admissible_split_alternative_count
+                , .unassigned_demand_count =
+                      od_result.paper_split.unassigned_demand_count
                 , .interval_count           = od_result.intervals.size()
                 , .share_count              = share_count
                 , .total_demand_passengers  = od_result.total_demand_passengers
                 , .assigned_passengers      = od_result.assigned_passengers
+                , .unassigned_passengers    = od_result.paper_split.unassigned_passengers
                 , .fastest_journey_time     = fastest_journey_time
                 , .lowest_fare              = lowest_fare
                 , .minimum_transfers        = minimum_transfers
@@ -537,8 +555,13 @@ namespace timetable::infra {
                 "    \"search_connection_count\": {},\n"
                 "    \"chosen_connection_count\": {},\n"
                 "    \"demand_share_count\": {},\n"
+                "    \"structural_day_path_count\": {},\n"
+                "    \"timed_support_alternative_count\": {},\n"
+                "    \"interval_admissible_split_alternative_count\": {},\n"
+                "    \"unassigned_demand_count\": {},\n"
                 "    \"total_demand_passengers\": {:.17g},\n"
-                "    \"assigned_passengers\": {:.17g}\n"
+                "    \"assigned_passengers\": {:.17g},\n"
+                "    \"unassigned_passengers\": {:.17g}\n"
                 "  }},\n"
                 "  \"share_summary\": {{\n"
                 "    \"profile\": \"aggregate_only\",\n"
@@ -550,8 +573,13 @@ namespace timetable::infra {
               , output.summary.search_connection_count
               , output.summary.chosen_connection_count
               , output.summary.demand_share_count
+              , output.summary.structural_day_path_count
+              , output.summary.timed_support_alternative_count
+              , output.summary.interval_admissible_split_alternative_count
+              , output.summary.unassigned_demand_count
               , output.summary.total_demand_passengers
               , output.summary.assigned_passengers
+              , output.summary.unassigned_passengers
               , output.summary.demand_share_count
             );
         }
@@ -566,7 +594,11 @@ namespace timetable::infra {
                 "OD pairs:            {}\n"
                 "Search connections:  {}\n"
                 "Chosen connections:  {}\n"
+                "Structural day paths: {}\n"
+                "Timed supports:      {}\n"
+                "C(a) alternatives:   {}\n"
                 "Demand shares:       {}\n"
+                "Unassigned demand:   {}\n"
                 "Share export:        aggregate summary only\n"
                 "Elementary loads:    {}\n"
                 "VISUM segment loads: {}\n"
@@ -575,6 +607,7 @@ namespace timetable::infra {
                 "Overload rows:       {}\n"
                 "Total demand:        {:.3f}\n"
                 "Assigned passengers: {:.3f}\n"
+                "Unassigned demand:   {:.3f}\n"
                 "Note: full path-level JSON, connections.csv, shares.csv rows, and segments.csv are diagnostic-only and are omitted in production aggregate export.\n"
               , output.mode == timetable::domain::AssignmentOutputMode::Calculated
                     ? "calculated"
@@ -586,7 +619,11 @@ namespace timetable::infra {
               , output.summary.od_count
               , output.summary.search_connection_count
               , output.summary.chosen_connection_count
+              , output.summary.structural_day_path_count
+              , output.summary.timed_support_alternative_count
+              , output.summary.interval_admissible_split_alternative_count
               , output.summary.demand_share_count
+              , output.summary.unassigned_demand_count
               , output.elementary_segment_loads.items.size()
               , output.loads.segment_loads.size()
               , output.loads.route_total_loads.size()
@@ -594,6 +631,7 @@ namespace timetable::infra {
               , output.vehicle_journey_item_loads.items.size()
               , output.summary.total_demand_passengers
               , output.summary.assigned_passengers
+              , output.summary.unassigned_passengers
             );
         }
 
@@ -620,8 +658,11 @@ namespace timetable::infra {
 
             timetable::infra::progress::log(
                 fmt::format(
-                      "assignment output export: profile=production_aggregate chosen_connections={} full_path_json=diagnostic_only connections_csv=header_only shares_csv=header_only share_summary=od_summary_and_json segments_csv=header_only primary_load=elementary_segment_loads visum_aggregates=route_stop_totals overload=vehicle_journey_item_loads"
+                      "assignment output export: profile=production_aggregate chosen_connections={} structural_day_paths={} timed_support_alternatives={} interval_admissible_Ca_alternatives={} full_path_json=diagnostic_only connections_csv=header_only shares_csv=header_only share_summary=metadata_od_summary_and_json segments_csv=header_only primary_load=elementary_segment_loads visum_aggregates=route_stop_totals overload=vehicle_journey_item_loads"
                     , output.summary.chosen_connection_count
+                    , output.summary.structural_day_path_count
+                    , output.summary.timed_support_alternative_count
+                    , output.summary.interval_admissible_split_alternative_count
                 )
             );
 

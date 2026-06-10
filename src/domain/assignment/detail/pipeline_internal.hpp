@@ -873,6 +873,11 @@ namespace timetable::domain::assignment::detail {
             , std::make_move_iterator(origin_split.unassigned.begin())
             , std::make_move_iterator(origin_split.unassigned.end())
         );
+        target.od_day_paper_split.insert(
+              target.od_day_paper_split.end()
+            , std::make_move_iterator(origin_split.od_day_paper_split.begin())
+            , std::make_move_iterator(origin_split.od_day_paper_split.end())
+        );
     }
 
     inline mathfp::Expected<AssignmentPipelineOdDayCalculatedResult>
@@ -968,7 +973,7 @@ namespace timetable::domain::assignment::detail {
 
         log(
             fmt::format(
-                  "OD-day load contour: production=elementary_segment_loads source=day_path demand_shares={:>8} unassigned_demand={:>8} elementary_loads={:>8} secondary_visum_aggregates=route_stop_totals overload_source=elementary_segment_loads"
+                  "OD-day load contour: production=elementary_segment_loads source=day_path split_contract=paper_connection_split support_selection=all_interval_admissible single_best_support=disabled demand_shares={:>8} unassigned_demand={:>8} elementary_loads={:>8} secondary_visum_aggregates=route_stop_totals overload_source=elementary_segment_loads"
                 , accumulation.split.shares.size()
                 , accumulation.split.unassigned.size()
                 , elementary_segment_loads.items.size()
@@ -977,7 +982,7 @@ namespace timetable::domain::assignment::detail {
         );
         log(
             fmt::format(
-                  "OD-day production output contract: output_profile={} full_path_dump={} primary_output=elementary_segment_loads route_aggregate=visum_secondary stop_aggregate=visum_secondary overload_source=elementary_segment_loads skim_summary={} share_summary_count={}"
+                  "OD-day production output contract: output_profile={} full_path_dump={} primary_output=elementary_segment_loads route_aggregate=visum_secondary stop_aggregate=visum_secondary overload_source=elementary_segment_loads skim_summary={} share_summary_count={} share_summary_scope=metadata_od_summary_json"
                 , to_string(input.execution.output_export_profile)
                 , input.execution.output_export_profile
                     == AssignmentOutputExportProfile::DiagnosticFullPath
@@ -990,7 +995,7 @@ namespace timetable::domain::assignment::detail {
         );
         log(
             fmt::format(
-                  "OD-day assignment result: od_pairs = {:>8}  search_connections = {:>8}  chosen_connections = {:>8}  demand_shares = {:>8}  unassigned_demand = {:>8}  elementary_loads = {:>8}"
+                  "OD-day assignment result: od_pairs = {:>8}  search_connections = {:>8}  structural_day_paths = {:>8}  demand_shares = {:>8}  unassigned_demand = {:>8}  elementary_loads = {:>8}"
                 , accumulation.search_summary.pair_counts.size()
                 , search_connection_count(accumulation.search_summary)
                 , accumulation.choice.connections.size()

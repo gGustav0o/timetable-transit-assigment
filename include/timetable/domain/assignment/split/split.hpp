@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <vector>
@@ -26,6 +27,11 @@ namespace timetable::domain::assignment {
         ZoneId                       destination{};
         IntervalId                   interval{};
         DemandShareAlternativeSource source{ DemandShareAlternativeSource::TimedConnection };
+        /*
+         * In OD-day production source is DayPath for compatibility with the
+         * structural post-layer, but the actual split alternative is the
+         * concrete timed support stored in day_path_support.
+         */
         DayPathSignature             day_path{};
         SearchConnection             connection;
         std::optional<DayPathSupportDescriptor> day_path_support{};
@@ -34,6 +40,13 @@ namespace timetable::domain::assignment {
         double                       independence{};
         double                       split_impedance{};
     };
+
+    //tex:
+    // A split share is the realized mass $$P_a(c)$$ for one demand interval
+    // $$a$$ and one selected connection/support $$c$$:
+    // $$passengers=P_a(c),\qquad probability=P_a(c)/DEM(a).$$
+    // OD-day production may report `source=DayPath`, but the assigned support is
+    // still a concrete timed connection stored in `day_path_support`.
 
     enum class UnassignedDemandReason : std::uint8_t {
           NoChosenAlternatives
@@ -60,9 +73,31 @@ namespace timetable::domain::assignment {
         UnassignedDemandReason reason{ UnassignedDemandReason::NoChosenAlternatives };
     };
 
+    struct OdDayPaperSplitCertificate final {
+        ZoneId     origin{};
+        ZoneId     destination{};
+        IntervalId interval{};
+        std::size_t candidate_support_count{};
+        std::size_t interval_admissible_support_count{};
+        std::size_t interval_rejected_support_count{};
+        std::size_t share_count{};
+        double      demand_passengers{};
+        double      assigned_passengers{};
+        double      unassigned_passengers{};
+        double      probability_sum{};
+        std::optional<UnassignedDemandReason> unassigned_reason{};
+    };
+
+    //tex:
+    // A paper split certificate is the compact runtime witness for one demand
+    // interval $$a$$. It records $$|C(a)|$$ while timed supports are still
+    // present in the split layer, then output can verify conservation without
+    // reconstructing $$C(a)$$ after production memory compaction.
+
     struct DemandSplitResult final {
         std::vector<ConnectionDemandShare> shares{};
         std::vector<UnassignedDemand>      unassigned{};
+        std::vector<OdDayPaperSplitCertificate> od_day_paper_split{};
     };
 
     struct OdDemandInterval final {
@@ -118,7 +153,10 @@ namespace timetable::domain::assignment {
      *
      * This is the required formulation boundary: path alternatives are keyed by
      * OD for the whole service day, while demand rows remain interval-specific
-     * and are applied only at split/load time.
+     * and are applied only at split/load time. The production split follows the
+     * paper-level connection split: for each demand interval it distributes
+     * demand over all interval-admissible timed supports retained under the
+     * OD-day path identities.
      */
     mathfp::Expected<DemandSplitResult> split_demand_over_od_day_paths(
           const OdDayPathChoiceResult&       choice_result

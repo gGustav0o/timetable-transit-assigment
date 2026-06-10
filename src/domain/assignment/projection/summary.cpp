@@ -96,10 +96,19 @@ namespace timetable::domain::assignment::projection {
                 , .destination              = od_result.destination
                 , .search_connection_count  = od_result.search_connection_count
                 , .chosen_connection_count  = od_result.chosen_connection_count
+                , .structural_day_path_count =
+                      od_result.paper_split.structural_day_path_count
+                , .timed_support_alternative_count =
+                      od_result.paper_split.timed_support_alternative_count
+                , .interval_admissible_split_alternative_count =
+                      od_result.paper_split.interval_admissible_split_alternative_count
+                , .unassigned_demand_count =
+                      od_result.paper_split.unassigned_demand_count
                 , .interval_count           = od_result.intervals.size()
                 , .share_count              = 0
                 , .total_demand_passengers  = od_result.total_demand_passengers
                 , .assigned_passengers      = od_result.assigned_passengers
+                , .unassigned_passengers    = od_result.paper_split.unassigned_passengers
                 , .fastest_journey_time     = std::nullopt
                 , .lowest_fare              = std::nullopt
                 , .minimum_transfers        = std::nullopt

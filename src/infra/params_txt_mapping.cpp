@@ -113,6 +113,10 @@ namespace timetable::infra::params_txt::detail {
             double temporal_similarity_scale{};
             double higher_quality_scale{};
             double lower_quality_scale{};
+            double higher_perceived_journey_time_scale{};
+            double lower_perceived_journey_time_scale{};
+            double higher_fare_scale{};
+            double lower_fare_scale{};
         };
 
         struct SkimMatrixFields final {
@@ -258,11 +262,9 @@ namespace timetable::infra::params_txt::detail {
                     }
                 };
 
-                std::array<NumberFieldSpec, 4> split_independence{
+                std::array<NumberFieldSpec, 2> split_independence{
                     NumberFieldSpec{ "gamma"                  , "root.splitPara.Independence", "split_independence.gamma" },
-                    NumberFieldSpec{ "indepMaxDelta"          , "root.splitPara.Independence", "split_independence.temporal_similarity_scale" },
-                    NumberFieldSpec{ "indepHigherQualityCoeff", "root.splitPara.Independence", "split_independence.higher_quality_scale" },
-                    NumberFieldSpec{ "indepLowerQualityCoeff" , "root.splitPara.Independence", "split_independence.lower_quality_scale" }
+                    NumberFieldSpec{ "indepMaxDelta"          , "root.splitPara.Independence", "split_independence.temporal_similarity_scale" }
                 };
 
                 std::array<NumberFieldSpec, 1> split_scalars{
@@ -348,6 +350,12 @@ namespace timetable::infra::params_txt::detail {
         );
 
         mathfp::Expected<bool> bool_like_at(
+              const Object&    obj
+            , std::string_view key
+            , std::string_view path
+        );
+
+        mathfp::Expected<std::optional<double>> optional_number_at(
               const Object&    obj
             , std::string_view key
             , std::string_view path
@@ -461,19 +469,135 @@ namespace timetable::infra::params_txt::detail {
 
         mathfp::Expected<SplitIndependenceFields> read_split_independence_fields(
               const Object&                                         obj
-            , const std::array<NumberFieldSpec, 4>& field_specs
+            , const std::array<NumberFieldSpec, 2>& field_specs
         ) {
             MATHFP_TRY_LET(bool, enabled, bool_like_at(
                 obj, "useIndependence", "root.splitPara.Independence"
             ));
-            MATHFP_TRY_LET(DoubleArray<4>, values, read_number_array(obj, field_specs));
-            const auto [gamma, temporal_similarity_scale, higher_quality_scale, lower_quality_scale] = values;
+            MATHFP_TRY_LET(DoubleArray<2>, values, read_number_array(obj, field_specs));
+            const auto [gamma, temporal_similarity_scale] = values;
+            MATHFP_TRY_LET(
+                  std::optional<double>
+                , higher_quality_scale
+                , optional_number_at(
+                      obj
+                    , "indepHigherQualityCoeff"
+                    , "root.splitPara.Independence"
+                  )
+            );
+            MATHFP_TRY_LET(
+                  std::optional<double>
+                , lower_quality_scale
+                , optional_number_at(
+                      obj
+                    , "indepLowerQualityCoeff"
+                    , "root.splitPara.Independence"
+                  )
+            );
+            MATHFP_TRY_LET(
+                  std::optional<double>
+                , higher_pjt_scale
+                , optional_number_at(
+                      obj
+                    , "indepHigherPjtCoeff"
+                    , "root.splitPara.Independence"
+                  )
+            );
+            MATHFP_TRY_LET(
+                  std::optional<double>
+                , lower_pjt_scale
+                , optional_number_at(
+                      obj
+                    , "indepLowerPjtCoeff"
+                    , "root.splitPara.Independence"
+                  )
+            );
+            MATHFP_TRY_LET(
+                  std::optional<double>
+                , higher_fare_scale
+                , optional_number_at(
+                      obj
+                    , "indepHigherFareCoeff"
+                    , "root.splitPara.Independence"
+                  )
+            );
+            MATHFP_TRY_LET(
+                  std::optional<double>
+                , lower_fare_scale
+                , optional_number_at(
+                      obj
+                    , "indepLowerFareCoeff"
+                    , "root.splitPara.Independence"
+                  )
+            );
+            const auto required_scale = [](
+                  std::optional<double> specific
+                , std::optional<double> legacy
+                , std::string_view      key
+                , std::string_view      fallback_key
+            ) -> mathfp::Expected<double> {
+                if (specific) {
+                    return *specific;
+                }
+                if (legacy) {
+                    return *legacy;
+                }
+                return mathfp::unexpected(
+                    mathfp::invalid_arg("missing split independence scale")
+                        .ctx("key", std::string(key))
+                        .ctx("fallback_key", std::string(fallback_key))
+                );
+            };
+            MATHFP_TRY_LET(
+                  double
+                , higher_pjt
+                , required_scale(
+                      higher_pjt_scale
+                    , higher_quality_scale
+                    , "indepHigherPjtCoeff"
+                    , "indepHigherQualityCoeff"
+                  )
+            );
+            MATHFP_TRY_LET(
+                  double
+                , lower_pjt
+                , required_scale(
+                      lower_pjt_scale
+                    , lower_quality_scale
+                    , "indepLowerPjtCoeff"
+                    , "indepLowerQualityCoeff"
+                  )
+            );
+            MATHFP_TRY_LET(
+                  double
+                , higher_fare
+                , required_scale(
+                      higher_fare_scale
+                    , higher_quality_scale
+                    , "indepHigherFareCoeff"
+                    , "indepHigherQualityCoeff"
+                  )
+            );
+            MATHFP_TRY_LET(
+                  double
+                , lower_fare
+                , required_scale(
+                      lower_fare_scale
+                    , lower_quality_scale
+                    , "indepLowerFareCoeff"
+                    , "indepLowerQualityCoeff"
+                  )
+            );
             return SplitIndependenceFields{
                   .enabled                   = enabled
                 , .gamma                     = gamma
                 , .temporal_similarity_scale = temporal_similarity_scale
-                , .higher_quality_scale      = higher_quality_scale
-                , .lower_quality_scale       = lower_quality_scale
+                , .higher_quality_scale      = higher_quality_scale.value_or(higher_pjt)
+                , .lower_quality_scale       = lower_quality_scale.value_or(lower_pjt)
+                , .higher_perceived_journey_time_scale = higher_pjt
+                , .lower_perceived_journey_time_scale  = lower_pjt
+                , .higher_fare_scale = higher_fare
+                , .lower_fare_scale  = lower_fare
             };
         }
 
@@ -727,6 +851,14 @@ namespace timetable::infra::params_txt::detail {
                           Dimless{ indep_fields.higher_quality_scale }
                     , .lower_quality_scale       =
                           Dimless{ indep_fields.lower_quality_scale }
+                    , .higher_perceived_journey_time_scale =
+                          Dimless{ indep_fields.higher_perceived_journey_time_scale }
+                    , .lower_perceived_journey_time_scale =
+                          Dimless{ indep_fields.lower_perceived_journey_time_scale }
+                    , .higher_fare_scale =
+                          Dimless{ indep_fields.higher_fare_scale }
+                    , .lower_fare_scale =
+                          Dimless{ indep_fields.lower_fare_scale }
                 }
             );
         }
@@ -828,6 +960,25 @@ namespace timetable::infra::params_txt::detail {
             }
             return mathfp::unexpected(
                 mathfp::invalid_arg("expected optional bool or numeric bool encoded as 0 or 1")
+                    .ctx("path", std::string(path))
+                    .ctx("key" , std::string(key))
+            );
+        }
+
+        mathfp::Expected<std::optional<double>> optional_number_at(
+              const Object&    obj
+            , std::string_view key
+            , std::string_view path
+        ) {
+            const auto it = obj.find(std::string(key));
+            if (it == obj.end()) {
+                return std::nullopt;
+            }
+            if (const auto* value = std::get_if<double>(&it->second.data)) {
+                return *value;
+            }
+            return mathfp::unexpected(
+                mathfp::invalid_arg("expected optional number")
                     .ctx("path", std::string(path))
                     .ctx("key" , std::string(key))
             );

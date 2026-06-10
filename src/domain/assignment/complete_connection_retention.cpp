@@ -250,6 +250,12 @@ namespace timetable::domain::assignment {
         if (summary.empty) {
             return false;
         }
+        //tex:
+        // Final connection-choice filtering uses minima over complete OD
+        // alternatives, not over node-local prefixes:
+        // $$IMP(c)\le p_1\min IMP+p_2,\qquad JT(c)\le q_1\min JT+q_2,\qquad NT(c)\le r_1\min NT+r_2.$$
+        // This is where user-defined stricter conditions remove illogical
+        // complete connections after branch-and-bound search.
         return
                metrics.impedance
             <= mathfp::units::as_dimless(tolerances.imp_mult)
@@ -346,6 +352,11 @@ namespace timetable::domain::assignment {
         , const ChoiceTolerances&            tolerances
         , ChoiceRolloutStage                 rollout_stage
     ) {
+        //tex:
+        // Choice finalization re-evaluates the tree's retained complete
+        // connections. `ExactOnly` keeps exact nondominated alternatives; the
+        // full paper choice stage additionally applies OD-local whole-connection
+        // tolerance bounds before materializing the chosen connection set.
         std::vector<CompleteConnectionAlternative> retained;
         retained.reserve(retention.alternatives.size());
 

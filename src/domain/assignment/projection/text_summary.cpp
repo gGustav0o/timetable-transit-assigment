@@ -149,7 +149,11 @@ namespace timetable::domain::assignment::projection {
                   "OD-time tasks:       {}\n"
                   "Search connections:  {}\n"
                   "Chosen connections:  {}\n"
+                  "Structural day paths: {}\n"
+                  "Timed supports:      {}\n"
+                  "C(a) alternatives:   {}\n"
                   "Demand shares:       {}\n"
+                  "Unassigned demand:   {}\n"
                   "Line loads:          {}\n"
                   "Route loads:         {}\n"
                   "Trip loads:          {}\n"
@@ -158,6 +162,7 @@ namespace timetable::domain::assignment::projection {
                   "Skim entries:        {}\n"
                   "Total demand:        {}\n"
                   "Assigned passengers: {}\n"
+                  "Unassigned demand:   {}\n"
                   "Runtime:             {}\n"
                 , format_output_mode(summary.mode)
                 , format_count (summary.totals.od_count)
@@ -166,7 +171,11 @@ namespace timetable::domain::assignment::projection {
                 , format_count (summary.task_count)
                 , format_count (summary.totals.search_connection_count)
                 , format_count (summary.totals.chosen_connection_count)
+                , format_count (summary.totals.structural_day_path_count)
+                , format_count (summary.totals.timed_support_alternative_count)
+                , format_count (summary.totals.interval_admissible_split_alternative_count)
                 , format_count (summary.totals.demand_share_count)
+                , format_count (summary.totals.unassigned_demand_count)
                 , format_count (summary.line_load_count)
                 , format_count (summary.route_load_count)
                 , format_count (summary.trip_load_count)
@@ -175,6 +184,7 @@ namespace timetable::domain::assignment::projection {
                 , format_count (summary.skim_entry_count)
                 , format_scalar(summary.totals.total_demand_passengers)
                 , format_scalar(summary.totals.assigned_passengers)
+                , format_scalar(summary.totals.unassigned_passengers)
                 , format_optional_duration_seconds(summary.totals.runtime_seconds)
             );
         }
@@ -188,7 +198,8 @@ namespace timetable::domain::assignment::projection {
                   std::back_inserter(out)
                 , "\nOD {} -> {}\n"
                   "  search  = {} chosen      = {} intervals    = {} shares  = {}\n"
-                  "  demand  = {} assigned    = {}                               \n"
+                  "  daypath = {} supports    = {} C(a) alts    = {} unassigned = {}\n"
+                  "  demand  = {} assigned    = {} unassigned   = {}\n"
                   "  fastest = {} lowest_fare = {} min_transfers= {}\n"
                 , od.origin     .get()
                 , od.destination.get()
@@ -196,8 +207,13 @@ namespace timetable::domain::assignment::projection {
                 , format_count             (od.chosen_connection_count)
                 , format_count             (od.interval_count)
                 , format_count             (od.share_count)
+                , format_count             (od.structural_day_path_count)
+                , format_count             (od.timed_support_alternative_count)
+                , format_count             (od.interval_admissible_split_alternative_count)
+                , format_count             (od.unassigned_demand_count)
                 , format_scalar            (od.total_demand_passengers)
                 , format_scalar            (od.assigned_passengers)
+                , format_scalar            (od.unassigned_passengers)
                 , format_optional_time     (od.fastest_journey_time)
                 , format_optional_scalar   (od.lowest_fare)
                 , format_optional_transfers(od.minimum_transfers)

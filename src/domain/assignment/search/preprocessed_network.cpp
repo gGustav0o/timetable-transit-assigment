@@ -255,6 +255,11 @@ namespace timetable::domain::assignment {
                 , std::make_move_iterator(walk_segments.begin())
                 , std::make_move_iterator(walk_segments.end())
             );
+            //tex:
+            // Preprocessing follows the paper's two-stage carrier:
+            // first build the route-segment array $$Y$$ from line-route subpaths
+            // and transit-walk shortest paths, then sort $$Y$$ in the canonical
+            // order used by connection-segment construction.
             if (params.stable_ordering) {
                 std::sort(route_segments.begin(), route_segments.end(), route_segment_less);
             }

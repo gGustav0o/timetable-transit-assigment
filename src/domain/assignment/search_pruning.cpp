@@ -173,6 +173,12 @@ namespace timetable::domain::assignment {
         , const SearchPruningMetrics& rhs
     ) noexcept {
         (void)contract;
+        //tex:
+        // Relevance test for known $$c\in C_y$$ against candidate $$c_y^*$$:
+        // $$DEP(c)\ge DEP(c_y^*)\wedge ARR(c)\le ARR(c_y^*)\wedge IMP(c)\le IMP(c_y^*)\wedge NT(c)\le NT(c_y^*).$$
+        // The implementation additionally requires one strict inequality, so
+        // two exactly equal metric vectors are treated as ties rather than one
+        // strictly dominating the other.
         const auto no_worse =
                lhs.departure.value() >= rhs.departure.value()
             && lhs.arrival.value()   <= rhs.arrival.value()
@@ -243,13 +249,12 @@ namespace timetable::domain::assignment {
             return candidate.transfers <= limits.max_transfers;
         }
 
-        /*
-         * Paper node-local tolerance constraints for C_y:
-         * IMP(c*y) <= b1 * min IMP(C_y) + b2,
-         * JT (c*y) <= d1 * min JT (C_y) + d2,
-         * NT (c*y) <= e1 * min NT (C_y) + e2,
-         * NT (c*y) <= MAXNT.
-         */
+        //tex:
+        // Paper node-local tolerance constraints for $$C_y$$:
+        // $$IMP(c^*_y)\le b_1\min_{c\in C_y}IMP(c)+b_2.$$
+        // $$JT(c^*_y)\le d_1\min_{c\in C_y}JT(c)+d_2.$$
+        // $$NT(c^*_y)\le e_1\min_{c\in C_y}NT(c)+e_2.$$
+        // $$NT(c^*_y)\le MAXNT.$$
         return
                candidate.transfers <= limits.max_transfers
             && candidate.impedance

@@ -559,6 +559,12 @@ namespace timetable::domain::preprocessing {
             , const std::vector<Length>& cumulative_length
             , std::int64_t&              next_id
         ) {
+            //tex:
+            // Paper route segment for a transit line:
+            // $$y=(i,j,\ell_{ij},\tau_{ij},\sigma_{\text{line}}).$$
+            // For every ordered pair of stop occurrences $$i<j$$ on the route,
+            // cumulative route metrics give the transfer-free ride segment between
+            // boarding stop $$i$$ and alighting stop $$j$$.
             const auto& route_stops = route.stops;
             std::vector<RouteSegment> segments;
             segments.reserve(route_stops.size() * (route_stops.size() - 1) / 2);
@@ -778,6 +784,12 @@ namespace timetable::domain::preprocessing {
         using WalkGraph      = mathfp::graph::DiGraph<double>;
         using DijkstraResult = mathfp::graph::DijkstraResult<WalkGraph>;
 
+        //tex:
+        // Paper walk segment:
+        // $$y=(i,j,\ell_{ij},\tau_{ij},\sigma_{\text{walk}}),$$
+        // where $$\sigma_{\text{walk}}$$ is a shortest path over links permitted
+        // for transit walks. Running Dijkstra from every walk endpoint produces
+        // all reachable access, egress and transfer-walk route segments.
         for (std::size_t s = 0; s < data.endpoints.size(); ++s) {
             const auto start = mathfp::Index<mathfp::graph::VertexIdTag>(s);
             MATHFP_TRY_LET(

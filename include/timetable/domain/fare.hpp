@@ -16,6 +16,13 @@ namespace timetable::domain {
      * service-level value. Pre-segmented inputs bypass this model and carry fare
      * directly on connection segments.
      */
+    //tex:
+    // The article permits a line fare term
+    // $$SF_i+L_i(c)SD_i.$$
+    // In the raw timetable pipeline this type stores the already evaluated
+    // additive ride fare for a line segment. If a source provides distance-based
+    // fare parameters, their value must be collapsed into the ConnectionSegment
+    // fare before connection metrics sum ride-leg fares.
     struct LineFare final {
         double ride_fare{};
     };

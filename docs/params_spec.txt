@@ -166,7 +166,8 @@ OD-day day-level path set:
 Семантика Independence.useIndependence:
 
   - параметр читается из root.splitPara.Independence.useIndependence и хранится в SplitIndependenceConfig.enabled внутри SplitParams;
-  - если useIndependence = 1, коэффициент IND(c) рассчитывается текущей формулой похожести альтернатив с параметрами gamma, indepMaxDelta, indepHigherQualityCoeff и indepLowerQualityCoeff;
+  - если useIndependence = 1, коэффициент IND(c) рассчитывается по формуле статьи через параметры gamma, indepMaxDelta, indepHigherPjtCoeff, indepLowerPjtCoeff, indepHigherFareCoeff и indepLowerFareCoeff; поля Higher применяются, когда сравниваемое соединение c' лучше базового c по PJT или fare;
+  - старые поля indepHigherQualityCoeff и indepLowerQualityCoeff сохраняются как fallback для старых params.txt: при отсутствии новых полей они используются одновременно для шкал PJT и fare;
   - если useIndependence = 0, чистая функция split_independence(config, alternatives, index) возвращает IND(c) = 1.0 для каждой альтернативы;
   - при IND(c) = 1.0 член log(IND) равен нулю, поэтому independence не влияет на Kirchhoff, Logit и BoxCox веса выбора;
   - output остается стабильным: shares.csv и assignment_output.json по-прежнему содержат поле independence, которое при отключенном флаге равно 1.0;

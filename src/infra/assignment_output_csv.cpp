@@ -232,9 +232,14 @@ namespace timetable::infra {
         writer.text("search_connection_count");
         writer.text("chosen_connection_count");
         writer.text("demand_share_count");
+        writer.text("structural_day_path_count");
+        writer.text("timed_support_alternative_count");
+        writer.text("interval_admissible_split_alternative_count");
+        writer.text("unassigned_demand_count");
         writer.text("skim_entry_count");
         writer.text("total_demand_passengers");
         writer.text("assigned_passengers");
+        writer.text("unassigned_passengers");
         writer.text("runtime_seconds");
         writer.end_row();
 
@@ -245,9 +250,16 @@ namespace timetable::infra {
             writer.integer(static_cast<std::int64_t>(row.search_connection_count));
             writer.integer(static_cast<std::int64_t>(row.chosen_connection_count));
             writer.integer(static_cast<std::int64_t>(row.demand_share_count));
+            writer.integer(static_cast<std::int64_t>(row.structural_day_path_count));
+            writer.integer(static_cast<std::int64_t>(row.timed_support_alternative_count));
+            writer.integer(static_cast<std::int64_t>(
+                row.interval_admissible_split_alternative_count
+            ));
+            writer.integer(static_cast<std::int64_t>(row.unassigned_demand_count));
             writer.integer(static_cast<std::int64_t>(row.skim_entry_count));
             writer.number(row.total_demand_passengers);
             writer.number(row.assigned_passengers);
+            writer.number(row.unassigned_passengers);
             write_optional_double_field(writer, row.runtime_seconds);
             writer.end_row();
         }
@@ -263,10 +275,15 @@ namespace timetable::infra {
         writer.text("destination");
         writer.text("search_connection_count");
         writer.text("chosen_connection_count");
+        writer.text("structural_day_path_count");
+        writer.text("timed_support_alternative_count");
+        writer.text("interval_admissible_split_alternative_count");
+        writer.text("unassigned_demand_count");
         writer.text("interval_count");
         writer.text("share_count");
         writer.text("total_demand_passengers");
         writer.text("assigned_passengers");
+        writer.text("unassigned_passengers");
         writer.text("fastest_journey_time");
         writer.text("lowest_fare");
         writer.text("minimum_transfers");
@@ -277,10 +294,17 @@ namespace timetable::infra {
             write_strong_field(writer, row.destination);
             writer.integer(static_cast<std::int64_t>(row.search_connection_count));
             writer.integer(static_cast<std::int64_t>(row.chosen_connection_count));
+            writer.integer(static_cast<std::int64_t>(row.structural_day_path_count));
+            writer.integer(static_cast<std::int64_t>(row.timed_support_alternative_count));
+            writer.integer(static_cast<std::int64_t>(
+                row.interval_admissible_split_alternative_count
+            ));
+            writer.integer(static_cast<std::int64_t>(row.unassigned_demand_count));
             writer.integer(static_cast<std::int64_t>(row.interval_count));
             writer.integer(static_cast<std::int64_t>(row.share_count));
             writer.number(row.total_demand_passengers);
             writer.number(row.assigned_passengers);
+            writer.number(row.unassigned_passengers);
             write_optional_time_field(writer, row.fastest_journey_time);
             write_optional_double_field(writer, row.lowest_fare);
             write_optional_transfer_count_field(writer, row.minimum_transfers);

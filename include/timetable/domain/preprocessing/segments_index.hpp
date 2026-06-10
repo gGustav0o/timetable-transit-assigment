@@ -59,6 +59,13 @@ namespace timetable::domain::preprocessing {
      *  - buckets are unique 'from' keys in ascending order.
      *  - offsets.size() == buckets.size() + 1, offsets.back() == order.size().
      */
+    //tex:
+    // This is the paper's sorted connection-segment array plus node-local access
+    // structures. Timed connections are ordered inside each origin bucket by
+    // $$t_{\mathrm{dep}}$$, which makes the operation
+    // $$\min\{s: \operatorname{from}(s)=y,\ t_{\mathrm{dep}}(s)\ge t\}$$
+    // a binary search. Walk buckets are keyed only by physical origin because
+    // walk segments are always available and do not need a time key.
     struct ConnectionSegmentIndex final {
         std::vector<ConnectionSegmentId> timed_order{};
         std::vector<Time>                timed_departures{};
@@ -94,6 +101,11 @@ namespace timetable::domain::preprocessing {
      * `line_route` and `timed_connections` ranges are keyed by an exact
      * origin stop occurrence.
      */
+    //tex:
+    // A lookup result represents all connection segments outgoing from a fixed
+    // node. In occurrence space it exposes timed candidates from the exact
+    // stop occurrence; in physical space it exposes access, transfer and egress
+    // walk candidates from the same physical endpoint.
     struct SegmentLookup final {
         std::span<const RouteSegmentId>      line_route{};
         std::span<const RouteSegmentId>      walk_route{};

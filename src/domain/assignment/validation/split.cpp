@@ -6,6 +6,7 @@
 #include <map>
 #include <span>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -261,6 +262,20 @@ namespace timetable::domain::assignment {
         mathfp::Expected<mathfp::Unit> validate_split_independence_config_for_runtime(
             const SplitIndependenceConfig& config
         ) {
+            const auto positive_scale =
+                [&](Dimless value, std::string_view name) -> mathfp::Expected<mathfp::Unit> {
+                const auto scale = mathfp::units::as_dimless(value);
+                if (!std::isfinite(scale) || scale <= 0.0) {
+                    return mathfp::unexpected(
+                        mathfp::invalid_arg("split independence scale must be finite and positive")
+                            .ctx("enabled", config.enabled ? "true" : "false")
+                            .ctx("scale", std::string(name))
+                            .ctx("value", scale)
+                    );
+                }
+                return mathfp::kUnit;
+            };
+
             const auto gamma = mathfp::units::as_dimless(config.gamma);
             if (!std::isfinite(gamma) || gamma < 0.0) {
                 return mathfp::unexpected(
@@ -300,6 +315,17 @@ namespace timetable::domain::assignment {
                         .ctx("lower_quality_scale", lower_quality_scale)
                 );
             }
+
+            MATHFP_TRY(positive_scale(
+                  config.higher_perceived_journey_time_scale
+                , "higher_perceived_journey_time_scale"
+            ));
+            MATHFP_TRY(positive_scale(
+                  config.lower_perceived_journey_time_scale
+                , "lower_perceived_journey_time_scale"
+            ));
+            MATHFP_TRY(positive_scale(config.higher_fare_scale, "higher_fare_scale"));
+            MATHFP_TRY(positive_scale(config.lower_fare_scale, "lower_fare_scale"));
 
             return mathfp::kUnit;
         }

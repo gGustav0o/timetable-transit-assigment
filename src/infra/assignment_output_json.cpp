@@ -793,10 +793,28 @@ namespace timetable::infra {
             writer.integer(static_cast<std::int64_t>(od_result.search_connection_count));
             writer.key("chosen_connection_count");
             writer.integer(static_cast<std::int64_t>(od_result.chosen_connection_count));
+            writer.key("structural_day_path_count");
+            writer.integer(static_cast<std::int64_t>(
+                od_result.paper_split.structural_day_path_count
+            ));
+            writer.key("timed_support_alternative_count");
+            writer.integer(static_cast<std::int64_t>(
+                od_result.paper_split.timed_support_alternative_count
+            ));
+            writer.key("interval_admissible_split_alternative_count");
+            writer.integer(static_cast<std::int64_t>(
+                od_result.paper_split.interval_admissible_split_alternative_count
+            ));
+            writer.key("unassigned_demand_count");
+            writer.integer(static_cast<std::int64_t>(
+                od_result.paper_split.unassigned_demand_count
+            ));
             writer.key("total_demand_passengers");
             writer.number(od_result.total_demand_passengers);
             writer.key("assigned_passengers");
             writer.number(od_result.assigned_passengers);
+            writer.key("unassigned_passengers");
+            writer.number(od_result.paper_split.unassigned_passengers);
             writer.key("connections");
             writer.begin_array();
             for (const auto& connection : od_result.connections) {
@@ -825,10 +843,22 @@ namespace timetable::infra {
             writer.integer(static_cast<std::int64_t>(summary.chosen_connection_count));
             writer.key("demand_share_count");
             writer.integer(static_cast<std::int64_t>(summary.demand_share_count));
+            writer.key("structural_day_path_count");
+            writer.integer(static_cast<std::int64_t>(summary.structural_day_path_count));
+            writer.key("timed_support_alternative_count");
+            writer.integer(static_cast<std::int64_t>(summary.timed_support_alternative_count));
+            writer.key("interval_admissible_split_alternative_count");
+            writer.integer(static_cast<std::int64_t>(
+                summary.interval_admissible_split_alternative_count
+            ));
+            writer.key("unassigned_demand_count");
+            writer.integer(static_cast<std::int64_t>(summary.unassigned_demand_count));
             writer.key("total_demand_passengers");
             writer.number(summary.total_demand_passengers);
             writer.key("assigned_passengers");
             writer.number(summary.assigned_passengers);
+            writer.key("unassigned_passengers");
+            writer.number(summary.unassigned_passengers);
             if (summary.runtime_seconds.has_value()) {
                 writer.key("runtime_seconds");
                 writer.number(*summary.runtime_seconds);

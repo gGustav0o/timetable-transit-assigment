@@ -159,6 +159,10 @@ namespace timetable::infra {
             double temporal_similarity_scale{};
             double higher_quality_scale{};
             double lower_quality_scale{};
+            double higher_perceived_journey_time_scale{};
+            double lower_perceived_journey_time_scale{};
+            double higher_fare_scale{};
+            double lower_fare_scale{};
         };
 
         struct PairRuntimeDefaultSpec final {
@@ -246,6 +250,10 @@ namespace timetable::infra {
                   , .temporal_similarity_scale = 60.0
                   , .higher_quality_scale      = 0.6
                   , .lower_quality_scale       = 0.3
+                  , .higher_perceived_journey_time_scale = 0.6
+                  , .lower_perceived_journey_time_scale  = 0.3
+                  , .higher_fare_scale         = 0.6
+                  , .lower_fare_scale          = 0.3
                 }
             , .choice = PairChoiceSpec{
                     .rollout_stage = timetable::domain::assignment::ChoiceRolloutStage::ExactAndApproximate
@@ -560,6 +568,20 @@ namespace timetable::infra {
                               Dimless{ kPairRuntimeDefaultSpec.split.higher_quality_scale }
                         , .lower_quality_scale       =
                               Dimless{ kPairRuntimeDefaultSpec.split.lower_quality_scale }
+                        , .higher_perceived_journey_time_scale =
+                              Dimless{
+                                  kPairRuntimeDefaultSpec
+                                      .split.higher_perceived_journey_time_scale
+                              }
+                        , .lower_perceived_journey_time_scale =
+                              Dimless{
+                                  kPairRuntimeDefaultSpec
+                                      .split.lower_perceived_journey_time_scale
+                              }
+                        , .higher_fare_scale =
+                              Dimless{ kPairRuntimeDefaultSpec.split.higher_fare_scale }
+                        , .lower_fare_scale =
+                              Dimless{ kPairRuntimeDefaultSpec.split.lower_fare_scale }
                     }
                 )
             );

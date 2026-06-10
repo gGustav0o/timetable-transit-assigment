@@ -130,6 +130,11 @@ namespace timetable::domain::assignment {
             , const ChoiceTolerances&         tolerances
             , ChoiceRolloutStage              rollout_stage
         ) {
+            //tex:
+            // OD-day production keeps DayPath as an aggregate identity, but
+            // connection choice still uses complete-connection metrics: an
+            // alternative survives if its representative or at least one timed
+            // support satisfies the whole-connection choice tolerances.
             if (rollout_stage == ChoiceRolloutStage::ExactOnly) {
                 return alternatives;
             }
@@ -187,6 +192,11 @@ namespace timetable::domain::assignment {
             , const AssignmentPeriodConfig& assignment_period
             , const ConnectionAdmissibilityConfig& admissibility_config
         ) {
+            //tex:
+            // Classical timed contour: search returns potential connections for
+            // one OD-demand task; this step first keeps only interval-admissible
+            // complete connections and then applies the final connection-choice
+            // retention with the same $$IMP$$ metric as search.
             const auto task_connections = admissible_task_connection_ptrs(
                   task_result
                 , assignment_period
@@ -220,6 +230,11 @@ namespace timetable::domain::assignment {
             , const SearchCostContext& search_cost
             , const ChoiceConfig&     config
         ) {
+            //tex:
+            // OD-day contour: search already grouped timed supports under
+            // structural day paths. Choice is still a post-search re-evaluation
+            // of whole complete-connection metrics; it filters DayPath
+            // alternatives by their retained timed support set.
             (void)search_cost;
             std::map<DayPathSignature, bool> signatures;
             for (std::size_t i = 0; i < pair_result.alternatives.size(); ++i) {

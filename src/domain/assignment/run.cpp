@@ -116,6 +116,21 @@ namespace timetable::domain::assignment {
                 , output->vehicle_journey_item_loads.items.size()
             )
         );
+        timetable::infra::progress::log(
+            fmt::format(
+                  "paper split diagnostics: structural_day_paths={} timed_support_alternatives={} interval_admissible_Ca_alternatives={} demand_shares={} unassigned_intervals={} assigned_passengers={:.6f} unassigned_passengers={:.6f} full_path_dump={}"
+                , output->summary.structural_day_path_count
+                , output->summary.timed_support_alternative_count
+                , output->summary.interval_admissible_split_alternative_count
+                , output->summary.demand_share_count
+                , output->summary.unassigned_demand_count
+                , output->summary.assigned_passengers
+                , output->summary.unassigned_passengers
+                , output->export_profile == AssignmentOutputExportProfile::DiagnosticFullPath
+                    ? "enabled_diagnostic"
+                    : "disabled_by_default"
+            )
+        );
 
         return output;
     }

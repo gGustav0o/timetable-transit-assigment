@@ -124,6 +124,14 @@ namespace timetable::domain {
         AssignmentOdChoiceDiagnostics choice{};
     };
 
+    struct AssignmentOdPaperSplitSummary final {
+        std::size_t structural_day_path_count{};
+        std::size_t timed_support_alternative_count{};
+        std::size_t interval_admissible_split_alternative_count{};
+        std::size_t unassigned_demand_count{};
+        double      unassigned_passengers{};
+    };
+
     /**
      * @brief Canonical assignment result for one origin-destination pair.
      *
@@ -149,6 +157,7 @@ namespace timetable::domain {
         std::vector<AssignmentConnection>     connections{};
         std::vector<AssignmentDemandInterval> intervals{};
         AssignmentOdDiagnostics               diagnostics{};
+        AssignmentOdPaperSplitSummary         paper_split{};
     };
 
     /**
@@ -184,9 +193,9 @@ namespace timetable::domain {
      *
      * This projection intentionally has no demand interval key. It sums the
      * route passenger-segment volume over the full assignment day. In OD-day
-     * assignment it is derived from day-path split shares and their
-     * representative timetable support; elementary segment loads remain the
-     * primary overload/load profile.
+     * assignment it is derived from day-path split shares and the concrete
+     * interval-admissible timed supports selected by the paper-level split;
+     * elementary segment loads remain the primary overload/load profile.
      */
     struct AssignmentRouteTotalLoad final {
         LineId      line{};
@@ -314,8 +323,13 @@ namespace timetable::domain {
             std::size_t search_connection_count{};
             std::size_t chosen_connection_count{};
             std::size_t demand_share_count{};
+            std::size_t structural_day_path_count{};
+            std::size_t timed_support_alternative_count{};
+            std::size_t interval_admissible_split_alternative_count{};
+            std::size_t unassigned_demand_count{};
             double      total_demand_passengers{};
             double      assigned_passengers{};
+            double      unassigned_passengers{};
             std::optional<double> runtime_seconds{};
             Diagnostics diagnostics{};
         };

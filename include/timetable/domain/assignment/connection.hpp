@@ -141,6 +141,15 @@ namespace timetable::domain::assignment {
      * of these metrics and external model parameters; they are intentionally not
      * stored here.
      */
+    //tex:
+    // Paper connection characteristics are stored here as trace-derived invariants:
+    // $$DEP(c)=t_{\mathrm{start}}(\mathrm{first\ leg}),\quad ARR(c)=t_{\mathrm{end}}(\mathrm{last\ leg}),\quad JT(c)=ARR(c)-DEP(c).$$
+    // Transfer time is represented by the two explicit components
+    // $$TT(c)=T_{\mathrm{transfer\ wait}}(c)+T_{\mathrm{transfer\ walk}}(c),$$
+    // and the number of transfers is derived from ride count:
+    // $$NT(c)=\max(0,\#\mathrm{rides}(c)-1).$$
+    // Fare is additive over ride legs; each leg fare is the evaluated line-fare term
+    // of the article's $$\sum_{i\in I(c)}(SF_i+L_i(c)SD_i)$$ model.
     struct ConnectionMetrics final {
         Time         departure_time{};
         Time         arrival_time{};

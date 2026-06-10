@@ -144,6 +144,13 @@ namespace timetable::domain {
      *  - JT(c)  <= jt_mult  * min JT  + jt_add
      *  - NT(c)  <= nt_mult  * min NT  + nt_add
      */
+    //tex:
+    // Paper connection-choice tolerances are stricter whole-connection rules:
+    // $$IMP(c)\le p_1\min_{c'\in C_{od}}IMP(c')+p_2.$$
+    // $$JT(c)\le q_1\min_{c'\in C_{od}}JT(c')+q_2.$$
+    // $$NT(c)\le r_1\min_{c'\in C_{od}}NT(c')+r_2.$$
+    // They are intentionally separate from the tree-local $$C_y$$ tolerances:
+    // choice sees complete OD connections after search has generated candidates.
     struct ChoiceTolerances final {
         Dimless imp_mult{};
         Dimless imp_add{};
@@ -243,6 +250,12 @@ namespace timetable::domain {
      * argument transformation applied to IMP. splitPara.BoxCoxLambda is not
      * modeled here until its relation to BoxCoxPara is clarified.
      */
+    //tex:
+    // For the paper's Box--Cox MNL form, enable this transform and use
+    // `SplitChoiceModel::BoxCox`:
+    // $$b^{(t)}(IMP)=\begin{cases}(IMP^t-1)/t,&t\ne0,\\ \log(IMP),&t=0.\end{cases}$$
+    // The transform is separate from the weight family so experiments can use
+    // the same normalized choice model with raw or transformed impedance.
     struct SplitImpedanceTransformConfig final {
         bool    boxcox_transform_enabled{};
         Dimless boxcox_t{};
@@ -254,7 +267,20 @@ namespace timetable::domain {
         Dimless temporal_similarity_scale{};
         Dimless higher_quality_scale{};
         Dimless lower_quality_scale{};
+        Dimless higher_perceived_journey_time_scale{};
+        Dimless lower_perceived_journey_time_scale{};
+        Dimless higher_fare_scale{};
+        Dimless lower_fare_scale{};
     };
+
+    //tex:
+    // Independence parameters implement the paper's overlap correction
+    // $$IND(c)=\frac{1}{1+\sum_{c'\ne c}f_c(c')}.$$
+    // `temporal_similarity_scale` is $$s_x$$. The perceived-journey-time
+    // scales provide $$s_y$$ and the fare scales provide $$s_z$$; each pair is
+    // selected asymmetrically according to whether compared connection $$c'$$
+    // is superior or inferior to base connection $$c$$ in the corresponding
+    // attribute.
 
     /**
      * @brief Parameters for demand split across connections.
@@ -263,13 +289,16 @@ namespace timetable::domain {
      * impedance_transform controls optional transformation of raw split
      * impedance before the model-specific weight is evaluated.
      * independence controls whether the alternative-overlap correction is
-     * active and stores the parameters of the evaluation function f_c(c') from
-     * the paper:
+     * active and stores the parameters of the paper's evaluation function
+     * f_c(c').
      * - temporal_similarity_scale corresponds to s_x
-     * - higher_quality_scale is used for s_y / s_z when the base connection c
-     *   is superior, so it should typically be >= lower_quality_scale
-     * - lower_quality_scale is used for s_y / s_z when the base connection c
-     *   is inferior
+     * - higher/lower_perceived_journey_time_scale correspond to sign-dependent
+     *   s_y. "higher" means that compared connection c' has lower PJT than
+     *   base connection c.
+     * - higher/lower_fare_scale correspond to sign-dependent s_z
+     *   by the same rule for fare.
+     * - higher/lower_quality_scale are legacy input fallbacks for older params
+     *   files and should mirror the paper-specific scales when both are absent
      */
     struct SplitParams final {
         Dimless                     q_time{};

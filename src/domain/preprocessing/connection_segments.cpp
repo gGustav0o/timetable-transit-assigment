@@ -252,6 +252,11 @@ namespace timetable::domain::preprocessing {
             , IndexedTripsByLine               trips_by_line
             , bool                             stable_ordering
         ) {
+            //tex:
+            // The article requires the route-segment array to be sorted before
+            // connection-segment generation. With stable ordering enabled this function
+            // defines the deterministic order $$(y_1,\ldots,y_m)$$ used to instantiate
+            // walk segments once and timed ride segments for every compatible trip.
             // Deterministic ConnectionSegmentId assignment is defined here:
             // route segments are generated in ordered_route_segments(...) order
             // and timed segments for each line follow ordered_line_trips(...).
@@ -464,6 +469,10 @@ namespace timetable::domain::preprocessing {
               const RouteSegment& route_segment
             , std::int64_t        next_id
         ) {
+            //tex:
+            // A walk connection segment is the always-available instantiation of
+            // a walk route segment:
+            // $$s=(y,\varnothing,\varnothing),\qquad t_{\mathrm{dep}}(s),t_{\mathrm{arr}}(s)\ \text{are not fixed}.$$
             MATHFP_TRY_LET(
                   ConnectionSegment
                 , segment
@@ -518,6 +527,12 @@ namespace timetable::domain::preprocessing {
             , double                  fare
             , std::int64_t            next_id
         ) {
+            //tex:
+            // A transit connection segment is a route segment instantiated by
+            // one compatible trip:
+            // $$s=(y,\mathrm{trip},t_{\mathrm{dep}},t_{\mathrm{arr}}).$$
+            // The route segment supplies the transfer-free line ride topology;
+            // the trip stop times supply the concrete departure and arrival.
             MATHFP_TRY_LET(
                   ConnectionSegment
                 , segment

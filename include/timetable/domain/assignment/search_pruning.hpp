@@ -68,6 +68,14 @@ namespace timetable::domain::assignment {
      * and approximate retention are functions of this vector, never of a
      * connection entity.
      */
+    //tex:
+    // For a partial connection prefix $$c_y$$ ending at node $$y$$, pruning stores
+    // the paper comparison coordinates
+    // $$(DEP(c_y),ARR(c_y),JT(c_y),NT(c_y),FARE(c_y),IMP(c_y))$$
+    // plus the implementation's explicit walk-time coordinate used by tolerance
+    // retention. They are compared only inside an extension-safe state or paper
+    // node-local set, so branch width is reduced without changing the
+    // connection-leg depth semantics of the tree.
     struct SearchPruningMetrics final {
         Time          departure{};
         Time          arrival{};

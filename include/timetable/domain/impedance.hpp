@@ -44,6 +44,12 @@ namespace timetable::domain {
         , const SearchImpedance& weights
         , double                 fare_scale
     ) noexcept {
+        //tex:
+        // Search impedance is the generalized-cost form used by branch-and-bound.
+        // The paper formula $$IMP(c)=a_1JT(c)+a_2NT(c)+a_3FARE(c)$$ is the
+        // aggregated special case. The implementation keeps $$JT(c)$$ decomposed:
+        // $$IMP(c)=w_{ivt}IVT+w_{acc}ACC+w_{egr}EGR+w_{tw}TWalk+w_{twait}TWait+w_{nt}NT+w_f\,\widehat{FARE}.$$
+        // Here $$\widehat{FARE}=FARE/\mathrm{fare\_scale}$$ for configured normalization.
         return
               weighted_duration      (components.in_vehicle_time   , weights.in_vehicle_time)
             + weighted_duration      (components.access_time       , weights.access_time)

@@ -68,6 +68,13 @@ namespace timetable::domain {
      * - physical walk topology, or
      * - occurrence-aware timetable line topology.
      */
+    //tex:
+    // Paper correspondence. The preprocessing route-segment object is the paper's pseudo-record
+    // $$y=(i,j,\ell,\tau,\sigma).$$
+    // Here initial/terminal nodes are stored in the topology variant, $$\ell$$ is length,
+    // $$\tau$$ is run time, and $$\sigma$$ is either a transit line/route reference
+    // or the shortest walk-link sequence. This code keeps the same information but makes
+    // the variant explicit through WalkRouteTopology/LineRouteTopology.
     struct RouteSegment final {
         RouteSegmentId id{};
         Length         length{};
@@ -78,6 +85,12 @@ namespace timetable::domain {
     /**
      * @brief Timetable-level segment with concrete times (or always-available walk).
      */
+    //tex:
+    // Paper connection segment. A timed ride connection is a route segment
+    // instantiated by a concrete trip and therefore carries
+    // $$t_{\mathrm{dep}}(s),t_{\mathrm{arr}}(s).$$
+    // A walk connection keeps the same route-segment reference but has no fixed
+    // departure or arrival instant because it is available for every traveller time.
     struct ConnectionSegment final {
         ConnectionSegmentId          id{};
         RouteSegmentId               route_segment{};

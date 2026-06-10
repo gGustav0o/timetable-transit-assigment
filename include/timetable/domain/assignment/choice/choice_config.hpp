@@ -19,6 +19,11 @@ namespace timetable::domain::assignment {
      * - apply exact nondominance first, then the stricter whole-connection
      *   tolerance filtering from the connection-choice stage of the paper.
      */
+    //tex:
+    // Connection choice is a post-search step. The connection tree first stores
+    // potential complete connections; then OD-local choice removes illogical
+    // complete alternatives by re-evaluating whole-connection metrics, not
+    // partial-prefix labels.
     enum class ChoiceRolloutStage : std::uint8_t {
           ExactOnly
         , ExactAndApproximate

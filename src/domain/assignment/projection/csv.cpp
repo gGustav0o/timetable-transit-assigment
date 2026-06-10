@@ -51,10 +51,19 @@ namespace timetable::domain::assignment::projection {
                 , .destination              = summary.destination
                 , .search_connection_count  = summary.search_connection_count
                 , .chosen_connection_count  = summary.chosen_connection_count
+                , .structural_day_path_count =
+                      summary.structural_day_path_count
+                , .timed_support_alternative_count =
+                      summary.timed_support_alternative_count
+                , .interval_admissible_split_alternative_count =
+                      summary.interval_admissible_split_alternative_count
+                , .unassigned_demand_count =
+                      summary.unassigned_demand_count
                 , .interval_count           = summary.interval_count
                 , .share_count              = summary.share_count
                 , .total_demand_passengers  = summary.total_demand_passengers
                 , .assigned_passengers      = summary.assigned_passengers
+                , .unassigned_passengers    = summary.unassigned_passengers
                 , .fastest_journey_time     = summary.fastest_journey_time
                 , .lowest_fare              = summary.lowest_fare
                 , .minimum_transfers        = summary.minimum_transfers
@@ -182,9 +191,18 @@ namespace timetable::domain::assignment::projection {
                 , .search_connection_count = output.summary.search_connection_count
                 , .chosen_connection_count = output.summary.chosen_connection_count
                 , .demand_share_count      = output.summary.demand_share_count
+                , .structural_day_path_count =
+                      output.summary.structural_day_path_count
+                , .timed_support_alternative_count =
+                      output.summary.timed_support_alternative_count
+                , .interval_admissible_split_alternative_count =
+                      output.summary.interval_admissible_split_alternative_count
+                , .unassigned_demand_count =
+                      output.summary.unassigned_demand_count
                 , .skim_entry_count        = output.skim_matrix.entries.size()
                 , .total_demand_passengers = output.summary.total_demand_passengers
                 , .assigned_passengers     = output.summary.assigned_passengers
+                , .unassigned_passengers   = output.summary.unassigned_passengers
                 , .runtime_seconds         = output.summary.runtime_seconds
             };
         }

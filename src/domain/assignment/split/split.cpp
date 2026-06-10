@@ -63,9 +63,22 @@ namespace timetable::domain::assignment {
             return *alternative.day_path_support;
         }
 
-        struct IntervalAdmissibleDayPathSupport final {
+        /**
+         * @brief One paper-level split alternative inside an OD-day path.
+         *
+         * DayPathAlternative is the structural, service-day identity retained
+         * by search. SplitConnectionAlternative is the interval-admissible
+         * timed connection support c in C(a) used by the paper split model.
+         */
+        struct SplitConnectionAlternative final {
             const DayPathAlternative*       path{};
             const DayPathSupportDescriptor* support{};
+        };
+
+        struct IntervalSplitConnectionAlternatives final {
+            std::vector<SplitConnectionAlternative> alternatives{};
+            std::size_t candidate_supports{};
+            std::size_t rejected_supports{};
         };
 
         struct SplitCapacityContext final {
@@ -159,6 +172,11 @@ namespace timetable::domain::assignment {
               const ConnectionMetrics&           metrics
             , const PerceivedJourneyTimeWeights& weights
         ) noexcept {
+            //tex:
+            // Perceived journey time is user-defined. The paper's typical
+            // example $$PJT(c)=JT(c)+2TT(c)+2NT(c)$$ is represented here by
+            // configurable weights over ride, access/egress, transfer walk,
+            // transfer wait and transfer count components.
             return
                   timetable::domain::weighted_duration(
                       metrics.in_vehicle_time
@@ -219,6 +237,12 @@ namespace timetable::domain::assignment {
             , DemandSegmentBasis            basis
             , const TemporalUtilityWeights& weights
         ) noexcept {
+            //tex:
+            // Temporal utility compares the chosen demand interval $$a$$ with
+            // the realized departure or arrival reference time:
+            // $$U_a(c)=u_e\max(0,start(a)-T(c))+u_l\max(0,T(c)-end(a)).$$
+            // Hence $$U_a(c)=0$$ inside the interval and grows monotonically
+            // outside it.
             const auto reference_time = split_reference_time(
                   alternative.metrics
                 , basis
@@ -236,6 +260,9 @@ namespace timetable::domain::assignment {
             , const SplitParams&      params
             , DemandSegmentBasis      basis
         ) noexcept {
+            //tex:
+            // Interval-specific split impedance:
+            // $$IMP_a(c)=q_1PJT(c)+q_2U_a(c)+q_3FARE(c).$$
             return
                   mathfp::units::as_dimless(params.q_time)
                     * alternative.perceived_journey_time
@@ -254,6 +281,11 @@ namespace timetable::domain::assignment {
               double value
             , double t
         ) noexcept {
+            //tex:
+            // Box--Cox transform from the paper:
+            // $$b^{(t)}(IMP)=\begin{cases}(IMP^t-1)/t,&t\ne0,\\ \log(IMP),&t=0.\end{cases}$$
+            // A positive numerical floor is applied only to keep logarithms and
+            // powers well-defined for near-zero modeled impedances.
             const auto positive = std::max(value, numeric::positive_stability_floor());
             if (mathfp::almost_zero(t)) {
                 return std::log(positive);
@@ -343,6 +375,12 @@ namespace timetable::domain::assignment {
             }
 
             const auto exponent = mathfp::units::as_dimless(model.exponent);
+            //tex:
+            // The BoxCox branch implements the MNL weight from the paper in log
+            // space:
+            // $$\log w_a(c)=\log IND(c)-\beta b^{(t)}(IMP_a(c)).$$
+            // The value passed here is already either raw $$IMP_a(c)$$ or the
+            // transformed $$b^{(t)}(IMP_a(c))$$ according to SplitImpedanceTransformConfig.
             switch (model.model) {
                 case SplitChoiceModel::Kirchhoff:
                     return kirchhoff_log_weight(
@@ -382,6 +420,9 @@ namespace timetable::domain::assignment {
               const SplitAlternative& lhs
             , const SplitAlternative& rhs
         ) noexcept {
+            //tex:
+            // Temporal similarity term:
+            // $$x_c(c')=\frac{|DEP(c)-DEP(c')|+|ARR(c)-ARR(c')|}{2}.$$
             return
                 0.5
                 * (
@@ -394,6 +435,9 @@ namespace timetable::domain::assignment {
               const SplitAlternative& lhs
             , const SplitAlternative& rhs
         ) noexcept {
+            //tex:
+            // Perceived-journey-time advantage of base connection $$c$$:
+            // $$y_c(c')=PJT(c')-PJT(c).$$
             return rhs.perceived_journey_time - lhs.perceived_journey_time;
         }
 
@@ -401,35 +445,35 @@ namespace timetable::domain::assignment {
               const SplitAlternative& lhs
             , const SplitAlternative& rhs
         ) noexcept {
+            //tex:
+            // Fare advantage of base connection $$c$$:
+            // $$z_c(c')=FARE(c')-FARE(c).$$
             return rhs.metrics.fare - lhs.metrics.fare;
         }
 
-        bool base_connection_is_superior(
+        bool compared_connection_is_superior(
             double base_quality_advantage
         ) noexcept {
-            return base_quality_advantage >= 0.0;
+            return base_quality_advantage < 0.0;
         }
 
-        double asymmetric_quality_scale(
+        double asymmetric_scale(
               double             base_quality_advantage
-            , const SplitIndependenceConfig& config
+            , Dimless            higher_scale
+            , Dimless            lower_scale
         ) noexcept {
-            return base_connection_is_superior(base_quality_advantage)
-                ? mathfp::units::as_dimless(config.higher_quality_scale)
-                : mathfp::units::as_dimless(config.lower_quality_scale);
+            return compared_connection_is_superior(base_quality_advantage)
+                ? mathfp::units::as_dimless(higher_scale)
+                : mathfp::units::as_dimless(lower_scale);
         }
 
-        double normalized_quality_distance(
-              double             base_quality_advantage
-            , const SplitIndependenceConfig& config
+        double paper_independence_quality_scale(
+              double                         base_quality_advantage
+            , Dimless                        higher_scale
+            , Dimless                        lower_scale
         ) noexcept {
-            const auto scale = asymmetric_quality_scale(base_quality_advantage, config);
-            if (scale <= 0.0) {
-                return 0.0;
-            }
-            return std::abs(base_quality_advantage) / scale;
+            return asymmetric_scale(base_quality_advantage, higher_scale, lower_scale);
         }
-
 
         double capped_proximity(
               double similarity
@@ -446,6 +490,18 @@ namespace timetable::domain::assignment {
             , const SplitAlternative& other
             , const SplitIndependenceConfig& config
         ) noexcept {
+            //tex:
+            // Non-negative influence $$f_c(c')$$ combines temporal proximity
+            // and asymmetric quality/fare distances. Large similarity in
+            // departure-arrival time and small quality/fare differences increase
+            // overlap, thereby reducing $$IND(c)$$.
+            // The production formula is the paper formula:
+            // $$f_c(c')=\left(1-\frac{x_c(c')^+}{s_x}\right)^+\left(1-\gamma\min\left\{1,\frac{s_z|y_c(c')|+s_y|z_c(c')|}{s_y s_z}\right\}\right)^+.$$
+            // The scales $$s_y$$ and $$s_z$$ are selected by the signs of
+            // $$y_c(c')$$ and $$z_c(c')$$ respectively, as required by the
+            // asymmetry rule in the article: a superior compared connection
+            // $$c'$$ uses the higher-quality scale and therefore can exert
+            // stronger influence on inferior base connection $$c$$.
             const auto x = temporal_similarity(base, other);
             const auto y = base_journey_quality_advantage(base, other);
             const auto z = base_fare_quality_advantage(base, other);
@@ -453,12 +509,32 @@ namespace timetable::domain::assignment {
                   x
                 , mathfp::units::as_dimless(config.temporal_similarity_scale)
             );
-            const auto y_term = normalized_quality_distance(y, config);
-            const auto z_term = normalized_quality_distance(z, config);
-
-            return proximity * std::exp(
-                -mathfp::units::as_dimless(config.gamma) * (y_term + z_term)
+            const auto s_y = paper_independence_quality_scale(
+                  y
+                , config.higher_perceived_journey_time_scale
+                , config.lower_perceived_journey_time_scale
             );
+            const auto s_z = paper_independence_quality_scale(
+                  z
+                , config.higher_fare_scale
+                , config.lower_fare_scale
+            );
+            const auto denominator = s_y * s_z;
+            if (denominator <= 0.0) {
+                return 0.0;
+            }
+
+            const auto quality_distance = std::min(
+                  1.0
+                , (
+                      s_z * std::abs(y)
+                    + s_y * std::abs(z)
+                  ) / denominator
+            );
+            const auto quality_factor = 1.0
+                - mathfp::units::as_dimless(config.gamma) * quality_distance;
+
+            return proximity * std::max(0.0, quality_factor);
         }
 
         double split_independence(
@@ -466,6 +542,9 @@ namespace timetable::domain::assignment {
             , std::span<const SplitAlternative> alternatives
             , std::size_t                       index
         ) noexcept {
+            //tex:
+            // Independence of one connection within the OD set $$C$$:
+            // $$IND(c)=\frac{1}{1+\sum_{c'\in C,\ c'\ne c}f_c(c')}.$$
             if (!config.enabled) {
                 return 1.0;
             }
@@ -529,9 +608,14 @@ namespace timetable::domain::assignment {
         }
 
         std::vector<SplitAlternative> derive_split_alternatives(
-              const std::vector<IntervalAdmissibleDayPathSupport>& supports
+              const std::vector<SplitConnectionAlternative>& supports
             , const SplitParams&                                    params
         ) {
+            //tex:
+            // Paper split semantics: each retained timed support is a separate
+            // connection $$c\in C(a)$$. Independence is computed across timed
+            // support alternatives, while DayPath remains only their structural
+            // grouping identity.
             std::vector<SplitAlternative> alternatives;
             alternatives.reserve(supports.size());
 
@@ -725,93 +809,47 @@ namespace timetable::domain::assignment {
             return lookup;
         }
 
-        /*
-         * Interval admissibility belongs here, not to OD-day search. The search
-         * result is a service-day structural path set; split chooses the
-         * timetable support compatible with each demand interval.
-         */
-        std::optional<IntervalAdmissibleDayPathSupport> best_interval_split_support(
-              const DayPathAlternative&             path
-            , const TimeInterval&                   interval
-            , const AssignmentPeriodConfig&         assignment_period
-            , const ConnectionAdmissibilityConfig&  admissibility_config
-            , const SplitParams&                    params
-            , DemandSegmentBasis                    demand_basis
-        ) {
-            std::optional<IntervalAdmissibleDayPathSupport> best;
-            auto best_impedance = std::numeric_limits<double>::infinity();
-
-            for (const auto& support : day_path_split_support_descriptors(path)) {
-                const auto metrics = support.connection_metrics;
-                if (!connection_admissible_for_demand_segment(
-                      metrics
-                    , interval
-                    , assignment_period
-                    , admissibility_config
-                )) {
-                    continue;
-                }
-
-                const auto candidate = SplitAlternative{
-                      .connection             = nullptr
-                    , .day_path_alternative   = &path
-                    , .source                 = DemandShareAlternativeSource::DayPath
-                    , .day_path               = day_path_signature_of(path)
-                    , .day_path_support       = &support
-                    , .metrics                = metrics
-                    , .perceived_journey_time = perceived_journey_time(
-                          metrics
-                        , params.perceived_journey_time
-                      )
-                    , .independence           = 1.0
-                };
-                const auto candidate_impedance = split_impedance(
-                      candidate
-                    , interval
-                    , params
-                    , demand_basis
-                );
-                if (candidate_impedance < best_impedance) {
-                    best_impedance = candidate_impedance;
-                    best = IntervalAdmissibleDayPathSupport{
-                          .path       = &path
-                        , .support    = &support
-                    };
-                }
-            }
-
-            return best;
-        }
-
-        mathfp::Expected<std::vector<IntervalAdmissibleDayPathSupport>>
-        admissible_od_day_path_supports(
+        //tex:
+        // Interval admissibility belongs here, not to OD-day search. For demand
+        // interval $$a$$, this function constructs $$C(a)$$: all retained timed
+        // connection supports whose demand reference time is admissible for
+        // $$a$$. DayPath remains only the service-day structural identity.
+        mathfp::Expected<IntervalSplitConnectionAlternatives>
+        interval_split_connection_alternatives(
               const OdDayPathChoicePairResult&    pair_result
             , const TimeInterval&                 interval
             , const AssignmentPeriodConfig&       assignment_period
             , const ConnectionAdmissibilityConfig& admissibility_config
-            , const SplitParams&                  params
-            , DemandSegmentBasis                  demand_basis
         ) {
-            std::vector<IntervalAdmissibleDayPathSupport> supports;
-            supports.reserve(pair_result.alternatives.size());
+            IntervalSplitConnectionAlternatives result;
+            result.alternatives.reserve(pair_result.alternatives.size());
             for (std::size_t i = 0; i < pair_result.alternatives.size(); ++i) {
                 const auto& path = pair_result.alternatives[i];
                 MATHFP_TRY(validate_day_path_alternative(path, i));
-                if (auto support = best_interval_split_support(
-                      path
-                    , interval
-                    , assignment_period
-                    , admissibility_config
-                    , params
-                    , demand_basis
-                )) {
-                    supports.push_back(*support);
+                for (const auto& support : day_path_split_support_descriptors(path)) {
+                    ++result.candidate_supports;
+                    const auto metrics = support.connection_metrics;
+                    if (!connection_admissible_for_demand_segment(
+                          metrics
+                        , interval
+                        , assignment_period
+                        , admissibility_config
+                    )) {
+                        ++result.rejected_supports;
+                        continue;
+                    }
+                    result.alternatives.push_back(
+                        SplitConnectionAlternative{
+                              .path    = &path
+                            , .support = &support
+                        }
+                    );
                 }
             }
-            return supports;
+            return result;
         }
 
-        mathfp::Expected<mathfp::Unit> validate_interval_selected_day_path_split(
+        mathfp::Expected<mathfp::Unit> validate_paper_connection_split_supports(
               const DemandSplitResult&            split_result
             , const IntervalLookup&               interval_lookup
             , const AssignmentPeriodConfig&       assignment_period
@@ -936,6 +974,41 @@ namespace timetable::domain::assignment {
                     , .interval    = demand.interval
                     , .passengers  = demand.passengers
                     , .reason      = reason
+                }
+            );
+        }
+
+        void append_od_day_paper_split_certificate(
+              DemandSplitResult&                 result
+            , const SplitDemandUnit&             demand
+            , std::size_t                        candidate_support_count
+            , std::size_t                        interval_admissible_support_count
+            , std::size_t                        interval_rejected_support_count
+            , std::size_t                        share_begin
+            , std::optional<UnassignedDemandReason> unassigned_reason
+        ) {
+            mathfp::CompensatedSum<double> assigned;
+            mathfp::CompensatedSum<double> probability;
+            for (std::size_t i = share_begin; i < result.shares.size(); ++i) {
+                assigned.add(result.shares[i].passengers);
+                probability.add(result.shares[i].probability);
+            }
+            const auto assigned_passengers = assigned.value();
+            result.od_day_paper_split.push_back(
+                OdDayPaperSplitCertificate{
+                      .origin                            = demand.origin
+                    , .destination                       = demand.destination
+                    , .interval                          = demand.interval
+                    , .candidate_support_count           = candidate_support_count
+                    , .interval_admissible_support_count = interval_admissible_support_count
+                    , .interval_rejected_support_count   = interval_rejected_support_count
+                    , .share_count                       = result.shares.size() - share_begin
+                    , .demand_passengers                 = demand.passengers
+                    , .assigned_passengers               = assigned_passengers
+                    , .unassigned_passengers             =
+                          unassigned_reason.has_value() ? demand.passengers : 0.0
+                    , .probability_sum                   = probability.value()
+                    , .unassigned_reason                 = unassigned_reason
                 }
             );
         }
@@ -1100,6 +1173,112 @@ namespace timetable::domain::assignment {
             };
         }
 
+        mathfp::Expected<mathfp::Unit> validate_od_day_paper_split_certificates(
+              const DemandSplitResult& split_result
+            , const InputModel&        input
+            , std::optional<ZoneId>    origin_filter = std::nullopt
+        ) {
+            std::map<detail::grouping::DemandKey, const OdDayPaperSplitCertificate*> certificates;
+            for (const auto& certificate : split_result.od_day_paper_split) {
+                if (origin_filter.has_value() && certificate.origin != *origin_filter) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("OD-day paper split certificate outside requested origin")
+                            .ctx("origin", origin_filter->get())
+                            .ctx("certificate_origin", certificate.origin.get())
+                    );
+                }
+                const auto key = detail::grouping::DemandKey{
+                      .origin      = certificate.origin
+                    , .destination = certificate.destination
+                    , .interval    = certificate.interval
+                };
+                if (!certificates.emplace(key, &certificate).second) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("duplicate OD-day paper split certificate")
+                            .ctx("origin"     , key.origin.get())
+                            .ctx("destination", key.destination.get())
+                            .ctx("interval_id", key.interval.get())
+                    );
+                }
+            }
+
+            for (const auto& demand : input.demand) {
+                if (demand.passengers <= 0.0) {
+                    continue;
+                }
+                if (origin_filter.has_value() && demand.origin != *origin_filter) {
+                    continue;
+                }
+                const auto key = detail::grouping::demand_key(demand);
+                const auto it = certificates.find(key);
+                if (it == certificates.end()) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("missing OD-day paper split certificate")
+                            .ctx("origin"     , demand.origin.get())
+                            .ctx("destination", demand.destination.get())
+                            .ctx("interval_id", demand.interval.get())
+                    );
+                }
+
+                const auto& certificate = *it->second;
+                if (!same_demand_mass(certificate.demand_passengers, demand.passengers)) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("OD-day paper split certificate demand mass mismatch")
+                            .ctx("origin"                , demand.origin.get())
+                            .ctx("destination"           , demand.destination.get())
+                            .ctx("interval_id"           , demand.interval.get())
+                            .ctx("certificate_passengers", certificate.demand_passengers)
+                            .ctx("demand_passengers"     , demand.passengers)
+                    );
+                }
+
+                if (certificate.interval_admissible_support_count > 0u) {
+                    if (certificate.share_count == 0u
+                        || certificate.unassigned_reason.has_value()
+                        || !same_demand_mass(certificate.probability_sum, 1.0)
+                        || !same_demand_mass(certificate.assigned_passengers, demand.passengers)
+                        || !same_demand_mass(certificate.unassigned_passengers, 0.0)) {
+                        return mathfp::unexpected(
+                            mathfp::internal_error("OD-day paper split certificate violates nonempty C(a) assignment")
+                                .ctx("origin"     , demand.origin.get())
+                                .ctx("destination", demand.destination.get())
+                                .ctx("interval_id", demand.interval.get())
+                                .ctx(
+                                      "c_a_size"
+                                    , static_cast<std::int64_t>(
+                                          certificate.interval_admissible_support_count
+                                      )
+                                  )
+                                .ctx("share_count", static_cast<std::int64_t>(certificate.share_count))
+                                .ctx("probability_sum", certificate.probability_sum)
+                                .ctx("assigned", certificate.assigned_passengers)
+                                .ctx("unassigned", certificate.unassigned_passengers)
+                        );
+                    }
+                    continue;
+                }
+
+                if (certificate.share_count != 0u
+                    || !certificate.unassigned_reason.has_value()
+                    || !same_demand_mass(certificate.probability_sum, 0.0)
+                    || !same_demand_mass(certificate.assigned_passengers, 0.0)
+                    || !same_demand_mass(certificate.unassigned_passengers, demand.passengers)) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("OD-day paper split certificate violates empty C(a) unassignment")
+                            .ctx("origin"     , demand.origin.get())
+                            .ctx("destination", demand.destination.get())
+                            .ctx("interval_id", demand.interval.get())
+                            .ctx("share_count", static_cast<std::int64_t>(certificate.share_count))
+                            .ctx("probability_sum", certificate.probability_sum)
+                            .ctx("assigned", certificate.assigned_passengers)
+                            .ctx("unassigned", certificate.unassigned_passengers)
+                    );
+                }
+            }
+
+            return mathfp::kUnit;
+        }
+
         mathfp::Expected<std::size_t> append_split_shares(
               DemandSplitResult&                    result
             , const SplitDemandUnit&                demand
@@ -1109,6 +1288,12 @@ namespace timetable::domain::assignment {
             , DemandSegmentBasis                    demand_basis
             , const SplitCapacityContext*           capacity_context
         ) {
+            //tex:
+            // Final assignment for one interval $$a$$ normalizes choice weights:
+            // $$P_a(c)=\frac{w_a(c)}{\sum_{\tilde c\in C(a)}w_a(\tilde c)}DEM(a),\qquad w_a(c)=\exp(-\beta b^{(t)}(IMP_a(c)))IND(c).$$
+            // Computation is performed in log space and the residual alternative
+            // receives rounding mass so probabilities and passenger totals conserve
+            // $$DEM(a)$$.
             if (base_alternatives.empty()) {
                 return std::size_t{ 0 };
             }
@@ -1585,41 +1770,60 @@ namespace timetable::domain::assignment {
                 };
                 if (choice_it == choice_lookup.end()) {
                     ++skipped_empty_alternatives;
+                    const auto share_begin = result.shares.size();
                     append_unassigned_demand(
                           result
                         , demand_unit
+                        , UnassignedDemandReason::NoChosenAlternatives
+                    );
+                    append_od_day_paper_split_certificate(
+                          result
+                        , demand_unit
+                        , 0u
+                        , 0u
+                        , 0u
+                        , share_begin
                         , UnassignedDemandReason::NoChosenAlternatives
                     );
                     continue;
                 }
 
                 MATHFP_TRY_LET(
-                      std::vector<IntervalAdmissibleDayPathSupport>
-                    , admissible_supports
-                    , admissible_od_day_path_supports(
+                      IntervalSplitConnectionAlternatives
+                    , split_connections
+                    , interval_split_connection_alternatives(
                       *choice_it->second
                     , *interval
                     , assignment_period
                     , admissibility_config
-                    , params.split
-                    , demand_segment_time.basis
                     )
                 );
-                if (admissible_supports.empty()) {
+                skipped_temporally_inadmissible += split_connections.rejected_supports;
+                if (split_connections.alternatives.empty()) {
                     ++skipped_empty_alternatives;
-                    skipped_temporally_inadmissible += choice_it->second->alternatives.size();
+                    const auto share_begin = result.shares.size();
                     append_unassigned_demand(
                           result
                         , demand_unit
                         , UnassignedDemandReason::NoIntervalAdmissibleSupport
                     );
+                    append_od_day_paper_split_certificate(
+                          result
+                        , demand_unit
+                        , split_connections.candidate_supports
+                        , split_connections.alternatives.size()
+                        , split_connections.rejected_supports
+                        , share_begin
+                        , UnassignedDemandReason::NoIntervalAdmissibleSupport
+                    );
                     continue;
                 }
                 const auto base_alternatives = derive_split_alternatives(
-                      admissible_supports
+                      split_connections.alternatives
                     , params.split
                 );
 
+                const auto share_begin = result.shares.size();
                 MATHFP_TRY_LET(
                       std::size_t
                     , suppressed
@@ -1639,10 +1843,19 @@ namespace timetable::domain::assignment {
                     )
                 );
                 suppressed_numerical_shares += suppressed;
+                append_od_day_paper_split_certificate(
+                      result
+                    , demand_unit
+                    , split_connections.candidate_supports
+                    , split_connections.alternatives.size()
+                    , split_connections.rejected_supports
+                    , share_begin
+                    , std::nullopt
+                );
             }
         }
 
-        MATHFP_TRY(validate_interval_selected_day_path_split(
+        MATHFP_TRY(validate_paper_connection_split_supports(
               result
             , interval_lookup
             , assignment_period
@@ -1657,9 +1870,10 @@ namespace timetable::domain::assignment {
                 , input
             )
         );
+        MATHFP_TRY(validate_od_day_paper_split_certificates(result, input));
         log(
             fmt::format(
-                  "OD-day split result: support=interval_selected_day_path conservation=assigned_plus_unassigned demand_od = {:>8}  demand_intervals = {:>8}  assigned_intervals = {:>8}  unassigned_intervals = {:>8}  shares = {:>8}  unassigned = {:>8}  demand_passengers = {:.6f}  assigned_passengers = {:.6f}  unassigned_passengers = {:.6f}  skipped_empty_intervals = {:>8}  inadmissible_connections = {:>8}  suppressed_numerical_shares = {:>8}"
+                  "OD-day split result: split_contract=paper_connection_split support_selection=all_interval_admissible day_path_identity=post_layer single_best_support=disabled conservation=assigned_plus_unassigned demand_od = {:>8}  demand_intervals = {:>8}  assigned_intervals = {:>8}  unassigned_intervals = {:>8}  shares = {:>8}  unassigned = {:>8}  demand_passengers = {:.6f}  assigned_passengers = {:.6f}  unassigned_passengers = {:.6f}  skipped_empty_intervals = {:>8}  inadmissible_supports = {:>8}  suppressed_numerical_shares = {:>8}"
                 , demand_intervals.size()
                 , interval_count
                 , conservation.assigned_intervals
@@ -1730,9 +1944,19 @@ namespace timetable::domain::assignment {
             const auto od_key = detail::grouping::od_key(demand);
             const auto choice_it = choice_lookup.find(od_key);
             if (choice_it == choice_lookup.end()) {
+                const auto share_begin = result.shares.size();
                 append_unassigned_demand(
                       result
                     , demand_unit
+                    , UnassignedDemandReason::NoChosenAlternatives
+                );
+                append_od_day_paper_split_certificate(
+                      result
+                    , demand_unit
+                    , 0u
+                    , 0u
+                    , 0u
+                    , share_begin
                     , UnassignedDemandReason::NoChosenAlternatives
                 );
                 continue;
@@ -1746,29 +1970,38 @@ namespace timetable::domain::assignment {
             }
 
             MATHFP_TRY_LET(
-                  std::vector<IntervalAdmissibleDayPathSupport>
-                , admissible_supports
-                , admissible_od_day_path_supports(
+                  IntervalSplitConnectionAlternatives
+                , split_connections
+                , interval_split_connection_alternatives(
                   *choice_it->second
                 , *interval
                 , assignment_period
                 , admissibility_config
-                , params.split
-                , demand_segment_time.basis
                 )
             );
-            if (admissible_supports.empty()) {
+            if (split_connections.alternatives.empty()) {
+                const auto share_begin = result.shares.size();
                 append_unassigned_demand(
                       result
                     , demand_unit
                     , UnassignedDemandReason::NoIntervalAdmissibleSupport
                 );
+                append_od_day_paper_split_certificate(
+                      result
+                    , demand_unit
+                    , split_connections.candidate_supports
+                    , split_connections.alternatives.size()
+                    , split_connections.rejected_supports
+                    , share_begin
+                    , UnassignedDemandReason::NoIntervalAdmissibleSupport
+                );
                 continue;
             }
             const auto base_alternatives = derive_split_alternatives(
-                  admissible_supports
+                  split_connections.alternatives
                 , params.split
             );
+            const auto share_begin = result.shares.size();
             MATHFP_TRY_LET(
                   std::size_t
                 , suppressed
@@ -1788,9 +2021,18 @@ namespace timetable::domain::assignment {
                 )
             );
             (void)suppressed;
+            append_od_day_paper_split_certificate(
+                  result
+                , demand_unit
+                , split_connections.candidate_supports
+                , split_connections.alternatives.size()
+                , split_connections.rejected_supports
+                , share_begin
+                , std::nullopt
+            );
         }
 
-        MATHFP_TRY(validate_interval_selected_day_path_split(
+        MATHFP_TRY(validate_paper_connection_split_supports(
               result
             , interval_lookup
             , assignment_period
@@ -1798,6 +2040,11 @@ namespace timetable::domain::assignment {
             , demand_segment_time.basis
         ));
         MATHFP_TRY(validate_od_day_demand_conservation(
+              result
+            , input
+            , std::optional<ZoneId>{ choice_result.origin }
+        ));
+        MATHFP_TRY(validate_od_day_paper_split_certificates(
               result
             , input
             , std::optional<ZoneId>{ choice_result.origin }
@@ -1856,7 +2103,7 @@ namespace timetable::domain::assignment {
         );
         log(
             fmt::format(
-                  "OD-day origin load: origin={} support=interval_selected_day_path conservation=assigned_plus_unassigned demand_intervals={} assigned_intervals={} unassigned_intervals={} shares={} unassigned={} demand_passengers={:.6f} assigned_passengers={:.6f} unassigned_passengers={:.6f} elementary_loads={}"
+                  "OD-day origin load: origin={} split_contract=paper_connection_split support_selection=all_interval_admissible day_path_identity=post_layer single_best_support=disabled conservation=assigned_plus_unassigned demand_intervals={} assigned_intervals={} unassigned_intervals={} shares={} unassigned={} demand_passengers={:.6f} assigned_passengers={:.6f} unassigned_passengers={:.6f} elementary_loads={}"
                 , search_result.origin.get()
                 , conservation.demand_intervals
                 , conservation.assigned_intervals

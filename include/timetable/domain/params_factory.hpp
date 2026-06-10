@@ -145,6 +145,10 @@ namespace timetable::domain {
               Dimless temporal_similarity_scale
             , Dimless higher_quality_scale
             , Dimless lower_quality_scale
+            , Dimless higher_perceived_journey_time_scale
+            , Dimless lower_perceived_journey_time_scale
+            , Dimless higher_fare_scale
+            , Dimless lower_fare_scale
         ) {
             MATHFP_TRY(validation::ensure_positive(
                 temporal_similarity_scale, "split.independence.temporal_similarity_scale"
@@ -154,6 +158,20 @@ namespace timetable::domain {
             ));
             MATHFP_TRY(validation::ensure_positive(
                 lower_quality_scale, "split.independence.lower_quality_scale"
+            ));
+            MATHFP_TRY(validation::ensure_positive(
+                higher_perceived_journey_time_scale,
+                "split.independence.higher_perceived_journey_time_scale"
+            ));
+            MATHFP_TRY(validation::ensure_positive(
+                lower_perceived_journey_time_scale,
+                "split.independence.lower_perceived_journey_time_scale"
+            ));
+            MATHFP_TRY(validation::ensure_positive(
+                higher_fare_scale, "split.independence.higher_fare_scale"
+            ));
+            MATHFP_TRY(validation::ensure_positive(
+                lower_fare_scale, "split.independence.lower_fare_scale"
             ));
             return mathfp::kUnit;
         }
@@ -168,6 +186,10 @@ namespace timetable::domain {
                   config.temporal_similarity_scale
                 , config.higher_quality_scale
                 , config.lower_quality_scale
+                , config.higher_perceived_journey_time_scale
+                , config.lower_perceived_journey_time_scale
+                , config.higher_fare_scale
+                , config.lower_fare_scale
             ));
             return mathfp::kUnit;
         }
