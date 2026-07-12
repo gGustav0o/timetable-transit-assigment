@@ -10,8 +10,8 @@
 
 #include <mathfp/core/expected.hpp>
 #include <mathfp/core/unit.hpp>
-#include <mathfp/types/strong_type.hpp>
 
+#include "timetable/domain/id.hpp"
 #include "timetable/domain/model.hpp"
 #include "timetable/domain/params.hpp"
 #include "timetable/domain/assignment/assignment_period.hpp"
@@ -49,12 +49,7 @@ namespace timetable::domain::assignment {
 
     struct SearchTaskRefTag {};
 
-    using SearchTaskRef = mathfp::StrongType<
-          std::int64_t
-        , SearchTaskRefTag
-        , mathfp::strong_detail::EqualityComparable
-        , mathfp::strong_detail::Ordered
-    >;
+    using SearchTaskRef = DomainId<SearchTaskRefTag>;
 
     /**
      * @brief OD-time demand task projected onto timetable connection search.
@@ -70,30 +65,20 @@ namespace timetable::domain::assignment {
      * and AssignmentPeriodConfig, not by this search domain.
      */
     struct SearchTask final {
-        SearchTaskRef   index{};
-        ZoneId          origin{};
-        ZoneId          destination{};
-        TimeInterval    interval{};
+        SearchTaskRef   index;
+        ZoneId          origin;
+        ZoneId          destination;
+        TimeInterval    interval;
         SearchTimeDomain departure_domain{};
     };
 
     struct SearchTreeJobRefTag {};
 
-    using SearchTreeJobRef = mathfp::StrongType<
-          std::int64_t
-        , SearchTreeJobRefTag
-        , mathfp::strong_detail::EqualityComparable
-        , mathfp::strong_detail::Ordered
-    >;
+    using SearchTreeJobRef = DomainId<SearchTreeJobRefTag>;
 
     struct SearchCompletionTargetRefTag {};
 
-    using SearchCompletionTargetRef = mathfp::StrongType<
-          std::int64_t
-        , SearchCompletionTargetRefTag
-        , mathfp::strong_detail::EqualityComparable
-        , mathfp::strong_detail::Ordered
-    >;
+    using SearchCompletionTargetRef = DomainId<SearchCompletionTargetRefTag>;
 
     /**
      * @brief Destination target at which an origin-wide search may complete.
@@ -103,8 +88,8 @@ namespace timetable::domain::assignment {
      * split projection unit.
      */
     struct SearchCompletionTarget final {
-        SearchCompletionTargetRef index{};
-        ZoneId                    destination{};
+        SearchCompletionTargetRef index;
+        ZoneId                    destination;
     };
 
     /**
@@ -115,8 +100,8 @@ namespace timetable::domain::assignment {
      * while demand tasks remain separate projections attached by reference.
      */
     struct SearchTreeJob final {
-        SearchTreeJobRef                     index{};
-        ZoneId                               origin{};
+        SearchTreeJobRef                     index;
+        ZoneId                               origin;
         SearchTimeDomain                     departure_domain{};
         std::vector<SearchCompletionTarget>  completion_targets{};
         std::vector<SearchTaskRef>           projection_tasks{};
@@ -154,7 +139,7 @@ namespace timetable::domain::assignment {
     };
 
     struct SearchTaskResult final {
-        SearchTask                    task{};
+        SearchTask                    task;
         // Complete alternatives retained for this task after exact dominance
         // and the task-final tolerance pass requested by ChoiceConfig.
         std::vector<SearchConnection> connections{};
@@ -196,8 +181,8 @@ namespace timetable::domain::assignment {
      * public identity.
      */
     struct DayPathSignature final {
-        ZoneId                  origin{};
-        ZoneId                  destination{};
+        ZoneId                  origin;
+        ZoneId                  destination;
         std::vector<DayPathLeg> legs{};
 
         auto operator<=>(const DayPathSignature&) const = default;
@@ -215,15 +200,15 @@ namespace timetable::domain::assignment {
      * admissibility and elementary-load projection.
      */
     struct DayPathRideSupportLeg final {
-        ConnectionSegmentId connection_segment{};
-        RouteSegmentId      route_segment{};
-        LineId              line{};
-        RouteId             route{};
-        TripId              trip{};
-        StopOccurrenceKey   occurrence_from{};
-        StopOccurrenceKey   occurrence_to{};
-        RoutePosition       from_index{};
-        RoutePosition       to_index{};
+        ConnectionSegmentId connection_segment;
+        RouteSegmentId      route_segment;
+        LineId              line;
+        RouteId             route;
+        TripId              trip;
+        StopOccurrenceKey   occurrence_from;
+        StopOccurrenceKey   occurrence_to;
+        RoutePosition       from_index;
+        RoutePosition       to_index;
         Time                departure{};
         Time                arrival{};
 
@@ -256,13 +241,13 @@ namespace timetable::domain::assignment {
     };
 
     struct OdDayPathPairResult final {
-        ZoneId                        origin{};
-        ZoneId                        destination{};
+        ZoneId                        origin;
+        ZoneId                        destination;
         std::vector<DayPathAlternative> alternatives{};
     };
 
     struct OdDayOriginPathSet final {
-        ZoneId                           origin{};
+        ZoneId                           origin;
         std::vector<OdDayPathPairResult> pair_results{};
     };
 
@@ -275,8 +260,8 @@ namespace timetable::domain::assignment {
     using OdDayConnectionSearchResult = OdDayPathSearchResult;
 
     struct OdDayPairConnectionCount final {
-        ZoneId      origin{};
-        ZoneId      destination{};
+        ZoneId      origin;
+        ZoneId      destination;
         std::size_t connection_count{};
     };
 
@@ -292,8 +277,8 @@ namespace timetable::domain::assignment {
     using OdDayOriginResultSink = OdDayOriginPathSetSink;
 
     struct AllZoneTargetResult final {
-        ZoneId                        origin{};
-        ZoneId                        destination{};
+        ZoneId                        origin;
+        ZoneId                        destination;
         // Count is authoritative for streaming/count-only all-zone sinks; the
         // connection vector is optional materialized payload.
         std::size_t                   connection_count{};
@@ -301,7 +286,7 @@ namespace timetable::domain::assignment {
     };
 
     struct AllZoneTreeResult final {
-        ZoneId                           origin{};
+        ZoneId                           origin;
         std::vector<AllZoneTargetResult> target_results{};
     };
 

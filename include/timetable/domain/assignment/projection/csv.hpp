@@ -27,8 +27,8 @@ namespace timetable::domain::assignment::projection {
      * This is a compact analytical representation over one canonical OD result.
      */
     struct AssignmentOdSummaryCsvRow final {
-        ZoneId                       origin{};
-        ZoneId                       destination{};
+        ZoneId                       origin;
+        ZoneId                       destination;
         std::size_t                  search_connection_count{};
         std::size_t                  chosen_connection_count{};
         std::size_t                  structural_day_path_count{};
@@ -52,9 +52,9 @@ namespace timetable::domain::assignment::projection {
      * naturally with shares.csv and segments.csv.
      */
     struct AssignmentConnectionCsvRow final {
-        ZoneId                  origin{};
-        ZoneId                  destination{};
-        AssignmentConnectionRef connection_index{};
+        ZoneId                  origin;
+        ZoneId                  destination;
+        AssignmentConnectionRef connection_index;
         Time                    departure{};
         Time                    arrival{};
         Time                    journey_time{};
@@ -64,7 +64,7 @@ namespace timetable::domain::assignment::projection {
         Time                    transfer_walk_time{};
         Time                    transfer_wait_time{};
         Time                    transfer_time{};
-        TransferCount           transfers{};
+        TransferCount           transfers;
         double                  fare{};
         double                  assigned_passengers{};
         std::size_t             share_count{};
@@ -75,14 +75,14 @@ namespace timetable::domain::assignment::projection {
      * @brief One flat row for shares.csv.
      */
     struct AssignmentShareCsvRow final {
-        ZoneId                  origin{};
-        ZoneId                  destination{};
-        IntervalId              interval_id{};
+        ZoneId                  origin;
+        ZoneId                  destination;
+        IntervalId              interval_id;
         Time                    interval_start{};
         Time                    interval_end{};
         double                  interval_demand_passengers{};
         double                  interval_assigned_passengers{};
-        AssignmentConnectionRef connection_index{};
+        AssignmentConnectionRef connection_index;
         double                  share_passengers{};
         double                  probability{};
         double                  independence{};
@@ -96,12 +96,12 @@ namespace timetable::domain::assignment::projection {
      * connection.
      */
     struct AssignmentSegmentCsvRow final {
-        ZoneId                       origin{};
-        ZoneId                       destination{};
-        AssignmentConnectionRef      connection_index{};
+        ZoneId                       origin;
+        ZoneId                       destination;
+        AssignmentConnectionRef      connection_index;
         std::size_t                  path_segment_index{};
-        ConnectionSegmentId          connection_segment_id{};
-        RouteSegmentId               route_segment_id{};
+        ConnectionSegmentId          connection_segment_id;
+        RouteSegmentId               route_segment_id;
         RouteTopologyKind            route_topology_kind{};
         EndpointKind                 physical_from_kind{};
         std::int64_t                 physical_from_id{};
@@ -132,8 +132,8 @@ namespace timetable::domain::assignment::projection {
      */
     struct AssignmentLoadCsvRow final {
         AssignmentLoadLevel                 level{};
-        IntervalId                          interval_id{};
-        LineId                              line_id{};
+        IntervalId                          interval_id;
+        LineId                              line_id;
         std::optional<RouteId>              route_id{};
         std::optional<TripId>               trip_id{};
         std::optional<RouteSegmentId>       route_segment_id{};
@@ -153,8 +153,8 @@ namespace timetable::domain::assignment::projection {
      * @brief One flat row for stop_loads.csv.
      */
     struct AssignmentStopLoadCsvRow final {
-        IntervalId interval_id{};
-        StopId     stop_id{};
+        IntervalId interval_id;
+        StopId     stop_id;
         double     boarding_passengers{};
         double     alighting_passengers{};
         double     transfer_boarding_passengers{};
@@ -170,9 +170,9 @@ namespace timetable::domain::assignment::projection {
      * @brief One flat row for skim_matrix.csv.
      */
     struct AssignmentSkimMatrixCsvRow final {
-        ZoneId     origin{};
-        ZoneId     destination{};
-        IntervalId interval_id{};
+        ZoneId     origin;
+        ZoneId     destination;
+        IntervalId interval_id;
         double     demand_passengers{};
         double     assigned_passengers{};
         std::size_t connection_count{};
@@ -194,9 +194,9 @@ namespace timetable::domain::assignment::projection {
      * @brief One flat row for vehicle_journey_item_loads.csv.
      */
     struct AssignmentVehicleJourneyItemLoadCsvRow final {
-        IntervalId                              interval_id{};
-        TripId                                  trip_id{};
-        RoutePosition                           from_index{};
+        IntervalId                              interval_id;
+        TripId                                  trip_id;
+        RoutePosition                           from_index;
         double                                  passengers{};
         std::optional<double>                   total_capacity{};
         std::optional<double>                   seat_capacity{};
@@ -209,9 +209,9 @@ namespace timetable::domain::assignment::projection {
      * @brief One flat row for elementary_segment_loads.csv.
      */
     struct AssignmentElementarySegmentLoadCsvRow final {
-        IntervalId    interval_id{};
-        TripId        trip_id{};
-        RoutePosition from_index{};
+        IntervalId    interval_id;
+        TripId        trip_id;
+        RoutePosition from_index;
         double        passengers{};
     };
 

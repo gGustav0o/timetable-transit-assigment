@@ -171,7 +171,7 @@ namespace timetable::domain::assignment {
         Length       journey_distance{};
 
         std::int32_t ride_count{};
-        TransferCount transfer_count{};
+        TransferCount transfer_count{ TransferCount{0} };
         double       fare{};
     };
 
@@ -183,8 +183,8 @@ namespace timetable::domain::assignment {
      * structural object.
      */
     struct Connection final {
-        ZoneId            origin{};
-        ZoneId            destination{};
+        ZoneId            origin;
+        ZoneId            destination;
         ConnectionTrace   trace{};
     };
 

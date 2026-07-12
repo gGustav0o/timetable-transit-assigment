@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstddef>
 #include <limits>
+#include <optional>
 #include <source_location>
 #include <string_view>
 #include <type_traits>
@@ -32,8 +33,8 @@ namespace mathfp::graph {
 
     template <class Weight>
     struct DijkstraResultT final {
-        std::vector<Weight>   distance{}; // inf if unreachable
-        std::vector<VertexId> parent{}; // invalid if unreachable or start
+        std::vector<Weight>                  distance{}; // inf if unreachable
+        std::vector<std::optional<VertexId>> parent{}; // nullopt if unreachable or start
     };
 
     namespace detail {
@@ -87,11 +88,6 @@ namespace mathfp::graph {
                     .ctx("num_edges"   , edge_count(g))
                     .ctx(kMethod       , "dijkstra"));
             }
-            if (!::mathfp::is_valid(start)) {
-                return ::mathfp::unexpected(
-                    ::mathfp::invalid_arg("start vertex id is invalid (sentinel)", where)
-                    .ctx(kMethod, "dijkstra"));
-            }
             const auto s = ::mathfp::to_usize(start);
             if (s >= n) {
                 return ::mathfp::unexpected(
@@ -142,7 +138,7 @@ namespace mathfp::graph {
 
     // dijkstra: shortest paths from start.
     // - distance[v] = shortest path length (inf if unreachable)
-    // - parent[v] = predecessor vertex id in shortest path tree (invalid if unreachable or start)
+    // - parent[v] = predecessor vertex id in shortest path tree (nullopt if unreachable or start)
     template <class G>
     MATHFP_NODISCARD inline ::mathfp::Expected<DijkstraResult<G>> dijkstra(
           const G& g
@@ -174,23 +170,21 @@ namespace mathfp::graph {
 
         DijkstraResult<G> res;
         res.distance = std::move(dist);
-        res.parent  .assign(n, ::mathfp::invalid_index<VertexIdTag>());
+        res.parent  .assign(n, std::nullopt);
 
         const auto inf = detail::inf_value<W>();
         for (std::size_t i = 0; i < n; ++i) {
             if (i == s_idx) {
-                res.parent[i] = ::mathfp::invalid_index<VertexIdTag>();
                 continue;
             }
             if (res.distance[i] == inf) {
-                res.parent[i] = ::mathfp::invalid_index<VertexIdTag>();
                 continue;
             }
             const V pv     = pred[i];
             const auto pid = vertex_id(g, pv);
-            // ���� �������� ������� ������ ��� "self", ��� ���� start, ���� �������� ������.
+            // BGL can leave a predecessor as self; treat that as absent.
             if (::mathfp::to_usize(pid) == i) {
-                res.parent[i] = ::mathfp::invalid_index<VertexIdTag>();
+                continue;
             }
             else {
                 res.parent[i] = pid;

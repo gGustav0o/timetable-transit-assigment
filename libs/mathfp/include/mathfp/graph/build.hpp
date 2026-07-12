@@ -90,14 +90,6 @@ namespace mathfp::graph {
             , std::size_t                 num_vertices
             , std::source_location        where
         ) {
-            if (!::mathfp::is_valid(e.u) || !::mathfp::is_valid(e.v)) {
-                return ::mathfp::unexpected(
-                    ::mathfp::invalid_arg("edge contains invalid vertex id", where)
-                    .ctx("u"    , ::mathfp::to_usize(e.u))
-                    .ctx("v"    , ::mathfp::to_usize(e.v))
-                    .ctx(kPolicy, to_string(policy)));
-            }
-
             if (policy == BuildPolicy::Strict) {
                 const auto u = ::mathfp::to_usize(e.u);
                 const auto v = ::mathfp::to_usize(e.v);
@@ -172,14 +164,6 @@ namespace mathfp::graph {
             if (policy == BuildPolicy::Grow) {
                 std::size_t max_id = 0;
                 for (const auto& e : edges) {
-                    // early validation of sentinels
-                    if (!::mathfp::is_valid(e.u) || !::mathfp::is_valid(e.v)) {
-                        return ::mathfp::unexpected(
-                            ::mathfp::invalid_arg("edge contains invalid vertex id", where)
-                            .ctx("u"            , ::mathfp::to_usize(e.u))
-                            .ctx("v"            , ::mathfp::to_usize(e.v))
-                            .ctx(detail::kPolicy, detail::to_string(policy)));
-                    }
                     max_id = std::max(max_id, std::max(::mathfp::to_usize(e.u), ::mathfp::to_usize(e.v)));
                 }
                 MATHFP_TRY(detail::ensure_vertex_count(g, max_id + 1, where));

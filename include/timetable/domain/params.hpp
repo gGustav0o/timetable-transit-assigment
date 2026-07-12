@@ -3,23 +3,49 @@
 #include <array>
 #include <cstdint>
 #include <optional>
+#include <source_location>
 #include <string_view>
-
-#include <mathfp/types/strong_type.hpp>
+#include <utility>
 
 #include "timetable/enum_string.hpp"
+#include "timetable/domain/id.hpp"
 #include "timetable/domain/scalars.hpp"
+
+#include <mathfp/core/checked_arithmetic.hpp>
+#include <mathfp/core/expected.hpp>
 
 namespace timetable::domain {
 
     struct TransferCountTag {};
 
-    using TransferCount = mathfp::StrongType<
-        std::int32_t
-        , TransferCountTag
-        , mathfp::strong_detail::EqualityComparable
-        , mathfp::strong_detail::Ordered
-    >;
+    using TransferCount = OrderedDomainValue<TransferCountTag, std::int32_t>;
+
+    [[nodiscard]] inline mathfp::Expected<TransferCount> next_transfer_count(
+          TransferCount         value
+        , std::source_location where = std::source_location::current()
+    ) {
+        auto raw = mathfp::checked_add(value.get(), std::int32_t{1}, where);
+        if (!raw) {
+            return mathfp::unexpected(std::move(raw.error()));
+        }
+        return TransferCount{ *raw };
+    }
+
+    [[nodiscard]] inline std::optional<TransferCount> bounded_next_transfer_count(
+          TransferCount         value
+        , TransferCount         upper_bound
+        , std::source_location where = std::source_location::current()
+    ) {
+        if (!(value < upper_bound)) {
+            return std::nullopt;
+        }
+
+        auto raw = mathfp::checked_add(value.get(), std::int32_t{1}, where);
+        if (!raw) {
+            return std::nullopt;
+        }
+        return TransferCount{ *raw };
+    }
 
     struct FareNormalization final {
         enum class Kind : std::uint8_t {
@@ -72,7 +98,7 @@ namespace timetable::domain {
      * @brief Hard constraints for transfer feasibility during search.
      */
     struct TransferLimits final {
-        TransferCount max_transfers{};
+        TransferCount max_transfers{ TransferCount{0} };
         Time          min_transfer_wait{};
         Time          max_transfer_wait{};
         bool          allow_start_wait{};

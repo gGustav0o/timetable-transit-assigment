@@ -52,8 +52,8 @@ namespace timetable::domain::assignment {
      * capacity_set and must be rebuilt when either collection changes.
      */
     struct SearchCapacityTripPenaltyKey final {
-        IntervalId interval{};
-        TripId     trip{};
+        IntervalId interval;
+        TripId     trip;
 
         auto operator<=>(const SearchCapacityTripPenaltyKey&) const = default;
     };

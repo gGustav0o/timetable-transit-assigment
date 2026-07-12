@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <limits>
+#include <optional>
 #include <queue>
 #include <source_location>
 #include <utility>
@@ -25,9 +26,9 @@
 namespace mathfp::graph {
 
     struct BfsResult final {
-        std::vector<VertexId>    order{};
-        std::vector<VertexId>    parent{};
-        std::vector<std::size_t> distance{};
+        std::vector<VertexId>               order{};
+        std::vector<std::optional<VertexId>> parent{};
+        std::vector<std::size_t>            distance{};
 
         MATHFP_NODISCARD std::size_t size() const noexcept { return order.size(); }
     };
@@ -53,11 +54,6 @@ namespace mathfp::graph {
                 .ctx("num_edges"   , edge_count(g)));
         }
 
-        if (!::mathfp::is_valid(start)) {
-            return ::mathfp::unexpected(
-                ::mathfp::invalid_arg("start vertex id is invalid (sentinel)", where));
-        }
-
         const auto s = ::mathfp::to_usize(start);
         if (s >= n) {
             return ::mathfp::unexpected(
@@ -68,7 +64,7 @@ namespace mathfp::graph {
 
         BfsResult res;
         res.order   .reserve(n);
-        res.parent  .assign(n, ::mathfp::invalid_index<VertexIdTag>());
+        res.parent  .assign(n, std::nullopt);
         res.distance.assign(n, detail::kInfDist);
 
         std::vector<unsigned char> visited(n, 0);
@@ -78,7 +74,6 @@ namespace mathfp::graph {
 
         visited[s]      = 1;
         res.distance[s] = 0;
-        res.parent[s]   = ::mathfp::invalid_index<VertexIdTag>();
         res.order.push_back(start);
         q.push(sv);
 
@@ -93,9 +88,10 @@ namespace mathfp::graph {
                 const auto vi  = ::mathfp::to_usize(vid);
 
                 if (!visited[vi]) {
+                    const auto uid = vertex_id(g, u);
                     visited[vi]      = 1;
-                    res.parent[vi]   = vertex_id(g, u);
-                    res.distance[vi] = res.distance[::mathfp::to_usize(res.parent[vi])] + 1;
+                    res.parent[vi]   = uid;
+                    res.distance[vi] = res.distance[::mathfp::to_usize(uid)] + 1;
                     res.order.push_back(vid);
                     q.push(v);
                 }

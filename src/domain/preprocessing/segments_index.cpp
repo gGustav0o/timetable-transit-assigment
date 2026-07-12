@@ -18,12 +18,12 @@ namespace timetable::domain::preprocessing {
     namespace {
 
         struct RouteSegRef final {
-            RouteSegmentId      id{};
+            RouteSegmentId      id;
             const RouteSegment* ptr{};
         };
 
         struct ConnectionSegRef final {
-            ConnectionSegmentId      id{};
+            ConnectionSegmentId      id;
             const ConnectionSegment* ptr{};
             const RouteSegment*      route{};
         };

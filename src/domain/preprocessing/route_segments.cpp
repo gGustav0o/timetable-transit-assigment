@@ -5,6 +5,7 @@
 #include <iterator>
 #include <limits>
 #include <map>
+#include <optional>
 #include <unordered_map>
 #include <utility>
 
@@ -286,7 +287,7 @@ namespace timetable::domain::preprocessing {
 
         struct BestEdge final {
             double     weight{};
-            WalkLinkId id{};
+            WalkLinkId id;
         };
 
         struct WalkGraphData final {
@@ -468,15 +469,15 @@ namespace timetable::domain::preprocessing {
               const WalkGraphData&                        data
             , std::size_t                                 s
             , std::size_t                                 t
-            , const std::vector<mathfp::graph::VertexId>& parent
+            , const std::vector<std::optional<mathfp::graph::VertexId>>& parent
         ) {
             std::vector<WalkLinkId> path;
             std::size_t cur = t;
             while (cur != s) {
                 const auto pid = parent[cur];
-                if (!mathfp::is_valid(pid))
+                if (!pid.has_value())
                     return std::optional<std::vector<WalkLinkId>>{};
-                const auto p = mathfp::to_usize(pid);
+                const auto p = mathfp::to_usize(*pid);
                 const Pair key{ p, cur };
                 const auto it = data.best_edges.find(key);
                 if (it == data.best_edges.end())
@@ -791,7 +792,11 @@ namespace timetable::domain::preprocessing {
         // for transit walks. Running Dijkstra from every walk endpoint produces
         // all reachable access, egress and transfer-walk route segments.
         for (std::size_t s = 0; s < data.endpoints.size(); ++s) {
-            const auto start = mathfp::Index<mathfp::graph::VertexIdTag>(s);
+            MATHFP_TRY_LET(
+                  mathfp::graph::VertexId
+                , start
+                , mathfp::make_index<mathfp::graph::VertexIdTag>(s)
+            );
             MATHFP_TRY_LET(
                   DijkstraResult
                 , res

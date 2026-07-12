@@ -16,7 +16,7 @@ namespace timetable::domain::assignment {
         Time          departure{};
         Time          arrival{};
         Time          journey_time{};
-        TransferCount transfers{};
+        TransferCount transfers{ TransferCount{0} };
         double        impedance{};
     };
 

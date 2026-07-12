@@ -120,7 +120,7 @@ namespace timetable::domain::assignment {
      * - absent   => origin-wide lookup
      */
     struct SearchDomainQuery final {
-        ZoneId                origin{};
+        ZoneId                origin;
         std::optional<ZoneId> destination{};
 
         auto operator<=>(const SearchDomainQuery&) const = default;

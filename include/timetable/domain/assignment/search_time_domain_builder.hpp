@@ -40,15 +40,15 @@ namespace timetable::domain::assignment {
     };
 
     struct OriginSearchTimeDomain final {
-        ZoneId            origin{};
+        ZoneId            origin;
         SearchTimeDomain  domain{};
 
         auto operator<=>(const OriginSearchTimeDomain&) const = default;
     };
 
     struct OdSearchTimeDomain final {
-        ZoneId            origin{};
-        ZoneId            destination{};
+        ZoneId            origin;
+        ZoneId            destination;
         SearchTimeDomain  domain{};
 
         auto operator<=>(const OdSearchTimeDomain&) const = default;

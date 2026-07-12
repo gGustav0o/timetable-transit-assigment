@@ -34,8 +34,8 @@ namespace timetable::domain {
      * physical stop by route position.
      */
     struct StopOccurrenceKey final {
-        StopId        stop{};
-        RoutePosition position{};
+        StopId        stop;
+        RoutePosition position;
 
         auto operator<=>(const StopOccurrenceKey&) const = default;
     };

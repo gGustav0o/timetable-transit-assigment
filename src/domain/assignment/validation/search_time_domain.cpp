@@ -16,9 +16,9 @@ namespace timetable::domain::assignment {
         using IntervalMap = std::map<IntervalId, const TimeInterval*>;
 
         struct OdIntervalKey final {
-            ZoneId     origin{};
-            ZoneId     destination{};
-            IntervalId interval{};
+            ZoneId     origin;
+            ZoneId     destination;
+            IntervalId interval;
 
             auto operator<=>(const OdIntervalKey&) const = default;
         };

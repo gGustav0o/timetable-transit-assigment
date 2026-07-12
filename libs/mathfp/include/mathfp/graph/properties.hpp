@@ -30,9 +30,9 @@ namespace mathfp::graph {
 
     template <class G>
     MATHFP_NODISCARD inline VertexId vertex_id(const G& g, Vertex<G> v) {
-        // vertex_index map ������������ ��� adjacency_list(vecS,vecS,...) � ����� ���� sane ������.
+        // Boost vertex_index is trusted here; range validation belongs to public inputs.
         const auto idx = static_cast<std::size_t>(boost::get(boost::vertex_index, g, v));
-        return VertexId(idx);
+        return ::mathfp::index_detail::make_unchecked_index<VertexIdTag>(idx);
     }
 
     template <class G>
@@ -40,11 +40,6 @@ namespace mathfp::graph {
         const G& g,
         VertexId id,
         std::source_location where = std::source_location::current()) {
-        if (!::mathfp::is_valid(id)) {
-            return ::mathfp::unexpected(
-                ::mathfp::invalid_arg("vertex id is invalid (sentinel)", where));
-        }
-
         const auto n = static_cast<std::size_t>(boost::num_vertices(g));
         const auto i = ::mathfp::to_usize(id);
 

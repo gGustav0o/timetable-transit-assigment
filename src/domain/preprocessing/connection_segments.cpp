@@ -65,8 +65,8 @@ namespace timetable::domain::preprocessing {
         struct TimedSegmentData final {
             Time          arrival{};
             Time          departure{};
-            RoutePosition from_index{};
-            RoutePosition to_index{};
+            RoutePosition from_index;
+            RoutePosition to_index;
         };
 
         struct TripTimesResult final {
@@ -81,7 +81,7 @@ namespace timetable::domain::preprocessing {
         };
 
         struct BuiltConnectionSegment final {
-            ConnectionSegment segment{};
+            ConnectionSegment segment;
             std::int64_t      next_id{};
         };
 

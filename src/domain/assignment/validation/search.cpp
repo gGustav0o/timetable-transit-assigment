@@ -24,7 +24,7 @@ namespace timetable::domain::assignment {
             Time          arrival{};
             Time          journey_time{};
             Time          transfer_time{};
-            TransferCount transfers{};
+            TransferCount transfers{ TransferCount{0} };
             double        fare{};
         };
 
@@ -244,7 +244,12 @@ namespace timetable::domain::assignment {
                     transfer_time = Time{
                         transfer_time.value() + (segment.departure->value() - current_time->value())
                     };
-                    transfers = TransferCount{ transfers.get() + 1 };
+                    MATHFP_TRY_LET(
+                          TransferCount
+                        , next_transfers
+                        , next_transfer_count(transfers)
+                    );
+                    transfers = next_transfers;
                 }
 
                 current_time = *segment.arrival;

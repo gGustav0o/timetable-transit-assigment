@@ -1,6 +1,7 @@
 #pragma once
 
 #include <mathfp/core/unit.hpp>
+#include <mathfp/core/checked_arithmetic.hpp>
 #include <mathfp/core/context.hpp>
 #include <mathfp/core/error.hpp>
 #include <mathfp/core/expected.hpp>
@@ -26,6 +27,9 @@ namespace mathfp::prelude {
     using ::mathfp::Expected;
     using ::mathfp::Unexpected;
     using ::mathfp::unexpected;
+    using ::mathfp::checked_add;
+    using ::mathfp::checked_sub;
+    using ::mathfp::checked_mul;
 
     using ::mathfp::CompensatedSum;
     using ::mathfp::compensated_sum;
@@ -89,8 +93,8 @@ namespace mathfp::prelude {
     using ::mathfp::map_strong;
 
     using ::mathfp::Index;
-    using ::mathfp::invalid_index;
-    using ::mathfp::is_valid;
+    using ::mathfp::is_index;
+    using ::mathfp::is_index_v;
     using ::mathfp::to_usize;
     using ::mathfp::make_index;
     using ::mathfp::next_index;

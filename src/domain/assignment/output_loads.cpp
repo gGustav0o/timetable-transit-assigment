@@ -17,48 +17,48 @@ namespace timetable::domain::assignment::detail {
     namespace {
 
         struct SegmentLoadKey final {
-            IntervalId          interval{};
-            LineId              line{};
-            RouteId             route{};
-            TripId              trip{};
-            RouteSegmentId      route_segment{};
-            ConnectionSegmentId connection_segment{};
-            StopOccurrence      from{};
-            StopOccurrence      to{};
+            IntervalId          interval;
+            LineId              line;
+            RouteId             route;
+            TripId              trip;
+            RouteSegmentId      route_segment;
+            ConnectionSegmentId connection_segment;
+            StopOccurrence      from;
+            StopOccurrence      to;
             Time                departure{};
             Time                arrival{};
         };
 
         struct LineLoadKey final {
-            IntervalId interval{};
-            LineId     line{};
+            IntervalId interval;
+            LineId     line;
         };
 
         struct TripLoadKey final {
-            IntervalId interval{};
-            LineId     line{};
-            RouteId    route{};
-            TripId     trip{};
+            IntervalId interval;
+            LineId     line;
+            RouteId    route;
+            TripId     trip;
         };
 
         struct RouteLoadKey final {
-            IntervalId interval{};
-            LineId     line{};
-            RouteId    route{};
+            IntervalId interval;
+            LineId     line;
+            RouteId    route;
         };
 
         struct RouteTotalLoadKey final {
-            LineId  line{};
-            RouteId route{};
+            LineId  line;
+            RouteId route;
         };
 
         struct StopLoadKey final {
-            IntervalId interval{};
-            StopId     stop{};
+            IntervalId interval;
+            StopId     stop;
         };
 
         struct StopTotalLoadKey final {
-            StopId stop{};
+            StopId stop;
         };
 
         [[nodiscard]] bool operator<(

@@ -27,14 +27,14 @@ namespace timetable::domain::assignment {
     };
 
     struct OdDayPathChoicePairResult final {
-        ZoneId                        origin{};
-        ZoneId                        destination{};
+        ZoneId                        origin;
+        ZoneId                        destination;
         std::vector<DayPathAlternative> alternatives{};
         std::vector<SearchConnection> connections{};
     };
 
     struct OriginDayPathChoiceResult final {
-        ZoneId                             origin{};
+        ZoneId                             origin;
         std::vector<OdDayPathChoicePairResult> pair_results{};
     };
 

@@ -18,7 +18,7 @@ namespace timetable::domain::assignment::projection {
      * this OD-local chosen connection.
      */
     struct AssignmentConnectionSummary final {
-        AssignmentConnectionRef index{};
+        AssignmentConnectionRef index;
         Time                    departure{};
         Time                    arrival{};
         Time                    journey_time{};
@@ -28,7 +28,7 @@ namespace timetable::domain::assignment::projection {
         Time                    transfer_walk_time{};
         Time                    transfer_wait_time{};
         Time                    transfer_time{};
-        TransferCount           transfers{};
+        TransferCount           transfers;
         double                  fare{};
         double                  assigned_passengers{};
         std::size_t             share_count{};
@@ -38,8 +38,8 @@ namespace timetable::domain::assignment::projection {
      * @brief Compact per-OD summary derived from the canonical result.
      */
     struct AssignmentOdSummary final {
-        ZoneId                                   origin{};
-        ZoneId                                   destination{};
+        ZoneId                                   origin;
+        ZoneId                                   destination;
         std::size_t                              search_connection_count{};
         std::size_t                              chosen_connection_count{};
         std::size_t                              structural_day_path_count{};

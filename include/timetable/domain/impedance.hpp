@@ -11,7 +11,7 @@ namespace timetable::domain {
         Time          egress_time{};
         Time          transfer_walk_time{};
         Time          transfer_wait_time{};
-        TransferCount transfer_count{};
+        TransferCount transfer_count{ TransferCount{0} };
         double        fare{};
     };
 

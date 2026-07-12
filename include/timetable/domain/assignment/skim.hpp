@@ -38,9 +38,9 @@ namespace timetable::domain::assignment {
      * transfers is scalar because a mean skim can be fractional.
      */
     struct AssignmentSkimEntry final {
-        ZoneId     origin{};
-        ZoneId     destination{};
-        IntervalId interval{};
+        ZoneId     origin;
+        ZoneId     destination;
+        IntervalId interval;
 
         double      demand_passengers{};
         double      assigned_passengers{};

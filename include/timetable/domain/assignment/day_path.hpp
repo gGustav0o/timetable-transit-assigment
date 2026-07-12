@@ -27,7 +27,7 @@ namespace timetable::domain::assignment {
      * production DayPathSignature only when a destination is reached.
      */
     struct DayPathPrefix final {
-        ZoneId                  origin{};
+        ZoneId                  origin;
         std::vector<DayPathLeg> legs{};
 
         auto operator<=>(const DayPathPrefix&) const = default;

@@ -5,8 +5,7 @@
 #include <optional>
 #include <vector>
 
-#include <mathfp/types/strong_type.hpp>
-
+#include "timetable/domain/id.hpp"
 #include "timetable/domain/model.hpp"
 #include "timetable/domain/params.hpp"
 #include "timetable/domain/segments.hpp"
@@ -54,12 +53,7 @@ namespace timetable::domain {
 
     struct AssignmentConnectionRefTag {};
 
-    using AssignmentConnectionRef = mathfp::StrongType<
-          std::int64_t
-        , AssignmentConnectionRefTag
-        , mathfp::strong_detail::EqualityComparable
-        , mathfp::strong_detail::Ordered
-    >;
+    using AssignmentConnectionRef = DomainId<AssignmentConnectionRefTag>;
 
     /**
      * @brief Fully resolved path leg in the final public result.
@@ -91,7 +85,7 @@ namespace timetable::domain {
      * global connection identifier.
      */
     struct AssignmentIntervalShare final {
-        AssignmentConnectionRef connection_index{};
+        AssignmentConnectionRef connection_index;
         double                  passengers{};
         double                  probability{};
         double                  independence{};
@@ -148,8 +142,8 @@ namespace timetable::domain {
      * - intervals preserve the input demand-entry order within the OD group
      */
     struct AssignmentOdResult final {
-        ZoneId                                origin{};
-        ZoneId                                destination{};
+        ZoneId                                origin;
+        ZoneId                                destination;
         std::size_t                           search_connection_count{};
         std::size_t                           chosen_connection_count{};
         double                                total_demand_passengers{};
@@ -168,8 +162,8 @@ namespace timetable::domain {
      * passenger or boarding count.
      */
     struct AssignmentLineLoad final {
-        IntervalId  interval{};
-        LineId      line{};
+        IntervalId  interval;
+        LineId      line;
         double      passenger_segments{};
         std::size_t segment_load_count{};
     };
@@ -181,9 +175,9 @@ namespace timetable::domain {
      * interpreted as distinct passenger count.
      */
     struct AssignmentRouteLoad final {
-        IntervalId  interval{};
-        LineId      line{};
-        RouteId     route{};
+        IntervalId  interval;
+        LineId      line;
+        RouteId     route;
         double      passenger_segments{};
         std::size_t segment_load_count{};
     };
@@ -198,8 +192,8 @@ namespace timetable::domain {
      * elementary segment loads remain the primary overload/load profile.
      */
     struct AssignmentRouteTotalLoad final {
-        LineId      line{};
-        RouteId     route{};
+        LineId      line;
+        RouteId     route;
         double      passenger_segments{};
         std::size_t segment_load_count{};
     };
@@ -211,10 +205,10 @@ namespace timetable::domain {
      * profile remains the primary load representation.
      */
     struct AssignmentTripLoad final {
-        IntervalId  interval{};
-        LineId      line{};
-        RouteId     route{};
-        TripId      trip{};
+        IntervalId  interval;
+        LineId      line;
+        RouteId     route;
+        TripId      trip;
         double      passenger_segments{};
         std::size_t segment_load_count{};
     };
@@ -227,14 +221,14 @@ namespace timetable::domain {
      * semantics in downstream projections.
      */
     struct AssignmentSegmentLoad final {
-        IntervalId          interval{};
-        LineId              line{};
-        RouteId             route{};
-        TripId              trip{};
-        RouteSegmentId      route_segment{};
-        ConnectionSegmentId connection_segment{};
-        StopOccurrence      from{};
-        StopOccurrence      to{};
+        IntervalId          interval;
+        LineId              line;
+        RouteId             route;
+        TripId              trip;
+        RouteSegmentId      route_segment;
+        ConnectionSegmentId connection_segment;
+        StopOccurrence      from;
+        StopOccurrence      to;
         Time                departure{};
         Time                arrival{};
         double              passengers{};
@@ -251,8 +245,8 @@ namespace timetable::domain {
      * adjacent ride legs.
      */
     struct AssignmentStopLoad final {
-        IntervalId interval{};
-        StopId     stop{};
+        IntervalId interval;
+        StopId     stop;
         double     boarding_passengers{};
         double     alighting_passengers{};
         double     transfer_boarding_passengers{};
@@ -272,7 +266,7 @@ namespace timetable::domain {
      * day-path projections, not raw timed-search alternative counts.
      */
     struct AssignmentStopTotalLoad final {
-        StopId stop{};
+        StopId stop;
         double boarding_passengers{};
         double alighting_passengers{};
         double incoming_passenger_segments{};

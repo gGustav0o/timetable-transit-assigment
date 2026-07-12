@@ -6,9 +6,8 @@
 #include <optional>
 #include <vector>
 
-#include <mathfp/types/strong_type.hpp>
-
 #include "timetable/domain/assignment/day_path.hpp"
+#include "timetable/domain/id.hpp"
 #include "timetable/domain/model.hpp"
 #include "timetable/domain/segments.hpp"
 
@@ -17,19 +16,8 @@ namespace timetable::domain::assignment {
     struct DayLevelSupplyNodeRefTag {};
     struct DayLevelSupplyEdgeRefTag {};
 
-    using DayLevelSupplyNodeRef = mathfp::StrongType<
-          std::int64_t
-        , DayLevelSupplyNodeRefTag
-        , mathfp::strong_detail::EqualityComparable
-        , mathfp::strong_detail::Ordered
-    >;
-
-    using DayLevelSupplyEdgeRef = mathfp::StrongType<
-          std::int64_t
-        , DayLevelSupplyEdgeRefTag
-        , mathfp::strong_detail::EqualityComparable
-        , mathfp::strong_detail::Ordered
-    >;
+    using DayLevelSupplyNodeRef = DomainId<DayLevelSupplyNodeRefTag>;
+    using DayLevelSupplyEdgeRef = DomainId<DayLevelSupplyEdgeRefTag>;
 
     /**
      * @brief Required computational contract for the production OD-day run.
@@ -235,7 +223,7 @@ namespace timetable::domain::assignment {
      * support-label property rather than a public path node.
      */
     struct DayLevelSupplyNode final {
-        DayLevelSupplyNodeRef           index{};
+        DayLevelSupplyNodeRef           index;
         EndpointKey                     endpoint{};
         std::optional<StopOccurrenceKey> occurrence{};
 
@@ -268,10 +256,10 @@ namespace timetable::domain::assignment {
     };
 
     struct DayLevelSupplyEdge final {
-        DayLevelSupplyEdgeRef index{};
+        DayLevelSupplyEdgeRef index;
         DayLevelSupplyEdgeKind kind{};
-        DayLevelSupplyNodeRef from{};
-        DayLevelSupplyNodeRef to{};
+        DayLevelSupplyNodeRef from;
+        DayLevelSupplyNodeRef to;
         DayPathLeg            structural_leg{};
         DayLevelTimedSupport  timed_support{};
 

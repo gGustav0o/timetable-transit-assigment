@@ -34,9 +34,9 @@ namespace timetable::domain::assignment {
      */
     struct RelaxedSuffixState final {
         EndpointKey       current_physical{};
-        ZoneId            destination{};
+        ZoneId            destination;
         SearchBranchPhase phase{ SearchBranchPhase::AtOrigin };
-        TransferCount     remaining_transfers{};
+        TransferCount     remaining_transfers;
     };
 
     [[nodiscard]] constexpr bool has_timed_ride(

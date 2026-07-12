@@ -129,7 +129,7 @@ namespace timetable::domain::assignment {
          * timed context needed to decide future feasible extensions.
          */
         struct SearchPartialTrace final {
-            ZoneId                             origin{};
+            ZoneId                             origin;
             EndpointKey                        current_physical{};
             std::optional<StopOccurrenceKey>   current_occurrence{};
             SearchBranchPhase                  phase{ SearchBranchPhase::AtOrigin };
@@ -162,7 +162,7 @@ namespace timetable::domain::assignment {
             Time                transfer_wait_time{};
             Time                transfer_walk_time{};
             Time                egress_time{};
-            TransferCount       transfers{};
+            TransferCount       transfers{ TransferCount{0} };
             double              fare{};
             CapacityExposure    capacity_exposure{};
         };
@@ -175,8 +175,8 @@ namespace timetable::domain::assignment {
          * timed segments part of the day-path identity.
          */
         struct TimedSupportLabel final {
-            ConnectionSegmentId          connection{};
-            RouteSegmentId               route_segment{};
+            ConnectionSegmentId          connection;
+            RouteSegmentId               route_segment;
             std::optional<TripId>        trip{};
             std::optional<RoutePosition> from_index{};
             std::optional<RoutePosition> to_index{};
@@ -209,12 +209,12 @@ namespace timetable::domain::assignment {
 
         struct OdDayPathPrefixNode final {
             std::shared_ptr<const OdDayPathPrefixNode> parent{};
-            DayPathLeg                                leg{};
+            DayPathLeg                                leg;
             std::size_t                               length{};
         };
 
         struct OdDayPathPrefix final {
-            ZoneId                                     origin{};
+            ZoneId                                     origin;
             std::shared_ptr<const OdDayPathPrefixNode> tail{};
             std::size_t                                length{};
         };
@@ -269,7 +269,7 @@ namespace timetable::domain::assignment {
         struct OdDaySupportPrefixNode final {
             mutable std::size_t ref_count{};
             OdDaySupportPrefix  parent{};
-            ConnectionSegmentId segment{};
+            ConnectionSegmentId segment;
             std::size_t         length{};
         };
 
@@ -838,8 +838,8 @@ namespace timetable::domain::assignment {
 
         struct SearchProjectionSlot final {
             SearchProjectionSlotKind                 kind{ SearchProjectionSlotKind::DemandTask };
-            ZoneId                                   origin{};
-            ZoneId                                   destination{};
+            ZoneId                                   origin;
+            ZoneId                                   destination;
             std::optional<IntervalId>                interval{};
             std::optional<SearchTaskRef>             task_ref{};
             const SearchTask*                        task{};
@@ -894,7 +894,7 @@ namespace timetable::domain::assignment {
         };
 
         struct SearchBatchKey final {
-            ZoneId                        origin{};
+            ZoneId                        origin;
             std::optional<IntervalId>      interval{};
             std::vector<SearchTimeWindow> departure_windows{};
         };
@@ -946,7 +946,7 @@ namespace timetable::domain::assignment {
         struct ResidualReachabilityKey final {
             EndpointKey       current_physical{};
             SearchBranchPhase phase{ SearchBranchPhase::AtOrigin };
-            TransferCount     remaining_transfers{};
+            TransferCount     remaining_transfers;
         };
 
         [[nodiscard]] bool operator==(
@@ -1001,7 +1001,7 @@ namespace timetable::domain::assignment {
 
         struct ResidualSuffixLowerBounds final {
             Time          journey_time{};
-            TransferCount transfers{};
+            TransferCount transfers{ TransferCount{0} };
             double        impedance{};
         };
 
@@ -1280,13 +1280,13 @@ namespace timetable::domain::assignment {
 
         struct DayLevelWalkSupport final {
             DayPathLeg                       structural_leg{};
-            DayLevelSupplyEdgeRef            edge{};
+            DayLevelSupplyEdgeRef            edge;
             std::vector<ConnectionSegmentId> support_labels{};
         };
 
         struct DayLevelRideSupport final {
             DayPathLeg                       structural_leg{};
-            DayLevelSupplyEdgeRef            edge{};
+            DayLevelSupplyEdgeRef            edge;
             std::vector<ConnectionSegmentId> support_labels{};
         };
 
@@ -1888,26 +1888,41 @@ namespace timetable::domain::assignment {
             return destination.reachable_states.contains(state);
         }
 
+        template <typename Fn>
+        void for_each_transfer_count_up_to(TransferCount max_transfers, Fn&& fn) {
+            auto remaining = TransferCount{0};
+            while (remaining <= max_transfers) {
+                fn(remaining);
+
+                const auto next = bounded_next_transfer_count(remaining, max_transfers);
+                if (!next.has_value()) {
+                    break;
+                }
+                remaining = *next;
+            }
+        }
+
         [[nodiscard]] bool has_more_budget_state(
               const DestinationResidualReachability& destination
             , const ResidualReachabilityKey&         state
             , TransferCount                          max_transfers
         ) noexcept {
-            for (
-                auto remaining = state.remaining_transfers.get() + 1;
-                remaining <= max_transfers.get();
-                ++remaining
-            ) {
+            auto next_remaining = bounded_next_transfer_count(
+                  state.remaining_transfers
+                , max_transfers
+            );
+            while (next_remaining.has_value()) {
                 if (has_reachable_state(
                       destination
                     , ResidualReachabilityKey{
                           .current_physical    = state.current_physical
                         , .phase               = state.phase
-                        , .remaining_transfers = TransferCount{ remaining }
+                        , .remaining_transfers = *next_remaining
                       }
                 )) {
                     return true;
                 }
+                next_remaining = bounded_next_transfer_count(*next_remaining, max_transfers);
             }
             return false;
         }
@@ -2040,7 +2055,10 @@ namespace timetable::domain::assignment {
                 );
 
                 // Every later timed boarding consumes one remaining transfer.
-                if (state.remaining_transfers < max_transfers) {
+                if (const auto next_remaining = bounded_next_transfer_count(
+                      state.remaining_transfers
+                    , max_transfers
+                )) {
                     // Reverse of AfterTimedRide --timed ride--> AfterTimedRide.
                     enqueue_reachable_state(
                           destination
@@ -2048,9 +2066,7 @@ namespace timetable::domain::assignment {
                         , ResidualReachabilityKey{
                               .current_physical    = predecessor
                             , .phase               = SearchBranchPhase::AfterTimedRide
-                            , .remaining_transfers = TransferCount{
-                                  state.remaining_transfers.get() + 1
-                              }
+                            , .remaining_transfers = *next_remaining
                           }
                     );
                     // Reverse of AfterTransferWalk --timed ride--> AfterTimedRide.
@@ -2060,9 +2076,7 @@ namespace timetable::domain::assignment {
                         , ResidualReachabilityKey{
                               .current_physical    = predecessor
                             , .phase               = SearchBranchPhase::AfterTransferWalk
-                            , .remaining_transfers = TransferCount{
-                                  state.remaining_transfers.get() + 1
-                              }
+                            , .remaining_transfers = *next_remaining
                           }
                     );
                 }
@@ -2166,14 +2180,15 @@ namespace timetable::domain::assignment {
                     , .kind        = ResidualTransitionKind::FirstTimedRide
                 });
 
-                if (state.remaining_transfers < max_transfers) {
+                if (const auto next_remaining = bounded_next_transfer_count(
+                      state.remaining_transfers
+                    , max_transfers
+                )) {
                     visitor(ResidualPredecessorTransition{
                           .predecessor = ResidualReachabilityKey{
                                 .current_physical    = edge.predecessor
                               , .phase               = SearchBranchPhase::AfterTimedRide
-                              , .remaining_transfers = TransferCount{
-                                    state.remaining_transfers.get() + 1
-                                }
+                              , .remaining_transfers = *next_remaining
                             }
                         , .run_time    = edge.run_time
                         , .kind        = ResidualTransitionKind::TransferTimedRide
@@ -2182,9 +2197,7 @@ namespace timetable::domain::assignment {
                           .predecessor = ResidualReachabilityKey{
                                 .current_physical    = edge.predecessor
                               , .phase               = SearchBranchPhase::AfterTransferWalk
-                              , .remaining_transfers = TransferCount{
-                                    state.remaining_transfers.get() + 1
-                                }
+                              , .remaining_transfers = *next_remaining
                             }
                         , .run_time    = edge.run_time
                         , .kind        = ResidualTransitionKind::TransferTimedRide
@@ -2267,18 +2280,18 @@ namespace timetable::domain::assignment {
             > frontier;
 
             const auto destination_endpoint = endpoint_key(destination);
-            for (std::int32_t remaining = 0; remaining <= max_transfers.get(); ++remaining) {
+            for_each_transfer_count_up_to(max_transfers, [&](const TransferCount remaining) {
                 const auto seed = ResidualReachabilityKey{
                       .current_physical    = destination_endpoint
                     , .phase               = SearchBranchPhase::Completed
-                    , .remaining_transfers = TransferCount{ remaining }
+                    , .remaining_transfers = remaining
                 };
                 distances.emplace(seed, 0.0);
                 frontier.push(ResidualDistanceQueueItem{
                       .distance = 0.0
                     , .state    = seed
                 });
-            }
+            });
 
             while (!frontier.empty()) {
                 const auto item = frontier.top();
@@ -2389,17 +2402,17 @@ namespace timetable::domain::assignment {
             std::deque<ResidualReachabilityKey> frontier;
             const auto destination_endpoint = endpoint_key(destination);
 
-            for (std::int32_t remaining = 0; remaining <= max_transfers.get(); ++remaining) {
+            for_each_transfer_count_up_to(max_transfers, [&](const TransferCount remaining) {
                 enqueue_reachable_state(
                       reachability
                     , frontier
                     , ResidualReachabilityKey{
                           .current_physical    = destination_endpoint
                         , .phase               = SearchBranchPhase::Completed
-                        , .remaining_transfers = TransferCount{ remaining }
+                        , .remaining_transfers = remaining
                       }
                 );
-            }
+            });
 
             while (!frontier.empty()) {
                 const auto state = frontier.front();
@@ -2467,21 +2480,28 @@ namespace timetable::domain::assignment {
         ) {
             const auto destination_endpoint = endpoint_key(destination);
 
-            for (std::int32_t remaining = 0; remaining <= max_transfers.get(); ++remaining) {
+            auto remaining = TransferCount{0};
+            while (remaining <= max_transfers) {
                 if (!has_reachable_state(
                       reachability
                     , ResidualReachabilityKey{
                           .current_physical    = destination_endpoint
                         , .phase               = SearchBranchPhase::Completed
-                        , .remaining_transfers = TransferCount{ remaining }
+                        , .remaining_transfers = remaining
                       }
                 )) {
                     return mathfp::unexpected(
                         mathfp::internal_error("residual reachability misses destination completion seed")
                             .ctx("destination", destination.get())
-                            .ctx("remaining_transfers", remaining)
+                            .ctx("remaining_transfers", remaining.get())
                     );
                 }
+
+                const auto next = bounded_next_transfer_count(remaining, max_transfers);
+                if (!next.has_value()) {
+                    break;
+                }
+                remaining = *next;
             }
 
             for (const auto& state : reachability.reachable_states) {
@@ -2541,13 +2561,14 @@ namespace timetable::domain::assignment {
                     );
                 }
 
-                if (state.remaining_transfers < max_transfers) {
+                if (const auto next_remaining = bounded_next_transfer_count(
+                      state.remaining_transfers
+                    , max_transfers
+                )) {
                     const auto relaxed_more_budget_state = ResidualReachabilityKey{
                           .current_physical    = state.current_physical
                         , .phase               = state.phase
-                        , .remaining_transfers = TransferCount{
-                              state.remaining_transfers.get() + 1
-                          }
+                        , .remaining_transfers = *next_remaining
                     };
                     if (!has_reachable_state(reachability, relaxed_more_budget_state)) {
                         return mathfp::unexpected(
@@ -2884,11 +2905,15 @@ namespace timetable::domain::assignment {
             , const TransferLimits& limits
         ) noexcept {
             const auto used = branch.metrics.departure.has_value()
-                ? branch.metrics.transfers.get()
-                : 0;
-            return TransferCount{
-                std::max(0, limits.max_transfers.get() - used)
-            };
+                ? branch.metrics.transfers
+                : TransferCount{0};
+
+            if (limits.max_transfers <= used) {
+                return TransferCount{0};
+            }
+
+            const auto remaining = mathfp::checked_sub(limits.max_transfers.get(), used.get());
+            return TransferCount{ *remaining };
         }
 
         [[nodiscard]] RelaxedSuffixState relaxed_suffix_state(
@@ -4186,7 +4211,7 @@ namespace timetable::domain::assignment {
         }
 
         struct SearchSuccessor final {
-            ConnectionSegmentId                    connection{};
+            ConnectionSegmentId                    connection;
             std::optional<WalkExtensionTransition> walk_transition{};
             std::optional<DayLevelSupplyEdgeRef>   day_level_edge{};
             std::optional<TimedSupportEnvelope>     support_envelope{};
@@ -4932,7 +4957,7 @@ namespace timetable::domain::assignment {
             );
         }
 
-        [[nodiscard]] SearchPartialMetrics extend_metrics_with_timed(
+        [[nodiscard]] mathfp::Expected<SearchPartialMetrics> extend_metrics_with_timed(
               SearchPartialMetrics      metrics
             , const ConnectionSegment& segment
             , CapacityExposure          capacity_exposure
@@ -4947,7 +4972,12 @@ namespace timetable::domain::assignment {
                     metrics.transfer_wait_time.value()
                     + (segment.departure->value() - metrics.current_time->value())
                 };
-                metrics.transfers = TransferCount{ metrics.transfers.get() + 1 };
+                MATHFP_TRY_LET(
+                      TransferCount
+                    , next_transfers
+                    , next_transfer_count(metrics.transfers)
+                );
+                metrics.transfers = next_transfers;
             }
 
             metrics.in_vehicle_time = Time{
@@ -4984,6 +5014,15 @@ namespace timetable::domain::assignment {
                     , search_cost
                 )
             );
+            MATHFP_TRY_LET(
+                  SearchPartialMetrics
+                , extended_metrics
+                , extend_metrics_with_timed(
+                      branch.metrics
+                    , segment
+                    , capacity_exposure
+                )
+            );
             return SearchBranch{
                   .trace           = extend_trace_with_timed(
                         branch.trace
@@ -4993,11 +5032,7 @@ namespace timetable::domain::assignment {
                       , next_phase
                       , day_level_edge
                   )
-                , .metrics         = extend_metrics_with_timed(
-                      branch.metrics
-                    , segment
-                    , capacity_exposure
-                )
+                , .metrics         = extended_metrics
                 , .od_day_carrier  = OdDayProductionCarrier{
                       .path_identity = append_od_day_path_leg(
                             branch.od_day_carrier.path_identity
@@ -5276,10 +5311,13 @@ namespace timetable::domain::assignment {
                         , search_cost
                     )
                 );
-                metrics = extend_metrics_with_timed(
+                MATHFP_TRY_ASSIGN(
+                    metrics,
+                    extend_metrics_with_timed(
                       std::move(metrics)
                     , successor
                     , capacity_exposure
+                    )
                 );
             }
 
@@ -5306,7 +5344,7 @@ namespace timetable::domain::assignment {
             // exposing a candidate to $$C_y$$. The later feasibility predicate is
             // retained only as a defensive invariant.
             const PreprocessedNetwork&            network;
-            ZoneId                                origin{};
+            ZoneId                                origin;
             const ActiveDestinationMembership&    active_destinations;
             const SearchBranch&                   branch;
             const TransferLimits&                 limits;

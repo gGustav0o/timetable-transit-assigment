@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "timetable/domain/endpoints.hpp"
+#include "timetable/domain/id.hpp"
 #include "timetable/domain/model.hpp"
 
 namespace timetable::domain {
@@ -13,19 +14,8 @@ namespace timetable::domain {
     struct RouteSegmentIdTag {};
     struct ConnectionSegmentIdTag {};
 
-    using RouteSegmentId = mathfp::StrongType<
-        std::int64_t
-        , RouteSegmentIdTag
-        , mathfp::strong_detail::EqualityComparable
-        , mathfp::strong_detail::Ordered
-    >;
-
-    using ConnectionSegmentId = mathfp::StrongType<
-        std::int64_t
-        , ConnectionSegmentIdTag
-        , mathfp::strong_detail::EqualityComparable
-        , mathfp::strong_detail::Ordered
-    >;
+    using RouteSegmentId      = DomainId<RouteSegmentIdTag>;
+    using ConnectionSegmentId = DomainId<ConnectionSegmentIdTag>;
 
     enum class RouteTopologyKind : std::uint8_t {
           Line
@@ -53,10 +43,10 @@ namespace timetable::domain {
      * lines.
      */
     struct LineRouteTopology final {
-        StopOccurrence from{};
-        StopOccurrence to{};
-        LineId         line{};
-        RouteId        route{};
+        StopOccurrence from;
+        StopOccurrence to;
+        LineId         line;
+        RouteId        route;
     };
 
     using RouteTopology = std::variant<WalkRouteTopology, LineRouteTopology>;
@@ -76,7 +66,7 @@ namespace timetable::domain {
     // or the shortest walk-link sequence. This code keeps the same information but makes
     // the variant explicit through WalkRouteTopology/LineRouteTopology.
     struct RouteSegment final {
-        RouteSegmentId id{};
+        RouteSegmentId id;
         Length         length{};
         Time           run_time{};
         RouteTopology  topology{};
@@ -92,8 +82,8 @@ namespace timetable::domain {
     // A walk connection keeps the same route-segment reference but has no fixed
     // departure or arrival instant because it is available for every traveller time.
     struct ConnectionSegment final {
-        ConnectionSegmentId          id{};
-        RouteSegmentId               route_segment{};
+        ConnectionSegmentId          id;
+        RouteSegmentId               route_segment;
         std::optional<TripId>        trip{};
         std::optional<RoutePosition> from_index{};
         std::optional<RoutePosition> to_index{};

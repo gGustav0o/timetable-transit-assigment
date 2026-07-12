@@ -28,8 +28,8 @@ namespace timetable::domain::assignment {
      * when from_index belongs to the half-open ride interval [from, to).
      */
     struct VehicleJourneyItemKey final {
-        TripId        trip{};
-        RoutePosition from_index{};
+        TripId        trip;
+        RoutePosition from_index;
 
         auto operator<=>(const VehicleJourneyItemKey&) const = default;
     };
@@ -94,7 +94,7 @@ namespace timetable::domain::assignment {
      * @brief Interval-specific key for demand-induced vehicle journey item load.
      */
     struct VehicleJourneyItemLoadKey final {
-        IntervalId            interval{};
+        IntervalId            interval;
         VehicleJourneyItemKey item{};
 
         auto operator<=>(const VehicleJourneyItemLoadKey&) const = default;

@@ -68,6 +68,7 @@ set(MATHFP_HEADERS
   ${MATHFP_INCLUDE_DIR}/mathfp/core/summation.hpp
   ${MATHFP_INCLUDE_DIR}/mathfp/core/error.hpp
   ${MATHFP_INCLUDE_DIR}/mathfp/core/context.hpp
+  ${MATHFP_INCLUDE_DIR}/mathfp/core/checked_arithmetic.hpp
   ${MATHFP_INCLUDE_DIR}/mathfp/core/try.hpp
   ${MATHFP_INCLUDE_DIR}/mathfp/core/fp.hpp
   ${MATHFP_INCLUDE_DIR}/mathfp/core/applicative.hpp

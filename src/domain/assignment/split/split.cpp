@@ -956,9 +956,9 @@ namespace timetable::domain::assignment {
         }
 
         struct SplitDemandUnit final {
-            ZoneId     origin{};
-            ZoneId     destination{};
-            IntervalId interval{};
+            ZoneId     origin;
+            ZoneId     destination;
+            IntervalId interval;
             double     passengers{};
         };
 

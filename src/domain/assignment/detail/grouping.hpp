@@ -13,23 +13,23 @@
 namespace timetable::domain::assignment::detail::grouping {
 
     struct OdKey final {
-        ZoneId origin{};
-        ZoneId destination{};
+        ZoneId origin;
+        ZoneId destination;
 
         auto operator<=>(const OdKey&) const = default;
     };
 
     struct DemandKey final {
-        ZoneId     origin{};
-        ZoneId     destination{};
-        IntervalId interval{};
+        ZoneId     origin;
+        ZoneId     destination;
+        IntervalId interval;
 
         auto operator<=>(const DemandKey&) const = default;
     };
 
     struct ConnectionTraceKey final {
-        ZoneId                           origin{};
-        ZoneId                           destination{};
+        ZoneId                           origin;
+        ZoneId                           destination;
         std::vector<ConnectionSegmentId> segments{};
 
         auto operator<=>(const ConnectionTraceKey&) const = default;

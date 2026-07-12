@@ -23,9 +23,9 @@ namespace timetable::domain::assignment {
     };
 
     struct ConnectionDemandShare final {
-        ZoneId                       origin{};
-        ZoneId                       destination{};
-        IntervalId                   interval{};
+        ZoneId                       origin;
+        ZoneId                       destination;
+        IntervalId                   interval;
         DemandShareAlternativeSource source{ DemandShareAlternativeSource::TimedConnection };
         /*
          * In OD-day production source is DayPath for compatibility with the
@@ -66,17 +66,17 @@ namespace timetable::domain::assignment {
     }
 
     struct UnassignedDemand final {
-        ZoneId                 origin{};
-        ZoneId                 destination{};
-        IntervalId             interval{};
+        ZoneId                 origin;
+        ZoneId                 destination;
+        IntervalId             interval;
         double                 passengers{};
         UnassignedDemandReason reason{ UnassignedDemandReason::NoChosenAlternatives };
     };
 
     struct OdDayPaperSplitCertificate final {
-        ZoneId     origin{};
-        ZoneId     destination{};
-        IntervalId interval{};
+        ZoneId     origin;
+        ZoneId     destination;
+        IntervalId interval;
         std::size_t candidate_support_count{};
         std::size_t interval_admissible_support_count{};
         std::size_t interval_rejected_support_count{};
@@ -101,15 +101,15 @@ namespace timetable::domain::assignment {
     };
 
     struct OdDemandInterval final {
-        ZoneId     origin{};
-        ZoneId     destination{};
-        IntervalId interval{};
+        ZoneId     origin;
+        ZoneId     destination;
+        IntervalId interval;
         double     passengers{};
     };
 
     struct OdDemandIntervals final {
-        ZoneId                        origin{};
-        ZoneId                        destination{};
+        ZoneId                        origin;
+        ZoneId                        destination;
         std::vector<OdDemandInterval> intervals{};
     };
 

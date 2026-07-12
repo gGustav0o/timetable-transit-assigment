@@ -27,23 +27,23 @@ namespace timetable::domain::assignment {
     namespace {
 
         struct OdKey final {
-            ZoneId origin{};
-            ZoneId destination{};
+            ZoneId origin;
+            ZoneId destination;
 
             auto operator<=>(const OdKey&) const = default;
         };
 
         struct DemandKey final {
-            ZoneId     origin{};
-            ZoneId     destination{};
-            IntervalId interval{};
+            ZoneId     origin;
+            ZoneId     destination;
+            IntervalId interval;
 
             auto operator<=>(const DemandKey&) const = default;
         };
 
         struct ConnectionTraceKey final {
-            ZoneId                           origin{};
-            ZoneId                           destination{};
+            ZoneId                           origin;
+            ZoneId                           destination;
             std::vector<ConnectionSegmentId> segments{};
 
             auto operator<=>(const ConnectionTraceKey&) const = default;
@@ -56,7 +56,7 @@ namespace timetable::domain::assignment {
             Time          arrival{};
             Time          journey_time{};
             Time          transfer_time{};
-            TransferCount transfers{};
+            TransferCount transfers{ TransferCount{0} };
             double        fare{};
         };
 
@@ -301,7 +301,12 @@ namespace timetable::domain::assignment {
                     transfer_time = Time{
                         transfer_time.value() + (segment.departure->value() - current_time->value())
                     };
-                    transfers = TransferCount{ transfers.get() + 1 };
+                    MATHFP_TRY_LET(
+                          TransferCount
+                        , next_transfers
+                        , next_transfer_count(transfers)
+                    );
+                    transfers = next_transfers;
                 }
 
                 current_time = *segment.arrival;
