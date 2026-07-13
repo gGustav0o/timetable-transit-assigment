@@ -107,8 +107,17 @@ add_executable(timetable-transit-assigment
   src/domain/assignment/projection/csv.cpp
   src/domain/assignment/projection/summary.cpp
   src/domain/assignment/projection/text_summary.cpp
+  src/domain/assignment/search/frontier/retention_operations.cpp
+  src/domain/assignment/search/generation/successor.cpp
+  src/domain/assignment/search/kernel/search_kernel.cpp
   src/domain/assignment/search/branch_state.cpp
+  src/domain/assignment/search/model/retention.cpp
+  src/domain/assignment/search/model/support.cpp
   src/domain/assignment/search/preprocessed_network.cpp
+  src/domain/assignment/search/relations/branch_metrics.cpp
+  src/domain/assignment/search/relations/branch_state_projection.cpp
+  src/domain/assignment/search/relations/paper_connection_relevance.cpp
+  src/domain/assignment/search/runtime/search_runtime.cpp
   src/domain/assignment/search/search.cpp
   src/domain/assignment/run.cpp
   src/domain/assignment/runtime_overrides.cpp
