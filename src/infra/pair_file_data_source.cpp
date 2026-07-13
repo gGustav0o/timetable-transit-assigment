@@ -4,7 +4,7 @@
 #include "timetable/domain/assignment/capacity_aware_assignment.hpp"
 #include "timetable/domain/assignment/connection_admissibility.hpp"
 #include "timetable/domain/assignment/execution_config.hpp"
-#include "timetable/domain/params_factory.hpp"
+#include "timetable/domain/params/make.hpp"
 #include "timetable/infra/capacity_csv.hpp"
 #include "timetable/infra/demand_csv.hpp"
 #include "timetable/infra/params_txt.hpp"

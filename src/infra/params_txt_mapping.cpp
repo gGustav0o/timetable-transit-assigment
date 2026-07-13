@@ -1,485 +1,97 @@
 #include "detail/params_txt.hpp"
+#include "detail/params_txt_codecs.hpp"
+#include "detail/params_txt_converters.hpp"
+#include "detail/params_txt_draft.hpp"
+#include "detail/params_txt_reader.hpp"
+#include "detail/params_txt_schema.hpp"
 
 #include <algorithm>
 #include <array>
-#include <cmath>
 #include <cstddef>
-#include <cstdint>
-#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
-#include <variant>
-#include <vector>
 
-#include <mathfp/core/applicative.hpp>
 #include <mathfp/core/error.hpp>
-#include <mathfp/core/traverse.hpp>
 #include <mathfp/core/try.hpp>
 
-#include "timetable/domain/assignment/capacity_aware_assignment.hpp"
 #include "timetable/domain/assignment/validation.hpp"
-#include "timetable/domain/params_factory.hpp"
 
 namespace timetable::infra::params_txt::detail {
 
     namespace {
 
-        struct ObjectFieldSpec final {
-            std::string_view key{};
-            std::string_view path{};
-            std::string_view field{};
-        };
-
-        struct NumberFieldSpec final {
-            std::string_view key{};
-            std::string_view path{};
-            std::string_view field{};
-        };
-
-        struct StringFieldSpec final {
-            std::string_view key{};
-            std::string_view path{};
-            std::string_view field{};
-        };
-
-        template <std::size_t N>
-        using DoubleArray = std::array<double, N>;
-
-        template <std::size_t N>
-        using ObjectArray = std::array<const Object*, N>;
-
-        template <std::size_t N>
-        using StringArray = std::array<std::string, N>;
-
-        struct ParsedToleranceBundle final {
-            timetable::domain::SearchTolerances search{};
-            timetable::domain::ChoiceTolerances choice{};
-        };
-
-        struct ParsedSearchBundle final {
-            timetable::domain::PreprocessParams preprocess{};
-            timetable::domain::SearchImpedance  impedance{};
-            timetable::domain::TransferLimits   transfers{};
-        };
-
-        struct ToleranceFields final {
-            double imp_mult{};
-            double imp_add{};
-            double jt_mult{};
-            double jt_add{};
-            double nt_mult{};
-            double nt_add{};
-        };
-
-        struct TransferFields final {
-            double max_transfers{};
-            double min_transfer_wait{};
-            double max_transfer_wait{};
-        };
-
-        struct SearchImpedanceFields final {
-            double in_vehicle_time{};
-            double access_time{};
-            double egress_time{};
-            double transfer_walk_time{};
-            double transfer_wait_time{};
-            double transfer_count{};
-            double fare{};
-            double volume_capacity_ratio{};
-        };
-
-        struct SplitImpedanceFields final {
-            double time{};
-            double departure_early{};
-            double departure_late{};
-            double fare{};
-        };
-
-        struct PerceivedJourneyTimeFields final {
-            double in_vehicle_time{};
-            double access_time{};
-            double egress_time{};
-            double transfer_walk_time{};
-            double transfer_wait_time{};
-            double transfer_count{};
-            double volume_capacity_ratio{};
-        };
-
-        struct SplitIndependenceFields final {
-            bool   enabled{};
-            double gamma{};
-            double temporal_similarity_scale{};
-            double higher_quality_scale{};
-            double lower_quality_scale{};
-            double higher_perceived_journey_time_scale{};
-            double lower_perceived_journey_time_scale{};
-            double higher_fare_scale{};
-            double lower_fare_scale{};
-        };
-
-        struct SkimMatrixFields final {
-            bool        enabled{};
-            std::string func{};
-            double      volume_weighted{};
-            double      quantile{};
-            double      low_impedance_connection_share{};
-        };
-
-        struct AssignmentPeriodFields final {
-            double pre_assign_period{};
-            double post_assign_period{};
-        };
-
-        struct ConnectionDeletionFields final {
-            bool delete_outside_assignment_period{};
-            bool delete_departures_before_assignment_period_for_departure_based{};
-            bool delete_arrivals_after_assignment_period_for_arrival_based{};
-        };
-
-        struct DemandSegmentTimeFields final {
-            bool dep_based_demand_segment{};
-            bool consider_connections_with_positive_delta_t{};
-        };
-
-        namespace schema {
-
-            struct ParamsTxtSchema final {
-                std::array<ObjectFieldSpec, 3> root_objects{
-                    ObjectFieldSpec{ "searchPara", "root", "root.search_para" },
-                    ObjectFieldSpec{ "choicePara", "root", "root.choice_para" },
-                    ObjectFieldSpec{ "splitPara" , "root", "root.split_para" }
-                };
-
-                std::array<ObjectFieldSpec, 3> search_objects{
-                    ObjectFieldSpec{ "ToleranceConstraints", "root.searchPara", "search.tolerances" },
-                    ObjectFieldSpec{ "TemporalSuitability" , "root.searchPara", "search.temporal" },
-                    ObjectFieldSpec{ "SearchImp"           , "root.searchPara", "search.impedance" }
-                };
-
-                std::array<ObjectFieldSpec, 1> choice_objects{
-                    ObjectFieldSpec{ "ToleranceConstraints", "root.choicePara", "choice.tolerances" }
-                };
-
-                std::array<ObjectFieldSpec, 2> split_objects{
-                    ObjectFieldSpec{ "Independence", "root.splitPara", "split.independence" },
-                    ObjectFieldSpec{ "SplitImp"    , "root.splitPara", "split.impedance" }
-                };
-
-                std::array<ObjectFieldSpec, 1> split_imp_objects{
-                    ObjectFieldSpec{
-                          "PerceivedJourneyTime"
-                        , "root.splitPara.SplitImp"
-                        , "split.perceived_journey_time"
-                    }
-                };
-
-                std::array<NumberFieldSpec, 6> search_tolerances{
-                    NumberFieldSpec{ "minSearchImpFactor"      , "root.searchPara.ToleranceConstraints", "search_tolerances.imp_mult" },
-                    NumberFieldSpec{ "minSearchImpAbs"         , "root.searchPara.ToleranceConstraints", "search_tolerances.imp_add" },
-                    NumberFieldSpec{ "minJourneyTimeFactor"    , "root.searchPara.ToleranceConstraints", "search_tolerances.jt_mult" },
-                    NumberFieldSpec{ "minJourneyTimeAbs"       , "root.searchPara.ToleranceConstraints", "search_tolerances.jt_add" },
-                    NumberFieldSpec{ "minNumberTransfersFactor", "root.searchPara.ToleranceConstraints", "search_tolerances.nt_mult" },
-                    NumberFieldSpec{ "minNumberTransfersAbs"   , "root.searchPara.ToleranceConstraints", "search_tolerances.nt_add" }
-                };
-
-                std::array<NumberFieldSpec, 6> choice_tolerances{
-                    NumberFieldSpec{ "minSearchImpFactor"      , "root.choicePara.ToleranceConstraints", "choice_tolerances.imp_mult" },
-                    NumberFieldSpec{ "minSearchImpAbs"         , "root.choicePara.ToleranceConstraints", "choice_tolerances.imp_add" },
-                    NumberFieldSpec{ "minJourneyTimeFactor"    , "root.choicePara.ToleranceConstraints", "choice_tolerances.jt_mult" },
-                    NumberFieldSpec{ "minJourneyTimeAbs"       , "root.choicePara.ToleranceConstraints", "choice_tolerances.jt_add" },
-                    NumberFieldSpec{ "minNumberTransfersFactor", "root.choicePara.ToleranceConstraints", "choice_tolerances.nt_mult" },
-                    NumberFieldSpec{ "minNumberTransfersAbs"   , "root.choicePara.ToleranceConstraints", "choice_tolerances.nt_add" }
-                };
-
-                std::array<NumberFieldSpec, 1> transfer_limits{
-                    NumberFieldSpec{ "maxNumTransfers", "root.searchPara", "transfer_limits.max_transfers" }
-                };
-
-                std::array<NumberFieldSpec, 2> temporal_suitability{
-                    NumberFieldSpec{ "minTWT", "root.searchPara.TemporalSuitability", "transfer_limits.min_transfer_wait" },
-                    NumberFieldSpec{ "maxTWT", "root.searchPara.TemporalSuitability", "transfer_limits.max_transfer_wait" }
-                };
-
-                std::array<NumberFieldSpec, 8> search_impedance{
-                    NumberFieldSpec{ "inVehTimeFactor"      , "root.searchPara.SearchImp", "search_impedance.in_vehicle_time" },
-                    NumberFieldSpec{ "accessTimeFactor"     , "root.searchPara.SearchImp", "search_impedance.access_time" },
-                    NumberFieldSpec{ "egressTimeFactor"     , "root.searchPara.SearchImp", "search_impedance.egress_time" },
-                    NumberFieldSpec{ "walkTimeFactor"       , "root.searchPara.SearchImp", "search_impedance.transfer_walk_time" },
-                    NumberFieldSpec{ "transferWaitTimeFactor", "root.searchPara.SearchImp", "search_impedance.transfer_wait_time" },
-                    NumberFieldSpec{ "numTransfersFactor"   , "root.searchPara.SearchImp", "search_impedance.transfer_count" },
-                    NumberFieldSpec{ "supplementsFactor"    , "root.searchPara.SearchImp", "search_impedance.fare" },
-                    NumberFieldSpec{ "volCapRatioFactor"    , "root.searchPara.SearchImp", "search_impedance.volume_capacity_ratio" }
-                };
-
-                std::array<StringFieldSpec, 1> split_choice_model{
-                    StringFieldSpec{ "choiceModel", "root.splitPara", "split.choice_model" }
-                };
-
-                std::array<NumberFieldSpec, 4> split_impedance{
-                    NumberFieldSpec{ "perceivedJourneyTimeFactor" , "root.splitPara.SplitImp", "split_impedance.q_time" },
-                    NumberFieldSpec{ "temporalUtilityFactor_early", "root.splitPara.SplitImp", "split_impedance.q_departure_early" },
-                    NumberFieldSpec{ "temporalUtilityFactor_late" , "root.splitPara.SplitImp", "split_impedance.q_departure_late" },
-                    NumberFieldSpec{ "fareFactor"                 , "root.splitPara.SplitImp", "split_impedance.q_fare" }
-                };
-
-                std::array<NumberFieldSpec, 7> split_perceived_journey_time{
-                    NumberFieldSpec{
-                          "inVehTimeFactor"
-                        , "root.splitPara.SplitImp.PerceivedJourneyTime"
-                        , "split_perceived_journey_time.in_vehicle_time"
-                    },
-                    NumberFieldSpec{
-                          "accessTimeFactor"
-                        , "root.splitPara.SplitImp.PerceivedJourneyTime"
-                        , "split_perceived_journey_time.access_time"
-                    },
-                    NumberFieldSpec{
-                          "egressTimeFactor"
-                        , "root.splitPara.SplitImp.PerceivedJourneyTime"
-                        , "split_perceived_journey_time.egress_time"
-                    },
-                    NumberFieldSpec{
-                          "walkTimeFactor"
-                        , "root.splitPara.SplitImp.PerceivedJourneyTime"
-                        , "split_perceived_journey_time.transfer_walk_time"
-                    },
-                    NumberFieldSpec{
-                          "transferWaitTimeFactor"
-                        , "root.splitPara.SplitImp.PerceivedJourneyTime"
-                        , "split_perceived_journey_time.transfer_wait_time"
-                    },
-                    NumberFieldSpec{
-                          "numTransfersFactor"
-                        , "root.splitPara.SplitImp.PerceivedJourneyTime"
-                        , "split_perceived_journey_time.transfer_count"
-                    },
-                    NumberFieldSpec{
-                          "volCapRatioFactor"
-                        , "root.splitPara.SplitImp.PerceivedJourneyTime"
-                        , "split_perceived_journey_time.volume_capacity_ratio"
-                    }
-                };
-
-                std::array<NumberFieldSpec, 2> split_independence{
-                    NumberFieldSpec{ "gamma"                  , "root.splitPara.Independence", "split_independence.gamma" },
-                    NumberFieldSpec{ "indepMaxDelta"          , "root.splitPara.Independence", "split_independence.temporal_similarity_scale" }
-                };
-
-                std::array<NumberFieldSpec, 1> split_scalars{
-                    NumberFieldSpec{ "BoxCoxPara", "root.splitPara", "split.impedance_transform.boxcox_t" }
-                };
-
-                std::array<NumberFieldSpec, 1> split_choice_model_exponent{
-                    NumberFieldSpec{ "KirchhoffExp", "root.splitPara", "split.choice_model.exponent" }
-                };
-
-                std::array<NumberFieldSpec, 1> split_logit_exponent{
-                    NumberFieldSpec{ "logitExp", "root.splitPara", "split.choice_model.exponent" }
-                };
-
-                std::array<NumberFieldSpec, 1> split_lohse_exponent{
-                    NumberFieldSpec{ "LohseExp", "root.splitPara", "split.choice_model.exponent" }
-                };
-
-                std::array<NumberFieldSpec, 1> split_boxcox_exponent{
-                    NumberFieldSpec{ "BoxCoxExp", "root.splitPara", "split.choice_model.exponent" }
-                };
-            };
-
-            inline const ParamsTxtSchema kParamsTxtSchema{};
-
-        }  // namespace schema
-
-        template <class T, std::size_t N>
-        std::array<T, N> to_array(std::vector<T> values) {
-            std::array<T, N> out{};
-            std::move(values.begin(), values.end(), out.begin());
-            return out;
-        }
-
-        template <std::size_t N>
-        mathfp::Expected<ObjectArray<N>> read_object_array(
-              const Object&                         obj
-            , const std::array<ObjectFieldSpec, N>& specs
-        ) {
-            MATHFP_TRY_LET(
-                  std::vector<const Object*>
-                , values
-                , mathfp::trv::traverse(specs, [&](const auto& spec) {
-                    return object_at(obj, spec.key, spec.path);
-                })
-            );
-            return to_array<const Object*, N>(std::move(values));
-        }
-
-        template <std::size_t N>
-        mathfp::Expected<DoubleArray<N>> read_number_array(
-              const Object&                        obj
-            , const std::array<NumberFieldSpec, N>& specs
-        ) {
-            MATHFP_TRY_LET(
-                  std::vector<double>
-                , values
-                , mathfp::trv::traverse(specs, [&](const auto& spec) {
-                    return number_at(obj, spec.key, spec.path);
-                })
-            );
-            return to_array<double, N>(std::move(values));
-        }
-
-        template <std::size_t N>
-        mathfp::Expected<StringArray<N>> read_string_array(
-              const Object&                        obj
-            , const std::array<StringFieldSpec, N>& specs
-        ) {
-            MATHFP_TRY_LET(
-                  std::vector<std::string>
-                , values
-                , mathfp::trv::traverse(specs, [&](const auto& spec) {
-                    return string_at(obj, spec.key, spec.path);
-                })
-            );
-            return to_array<std::string, N>(std::move(values));
-        }
-
-        mathfp::Expected<bool> parse_numeric_bool(
-              double           value
-            , std::string_view field_name
-        );
-
-        mathfp::Expected<bool> bool_like_at(
-              const Object&    obj
-            , std::string_view key
-            , std::string_view path
-        );
-
-        mathfp::Expected<std::optional<double>> optional_number_at(
-              const Object&    obj
-            , std::string_view key
-            , std::string_view path
-        );
-
-        mathfp::Expected<ToleranceFields> read_tolerance_fields(
+        mathfp::Expected<draft::Tolerance> read_tolerance_draft(
               const Object&                                         obj
-            , const std::array<NumberFieldSpec, 6>& field_specs
+            , const std::array<schema::NumberFieldSpec<draft::Tolerance>, 6>& field_specs
         ) {
-            MATHFP_TRY_LET(DoubleArray<6>, values, read_number_array(obj, field_specs));
-            const auto [imp_mult, imp_add, jt_mult, jt_add, nt_mult, nt_add] = values;
-            return ToleranceFields{
-                  .imp_mult = imp_mult
-                , .imp_add  = imp_add
-                , .jt_mult  = jt_mult
-                , .jt_add   = jt_add
-                , .nt_mult  = nt_mult
-                , .nt_add   = nt_add
-            };
+            return reader::read_number_draft<draft::Tolerance>(obj, field_specs);
         }
 
-        mathfp::Expected<TransferFields> read_transfer_fields(
+        mathfp::Expected<draft::TransferLimits> read_transfer_draft(
               const Object& search_para
             , const Object& temporal
         ) {
             MATHFP_TRY_LET(
-                  DoubleArray<1>
-                , search_values
-                , read_number_array(search_para, schema::kParamsTxtSchema.transfer_limits)
+                  draft::TransferLimits
+                , search_fields
+                , reader::read_number_draft<draft::TransferLimits>(
+                    search_para, schema::kParamsTxtSchema.transfer_limits
+                )
             );
             MATHFP_TRY_LET(
-                  DoubleArray<2>
-                , temporal_values
-                , read_number_array(temporal, schema::kParamsTxtSchema.temporal_suitability)
+                  draft::TransferLimits
+                , temporal_fields
+                , reader::read_number_draft<draft::TransferLimits>(
+                    temporal, schema::kParamsTxtSchema.temporal_suitability
+                )
             );
 
-            const auto [max_transfers] = search_values;
-            const auto [min_twt, max_twt] = temporal_values;
-            return TransferFields{
-                  .max_transfers     = max_transfers
-                , .min_transfer_wait = min_twt
-                , .max_transfer_wait = max_twt
+            return draft::TransferLimits{
+                  .max_transfers     = search_fields.max_transfers
+                , .min_transfer_wait = temporal_fields.min_transfer_wait
+                , .max_transfer_wait = temporal_fields.max_transfer_wait
             };
         }
 
-        mathfp::Expected<SearchImpedanceFields> read_search_impedance_fields(
+        mathfp::Expected<draft::SearchImpedance> read_search_impedance_draft(
               const Object&                                         obj
-            , const std::array<NumberFieldSpec, 8>& field_specs
+            , const std::array<schema::NumberFieldSpec<draft::SearchImpedance>, 8>& field_specs
         ) {
-            MATHFP_TRY_LET(DoubleArray<8>, values, read_number_array(obj, field_specs));
-            const auto [
-                  in_vehicle_time
-                , access_time
-                , egress_time
-                , transfer_walk_time
-                , transfer_wait_time
-                , transfer_count
-                , fare
-                , volume_capacity_ratio
-            ] = values;
-            return SearchImpedanceFields{
-                  .in_vehicle_time    = in_vehicle_time
-                , .access_time        = access_time
-                , .egress_time        = egress_time
-                , .transfer_walk_time = transfer_walk_time
-                , .transfer_wait_time = transfer_wait_time
-                , .transfer_count     = transfer_count
-                , .fare               = fare
-                , .volume_capacity_ratio = volume_capacity_ratio
-            };
+            return reader::read_number_draft<draft::SearchImpedance>(obj, field_specs);
         }
 
-        mathfp::Expected<SplitImpedanceFields> read_split_impedance_fields(
+        mathfp::Expected<draft::SplitImpedance> read_split_impedance_draft(
               const Object&                                         obj
-            , const std::array<NumberFieldSpec, 4>& field_specs
+            , const std::array<schema::NumberFieldSpec<draft::SplitImpedance>, 4>& field_specs
         ) {
-            MATHFP_TRY_LET(DoubleArray<4>, values, read_number_array(obj, field_specs));
-            const auto [time, departure_early, departure_late, fare] = values;
-            return SplitImpedanceFields{
-                  .time            = time
-                , .departure_early = departure_early
-                , .departure_late  = departure_late
-                , .fare            = fare
-            };
+            return reader::read_number_draft<draft::SplitImpedance>(obj, field_specs);
         }
 
-        mathfp::Expected<PerceivedJourneyTimeFields> read_perceived_journey_time_fields(
+        mathfp::Expected<draft::PerceivedJourneyTime> read_perceived_journey_time_draft(
               const Object&                                         obj
-            , const std::array<NumberFieldSpec, 7>& field_specs
+            , const std::array<schema::NumberFieldSpec<draft::PerceivedJourneyTime>, 7>& field_specs
         ) {
-            MATHFP_TRY_LET(DoubleArray<7>, values, read_number_array(obj, field_specs));
-            const auto [
-                  in_vehicle_time
-                , access_time
-                , egress_time
-                , transfer_walk_time
-                , transfer_wait_time
-                , transfer_count
-                , volume_capacity_ratio
-            ] = values;
-            return PerceivedJourneyTimeFields{
-                  .in_vehicle_time    = in_vehicle_time
-                , .access_time        = access_time
-                , .egress_time        = egress_time
-                , .transfer_walk_time = transfer_walk_time
-                , .transfer_wait_time = transfer_wait_time
-                , .transfer_count     = transfer_count
-                , .volume_capacity_ratio = volume_capacity_ratio
-            };
+            return reader::read_number_draft<draft::PerceivedJourneyTime>(obj, field_specs);
         }
 
-        mathfp::Expected<SplitIndependenceFields> read_split_independence_fields(
+        mathfp::Expected<draft::SplitIndependence> read_split_independence_draft(
               const Object&                                         obj
-            , const std::array<NumberFieldSpec, 2>& field_specs
+            , const std::array<schema::NumberFieldSpec<draft::SplitIndependence>, 2>& field_specs
         ) {
-            MATHFP_TRY_LET(bool, enabled, bool_like_at(
+            MATHFP_TRY_LET(bool, enabled, codecs::bool_like_at(
                 obj, "useIndependence", "root.splitPara.Independence"
             ));
-            MATHFP_TRY_LET(DoubleArray<2>, values, read_number_array(obj, field_specs));
-            const auto [gamma, temporal_similarity_scale] = values;
+            MATHFP_TRY_LET(
+                  draft::SplitIndependence
+                , fields
+                , reader::read_number_draft<draft::SplitIndependence>(obj, field_specs)
+            );
             MATHFP_TRY_LET(
                   std::optional<double>
                 , higher_quality_scale
-                , optional_number_at(
+                , codecs::optional_number_at(
                       obj
                     , "indepHigherQualityCoeff"
                     , "root.splitPara.Independence"
@@ -488,7 +100,7 @@ namespace timetable::infra::params_txt::detail {
             MATHFP_TRY_LET(
                   std::optional<double>
                 , lower_quality_scale
-                , optional_number_at(
+                , codecs::optional_number_at(
                       obj
                     , "indepLowerQualityCoeff"
                     , "root.splitPara.Independence"
@@ -497,7 +109,7 @@ namespace timetable::infra::params_txt::detail {
             MATHFP_TRY_LET(
                   std::optional<double>
                 , higher_pjt_scale
-                , optional_number_at(
+                , codecs::optional_number_at(
                       obj
                     , "indepHigherPjtCoeff"
                     , "root.splitPara.Independence"
@@ -506,7 +118,7 @@ namespace timetable::infra::params_txt::detail {
             MATHFP_TRY_LET(
                   std::optional<double>
                 , lower_pjt_scale
-                , optional_number_at(
+                , codecs::optional_number_at(
                       obj
                     , "indepLowerPjtCoeff"
                     , "root.splitPara.Independence"
@@ -515,7 +127,7 @@ namespace timetable::infra::params_txt::detail {
             MATHFP_TRY_LET(
                   std::optional<double>
                 , higher_fare_scale
-                , optional_number_at(
+                , codecs::optional_number_at(
                       obj
                     , "indepHigherFareCoeff"
                     , "root.splitPara.Independence"
@@ -524,7 +136,7 @@ namespace timetable::infra::params_txt::detail {
             MATHFP_TRY_LET(
                   std::optional<double>
                 , lower_fare_scale
-                , optional_number_at(
+                , codecs::optional_number_at(
                       obj
                     , "indepLowerFareCoeff"
                     , "root.splitPara.Independence"
@@ -588,10 +200,10 @@ namespace timetable::infra::params_txt::detail {
                     , "indepLowerQualityCoeff"
                   )
             );
-            return SplitIndependenceFields{
+            return draft::SplitIndependence{
                   .enabled                   = enabled
-                , .gamma                     = gamma
-                , .temporal_similarity_scale = temporal_similarity_scale
+                , .gamma                     = fields.gamma
+                , .temporal_similarity_scale = fields.temporal_similarity_scale
                 , .higher_quality_scale      = higher_quality_scale.value_or(higher_pjt)
                 , .lower_quality_scale       = lower_quality_scale.value_or(lower_pjt)
                 , .higher_perceived_journey_time_scale = higher_pjt
@@ -601,431 +213,162 @@ namespace timetable::infra::params_txt::detail {
             };
         }
 
-        mathfp::Expected<timetable::domain::SearchTolerances> parse_search_tolerances(
-            const Object& search_tol
+        mathfp::Expected<draft::ChoiceModelExponent> read_choice_model_exponent_draft(
+              const Object&            split_para
+            , draft::SplitChoiceModel  model_fields
         ) {
-            using namespace timetable::domain;
-
-            MATHFP_TRY_LET(
-                  ToleranceFields
-                , fields
-                , read_tolerance_fields(
-                    search_tol, schema::kParamsTxtSchema.search_tolerances
-                )
-            );
-            return make_search_tolerances(
-                  Dimless{ fields.imp_mult }
-                , Dimless{ search_temporal_parameter_input_seconds(fields.imp_add) }
-                , Dimless{ fields.jt_mult }
-                , Dimless{ search_temporal_parameter_input_seconds(fields.jt_add) }
-                , Dimless{ fields.nt_mult }
-                , Dimless{ fields.nt_add }
-            );
-        }
-
-        mathfp::Expected<timetable::domain::ChoiceTolerances> parse_choice_tolerances(
-            const Object& choice_tol
-        ) {
-            using namespace timetable::domain;
-
-            MATHFP_TRY_LET(
-                  ToleranceFields
-                , fields
-                , read_tolerance_fields(
-                    choice_tol, schema::kParamsTxtSchema.choice_tolerances
-                )
-            );
-            return make_choice_tolerances(
-                  Dimless{ fields.imp_mult }
-                , Dimless{ search_temporal_parameter_input_seconds(fields.imp_add) }
-                , Dimless{ fields.jt_mult }
-                , Dimless{ search_temporal_parameter_input_seconds(fields.jt_add) }
-                , Dimless{ fields.nt_mult }
-                , Dimless{ fields.nt_add }
-            );
-        }
-
-        mathfp::Expected<timetable::domain::TransferLimits> parse_transfer_limits(
-              const Object& search_para
-            , const Object& temporal
-        ) {
-            using namespace timetable::domain;
-
-            MATHFP_TRY_LET(
-                  TransferFields
-                , fields
-                , read_transfer_fields(search_para, temporal)
-            );
-
-            return make_transfer_limits(
-                  TransferCount{ static_cast<std::int32_t>(fields.max_transfers) }
-                , Time{ search_temporal_parameter_input_seconds(fields.min_transfer_wait) }
-                , Time{ search_temporal_parameter_input_seconds(fields.max_transfer_wait) }
-                , true
-                , true
-            );
-        }
-
-        mathfp::Expected<timetable::domain::SearchImpedance> parse_search_impedance(
-            const Object& search_imp
-        ) {
-            using namespace timetable::domain;
-
-            MATHFP_TRY_LET(
-                  SearchImpedanceFields
-                , fields
-                , read_search_impedance_fields(
-                    search_imp, schema::kParamsTxtSchema.search_impedance
-                )
-            );
-            return make_search_impedance(
-                  Dimless{ fields.in_vehicle_time }
-                , Dimless{ fields.access_time }
-                , Dimless{ fields.egress_time }
-                , Dimless{ fields.transfer_walk_time }
-                , Dimless{ fields.transfer_wait_time }
-                , Dimless{ fields.transfer_count }
-                , Dimless{ fields.fare }
-                , {}
-                , Dimless{ fields.volume_capacity_ratio }
-            );
-        }
-
-        mathfp::Expected<timetable::domain::PreprocessParams> make_default_preprocess_params() {
-            using namespace timetable::domain;
-
-            return make_preprocess_params(
-                  WalkCostKind::Time
-                , WalkCostWeights{
-                      .w_time   = Dimless{ 1.0 }
-                    , .w_length = Dimless{ 0.0 }
-                }
-                , std::nullopt
-                , true
-                , false
-                , true
-                , true
-                , TimeAggregationKind::Mean
-                , true
-                , true
-            );
-        }
-
-        mathfp::Expected<timetable::domain::SplitChoiceModelConfig> parse_split_choice_model_config(
-            const Object& split_para
-        ) {
-            using namespace timetable::domain;
-
-            MATHFP_TRY_LET(
-                  StringArray<1>
-                , values
-                , read_string_array(split_para, schema::kParamsTxtSchema.split_choice_model)
-            );
-            const auto& choice_model = values[0];
-            const auto parsed_model = split_choice_model_from_string(choice_model);
-            if (!parsed_model.has_value()) {
-                return mathfp::unexpected(
-                    mathfp::invalid_arg("unsupported choiceModel")
-                    .ctx("choiceModel", choice_model)
-                );
-            }
-
-            struct ChoiceModelSpec final {
-                SplitChoiceModel model{};
-                const std::array<NumberFieldSpec, 1>* exponent_spec{};
-            };
-
-            constexpr auto specs = std::array{
-                  ChoiceModelSpec{ SplitChoiceModel::Kirchhoff, &schema::kParamsTxtSchema.split_choice_model_exponent }
-                , ChoiceModelSpec{ SplitChoiceModel::Logit    , &schema::kParamsTxtSchema.split_logit_exponent }
-                , ChoiceModelSpec{ SplitChoiceModel::Lohse    , &schema::kParamsTxtSchema.split_lohse_exponent }
-                , ChoiceModelSpec{ SplitChoiceModel::BoxCox   , &schema::kParamsTxtSchema.split_boxcox_exponent }
-            };
-
             const auto it = std::find_if(
-                  specs.begin()
-                , specs.end()
-                , [&](const ChoiceModelSpec& spec) {
-                    return spec.model == *parsed_model;
+                  schema::kParamsTxtSchema.split_choice_model_exponents.begin()
+                , schema::kParamsTxtSchema.split_choice_model_exponents.end()
+                , [&](const schema::ChoiceModelExponentSpec& spec) {
+                    return spec.choice_model_token == model_fields.choice_model;
                 }
             );
-            if (it == specs.end()) {
+            if (it == schema::kParamsTxtSchema.split_choice_model_exponents.end()) {
                 return mathfp::unexpected(
                     mathfp::invalid_arg("unsupported choiceModel")
-                    .ctx("choiceModel", choice_model)
+                        .ctx("choiceModel", model_fields.choice_model)
                 );
             }
 
-            MATHFP_TRY_LET(DoubleArray<1>, exponent_values, read_number_array(split_para, *it->exponent_spec));
-            return SplitChoiceModelConfig{
-                  .model    = *parsed_model
-                , .exponent = Dimless{ exponent_values[0] }
-            };
+            return reader::read_number_draft<draft::ChoiceModelExponent>(
+                split_para, it->exponent
+            );
         }
 
-        mathfp::Expected<timetable::domain::SplitImpedanceTransformConfig>
-        parse_split_impedance_transform_config(
-            const Object& split_para
+        mathfp::Expected<draft::SearchParams> read_search_params_draft(
+            const Object& root
         ) {
-            using namespace timetable::domain;
+            MATHFP_TRY_LET(
+                  draft::SearchParamsObjects
+                , root_objects
+                , reader::read_object_draft<draft::SearchParamsObjects>(
+                    root, schema::kParamsTxtSchema.root_objects
+                )
+            );
+            const auto* search_para = root_objects.search_para;
+            const auto* choice_para = root_objects.choice_para;
+            const auto* split_para = root_objects.split_para;
 
-            MATHFP_TRY_LET(bool, enabled, bool_like_at(
-                split_para, "BoxCoxTransformImp", "root.splitPara"
+            MATHFP_TRY_LET(
+                  draft::SearchObjects
+                , search_objects
+                , reader::read_object_draft<draft::SearchObjects>(
+                    *search_para, schema::kParamsTxtSchema.search_objects
+                )
+            );
+            MATHFP_TRY_LET(
+                  draft::ChoiceObjects
+                , choice_objects
+                , reader::read_object_draft<draft::ChoiceObjects>(
+                    *choice_para, schema::kParamsTxtSchema.choice_objects
+                )
+            );
+            MATHFP_TRY_LET(
+                  draft::SplitObjects
+                , split_objects
+                , reader::read_object_draft<draft::SplitObjects>(
+                    *split_para, schema::kParamsTxtSchema.split_objects
+                )
+            );
+            MATHFP_TRY_LET(
+                  draft::SplitImpedanceObjects
+                , split_imp_objects
+                , reader::read_object_draft<draft::SplitImpedanceObjects>(
+                    *split_objects.impedance
+                  , schema::kParamsTxtSchema.split_imp_objects
+                )
+            );
+
+            MATHFP_TRY_LET(
+                  draft::SplitChoiceModel
+                , split_choice_model
+                , reader::read_string_draft<draft::SplitChoiceModel>(
+                    *split_para, schema::kParamsTxtSchema.split_choice_model
+                )
+            );
+            MATHFP_TRY_LET(
+                  draft::ChoiceModelExponent
+                , split_choice_model_exponent
+                , read_choice_model_exponent_draft(*split_para, split_choice_model)
+            );
+            MATHFP_TRY_LET(bool, split_boxcox_transform_enabled, codecs::bool_like_at(
+                *split_para, "BoxCoxTransformImp", "root.splitPara"
             ));
-            MATHFP_TRY_LET(DoubleArray<1>, boxcox_values, read_number_array(
-                split_para, schema::kParamsTxtSchema.split_scalars
-            ));
+            MATHFP_TRY_LET(
+                  draft::Tolerance
+                , search_tolerances
+                , read_tolerance_draft(
+                    *search_objects.tolerances
+                  , schema::kParamsTxtSchema.search_tolerances
+                )
+            );
+            MATHFP_TRY_LET(
+                  draft::Tolerance
+                , choice_tolerances
+                , read_tolerance_draft(
+                    *choice_objects.tolerances
+                  , schema::kParamsTxtSchema.choice_tolerances
+                )
+            );
+            MATHFP_TRY_LET(
+                  draft::TransferLimits
+                , transfers
+                , read_transfer_draft(*search_para, *search_objects.temporal)
+            );
+            MATHFP_TRY_LET(
+                  draft::SearchImpedance
+                , impedance
+                , read_search_impedance_draft(
+                    *search_objects.impedance
+                  , schema::kParamsTxtSchema.search_impedance
+                )
+            );
+            MATHFP_TRY_LET(
+                  draft::SplitImpedance
+                , split_impedance
+                , read_split_impedance_draft(
+                    *split_objects.impedance
+                  , schema::kParamsTxtSchema.split_impedance
+                )
+            );
+            MATHFP_TRY_LET(
+                  draft::PerceivedJourneyTime
+                , split_perceived_journey_time
+                , read_perceived_journey_time_draft(
+                    *split_imp_objects.perceived_journey_time
+                  , schema::kParamsTxtSchema.split_perceived_journey_time
+                )
+            );
+            MATHFP_TRY_LET(
+                  draft::SplitIndependence
+                , split_independence
+                , read_split_independence_draft(
+                    *split_objects.independence
+                  , schema::kParamsTxtSchema.split_independence
+                )
+            );
+            MATHFP_TRY_LET(
+                  draft::SplitScalars
+                , split_scalars
+                , reader::read_number_draft<draft::SplitScalars>(
+                    *split_para, schema::kParamsTxtSchema.split_scalars
+                )
+            );
 
-            return SplitImpedanceTransformConfig{
-                  .boxcox_transform_enabled = enabled
-                , .boxcox_t                 = Dimless{ boxcox_values[0] }
+            return draft::SearchParams{
+                  .search_tolerances = search_tolerances
+                , .choice_tolerances = choice_tolerances
+                , .transfers = transfers
+                , .impedance = impedance
+                , .split_impedance = split_impedance
+                , .split_perceived_journey_time = split_perceived_journey_time
+                , .split_independence = split_independence
+                , .split_choice_model = std::move(split_choice_model)
+                , .split_choice_model_exponent = split_choice_model_exponent
+                , .split_scalars = split_scalars
+                , .split_boxcox_transform_enabled = split_boxcox_transform_enabled
             };
-        }
-
-        mathfp::Expected<timetable::domain::SplitParams> parse_split_params(
-              const Object& split_para
-            , const Object& indep
-            , const Object& split_imp
-            , const Object& split_pjt
-        ) {
-            using namespace timetable::domain;
-
-            MATHFP_TRY_LET(
-                  SplitImpedanceFields
-                , split_imp_fields
-                , read_split_impedance_fields(
-                    split_imp, schema::kParamsTxtSchema.split_impedance
-                )
-            );
-            MATHFP_TRY_LET(
-                  PerceivedJourneyTimeFields
-                , split_pjt_fields
-                , read_perceived_journey_time_fields(
-                    split_pjt, schema::kParamsTxtSchema.split_perceived_journey_time
-                )
-            );
-            MATHFP_TRY_LET(
-                  SplitIndependenceFields
-                , indep_fields
-                , read_split_independence_fields(
-                    indep, schema::kParamsTxtSchema.split_independence
-                )
-            );
-            MATHFP_TRY_LET(
-                  SplitChoiceModelConfig
-                , choice_model
-                , parse_split_choice_model_config(split_para)
-            );
-            MATHFP_TRY_LET(
-                  SplitImpedanceTransformConfig
-                , impedance_transform
-                , parse_split_impedance_transform_config(split_para)
-            );
-
-            return make_split_params(
-                  Dimless{ split_imp_fields.time }
-                , Dimless{ 1.0 }
-                , Dimless{ split_imp_fields.fare }
-                , PerceivedJourneyTimeWeights{
-                      .in_vehicle_time    = Dimless{ split_pjt_fields.in_vehicle_time }
-                    , .access_time        = Dimless{ split_pjt_fields.access_time }
-                    , .egress_time        = Dimless{ split_pjt_fields.egress_time }
-                    , .transfer_walk_time = Dimless{ split_pjt_fields.transfer_walk_time }
-                    , .transfer_wait_time = Dimless{ split_pjt_fields.transfer_wait_time }
-                    , .transfer_count     = Dimless{ split_pjt_fields.transfer_count }
-                    , .volume_capacity_ratio =
-                          Dimless{ split_pjt_fields.volume_capacity_ratio }
-                }
-                , TemporalUtilityWeights{
-                      .early_departure = Dimless{ split_imp_fields.departure_early }
-                    , .late_departure  = Dimless{ split_imp_fields.departure_late }
-                }
-                , choice_model
-                , impedance_transform
-                , SplitIndependenceConfig{
-                      .enabled                   = indep_fields.enabled
-                    , .gamma                     = Dimless{ indep_fields.gamma }
-                    , .temporal_similarity_scale =
-                          Dimless{ indep_fields.temporal_similarity_scale }
-                    , .higher_quality_scale      =
-                          Dimless{ indep_fields.higher_quality_scale }
-                    , .lower_quality_scale       =
-                          Dimless{ indep_fields.lower_quality_scale }
-                    , .higher_perceived_journey_time_scale =
-                          Dimless{ indep_fields.higher_perceived_journey_time_scale }
-                    , .lower_perceived_journey_time_scale =
-                          Dimless{ indep_fields.lower_perceived_journey_time_scale }
-                    , .higher_fare_scale =
-                          Dimless{ indep_fields.higher_fare_scale }
-                    , .lower_fare_scale =
-                          Dimless{ indep_fields.lower_fare_scale }
-                }
-            );
-        }
-
-        mathfp::Expected<timetable::domain::assignment::CapacityAwareAssignmentConfig>
-        make_capacity_aware_assignment_config_from_params(
-            const timetable::domain::SearchParams& search_params
-        ) {
-            using namespace timetable::domain;
-            using namespace timetable::domain::assignment;
-
-            const auto split_factor = mathfp::units::as_dimless(
-                search_params.split.perceived_journey_time.volume_capacity_ratio
-            );
-            const auto search_factor = mathfp::units::as_dimless(
-                search_params.impedance.volume_capacity_ratio
-            );
-            const auto search_mode =
-                search_factor > 0.0
-                    ? CapacityAwareSearchMode::StoredOnly
-                    : CapacityAwareSearchMode::Disabled;
-
-            return make_capacity_aware_assignment_config(
-                  split_factor > 0.0
-                , search_mode
-                , CapacityPenaltyPolicy::VolumeCapacityRatio
-                , CapacityIterationConfig{}
-            );
-        }
-
-        mathfp::Expected<bool> parse_numeric_bool(
-              double           value
-            , std::string_view field_name
-        ) {
-            if (value == 0.0) {
-                return false;
-            }
-            if (value == 1.0) {
-                return true;
-            }
-            return mathfp::unexpected(
-                mathfp::invalid_arg("expected numeric bool encoded as 0 or 1")
-                    .ctx("field", std::string(field_name))
-                    .ctx("value", value)
-            );
-        }
-
-        mathfp::Expected<bool> bool_like_at(
-              const Object&    obj
-            , std::string_view key
-            , std::string_view path
-        ) {
-            const auto it = obj.find(std::string(key));
-            if (it == obj.end()) {
-                return mathfp::unexpected(
-                    mathfp::invalid_arg("missing required key")
-                        .ctx("path", std::string(path))
-                        .ctx("key" , std::string(key))
-                );
-            }
-            if (const auto* value = std::get_if<bool>(&it->second.data)) {
-                return *value;
-            }
-            if (const auto* value = std::get_if<double>(&it->second.data)) {
-                return parse_numeric_bool(
-                      *value
-                    , std::string(path) + "." + std::string(key)
-                );
-            }
-            return mathfp::unexpected(
-                mathfp::invalid_arg("expected bool or numeric bool encoded as 0 or 1")
-                    .ctx("path", std::string(path))
-                    .ctx("key" , std::string(key))
-            );
-        }
-
-        mathfp::Expected<std::optional<bool>> optional_bool_like_at(
-              const Object&    obj
-            , std::string_view key
-            , std::string_view path
-        ) {
-            const auto it = obj.find(std::string(key));
-            if (it == obj.end()) {
-                return std::nullopt;
-            }
-            if (const auto* value = std::get_if<bool>(&it->second.data)) {
-                return *value;
-            }
-            if (const auto* value = std::get_if<double>(&it->second.data)) {
-                MATHFP_TRY_LET(
-                      bool
-                    , parsed
-                    , parse_numeric_bool(
-                          *value
-                        , std::string(path) + "." + std::string(key)
-                      )
-                );
-                return parsed;
-            }
-            return mathfp::unexpected(
-                mathfp::invalid_arg("expected optional bool or numeric bool encoded as 0 or 1")
-                    .ctx("path", std::string(path))
-                    .ctx("key" , std::string(key))
-            );
-        }
-
-        mathfp::Expected<std::optional<double>> optional_number_at(
-              const Object&    obj
-            , std::string_view key
-            , std::string_view path
-        ) {
-            const auto it = obj.find(std::string(key));
-            if (it == obj.end()) {
-                return std::nullopt;
-            }
-            if (const auto* value = std::get_if<double>(&it->second.data)) {
-                return *value;
-            }
-            return mathfp::unexpected(
-                mathfp::invalid_arg("expected optional number")
-                    .ctx("path", std::string(path))
-                    .ctx("key" , std::string(key))
-            );
-        }
-
-        mathfp::Expected<std::optional<std::size_t>> optional_positive_size_at(
-              const Object&    obj
-            , std::string_view key
-            , std::string_view path
-        ) {
-            const auto it = obj.find(std::string(key));
-            if (it == obj.end()) {
-                return std::nullopt;
-            }
-            const auto* value = std::get_if<double>(&it->second.data);
-            if (value == nullptr
-                || !std::isfinite(*value)
-                || *value < 1.0
-                || *value > static_cast<double>(std::numeric_limits<std::size_t>::max())
-                || std::trunc(*value) != *value) {
-                return mathfp::unexpected(
-                    mathfp::invalid_arg("expected optional positive integer")
-                        .ctx("path", std::string(path))
-                        .ctx("key" , std::string(key))
-                );
-            }
-            return static_cast<std::size_t>(*value);
-        }
-
-        mathfp::Expected<const Object*> optional_object_at(
-              const Object&    obj
-            , std::string_view key
-            , std::string_view path
-        ) {
-            const auto it = obj.find(std::string(key));
-            if (it == obj.end()) {
-                return static_cast<const Object*>(nullptr);
-            }
-            const auto* child = std::get_if<Object>(&it->second.data);
-            if (child == nullptr) {
-                return mathfp::unexpected(
-                    mathfp::invalid_arg("expected optional object")
-                        .ctx("path", std::string(path))
-                        .ctx("key" , std::string(key))
-                );
-            }
-            return child;
         }
 
         mathfp::Expected<timetable::domain::assignment::SearchExecutionMode>
@@ -1132,25 +475,6 @@ namespace timetable::infra::params_txt::detail {
             return *parsed;
         }
 
-        mathfp::Expected<std::optional<std::string>> optional_string_at(
-              const Object&    obj
-            , std::string_view key
-            , std::string_view path
-        ) {
-            const auto it = obj.find(std::string(key));
-            if (it == obj.end()) {
-                return std::nullopt;
-            }
-            if (const auto* str = std::get_if<std::string>(&it->second.data)) {
-                return *str;
-            }
-            return mathfp::unexpected(
-                mathfp::invalid_arg("expected optional string")
-                    .ctx("path", std::string(path))
-                    .ctx("key" , std::string(key))
-            );
-        }
-
         [[nodiscard]] timetable::domain::assignment::SearchPartialRetentionScope
         default_partial_retention_scope_for_projection(
             timetable::domain::assignment::SearchResultProjection result_projection
@@ -1169,7 +493,7 @@ namespace timetable::infra::params_txt::detail {
             MATHFP_TRY_LET(
                   const Object*
                 , obj
-                , optional_object_at(root, "searchExecution", "root")
+                , codecs::optional_object_at(root, "searchExecution", "root")
             );
             if (obj == nullptr) {
                 return make_default_search_execution_config();
@@ -1178,12 +502,12 @@ namespace timetable::infra::params_txt::detail {
             MATHFP_TRY_LET(
                   std::optional<std::string>
                 , formulation_token
-                , optional_string_at(*obj, "formulation", "root.searchExecution")
+                , codecs::optional_string_at(*obj, "formulation", "root.searchExecution")
             );
             MATHFP_TRY_LET(
                   std::optional<std::string>
                 , mode_token
-                , optional_string_at(*obj, "mode", "root.searchExecution")
+                , codecs::optional_string_at(*obj, "mode", "root.searchExecution")
             );
             auto config = make_default_search_execution_config();
             if (formulation_token.has_value()) {
@@ -1206,7 +530,7 @@ namespace timetable::infra::params_txt::detail {
             MATHFP_TRY_LET(
                   std::optional<std::string>
                 , origin_scope_token
-                , optional_string_at(*obj, "originScope", "root.searchExecution")
+                , codecs::optional_string_at(*obj, "originScope", "root.searchExecution")
             );
             if (origin_scope_token.has_value()) {
                 MATHFP_TRY_LET(
@@ -1220,7 +544,7 @@ namespace timetable::infra::params_txt::detail {
             MATHFP_TRY_LET(
                   std::optional<std::string>
                 , time_domain_source_token
-                , optional_string_at(*obj, "timeDomainSource", "root.searchExecution")
+                , codecs::optional_string_at(*obj, "timeDomainSource", "root.searchExecution")
             );
             if (time_domain_source_token.has_value()) {
                 MATHFP_TRY_LET(
@@ -1234,7 +558,7 @@ namespace timetable::infra::params_txt::detail {
             MATHFP_TRY_LET(
                   std::optional<std::string>
                 , destination_scope_token
-                , optional_string_at(*obj, "destinationScope", "root.searchExecution")
+                , codecs::optional_string_at(*obj, "destinationScope", "root.searchExecution")
             );
             if (destination_scope_token.has_value()) {
                 MATHFP_TRY_LET(
@@ -1248,7 +572,7 @@ namespace timetable::infra::params_txt::detail {
             MATHFP_TRY_LET(
                   std::optional<std::string>
                 , result_projection_token
-                , optional_string_at(*obj, "resultProjection", "root.searchExecution")
+                , codecs::optional_string_at(*obj, "resultProjection", "root.searchExecution")
             );
             if (result_projection_token.has_value()) {
                 MATHFP_TRY_LET(
@@ -1284,7 +608,7 @@ namespace timetable::infra::params_txt::detail {
             MATHFP_TRY_LET(
                   std::optional<std::string>
                 , partial_retention_scope_token
-                , optional_string_at(
+                , codecs::optional_string_at(
                       *obj
                     , "partialRetentionScope"
                     , "root.searchExecution"
@@ -1304,7 +628,7 @@ namespace timetable::infra::params_txt::detail {
             MATHFP_TRY_LET(
                   std::optional<std::size_t>
                 , max_parallel_batches
-                , optional_positive_size_at(
+                , codecs::optional_positive_size_at(
                       *obj
                     , "maxParallelBatches"
                     , "root.searchExecution"
@@ -1317,7 +641,7 @@ namespace timetable::infra::params_txt::detail {
             MATHFP_TRY_LET(
                   std::optional<std::size_t>
                 , max_parallel_memory_mb
-                , optional_positive_size_at(
+                , codecs::optional_positive_size_at(
                       *obj
                     , "maxParallelMemoryMb"
                     , "root.searchExecution"
@@ -1330,7 +654,7 @@ namespace timetable::infra::params_txt::detail {
             MATHFP_TRY_LET(
                   std::optional<std::size_t>
                 , estimated_memory_mb_per_parallel_batch
-                , optional_positive_size_at(
+                , codecs::optional_positive_size_at(
                       *obj
                     , "estimatedMemoryMbPerParallelBatch"
                     , "root.searchExecution"
@@ -1344,7 +668,7 @@ namespace timetable::infra::params_txt::detail {
             MATHFP_TRY_LET(
                   std::optional<std::size_t>
                 , max_od_day_label_representatives_per_state
-                , optional_positive_size_at(
+                , codecs::optional_positive_size_at(
                       *obj
                     , "maxOdDayLabelRepresentativesPerState"
                     , "root.searchExecution"
@@ -1358,7 +682,7 @@ namespace timetable::infra::params_txt::detail {
             MATHFP_TRY_LET(
                   std::optional<bool>
                 , validate_phase_invariants
-                , optional_bool_like_at(
+                , codecs::optional_bool_like_at(
                       *obj
                     , "validatePhaseInvariants"
                     , "root.searchExecution"
@@ -1371,7 +695,7 @@ namespace timetable::infra::params_txt::detail {
             MATHFP_TRY_LET(
                   std::optional<bool>
                 , log_projection_details
-                , optional_bool_like_at(
+                , codecs::optional_bool_like_at(
                       *obj
                     , "logProjectionDetails"
                     , "root.searchExecution"
@@ -1390,7 +714,7 @@ namespace timetable::infra::params_txt::detail {
             using namespace timetable::domain::assignment;
 
             MATHFP_TRY_LET(const Object*, base_para, object_at(root, "basePara", "root"));
-            MATHFP_TRY_LET(bool, calculate_assignment, bool_like_at(
+            MATHFP_TRY_LET(bool, calculate_assignment, codecs::bool_like_at(
                 *base_para, "calcAssign", "root.basePara"
             ));
 
@@ -1400,7 +724,7 @@ namespace timetable::infra::params_txt::detail {
             MATHFP_TRY_LET(
                   std::optional<std::string>
                 , output_export_profile_token
-                , optional_string_at(
+                , codecs::optional_string_at(
                       *base_para
                     , "outputExportProfile"
                     , "root.basePara"
@@ -1426,10 +750,10 @@ namespace timetable::infra::params_txt::detail {
             using namespace timetable::domain::assignment;
 
             MATHFP_TRY_LET(const Object*, search_para, object_at(root, "searchPara", "root"));
-            MATHFP_TRY_LET(bool, allow_equivalent_dominance, bool_like_at(
+            MATHFP_TRY_LET(bool, allow_equivalent_dominance, codecs::bool_like_at(
                 *search_para, "allowDominanceForEquivalentConnections", "root.searchPara"
             ));
-            MATHFP_TRY_LET(bool, use_last_stop_for_equivalent_connections, bool_like_at(
+            MATHFP_TRY_LET(bool, use_last_stop_for_equivalent_connections, codecs::bool_like_at(
                 *search_para, "useLastStopForEquivalentConnections", "root.searchPara"
             ));
 
@@ -1460,7 +784,7 @@ namespace timetable::infra::params_txt::detail {
             using namespace timetable::domain::assignment;
 
             MATHFP_TRY_LET(const Object*, search_para, object_at(root, "searchPara", "root"));
-            MATHFP_TRY_LET(bool, deactivate_direct_dominance, bool_like_at(
+            MATHFP_TRY_LET(bool, deactivate_direct_dominance, codecs::bool_like_at(
                 *search_para, "deactivateDominanceOfDirectConnections", "root.searchPara"
             ));
 
@@ -1485,7 +809,7 @@ namespace timetable::infra::params_txt::detail {
             return *parsed;
         }
 
-        mathfp::Expected<SkimMatrixFields> read_skim_matrix_fields(
+        mathfp::Expected<draft::SkimMatrix> read_skim_matrix_fields(
               const Object& base_para
             , const Object& skim_para
         ) {
@@ -1501,7 +825,7 @@ namespace timetable::infra::params_txt::detail {
                 skim_para, "lowImpConnShare", "root.skimMatrixPara"
             ));
 
-            return SkimMatrixFields{
+            return draft::SkimMatrix{
                   .enabled                         = enabled
                 , .func                            = std::move(func)
                 , .volume_weighted                 = volume_weighted
@@ -1517,9 +841,9 @@ namespace timetable::infra::params_txt::detail {
 
             MATHFP_TRY_LET(const Object*, base_para, object_at(root, "basePara", "root"));
             MATHFP_TRY_LET(const Object*, skim_para, object_at(root, "skimMatrixPara", "root"));
-            MATHFP_TRY_LET(SkimMatrixFields, fields, read_skim_matrix_fields(*base_para, *skim_para));
+            MATHFP_TRY_LET(draft::SkimMatrix, fields, read_skim_matrix_fields(*base_para, *skim_para));
             MATHFP_TRY_LET(SkimAggregationFunc, func, parse_skim_func(fields.func));
-            MATHFP_TRY_LET(bool, volume_weighted, parse_numeric_bool(
+            MATHFP_TRY_LET(bool, volume_weighted, codecs::numeric_bool(
                   fields.volume_weighted
                 , "skimMatrixPara.volumeWeighted"
             ));
@@ -1533,7 +857,7 @@ namespace timetable::infra::params_txt::detail {
             );
         }
 
-        mathfp::Expected<AssignmentPeriodFields> read_assignment_period_fields(
+        mathfp::Expected<draft::AssignmentPeriod> read_assignment_period_fields(
             const Object& base_para
         ) {
             MATHFP_TRY_LET(double, pre_assign_period, number_at(
@@ -1543,7 +867,7 @@ namespace timetable::infra::params_txt::detail {
                 base_para, "postAssignPeriod", "root.basePara"
             ));
 
-            return AssignmentPeriodFields{
+            return draft::AssignmentPeriod{
                   .pre_assign_period  = pre_assign_period
                 , .post_assign_period = post_assign_period
             };
@@ -1556,7 +880,7 @@ namespace timetable::infra::params_txt::detail {
 
             MATHFP_TRY_LET(const Object*, base_para, object_at(root, "basePara", "root"));
             MATHFP_TRY_LET(
-                  AssignmentPeriodFields
+                  draft::AssignmentPeriod
                 , fields
                 , read_assignment_period_fields(*base_para)
             );
@@ -1567,20 +891,20 @@ namespace timetable::infra::params_txt::detail {
             );
         }
 
-        mathfp::Expected<ConnectionDeletionFields> read_connection_deletion_fields(
+        mathfp::Expected<draft::ConnectionDeletion> read_connection_deletion_fields(
             const Object& choice_para
         ) {
-            MATHFP_TRY_LET(bool, delete_outside_assignment_period, bool_like_at(
+            MATHFP_TRY_LET(bool, delete_outside_assignment_period, codecs::bool_like_at(
                 choice_para, "deleteConnsOutsideAssignmentPeriod", "root.choicePara"
             ));
-            MATHFP_TRY_LET(bool, delete_departures_before_assignment_period_for_departure_based, bool_like_at(
+            MATHFP_TRY_LET(bool, delete_departures_before_assignment_period_for_departure_based, codecs::bool_like_at(
                 choice_para, "deleteConnsWithDepBeforeAssPeriodForDepBasedDSeg", "root.choicePara"
             ));
-            MATHFP_TRY_LET(bool, delete_arrivals_after_assignment_period_for_arrival_based, bool_like_at(
+            MATHFP_TRY_LET(bool, delete_arrivals_after_assignment_period_for_arrival_based, codecs::bool_like_at(
                 choice_para, "deleteConnsWithArrAfterAssPeriodForArrBasedDSeg", "root.choicePara"
             ));
 
-            return ConnectionDeletionFields{
+            return draft::ConnectionDeletion{
                   .delete_outside_assignment_period =
                       delete_outside_assignment_period
                 , .delete_departures_before_assignment_period_for_departure_based =
@@ -1597,7 +921,7 @@ namespace timetable::infra::params_txt::detail {
 
             MATHFP_TRY_LET(const Object*, choice_para, object_at(root, "choicePara", "root"));
             MATHFP_TRY_LET(
-                  ConnectionDeletionFields
+                  draft::ConnectionDeletion
                 , fields
                 , read_connection_deletion_fields(*choice_para)
             );
@@ -1614,17 +938,17 @@ namespace timetable::infra::params_txt::detail {
             return config;
         }
 
-        mathfp::Expected<DemandSegmentTimeFields> read_demand_segment_time_fields(
+        mathfp::Expected<draft::DemandSegmentTime> read_demand_segment_time_fields(
             const Object& split_para
         ) {
-            MATHFP_TRY_LET(bool, dep_based_demand_segment, bool_like_at(
+            MATHFP_TRY_LET(bool, dep_based_demand_segment, codecs::bool_like_at(
                 split_para, "depBasedDSeg", "root.splitPara"
             ));
-            MATHFP_TRY_LET(bool, consider_connections_with_positive_delta_t, bool_like_at(
+            MATHFP_TRY_LET(bool, consider_connections_with_positive_delta_t, codecs::bool_like_at(
                 split_para, "considerConnsWithPosDeltaT", "root.splitPara"
             ));
 
-            return DemandSegmentTimeFields{
+            return draft::DemandSegmentTime{
                   .dep_based_demand_segment =
                       dep_based_demand_segment
                 , .consider_connections_with_positive_delta_t =
@@ -1639,7 +963,7 @@ namespace timetable::infra::params_txt::detail {
 
             MATHFP_TRY_LET(const Object*, split_para, object_at(root, "splitPara", "root"));
             MATHFP_TRY_LET(
-                  DemandSegmentTimeFields
+                  draft::DemandSegmentTime
                 , fields
                 , read_demand_segment_time_fields(*split_para)
             );
@@ -1660,84 +984,12 @@ namespace timetable::infra::params_txt::detail {
     mathfp::Expected<timetable::domain::SearchParams> map_params(
         const Object& root
     ) {
-        using namespace timetable::domain;
-
         MATHFP_TRY_LET(
-              ObjectArray<3>
-            , root_objects
-            , read_object_array(root, schema::kParamsTxtSchema.root_objects)
+              draft::SearchParams
+            , fields
+            , read_search_params_draft(root)
         );
-        const auto [search_para, choice_para, split_para] = root_objects;
-
-        MATHFP_TRY_LET(
-              ObjectArray<3>
-            , search_objects
-            , read_object_array(*search_para, schema::kParamsTxtSchema.search_objects)
-        );
-        const auto [search_tol, temporal, search_imp] = search_objects;
-
-        MATHFP_TRY_LET(
-              ObjectArray<1>
-            , choice_objects
-            , read_object_array(*choice_para, schema::kParamsTxtSchema.choice_objects)
-        );
-        const auto [choice_tol] = choice_objects;
-
-        MATHFP_TRY_LET(
-              ObjectArray<2>
-            , split_objects
-            , read_object_array(*split_para, schema::kParamsTxtSchema.split_objects)
-        );
-        const auto [indep, split_imp] = split_objects;
-
-        MATHFP_TRY_LET(
-              ObjectArray<1>
-            , split_imp_objects
-            , read_object_array(*split_imp, schema::kParamsTxtSchema.split_imp_objects)
-        );
-        const auto [split_pjt] = split_imp_objects;
-
-        MATHFP_TRY_LET(
-              ParsedToleranceBundle
-            , tolerances
-            , mathfp::app::lift2(
-                [](SearchTolerances search, ChoiceTolerances choice) {
-                    return ParsedToleranceBundle{
-                          .search = std::move(search)
-                        , .choice = std::move(choice)
-                    };
-                }
-                , parse_search_tolerances(*search_tol)
-                , parse_choice_tolerances(*choice_tol)
-            )
-        );
-
-        MATHFP_TRY_LET(
-              ParsedSearchBundle
-            , search_bundle
-            , mathfp::app::lift3(
-                [](PreprocessParams preprocess, SearchImpedance impedance, TransferLimits transfers) {
-                    return ParsedSearchBundle{
-                          .preprocess = std::move(preprocess)
-                        , .impedance  = std::move(impedance)
-                        , .transfers  = std::move(transfers)
-                    };
-                }
-                , make_default_preprocess_params()
-                , parse_search_impedance(*search_imp)
-                , parse_transfer_limits(*search_para, *temporal)
-            )
-        );
-        MATHFP_TRY_LET(SplitParams, split, parse_split_params(*split_para, *indep, *split_imp, *split_pjt));
-
-        return make_search_params(
-              std::move(search_bundle.preprocess)
-            , std::move(search_bundle.impedance)
-            , std::move(search_bundle.transfers)
-            , std::move(tolerances.search)
-            , std::move(tolerances.choice)
-            , std::move(split)
-        );
+        return converters::to_search_params(std::move(fields));
     }
 
     mathfp::Expected<timetable::domain::AssignmentRuntimeParams> map_assignment_runtime_params(
@@ -1745,9 +997,9 @@ namespace timetable::infra::params_txt::detail {
     ) {
         MATHFP_TRY_LET(timetable::domain::SearchParams, search_params, map_params(root));
         MATHFP_TRY_LET(
-              timetable::domain::assignment::CapacityAwareAssignmentConfig
+            timetable::domain::assignment::CapacityAwareAssignmentConfig
             , capacity_aware_assignment
-            , make_capacity_aware_assignment_config_from_params(search_params)
+            , converters::capacity_aware_assignment_config_from_params(search_params)
         );
         MATHFP_TRY_LET(
               timetable::domain::assignment::AssignmentExecutionConfig
