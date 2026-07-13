@@ -6,7 +6,7 @@
 
 #include <fmt/format.h>
 
-#include "detail/pipeline_internal.hpp"
+#include "timetable/domain/assignment/pipeline.hpp"
 #include "timetable/infra/progress_bus.hpp"
 
 namespace timetable::domain::assignment {
@@ -85,7 +85,7 @@ namespace timetable::domain::assignment {
     ) {
         const auto started_at = std::chrono::steady_clock::now();
 
-        auto pipeline_result = detail::run_timetable_assignment_pipeline_with_context(std::move(input));
+        auto pipeline_result = run_timetable_assignment_pipeline(std::move(input));
         if (!pipeline_result) {
             return mathfp::unexpected(std::move(pipeline_result.error()));
         }

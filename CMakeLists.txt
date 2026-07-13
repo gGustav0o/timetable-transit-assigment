@@ -93,6 +93,13 @@ add_executable(timetable-transit-assigment
   src/domain/assignment/output_lookup.cpp
   src/domain/assignment/output_validation.cpp
   src/domain/assignment/pipeline.cpp
+  src/domain/assignment/detail/pipeline_capacity.cpp
+  src/domain/assignment/detail/pipeline_choice_split.cpp
+  src/domain/assignment/detail/pipeline_common.cpp
+  src/domain/assignment/detail/pipeline_internal.cpp
+  src/domain/assignment/detail/pipeline_od_day.cpp
+  src/domain/assignment/detail/pipeline_search.cpp
+  src/domain/assignment/detail/pipeline_validation.cpp
   src/domain/assignment/search_pruning.cpp
   src/domain/assignment/search_pruning_diagnostics.cpp
   src/domain/assignment/search_pruning_plan.cpp
