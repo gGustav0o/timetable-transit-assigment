@@ -2,7 +2,6 @@
 
 #include <cstddef>
 #include <deque>
-#include <memory>
 #include <optional>
 #include <utility>
 #include <vector>
@@ -11,14 +10,30 @@
 
 namespace timetable::domain::assignment {
 
+    /**
+     * @brief Stable-index store for live search branches.
+     *
+     * The search frontier keeps branch ids, not owning pointers. A slot is an
+     * indexed value cell: release clears the optional payload only after the
+     * branch and all descendants are closed. This keeps lifetime accounting
+     * local to the arena and avoids per-branch heap ownership in the search
+     * loop.
+     */
     struct BranchSlot final {
-        std::unique_ptr<SearchBranch> branch{};
+        std::optional<SearchBranch>   branch{};
         std::optional<std::size_t>    parent{};
         std::size_t                   live_children{};
         bool                          self_released{};
     };
 
     using BranchArena = std::deque<BranchSlot>;
+
+    [[nodiscard]] inline bool branch_alive(
+          const BranchArena& branches
+        , std::size_t        index
+    ) {
+        return branches.at(index).branch.has_value();
+    }
 
     [[nodiscard]] inline const SearchBranch& branch_at(
           const BranchArena& branches
@@ -44,7 +59,7 @@ namespace timetable::domain::assignment {
         }
         branches.push_back(
             BranchSlot{
-                  .branch = std::make_unique<SearchBranch>(std::move(branch))
+                  .branch = std::move(branch)
                 , .parent = parent
             }
         );
@@ -62,7 +77,7 @@ namespace timetable::domain::assignment {
         while (cursor.has_value()) {
             auto& slot = branches.at(*cursor);
             slot.self_released = true;
-            if (slot.live_children != 0u || slot.branch == nullptr) {
+            if (slot.live_children != 0u || !slot.branch.has_value()) {
                 return;
             }
 

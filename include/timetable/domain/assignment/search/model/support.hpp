@@ -6,7 +6,6 @@
 #include <vector>
 
 #include <boost/container/small_vector.hpp>
-#include <boost/intrusive_ptr.hpp>
 
 #include "timetable/domain/assignment/day_path.hpp"
 #include "timetable/domain/model.hpp"
@@ -81,13 +80,9 @@ namespace timetable::domain::assignment {
 
     struct OdDaySupportPrefixNode;
 
-    void intrusive_ptr_add_ref(const OdDaySupportPrefixNode* node) noexcept;
-    void intrusive_ptr_release(const OdDaySupportPrefixNode* node) noexcept;
-
-    using OdDaySupportPrefix = boost::intrusive_ptr<const OdDaySupportPrefixNode>;
+    using OdDaySupportPrefix = std::shared_ptr<const OdDaySupportPrefixNode>;
 
     struct OdDaySupportPrefixNode final {
-        mutable std::size_t ref_count{};
         OdDaySupportPrefix  parent{};
         ConnectionSegmentId segment;
         std::size_t         length{};

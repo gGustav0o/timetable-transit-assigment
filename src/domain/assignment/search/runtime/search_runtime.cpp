@@ -13,7 +13,6 @@
 #include <iterator>
 #include <limits>
 #include <map>
-#include <memory>
 #include <mutex>
 #include <optional>
 #include <queue>
@@ -27,7 +26,6 @@
 
 #include <boost/container/small_vector.hpp>
 #include <boost/container_hash/hash.hpp>
-#include <boost/intrusive_ptr.hpp>
 #include <boost/unordered/unordered_flat_map.hpp>
 
 #include <mathfp/core/error.hpp>
@@ -6321,8 +6319,8 @@ namespace timetable::domain::assignment::runtime {
             TaskSearchStats                   stats;
             std::vector<TaskSearchStats>      task_stats(batch.projection_slots.size());
             BranchArena                       branches;
-            std::deque<std::unique_ptr<FixedActiveMask>> completion_projection_states;
-            std::deque<std::unique_ptr<DemandBranchProjectionState>> demand_projection_states;
+            std::deque<std::optional<FixedActiveMask>> completion_projection_states;
+            std::deque<std::optional<DemandBranchProjectionState>> demand_projection_states;
             std::size_t                       released_branches = 0;
             const SearchTimeDomain*           first_departure_domain = batch.departure_domain;
             const auto                        batch_task_span =
@@ -6483,9 +6481,7 @@ namespace timetable::domain::assignment::runtime {
                     );
                 }
                 completion_projection_states.push_back(
-                    std::make_unique<FixedActiveMask>(
-                        FixedActiveMask::from(root_reachability.reachable)
-                    )
+                    FixedActiveMask::from(root_reachability.reachable)
                 );
             } else if (!od_day_slots) {
                 const auto root_reachability_key = reachability_mask_key(
@@ -6509,12 +6505,10 @@ namespace timetable::domain::assignment::runtime {
                     , stats
                 );
                 demand_projection_states.push_back(
-                    std::make_unique<DemandBranchProjectionState>(
-                        DemandBranchProjectionState{
-                              .active_tasks = std::move(root_reachability.reachable)
-                            , .active_targets = std::move(root_reachable_targets)
-                        }
-                    )
+                    DemandBranchProjectionState{
+                          .active_tasks = std::move(root_reachability.reachable)
+                        , .active_targets = std::move(root_reachable_targets)
+                    }
                 );
             }
             current_frontier.push_back(root_branch_index);
@@ -6686,12 +6680,11 @@ namespace timetable::domain::assignment::runtime {
                     auto removed = std::size_t{ 0u };
                     for (auto i = queue.head; i < queue.entries.size(); ++i) {
                         const auto queued_index = queue.entries[i];
-                        auto& slot = branches.at(queued_index);
-                        if (slot.branch == nullptr) {
+                        if (!branch_alive(branches, queued_index)) {
                             ++removed;
                             continue;
                         }
-                        const auto& queued_branch = *slot.branch;
+                        const auto& queued_branch = branch_at(branches, queued_index);
                         if (paper_connection_label_active(
                               paper_label_registry
                             , queued_branch.paper_connection_label
@@ -7415,18 +7408,14 @@ namespace timetable::domain::assignment::runtime {
                     );
                     if (target_projection_slots) {
                         completion_projection_states.push_back(
-                            std::make_unique<FixedActiveMask>(
-                                FixedActiveMask::from(next_active_tasks)
-                            )
+                            FixedActiveMask::from(next_active_tasks)
                         );
                     } else {
                         demand_projection_states.push_back(
-                            std::make_unique<DemandBranchProjectionState>(
-                                DemandBranchProjectionState{
-                                      .active_tasks = std::move(next_active_tasks)
-                                    , .active_targets = std::move(next_active_targets)
-                                }
-                            )
+                            DemandBranchProjectionState{
+                                  .active_tasks = std::move(next_active_tasks)
+                                , .active_targets = std::move(next_active_targets)
+                            }
                         );
                     }
                     if (same_level) {

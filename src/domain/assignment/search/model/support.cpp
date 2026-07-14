@@ -48,30 +48,18 @@ namespace timetable::domain::assignment {
         };
     }
 
-    void intrusive_ptr_add_ref(const OdDaySupportPrefixNode* node) noexcept {
-        ++node->ref_count;
-    }
-
-    void intrusive_ptr_release(const OdDaySupportPrefixNode* node) noexcept {
-        --node->ref_count;
-        if (node->ref_count == 0u) {
-            delete node;
-        }
-    }
-
     OdDaySupportPrefix append_od_day_support_segment(
           OdDaySupportPrefix prefix
         , ConnectionSegmentId segment
     ) {
         const auto next_length = prefix != nullptr ? prefix->length + 1u : 1u;
-        return OdDaySupportPrefix{
-              new OdDaySupportPrefixNode{
-                    .parent  = std::move(prefix)
-                  , .segment = segment
-                  , .length  = next_length
-              }
-            , true
-        };
+        return std::make_shared<OdDaySupportPrefixNode>(
+            OdDaySupportPrefixNode{
+                  .parent  = std::move(prefix)
+                , .segment = segment
+                , .length  = next_length
+            }
+        );
     }
 
     std::vector<ConnectionSegmentId> materialize_od_day_support_segments(
