@@ -32,11 +32,11 @@ namespace timetable::domain::assignment {
         bool operator==(const TimedSupportLabel&) const = default;
     };
 
-    inline constexpr std::size_t kMaxTimedSupportEnvelopeLabels = 8u;
+    inline constexpr std::size_t kTimedSupportEnvelopeInlineLabels = 8u;
 
     using TimedSupportLabelVector = boost::container::small_vector<
           TimedSupportLabel
-        , kMaxTimedSupportEnvelopeLabels
+        , kTimedSupportEnvelopeInlineLabels
     >;
 
     struct TimedSupportEnvelopeKey final {

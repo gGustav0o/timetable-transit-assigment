@@ -131,10 +131,10 @@ namespace timetable::domain {
      *
      * connections contains the chosen alternatives after step 3.3.
      * intervals contains the demand/split view from step 3.4.
-     * diagnostics contains search/choice counters. search_connection_count and
-     * chosen_connection_count are compatibility projections of those diagnostics
-     * for existing CSV/text output. In OD-day assignment alternatives are
-     * day-level paths, not raw timed timetable connections.
+     * diagnostics contains search/choice counters. In OD-day assignment
+     * alternatives are day-level paths, not raw timed timetable connections.
+     * Legacy "connection count" fields belong to output projections, not this
+     * canonical domain result.
      *
      * Ordering contract:
      * - od_results are ordered lexicographically by (origin, destination)
@@ -144,8 +144,6 @@ namespace timetable::domain {
     struct AssignmentOdResult final {
         ZoneId                                origin;
         ZoneId                                destination;
-        std::size_t                           search_connection_count{};
-        std::size_t                           chosen_connection_count{};
         double                                total_demand_passengers{};
         double                                assigned_passengers{};
         std::vector<AssignmentConnection>     connections{};
@@ -314,8 +312,6 @@ namespace timetable::domain {
 
         struct Summary final {
             std::size_t od_count{};
-            std::size_t search_connection_count{};
-            std::size_t chosen_connection_count{};
             std::size_t demand_share_count{};
             std::size_t structural_day_path_count{};
             std::size_t timed_support_alternative_count{};
@@ -348,5 +344,29 @@ namespace timetable::domain {
         assignment::AssignmentSkimMatrix skim_matrix{};
         assignment::CapacityAwareAssignmentDiagnostics capacity_aware{};
     };
+
+    [[nodiscard]] inline std::size_t searched_alternative_count(
+        const AssignmentOdResult& od_result
+    ) noexcept {
+        return od_result.diagnostics.search.alternative_count;
+    }
+
+    [[nodiscard]] inline std::size_t chosen_alternative_count(
+        const AssignmentOdResult& od_result
+    ) noexcept {
+        return od_result.diagnostics.choice.chosen_alternative_count;
+    }
+
+    [[nodiscard]] inline std::size_t searched_alternative_count(
+        const AssignmentOutput::Summary& summary
+    ) noexcept {
+        return summary.diagnostics.search_alternative_count;
+    }
+
+    [[nodiscard]] inline std::size_t chosen_alternative_count(
+        const AssignmentOutput::Summary& summary
+    ) noexcept {
+        return summary.diagnostics.chosen_alternative_count;
+    }
 
 }  // namespace timetable::domain

@@ -790,9 +790,13 @@ namespace timetable::infra {
             writer.key("destination");
             write_strong_id(writer, od_result.destination);
             writer.key("search_connection_count");
-            writer.integer(static_cast<std::int64_t>(od_result.search_connection_count));
+            writer.integer(static_cast<std::int64_t>(
+                timetable::domain::searched_alternative_count(od_result)
+            ));
             writer.key("chosen_connection_count");
-            writer.integer(static_cast<std::int64_t>(od_result.chosen_connection_count));
+            writer.integer(static_cast<std::int64_t>(
+                timetable::domain::chosen_alternative_count(od_result)
+            ));
             writer.key("structural_day_path_count");
             writer.integer(static_cast<std::int64_t>(
                 od_result.paper_split.structural_day_path_count
@@ -838,9 +842,13 @@ namespace timetable::infra {
             writer.key("od_count");
             writer.integer(static_cast<std::int64_t>(summary.od_count));
             writer.key("search_connection_count");
-            writer.integer(static_cast<std::int64_t>(summary.search_connection_count));
+            writer.integer(static_cast<std::int64_t>(
+                timetable::domain::searched_alternative_count(summary)
+            ));
             writer.key("chosen_connection_count");
-            writer.integer(static_cast<std::int64_t>(summary.chosen_connection_count));
+            writer.integer(static_cast<std::int64_t>(
+                timetable::domain::chosen_alternative_count(summary)
+            ));
             writer.key("demand_share_count");
             writer.integer(static_cast<std::int64_t>(summary.demand_share_count));
             writer.key("structural_day_path_count");

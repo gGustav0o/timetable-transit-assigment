@@ -188,8 +188,8 @@ namespace timetable::domain::assignment::projection {
                   .mode                    = output.mode
                 , .skim_status             = output.skim_matrix.status
                 , .od_count                = output.summary.od_count
-                , .search_connection_count = output.summary.search_connection_count
-                , .chosen_connection_count = output.summary.chosen_connection_count
+                , .search_connection_count = searched_alternative_count(output.summary)
+                , .chosen_connection_count = chosen_alternative_count(output.summary)
                 , .demand_share_count      = output.summary.demand_share_count
                 , .structural_day_path_count =
                       output.summary.structural_day_path_count
@@ -566,7 +566,7 @@ namespace timetable::domain::assignment::projection {
         AssignmentCsvProjection projection{};
         projection.metadata_rows.push_back(build_metadata_row(output));
         projection.od_summary_rows.reserve(summary.od_results.size());
-        projection.connection_rows.reserve(output.summary.chosen_connection_count);
+        projection.connection_rows.reserve(chosen_alternative_count(output.summary));
         projection.share_rows     .reserve(output.summary.demand_share_count);
         projection.segment_rows   .reserve(segment_row_count);
         projection.load_rows      .reserve(load_row_count);

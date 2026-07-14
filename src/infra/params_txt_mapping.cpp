@@ -666,20 +666,6 @@ namespace timetable::infra::params_txt::detail {
             }
 
             MATHFP_TRY_LET(
-                  std::optional<std::size_t>
-                , max_od_day_label_representatives_per_state
-                , codecs::optional_positive_size_at(
-                      *obj
-                    , "maxOdDayLabelRepresentativesPerState"
-                    , "root.searchExecution"
-                  )
-            );
-            if (max_od_day_label_representatives_per_state.has_value()) {
-                config.max_od_day_label_representatives_per_state =
-                    *max_od_day_label_representatives_per_state;
-            }
-
-            MATHFP_TRY_LET(
                   std::optional<bool>
                 , validate_phase_invariants
                 , codecs::optional_bool_like_at(

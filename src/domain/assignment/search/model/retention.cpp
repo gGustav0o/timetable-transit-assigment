@@ -40,13 +40,4 @@ namespace timetable::domain::assignment {
         return true;
     }
 
-    OdDayLabelRetentionConfig od_day_label_retention_config_of(
-        const SearchExecutionConfig& config
-    ) noexcept {
-        return OdDayLabelRetentionConfig{
-            .max_representatives_per_label =
-                config.max_od_day_label_representatives_per_state
-        };
-    }
-
 }  // namespace timetable::domain::assignment

@@ -291,40 +291,9 @@ namespace timetable::domain::assignment {
         return metric_set;
     }
 
-    bool worse_od_day_label_representative(
-          const SearchPruningMetrics& lhs
-        , const SearchPruningMetrics& rhs
-    ) noexcept {
-        if (lhs.impedance != rhs.impedance) {
-            return lhs.impedance > rhs.impedance;
-        }
-        if (lhs.journey_time.value() != rhs.journey_time.value()) {
-            return lhs.journey_time.value() > rhs.journey_time.value();
-        }
-        if (lhs.transfers.get() != rhs.transfers.get()) {
-            return lhs.transfers.get() > rhs.transfers.get();
-        }
-        if (lhs.arrival.value() != rhs.arrival.value()) {
-            return lhs.arrival.value() > rhs.arrival.value();
-        }
-        return lhs.departure.value() < rhs.departure.value();
-    }
-
-    void enforce_bounded_od_day_label_representatives(
-          OdDayLabelRepresentativeSet& representatives
-        , const OdDayLabelRetentionConfig& config
+    void refresh_od_day_label_summary_metrics(
+        OdDayLabelRepresentativeSet& representatives
     ) {
-        while (representatives.representatives.size() > config.max_representatives_per_label) {
-            auto worst = representatives.representatives.begin();
-            for (auto it = std::next(representatives.representatives.begin());
-                 it != representatives.representatives.end();
-                 ++it) {
-                if (worse_od_day_label_representative(it->metrics, worst->metrics)) {
-                    worst = it;
-                }
-            }
-            representatives.representatives.erase(worst);
-        }
         representatives.summary_metrics.metrics.clear();
         representatives.summary_metrics.metrics.reserve(representatives.representatives.size());
         for (const auto& representative : representatives.representatives) {
@@ -345,19 +314,17 @@ namespace timetable::domain::assignment {
         );
     }
 
-    bool insert_bounded_od_day_label_representative(
+    void insert_od_day_label_representative(
           const SearchPruningExecutionPlan& pruning_execution
         , OdDayLabelRepresentativeSet&      representatives
         , const SearchPruningMetrics&       metrics
         , const TimedSupportEnvelope&       support
-        , const OdDayLabelRetentionConfig&  config
     ) {
-        auto trial = representatives;
         if (pruning_execution.exact_enabled) {
-            trial.representatives.erase(
+            representatives.representatives.erase(
                   std::remove_if(
-                        trial.representatives.begin()
-                      , trial.representatives.end()
+                        representatives.representatives.begin()
+                      , representatives.representatives.end()
                       , [&](const OdDayLabelRepresentative& existing) {
                       return timed_support_envelope_covers(support, existing.support)
                           && dominates_exactly(
@@ -367,21 +334,16 @@ namespace timetable::domain::assignment {
                           );
                       }
                   )
-                , trial.representatives.end()
+                , representatives.representatives.end()
             );
         }
-        trial.representatives.push_back(
+        representatives.representatives.push_back(
             OdDayLabelRepresentative{
                   .metrics = metrics
                 , .support = support
             }
         );
-        enforce_bounded_od_day_label_representatives(trial, config);
-        if (!contains_od_day_label_representative(trial, metrics, support)) {
-            return false;
-        }
-        representatives = std::move(trial);
-        return true;
+        refresh_od_day_label_summary_metrics(representatives);
     }
 
 }  // namespace timetable::domain::assignment

@@ -94,8 +94,8 @@ namespace timetable::domain::assignment::projection {
             AssignmentOdSummary summary{
                   .origin                   = od_result.origin
                 , .destination              = od_result.destination
-                , .search_connection_count  = od_result.search_connection_count
-                , .chosen_connection_count  = od_result.chosen_connection_count
+                , .search_connection_count  = searched_alternative_count(od_result)
+                , .chosen_connection_count  = chosen_alternative_count(od_result)
                 , .structural_day_path_count =
                       od_result.paper_split.structural_day_path_count
                 , .timed_support_alternative_count =

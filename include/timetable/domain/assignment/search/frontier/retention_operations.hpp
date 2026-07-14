@@ -73,22 +73,11 @@ namespace timetable::domain::assignment {
         , const TimedSupportEnvelope&        support
     );
 
-    [[nodiscard]] bool worse_od_day_label_representative(
-          const SearchPruningMetrics& lhs
-        , const SearchPruningMetrics& rhs
-    ) noexcept;
-
-    void enforce_bounded_od_day_label_representatives(
-          OdDayLabelRepresentativeSet& representatives
-        , const OdDayLabelRetentionConfig& config
-    );
-
-    [[nodiscard]] bool insert_bounded_od_day_label_representative(
+    void insert_od_day_label_representative(
           const SearchPruningExecutionPlan& pruning_execution
         , OdDayLabelRepresentativeSet&      representatives
         , const SearchPruningMetrics&       metrics
         , const TimedSupportEnvelope&       support
-        , const OdDayLabelRetentionConfig&  config
     );
 
 }  // namespace timetable::domain::assignment

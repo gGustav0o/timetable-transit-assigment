@@ -242,12 +242,6 @@ namespace timetable::domain::assignment {
         }
         labels.push_back(std::move(label));
         std::sort(labels.begin(), labels.end(), better_timed_support_label);
-        if (labels.size() > kMaxTimedSupportEnvelopeLabels) {
-            labels.erase(
-                  labels.begin() + static_cast<std::ptrdiff_t>(kMaxTimedSupportEnvelopeLabels)
-                , labels.end()
-            );
-        }
     }
 
     TimedSupportEnvelope make_timed_support_envelope(
@@ -259,12 +253,6 @@ namespace timetable::domain::assignment {
               std::unique(labels.begin(), labels.end())
             , labels.end()
         );
-        if (labels.size() > kMaxTimedSupportEnvelopeLabels) {
-            labels.erase(
-                  labels.begin() + static_cast<std::ptrdiff_t>(kMaxTimedSupportEnvelopeLabels)
-                , labels.end()
-            );
-        }
         return TimedSupportEnvelope{
               .key = TimedSupportEnvelopeKey{
                   .last_timed_occurrence = occurrence_key(line_topology_of(route_segment)->to)

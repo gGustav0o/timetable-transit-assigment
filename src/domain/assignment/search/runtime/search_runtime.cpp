@@ -2991,12 +2991,7 @@ namespace timetable::domain::assignment::runtime {
             , const SearchTimeDomain*    first_departure_domain
         ) {
             TimedSupportLabelVector feasible_labels;
-            feasible_labels.reserve(
-                std::min(
-                      support.support_labels.size()
-                    , kMaxTimedSupportEnvelopeLabels
-                )
-            );
+            feasible_labels.reserve(support.support_labels.size());
             std::optional<TimedSupportLabel> representative;
             std::optional<RouteSegmentId> representative_route_segment;
             for (const auto connection_id : support.support_labels) {
@@ -4700,7 +4695,6 @@ namespace timetable::domain::assignment::runtime {
             , const SearchParams&               params
             , const SearchCostContext&          search_cost
             , const SearchPruningExecutionPlan& pruning_execution
-            , const OdDayLabelRetentionConfig&  retention_config
             , SearchPruningRuntimeStats&        pruning_stats
         ) {
             ++pruning_stats.evaluated_candidates;
@@ -4715,21 +4709,12 @@ namespace timetable::domain::assignment::runtime {
             if (it == retention.od_day_label_states.end()) {
                 if (stores_search_pruning_metrics(pruning_execution)) {
                     auto representatives = OdDayLabelRepresentativeSet{};
-                    const auto retained = insert_bounded_od_day_label_representative(
+                    insert_od_day_label_representative(
                           pruning_execution
                         , representatives
                         , metrics
                         , support
-                        , retention_config
                     );
-                    if (!retained) {
-                        ++pruning_stats.rejected_approximate;
-                        return SearchPruningDecision{
-                              .layer    = SearchPruningLayer::Approximate
-                            , .reason   = SearchPruningReason::RejectedApproximateTolerance
-                            , .accepted = false
-                        };
-                    }
                     retention.od_day_label_states.emplace(std::move(key), std::move(representatives));
                     ++pruning_stats.inserted_metrics;
                 } else {
@@ -4781,21 +4766,12 @@ namespace timetable::domain::assignment::runtime {
             }
 
             if (stores_search_pruning_metrics(pruning_execution)) {
-                const auto retained = insert_bounded_od_day_label_representative(
+                insert_od_day_label_representative(
                       pruning_execution
                     , it->second
                     , metrics
                     , support
-                    , retention_config
                 );
-                if (!retained) {
-                    ++pruning_stats.rejected_approximate;
-                    return SearchPruningDecision{
-                          .layer    = SearchPruningLayer::Approximate
-                        , .reason   = SearchPruningReason::RejectedApproximateTolerance
-                        , .accepted = false
-                    };
-                }
                 ++pruning_stats.inserted_metrics;
             } else {
                 ++pruning_stats.skipped_insertions;
@@ -5042,10 +5018,9 @@ namespace timetable::domain::assignment::runtime {
             , const TaskSearchStats&          stats
             , std::size_t                     current_frontier
             , std::size_t                     next_frontier
-            , const OdDayLabelRetentionConfig& retention_config
         ) {
             return fmt::format(
-                  "OD-day theory diagnostics: paper=connection_segment_tree carrier=compact_connection_segment_prefix branch_projection_state=none reachability_prefilter=disabled_not_built reachability_masks=disabled c_y=network_node_known_connections c_y_key=physical_y c_y_carrier=physical_node_only c_y_applies_to=all_connection_segments_before_sink dominance=dep_arr_imp_nt tolerance=node_local tree_bounds=c_y_before_day_path_sink frontier=connection_segment_level_queues frontier_sync=label_registry_with_compaction successor_contract=single_connection_segment_before_visitor temporal_suitability=timed_window_walk_always_available transfer_walk=first_class_segment composite_transfer_walk=disabled_in_production late_guard=assert_only day_path_retention=immediate_day_path_projection suffix_bound=disabled_for_od_day walk_lookup=lazy_phase_specific live_branches={} frontier={} projection_states={} c_y_nodes={} c_y_metrics={} c_y_labels={} c_y_removed(dominated/stale)={}/{} frontier_compaction(runs/removed/current/next)={}/{}/{}/{} stale_frontier_skipped={} post_layer_day_paths={} post_layer(candidates/inserted/replaced/max_supports)={}/{}/{}/{} enqueued_after_c_y={} suffix_bound_pruned_legacy={} c_y_pruned={} paper_lookup_pruned(phase/budget/time_domain/same_trip/same_line/feasibility)={}/{}/{}/{}/{}/{} late_guard(time_domain/feasibility/reboarding)={}/{}/{} walk_lookup_counts({}) legacy_od_label_states={} legacy_label_reps={} max_reps_per_state={}"
+                  "OD-day theory diagnostics: paper=connection_segment_tree carrier=compact_connection_segment_prefix branch_projection_state=none reachability_prefilter=disabled_not_built reachability_masks=disabled c_y=network_node_known_connections c_y_key=physical_y c_y_carrier=physical_node_only c_y_applies_to=all_connection_segments_before_sink dominance=dep_arr_imp_nt tolerance=node_local tree_bounds=c_y_before_day_path_sink frontier=connection_segment_level_queues frontier_sync=label_registry_with_compaction successor_contract=single_connection_segment_before_visitor temporal_suitability=timed_window_walk_always_available transfer_walk=first_class_segment composite_transfer_walk=disabled_in_production late_guard=assert_only day_path_retention=immediate_day_path_projection suffix_bound=disabled_for_od_day walk_lookup=lazy_phase_specific live_branches={} frontier={} projection_states={} c_y_nodes={} c_y_metrics={} c_y_labels={} c_y_removed(dominated/stale)={}/{} frontier_compaction(runs/removed/current/next)={}/{}/{}/{} stale_frontier_skipped={} post_layer_day_paths={} post_layer(candidates/inserted/replaced/max_supports)={}/{}/{}/{} enqueued_after_c_y={} suffix_bound_pruned_legacy={} c_y_pruned={} paper_lookup_pruned(phase/budget/time_domain/same_trip/same_line/feasibility)={}/{}/{}/{}/{}/{} late_guard(time_domain/feasibility/reboarding)={}/{}/{} walk_lookup_counts({}) legacy_od_label_states={} legacy_label_reps={}"
                 , diagnostics.live_branches
                 , current_frontier + next_frontier
                 , diagnostics.projection_states
@@ -5079,7 +5054,6 @@ namespace timetable::domain::assignment::runtime {
                 , format_walk_lookup_stats(stats.walk_lookup)
                 , diagnostics.od_day_label_state_nodes
                 , diagnostics.od_day_label_representatives
-                , retention_config.max_representatives_per_label
             );
         }
 
@@ -6261,8 +6235,6 @@ namespace timetable::domain::assignment::runtime {
             , std::size_t                       batch_index
             , std::size_t                       batch_count
             , const DayLevelSupplySearchGraph*  day_level_supply = nullptr
-            , OdDayLabelRetentionConfig         od_day_label_retention_config =
-                  OdDayLabelRetentionConfig{}
             , const SearchCancellationToken*    cancellation = nullptr
         ) {
             using timetable::infra::LogLevel;
@@ -6571,7 +6543,6 @@ namespace timetable::domain::assignment::runtime {
                             , stats
                             , current_frontier.size()
                             , next_frontier.size()
-                            , od_day_label_retention_config
                         )
                         , LogLevel::Info
                     );
@@ -6580,12 +6551,11 @@ namespace timetable::domain::assignment::runtime {
             if (od_day_slots) {
                 log(
                     fmt::format(
-                          "OD-day production memory limits: carrier=compact_connection_segment_prefix branch_slots={} live_branches={} frontier={} legacy_od_day_label_states={} label_representatives_per_state={} post_layer_day_paths={} approx_direct_mb={}"
+                          "OD-day production memory limits: carrier=compact_connection_segment_prefix branch_slots={} live_branches={} frontier={} legacy_od_day_label_states={} label_representatives=unbounded post_layer_day_paths={} approx_direct_mb={}"
                         , format_optional_size_limit(od_day_memory_limits.max_branch_slots_per_tree)
                         , format_optional_size_limit(od_day_memory_limits.max_live_branches_per_tree)
                         , format_optional_size_limit(od_day_memory_limits.max_frontier_per_tree)
                         , format_optional_size_limit(od_day_memory_limits.max_od_day_label_states_per_tree)
-                        , od_day_label_retention_config.max_representatives_per_label
                         , format_optional_size_limit(od_day_memory_limits.max_retained_day_paths_per_tree)
                         , format_optional_mb_limit(od_day_memory_limits.max_approximate_direct_bytes_per_tree)
                     )
@@ -7729,11 +7699,6 @@ namespace timetable::domain::assignment::runtime {
                     mathfp::invalid_arg("search execution maxParallelBatches must be positive")
                 );
             }
-            if (config.max_od_day_label_representatives_per_state == 0u) {
-                return mathfp::unexpected(
-                    mathfp::invalid_arg("search execution maxOdDayLabelRepresentativesPerState must be positive")
-                );
-            }
             if (config.estimated_memory_mb_per_parallel_batch == 0u) {
                 return mathfp::unexpected(
                     mathfp::invalid_arg("search execution estimatedMemoryMbPerParallelBatch must be positive")
@@ -7776,12 +7741,6 @@ namespace timetable::domain::assignment::runtime {
                                 .ctx("result_projection", std::string(to_string(config.result_projection)))
                                 .ctx("partial_retention_scope", std::string(to_string(config.partial_retention_scope)))
                                 .ctx("max_parallel_batches", static_cast<std::int64_t>(config.max_parallel_batches))
-                                .ctx(
-                                      "max_od_day_label_representatives_per_state"
-                                    , static_cast<std::int64_t>(
-                                          config.max_od_day_label_representatives_per_state
-                                      )
-                                  )
                         );
                     }
                     break;
@@ -8713,7 +8672,6 @@ namespace timetable::domain::assignment::runtime {
                                       , i
                                       , batches.size()
                                       , nullptr
-                                      , OdDayLabelRetentionConfig{}
                                       , &cancellation
                                   );
                               if (!results_result) {
@@ -8857,8 +8815,6 @@ namespace timetable::domain::assignment::runtime {
 
         both("search: OD-day branch-and-bound");
         const auto day_path_retention_config = DayPathRetentionConfig{};
-        const auto od_day_label_retention_config =
-            od_day_label_retention_config_of(execution.config);
         const auto day_path_alternative_limit =
             day_path_retention_config.max_alternatives_per_od.has_value()
                 ? std::to_string(*day_path_retention_config.max_alternatives_per_od)
@@ -8869,9 +8825,8 @@ namespace timetable::domain::assignment::runtime {
                 : std::string("unbounded");
         log(
             fmt::format(
-                  "OD-day projection contract: paper=connection_tree partial_retention_scope={} tree_label=network_node_c_y c_y_key=physical_y c_y_carrier=physical_node_only c_y_applies_to=all_connection_segments_before_sink support=connection_segment_witness dominance=dep_arr_imp_nt tolerance=node_local production_carrier=compact_connection_segment_prefix path_identity=compact_prefix supply_graph=preprocessed_connection_segment_index frontier=connection_segment_level_queues frontier_sync=label_registry_with_compaction successor_contract=single_connection_segment_before_visitor temporal_suitability=timed_window_walk_always_available late_guard=assert_only transfer_walk=first_class_segment composite_transfer_walk=disabled_in_production label_representatives_per_state={} tree_bounds=c_y_before_day_path_sink suffix_bound=disabled_for_od_day completed_connection_projection=immediate_day_path_sink od_alternative_retention=production_slots_only signature=route_stop_line_pattern day_path_retention_policy={} max_alternatives_per_od={} max_supports_per_path={} computation_contract={}"
+                  "OD-day projection contract: paper=connection_tree partial_retention_scope={} tree_label=network_node_c_y c_y_key=physical_y c_y_carrier=physical_node_only c_y_applies_to=all_connection_segments_before_sink support=connection_segment_witness dominance=dep_arr_imp_nt tolerance=node_local production_carrier=compact_connection_segment_prefix path_identity=compact_prefix supply_graph=preprocessed_connection_segment_index frontier=connection_segment_level_queues frontier_sync=label_registry_with_compaction successor_contract=single_connection_segment_before_visitor temporal_suitability=timed_window_walk_always_available late_guard=assert_only transfer_walk=first_class_segment composite_transfer_walk=disabled_in_production label_representatives=unbounded tree_bounds=c_y_before_day_path_sink suffix_bound=disabled_for_od_day completed_connection_projection=immediate_day_path_sink od_alternative_retention=production_slots_only signature=route_stop_line_pattern day_path_retention_policy={} max_alternatives_per_od={} max_supports_per_path={} computation_contract={}"
                 , to_string(execution.config.partial_retention_scope)
-                , od_day_label_retention_config.max_representatives_per_label
                 , day_path_retention_limit_policy_name(
                       day_path_retention_config.limit_policy
                   )
@@ -9026,13 +8981,12 @@ namespace timetable::domain::assignment::runtime {
         );
         log(
             fmt::format(
-                  "OD-day search parallel execution: workers={} batches={} max_parallel_batches={} max_parallel_memory_mb={} estimated_memory_mb_per_parallel_batch={} label_representatives_per_state={} merge=origin_sink_associative fast_fail=enabled"
+                  "OD-day search parallel execution: workers={} batches={} max_parallel_batches={} max_parallel_memory_mb={} estimated_memory_mb_per_parallel_batch={} label_representatives=unbounded merge=origin_sink_associative fast_fail=enabled"
                 , worker_count
                 , batches.size()
                 , execution.config.max_parallel_batches
                 , format_optional_size_limit(execution.config.max_parallel_memory_mb)
                 , execution.config.estimated_memory_mb_per_parallel_batch
-                , od_day_label_retention_config.max_representatives_per_label
             )
             , LogLevel::Info
         );
@@ -9102,7 +9056,6 @@ namespace timetable::domain::assignment::runtime {
                                       , i
                                       , batches.size()
                                       , nullptr
-                                      , od_day_label_retention_config
                                       , &cancellation
                                   );
                               if (!slot_results_result) {

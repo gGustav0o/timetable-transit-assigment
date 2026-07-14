@@ -31,8 +31,6 @@ namespace timetable::domain::assignment::detail {
             return AssignmentOdResult{
                   .origin                  = od.origin
                 , .destination             = od.destination
-                , .search_connection_count = 0
-                , .chosen_connection_count = 0
                 , .total_demand_passengers = 0.0
                 , .assigned_passengers     = 0.0
                 , .connections             = {}
@@ -481,9 +479,7 @@ namespace timetable::domain::assignment::detail {
             , const DemandSplitResult&      split_result
         ) {
             return AssignmentOutput::Summary{
-                  .search_connection_count = search_connection_count(search_result)
-                , .chosen_connection_count = choice_result.connections.size()
-                , .demand_share_count      = split_result .shares     .size()
+                  .demand_share_count      = split_result .shares     .size()
                 , .structural_day_path_count = 0u
                 , .timed_support_alternative_count = 0u
                 , .interval_admissible_split_alternative_count = 0u
@@ -507,9 +503,7 @@ namespace timetable::domain::assignment::detail {
         ) {
             const auto paper_totals = summarize_paper_split_totals(paper_split_summaries);
             return AssignmentOutput::Summary{
-                  .search_connection_count = search_connection_count(search_summary)
-                , .chosen_connection_count = choice_result.connections.size()
-                , .demand_share_count      = split_result .shares     .size()
+                  .demand_share_count      = split_result .shares     .size()
                 , .structural_day_path_count =
                       paper_totals.structural_day_path_count
                 , .timed_support_alternative_count =
@@ -531,9 +525,7 @@ namespace timetable::domain::assignment::detail {
             const InputModel& input
         ) {
             return AssignmentOutput::Summary{
-                  .search_connection_count = 0
-                , .chosen_connection_count = 0
-                , .demand_share_count      = 0
+                  .demand_share_count      = 0
                 , .structural_day_path_count = 0u
                 , .timed_support_alternative_count = 0u
                 , .interval_admissible_split_alternative_count = 0u
@@ -554,8 +546,6 @@ namespace timetable::domain::assignment::detail {
             }
             return AssignmentOutput::Summary{
                   .od_count                 = target_count
-                , .search_connection_count = search_connection_count(search_result)
-                , .chosen_connection_count = 0
                 , .demand_share_count      = 0
                 , .structural_day_path_count = 0u
                 , .timed_support_alternative_count = 0u
@@ -576,9 +566,7 @@ namespace timetable::domain::assignment::detail {
         ) {
             const auto search_count = search_connection_count(search_result);
             return AssignmentOutput::Summary{
-                  .search_connection_count = search_count
-                , .chosen_connection_count = 0
-                , .demand_share_count      = 0
+                  .demand_share_count      = 0
                 , .structural_day_path_count = 0u
                 , .timed_support_alternative_count = 0u
                 , .interval_admissible_split_alternative_count = 0u
@@ -854,13 +842,12 @@ namespace timetable::domain::assignment::detail {
             return mathfp::kUnit;
         }
 
-        void assign_search_connection_count(
+        void assign_search_alternative_count(
               AssignmentOdResult&                           od_result
             , const std::map<grouping::OdKey, std::size_t>& search_counts
             , const grouping::OdKey&                        od
         ) {
             if (const auto search_it = search_counts.find(od); search_it != search_counts.end()) {
-                od_result.search_connection_count = search_it->second;
                 od_result.diagnostics.search.alternative_count = search_it->second;
             }
         }
@@ -888,9 +875,8 @@ namespace timetable::domain::assignment::detail {
                 chosen_connection_indices.emplace(grouping::connection_trace_key(*connection), index);
                 od_result.connections.push_back(std::move(mapped_connection));
             }
-            od_result.chosen_connection_count = od_result.connections.size();
             od_result.diagnostics.choice.chosen_alternative_count =
-                od_result.chosen_connection_count;
+                od_result.connections.size();
             return chosen_connection_indices;
         }
 
@@ -999,7 +985,7 @@ namespace timetable::domain::assignment::detail {
             , const OdDayPaperSplitSummaryMap*               paper_split_summaries = nullptr
         ) {
             auto od_result = make_empty_od_result(od);
-            assign_search_connection_count(od_result, search_counts, od);
+            assign_search_alternative_count(od_result, search_counts, od);
             if (paper_split_summaries != nullptr) {
                 if (const auto it = paper_split_summaries->find(od);
                     it != paper_split_summaries->end()) {
@@ -1281,8 +1267,6 @@ namespace timetable::domain::assignment::detail {
                 AssignmentOdResult{
                       .origin                  = od.origin
                     , .destination             = od.destination
-                    , .search_connection_count = count
-                    , .chosen_connection_count = 0
                     , .total_demand_passengers = 0.0
                     , .assigned_passengers     = 0.0
                     , .connections             = {}
@@ -1395,8 +1379,6 @@ namespace timetable::domain::assignment::detail {
                     AssignmentOdResult{
                           .origin                  = target.origin
                         , .destination             = target.destination
-                        , .search_connection_count = all_zone_target_connection_count(target)
-                        , .chosen_connection_count = 0
                         , .total_demand_passengers = 0.0
                         , .assigned_passengers     = 0.0
                         , .connections             = {}

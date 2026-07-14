@@ -1,11 +1,11 @@
 #include "detail/output_internal.hpp"
 
+#include <compare>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <map>
 #include <string>
-#include <tuple>
 #include <vector>
 
 #include <mathfp/core/error.hpp>
@@ -35,63 +35,107 @@ namespace timetable::domain::assignment::detail {
             mathfp::CompensatedSum<double> outgoing_passenger_segments{};
         };
 
-        using LineLoadKey = std::tuple<std::int64_t, std::int64_t>;
-        using RouteLoadKey = std::tuple<std::int64_t, std::int64_t, std::int64_t>;
-        using TripLoadKey = std::tuple<std::int64_t, std::int64_t, std::int64_t, std::int64_t>;
-        using StopLoadKey = std::tuple<std::int64_t, std::int64_t>;
+        struct LineLoadKey final {
+            IntervalId interval;
+            LineId     line;
+
+            auto operator<=>(const LineLoadKey&) const = default;
+        };
+
+        struct RouteLoadKey final {
+            IntervalId interval;
+            LineId     line;
+            RouteId    route;
+
+            auto operator<=>(const RouteLoadKey&) const = default;
+        };
+
+        struct TripLoadKey final {
+            IntervalId interval;
+            LineId     line;
+            RouteId    route;
+            TripId     trip;
+
+            auto operator<=>(const TripLoadKey&) const = default;
+        };
+
+        struct StopLoadKey final {
+            IntervalId interval;
+            StopId     stop;
+
+            auto operator<=>(const StopLoadKey&) const = default;
+        };
 
         [[nodiscard]] LineLoadKey line_load_key(
             const AssignmentSegmentLoad& load
         ) noexcept {
-            return LineLoadKey{ load.interval.get(), load.line.get() };
+            return LineLoadKey{ .interval = load.interval, .line = load.line };
         }
 
         [[nodiscard]] LineLoadKey line_load_key(
             const AssignmentLineLoad& load
         ) noexcept {
-            return LineLoadKey{ load.interval.get(), load.line.get() };
+            return LineLoadKey{ .interval = load.interval, .line = load.line };
         }
 
         [[nodiscard]] TripLoadKey trip_load_key(
             const AssignmentSegmentLoad& load
         ) noexcept {
-            return TripLoadKey{ load.interval.get(), load.line.get(), load.route.get(), load.trip.get() };
+            return TripLoadKey{
+                  .interval = load.interval
+                , .line     = load.line
+                , .route    = load.route
+                , .trip     = load.trip
+            };
         }
 
         [[nodiscard]] TripLoadKey trip_load_key(
             const AssignmentTripLoad& load
         ) noexcept {
-            return TripLoadKey{ load.interval.get(), load.line.get(), load.route.get(), load.trip.get() };
+            return TripLoadKey{
+                  .interval = load.interval
+                , .line     = load.line
+                , .route    = load.route
+                , .trip     = load.trip
+            };
         }
 
         [[nodiscard]] RouteLoadKey route_load_key(
             const AssignmentSegmentLoad& load
         ) noexcept {
-            return RouteLoadKey{ load.interval.get(), load.line.get(), load.route.get() };
+            return RouteLoadKey{
+                  .interval = load.interval
+                , .line     = load.line
+                , .route    = load.route
+            };
         }
 
         [[nodiscard]] RouteLoadKey route_load_key(
             const AssignmentRouteLoad& load
         ) noexcept {
-            return RouteLoadKey{ load.interval.get(), load.line.get(), load.route.get() };
+            return RouteLoadKey{
+                  .interval = load.interval
+                , .line     = load.line
+                , .route    = load.route
+            };
         }
 
         [[nodiscard]] StopLoadKey from_stop_load_key(
             const AssignmentSegmentLoad& load
         ) noexcept {
-            return StopLoadKey{ load.interval.get(), load.from.stop.get() };
+            return StopLoadKey{ .interval = load.interval, .stop = load.from.stop };
         }
 
         [[nodiscard]] StopLoadKey to_stop_load_key(
             const AssignmentSegmentLoad& load
         ) noexcept {
-            return StopLoadKey{ load.interval.get(), load.to.stop.get() };
+            return StopLoadKey{ .interval = load.interval, .stop = load.to.stop };
         }
 
         [[nodiscard]] StopLoadKey stop_load_key(
             const AssignmentStopLoad& load
         ) noexcept {
-            return StopLoadKey{ load.interval.get(), load.stop.get() };
+            return StopLoadKey{ .interval = load.interval, .stop = load.stop };
         }
 
         [[nodiscard]] bool valid_segment_load(
@@ -326,16 +370,23 @@ namespace timetable::domain::assignment::detail {
             return mathfp::kUnit;
         }
 
-        using SkimEntryKey = std::tuple<std::int64_t, std::int64_t, std::int64_t>;
+        struct SkimEntryKey final {
+            ZoneId     origin;
+            ZoneId     destination;
+            IntervalId interval;
+
+            auto operator<=>(const SkimEntryKey&) const = default;
+        };
+
         using OutputIntervalLookup = std::map<SkimEntryKey, const AssignmentDemandInterval*>;
 
         [[nodiscard]] SkimEntryKey skim_entry_key(
             const AssignmentSkimEntry& entry
         ) noexcept {
             return SkimEntryKey{
-                  entry.origin.get()
-                , entry.destination.get()
-                , entry.interval.get()
+                  .origin      = entry.origin
+                , .destination = entry.destination
+                , .interval    = entry.interval
             };
         }
 
@@ -344,9 +395,9 @@ namespace timetable::domain::assignment::detail {
             , const AssignmentDemandInterval&  interval
         ) noexcept {
             return SkimEntryKey{
-                  od_result.origin.get()
-                , od_result.destination.get()
-                , interval.interval.id.get()
+                  .origin      = od_result.origin
+                , .destination = od_result.destination
+                , .interval    = interval.interval.id
             };
         }
 
@@ -494,37 +545,13 @@ namespace timetable::domain::assignment::detail {
     mathfp::Expected<mathfp::Unit> validate_od_result_semantics(
         const AssignmentOdResult& od_result
     ) {
-        if (od_result.chosen_connection_count != od_result.connections.size()) {
+        if (chosen_alternative_count(od_result) != od_result.connections.size()) {
             return mathfp::unexpected(
-                mathfp::internal_error("assignment output chosen_connection_count disagrees with connections size")
+                mathfp::internal_error("assignment output chosen alternative diagnostics disagree with connections size")
                     .ctx("origin"        , od_result.origin.get())
                     .ctx("destination"   , od_result.destination.get())
-                    .ctx("declared_count", static_cast<std::int64_t>(od_result.chosen_connection_count))
+                    .ctx("declared_count", static_cast<std::int64_t>(chosen_alternative_count(od_result)))
                     .ctx("actual_count"  , static_cast<std::int64_t>(od_result.connections.size()))
-            );
-        }
-        if (od_result.diagnostics.search.alternative_count
-                != od_result.search_connection_count
-            || od_result.diagnostics.choice.chosen_alternative_count
-                != od_result.chosen_connection_count) {
-            return mathfp::unexpected(
-                mathfp::internal_error("assignment output OD diagnostics disagree with compatibility counters")
-                    .ctx("origin"                 , od_result.origin.get())
-                    .ctx("destination"            , od_result.destination.get())
-                    .ctx("search_connection_count", static_cast<std::int64_t>(od_result.search_connection_count))
-                    .ctx(
-                          "diagnostic_search_alternatives"
-                        , static_cast<std::int64_t>(
-                              od_result.diagnostics.search.alternative_count
-                          )
-                      )
-                    .ctx("chosen_connection_count", static_cast<std::int64_t>(od_result.chosen_connection_count))
-                    .ctx(
-                          "diagnostic_chosen_alternatives"
-                        , static_cast<std::int64_t>(
-                              od_result.diagnostics.choice.chosen_alternative_count
-                          )
-                      )
             );
         }
 
@@ -629,13 +656,13 @@ namespace timetable::domain::assignment::detail {
         }
         if (output.mode == AssignmentOutputMode::AllZoneSearch
             || output.mode == AssignmentOutputMode::TimedConnectionDiagnostics) {
-            if (output.summary.chosen_connection_count != 0
+            if (chosen_alternative_count(output.summary) != 0
                 || output.summary.demand_share_count != 0
                 || !almost_equal_scalar(output.summary.total_demand_passengers, 0.0)
                 || !almost_equal_scalar(output.summary.assigned_passengers, 0.0)) {
                 return mathfp::unexpected(
                     mathfp::internal_error("search diagnostics output summary must not contain assignment quantities")
-                        .ctx("chosen_connection_count", static_cast<std::int64_t>(output.summary.chosen_connection_count))
+                        .ctx("chosen_alternative_count", static_cast<std::int64_t>(chosen_alternative_count(output.summary)))
                         .ctx("demand_share_count"     , static_cast<std::int64_t>(output.summary.demand_share_count))
                         .ctx("total_demand_passengers", output.summary.total_demand_passengers)
                         .ctx("assigned_passengers"    , output.summary.assigned_passengers)
@@ -674,7 +701,7 @@ namespace timetable::domain::assignment::detail {
                 );
             }
             for (const auto& od_result : output.od_results) {
-                if (od_result.chosen_connection_count != 0
+                if (chosen_alternative_count(od_result) != 0
                     || !almost_equal_scalar(od_result.total_demand_passengers, 0.0)
                     || !almost_equal_scalar(od_result.assigned_passengers, 0.0)
                     || !od_result.connections.empty()
@@ -683,7 +710,7 @@ namespace timetable::domain::assignment::detail {
                         mathfp::internal_error("search diagnostics OD result must contain only search counters")
                             .ctx("origin"                 , od_result.origin.get())
                             .ctx("destination"            , od_result.destination.get())
-                            .ctx("chosen_connection_count", static_cast<std::int64_t>(od_result.chosen_connection_count))
+                            .ctx("chosen_alternative_count", static_cast<std::int64_t>(chosen_alternative_count(od_result)))
                             .ctx("total_demand_passengers", od_result.total_demand_passengers)
                             .ctx("assigned_passengers"    , od_result.assigned_passengers)
                             .ctx("connection_count"       , static_cast<std::int64_t>(od_result.connections.size()))
@@ -693,14 +720,14 @@ namespace timetable::domain::assignment::detail {
             }
         }
         if (output.mode == AssignmentOutputMode::AssignmentDisabled) {
-            if (output.summary.search_connection_count != 0
-                || output.summary.chosen_connection_count != 0
+            if (searched_alternative_count(output.summary) != 0
+                || chosen_alternative_count(output.summary) != 0
                 || output.summary.demand_share_count != 0
                 || !almost_equal_scalar(output.summary.assigned_passengers, 0.0)) {
                 return mathfp::unexpected(
                     mathfp::internal_error("disabled assignment output summary must not contain calculated assignment quantities")
-                        .ctx("search_connection_count", static_cast<std::int64_t>(output.summary.search_connection_count))
-                        .ctx("chosen_connection_count", static_cast<std::int64_t>(output.summary.chosen_connection_count))
+                        .ctx("search_alternative_count", static_cast<std::int64_t>(searched_alternative_count(output.summary)))
+                        .ctx("chosen_alternative_count", static_cast<std::int64_t>(chosen_alternative_count(output.summary)))
                         .ctx("demand_share_count"     , static_cast<std::int64_t>(output.summary.demand_share_count))
                         .ctx("assigned_passengers"    , output.summary.assigned_passengers)
                 );
@@ -735,16 +762,16 @@ namespace timetable::domain::assignment::detail {
             }
 
             for (const auto& od_result : output.od_results) {
-                if (od_result.search_connection_count != 0
-                    || od_result.chosen_connection_count != 0
+                if (searched_alternative_count(od_result) != 0
+                    || chosen_alternative_count(od_result) != 0
                     || !almost_equal_scalar(od_result.assigned_passengers, 0.0)
                     || !od_result.connections.empty()) {
                     return mathfp::unexpected(
                         mathfp::internal_error("disabled assignment OD result must not contain calculated connections")
                             .ctx("origin"                 , od_result.origin.get())
                             .ctx("destination"            , od_result.destination.get())
-                            .ctx("search_connection_count", static_cast<std::int64_t>(od_result.search_connection_count))
-                            .ctx("chosen_connection_count", static_cast<std::int64_t>(od_result.chosen_connection_count))
+                            .ctx("search_alternative_count", static_cast<std::int64_t>(searched_alternative_count(od_result)))
+                            .ctx("chosen_alternative_count", static_cast<std::int64_t>(chosen_alternative_count(od_result)))
                             .ctx("assigned_passengers"    , od_result.assigned_passengers)
                             .ctx("connection_count"       , static_cast<std::int64_t>(od_result.connections.size()))
                     );
@@ -779,8 +806,8 @@ namespace timetable::domain::assignment::detail {
 
         for (const auto& od_result : output.od_results) {
             MATHFP_TRY(validate_od_result_semantics(od_result));
-            search_count += od_result.search_connection_count;
-            chosen_count += od_result.chosen_connection_count;
+            search_count += searched_alternative_count(od_result);
+            chosen_count += chosen_alternative_count(od_result);
             structural_day_path_count += od_result.paper_split.structural_day_path_count;
             timed_support_alternative_count += od_result.paper_split.timed_support_alternative_count;
             interval_admissible_split_alternative_count +=
@@ -809,8 +836,8 @@ namespace timetable::domain::assignment::detail {
             );
         }
 
-        if (output.summary.search_connection_count != search_count
-            || output.summary.chosen_connection_count != chosen_count
+        if (searched_alternative_count(output.summary) != search_count
+            || chosen_alternative_count(output.summary) != chosen_count
             || output.summary.demand_share_count != share_count
             || output.summary.structural_day_path_count != structural_day_path_count
             || output.summary.timed_support_alternative_count != timed_support_alternative_count
@@ -822,10 +849,10 @@ namespace timetable::domain::assignment::detail {
             || !almost_equal_scalar(output.summary.unassigned_passengers, unassigned.value())) {
             return mathfp::unexpected(
                 mathfp::internal_error("assignment output summary disagrees with OD aggregates")
-                    .ctx("declared_search_connections", static_cast<std::int64_t>(output.summary.search_connection_count))
-                    .ctx("actual_search_connections"  , static_cast<std::int64_t>(search_count))
-                    .ctx("declared_chosen_connections", static_cast<std::int64_t>(output.summary.chosen_connection_count))
-                    .ctx("actual_chosen_connections"  , static_cast<std::int64_t>(chosen_count))
+                    .ctx("declared_search_alternatives", static_cast<std::int64_t>(searched_alternative_count(output.summary)))
+                    .ctx("actual_search_alternatives"  , static_cast<std::int64_t>(search_count))
+                    .ctx("declared_chosen_alternatives", static_cast<std::int64_t>(chosen_alternative_count(output.summary)))
+                    .ctx("actual_chosen_alternatives"  , static_cast<std::int64_t>(chosen_count))
                     .ctx("declared_share_count"       , static_cast<std::int64_t>(output.summary.demand_share_count))
                     .ctx("actual_share_count"         , static_cast<std::int64_t>(share_count))
                     .ctx(
@@ -868,29 +895,6 @@ namespace timetable::domain::assignment::detail {
                     .ctx("actual_assigned"            , assigned.value())
                     .ctx("declared_unassigned"        , output.summary.unassigned_passengers)
                     .ctx("actual_unassigned"          , unassigned.value())
-            );
-        }
-
-        if (output.summary.diagnostics.search_alternative_count
-                != output.summary.search_connection_count
-            || output.summary.diagnostics.chosen_alternative_count
-                != output.summary.chosen_connection_count) {
-            return mathfp::unexpected(
-                mathfp::internal_error("assignment output summary diagnostics disagree with compatibility counters")
-                    .ctx("search_connection_count", static_cast<std::int64_t>(output.summary.search_connection_count))
-                    .ctx(
-                          "diagnostic_search_alternatives"
-                        , static_cast<std::int64_t>(
-                              output.summary.diagnostics.search_alternative_count
-                          )
-                      )
-                    .ctx("chosen_connection_count", static_cast<std::int64_t>(output.summary.chosen_connection_count))
-                    .ctx(
-                          "diagnostic_chosen_alternatives"
-                        , static_cast<std::int64_t>(
-                              output.summary.diagnostics.chosen_alternative_count
-                          )
-                      )
             );
         }
 

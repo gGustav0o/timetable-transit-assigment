@@ -280,8 +280,10 @@ namespace timetable::infra {
                   .mode                    = output.mode
                 , .skim_status             = output.skim_matrix.status
                 , .od_count                = output.summary.od_count
-                , .search_connection_count = output.summary.search_connection_count
-                , .chosen_connection_count = output.summary.chosen_connection_count
+                , .search_connection_count =
+                      timetable::domain::searched_alternative_count(output.summary)
+                , .chosen_connection_count =
+                      timetable::domain::chosen_alternative_count(output.summary)
                 , .demand_share_count      = output.summary.demand_share_count
                 , .structural_day_path_count =
                       output.summary.structural_day_path_count
@@ -331,8 +333,10 @@ namespace timetable::infra {
             return projection::AssignmentOdSummaryCsvRow{
                   .origin                   = od_result.origin
                 , .destination              = od_result.destination
-                , .search_connection_count  = od_result.search_connection_count
-                , .chosen_connection_count  = od_result.chosen_connection_count
+                , .search_connection_count  =
+                      timetable::domain::searched_alternative_count(od_result)
+                , .chosen_connection_count  =
+                      timetable::domain::chosen_alternative_count(od_result)
                 , .structural_day_path_count =
                       od_result.paper_split.structural_day_path_count
                 , .timed_support_alternative_count =
@@ -570,8 +574,8 @@ namespace timetable::infra {
                 "  }}\n"
                 "}}\n"
               , output.summary.od_count
-              , output.summary.search_connection_count
-              , output.summary.chosen_connection_count
+              , timetable::domain::searched_alternative_count(output.summary)
+              , timetable::domain::chosen_alternative_count(output.summary)
               , output.summary.demand_share_count
               , output.summary.structural_day_path_count
               , output.summary.timed_support_alternative_count
@@ -617,8 +621,8 @@ namespace timetable::infra {
                             ? "timed_connection_diagnostics"
                             : "assignment_disabled"
               , output.summary.od_count
-              , output.summary.search_connection_count
-              , output.summary.chosen_connection_count
+              , timetable::domain::searched_alternative_count(output.summary)
+              , timetable::domain::chosen_alternative_count(output.summary)
               , output.summary.structural_day_path_count
               , output.summary.timed_support_alternative_count
               , output.summary.interval_admissible_split_alternative_count
@@ -659,7 +663,7 @@ namespace timetable::infra {
             timetable::infra::progress::log(
                 fmt::format(
                       "assignment output export: profile=production_aggregate chosen_connections={} structural_day_paths={} timed_support_alternatives={} interval_admissible_Ca_alternatives={} full_path_json=diagnostic_only connections_csv=header_only shares_csv=header_only share_summary=metadata_od_summary_and_json segments_csv=header_only primary_load=elementary_segment_loads visum_aggregates=route_stop_totals overload=vehicle_journey_item_loads"
-                    , output.summary.chosen_connection_count
+                    , timetable::domain::chosen_alternative_count(output.summary)
                     , output.summary.structural_day_path_count
                     , output.summary.timed_support_alternative_count
                     , output.summary.interval_admissible_split_alternative_count
@@ -736,7 +740,7 @@ namespace timetable::infra {
         timetable::infra::progress::log(
             fmt::format(
                   "assignment output export: profile=diagnostic_full_path chosen_connections={} full_path_json=enabled connections_csv=full segments_csv=full"
-                , output.summary.chosen_connection_count
+                , timetable::domain::chosen_alternative_count(output.summary)
             )
         );
 

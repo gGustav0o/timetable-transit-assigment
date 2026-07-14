@@ -43,12 +43,6 @@ namespace timetable::domain::assignment::detail {
                           )
                       )
                     .ctx(
-                          "max_od_day_label_representatives_per_state"
-                        , static_cast<std::int64_t>(
-                              config.max_od_day_label_representatives_per_state
-                          )
-                      )
-                    .ctx(
                           "default_max_parallel_batches"
                         , static_cast<std::int64_t>(
                               SearchExecutionConfig::kDefaultMaxParallelBatches
@@ -221,7 +215,7 @@ namespace timetable::domain::assignment::detail {
 
         log(
             fmt::format(
-                  "assignment search execution: formulation={} diagnostic={} mode={} origin_scope={} time_domain_source={} destination_scope={} result_projection={} partial_retention_scope={} max_parallel_batches={} max_parallel_memory_mb={} estimated_memory_mb_per_parallel_batch={} max_od_day_label_representatives_per_state={} validate_phase_invariants={} log_projection_details={}"
+                  "assignment search execution: formulation={} diagnostic={} mode={} origin_scope={} time_domain_source={} destination_scope={} result_projection={} partial_retention_scope={} max_parallel_batches={} max_parallel_memory_mb={} estimated_memory_mb_per_parallel_batch={} validate_phase_invariants={} log_projection_details={}"
                 , to_string(config.formulation)
                 , config.diagnostic_mode ? "true" : "false"
                 , to_string(config.mode)
@@ -235,7 +229,6 @@ namespace timetable::domain::assignment::detail {
                     ? std::to_string(*config.max_parallel_memory_mb)
                     : std::string("unbounded")
                 , config.estimated_memory_mb_per_parallel_batch
-                , config.max_od_day_label_representatives_per_state
                 , config.validate_phase_invariants ? "true" : "false"
                 , config.log_projection_details ? "true" : "false"
             )
@@ -256,14 +249,13 @@ namespace timetable::domain::assignment::detail {
         if (config.formulation == AssignmentCalculationFormulation::OdDayAssignment) {
             log(
                 fmt::format(
-                      "production OD-day profile: day_path_search=true load_source=day_path primary_load=elementary_segment_loads workers={}/{} memory_cap_mb={} worker_memory_mb={} label_representatives_per_state={}"
+                      "production OD-day profile: day_path_search=true load_source=day_path primary_load=elementary_segment_loads workers={}/{} memory_cap_mb={} worker_memory_mb={} label_representatives=unbounded"
                     , config.max_parallel_batches
                     , SearchExecutionConfig::kDefaultMaxParallelBatches
                     , config.max_parallel_memory_mb.has_value()
                         ? std::to_string(*config.max_parallel_memory_mb)
                         : std::string("unbounded")
                     , config.estimated_memory_mb_per_parallel_batch
-                    , config.max_od_day_label_representatives_per_state
                 )
                 , LogLevel::Info
             );

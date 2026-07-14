@@ -310,7 +310,6 @@ namespace timetable::domain::assignment {
      */
     struct SearchExecutionConfig final {
         static constexpr std::size_t kDefaultMaxParallelBatches = 6;
-        static constexpr std::size_t kDefaultMaxOdDayLabelRepresentativesPerState = 8;
         static constexpr std::size_t kDefaultEstimatedMemoryMbPerParallelBatch = 4096;
 
         AssignmentCalculationFormulation formulation{
@@ -326,9 +325,6 @@ namespace timetable::domain::assignment {
             SearchPartialRetentionScope::TreeGlobal
         };
         std::size_t max_parallel_batches{ kDefaultMaxParallelBatches };
-        std::size_t max_od_day_label_representatives_per_state{
-            kDefaultMaxOdDayLabelRepresentativesPerState
-        };
         std::optional<std::size_t> max_parallel_memory_mb{};
         std::size_t estimated_memory_mb_per_parallel_batch{
             kDefaultEstimatedMemoryMbPerParallelBatch
@@ -503,8 +499,7 @@ namespace timetable::domain::assignment {
             && config.result_projection == SearchResultProjection::OdDayPairs
             && config.partial_retention_scope == SearchPartialRetentionScope::TreeGlobal
             && config.max_parallel_batches > 0u
-            && config.estimated_memory_mb_per_parallel_batch > 0u
-            && config.max_od_day_label_representatives_per_state > 0u;
+            && config.estimated_memory_mb_per_parallel_batch > 0u;
     }
 
     [[nodiscard]] inline constexpr bool is_timed_connection_diagnostics_profile(

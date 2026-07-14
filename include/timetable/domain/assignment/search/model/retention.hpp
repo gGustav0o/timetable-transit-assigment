@@ -11,7 +11,6 @@
 #include "timetable/domain/assignment/complete_connection_retention.hpp"
 #include "timetable/domain/assignment/day_path.hpp"
 #include "timetable/domain/assignment/search/model/branch.hpp"
-#include "timetable/domain/assignment/search_execution_config.hpp"
 #include "timetable/domain/assignment/search_pruning.hpp"
 #include "timetable/domain/assignment/search_pruning_plan.hpp"
 #include "timetable/domain/endpoints.hpp"
@@ -151,12 +150,6 @@ namespace timetable::domain::assignment {
         }
     };
 
-    struct OdDayLabelRetentionConfig final {
-        std::size_t max_representatives_per_label{
-            SearchExecutionConfig::kDefaultMaxOdDayLabelRepresentativesPerState
-        };
-    };
-
     struct OdDayLabelRepresentative final {
         SearchPruningMetrics metrics{};
         TimedSupportEnvelope support{};
@@ -172,9 +165,5 @@ namespace timetable::domain::assignment {
         , OdDayLabelRepresentativeSet
         , OdDayLabelStateHash
     >;
-
-    [[nodiscard]] OdDayLabelRetentionConfig od_day_label_retention_config_of(
-        const SearchExecutionConfig& config
-    ) noexcept;
 
 }  // namespace timetable::domain::assignment
