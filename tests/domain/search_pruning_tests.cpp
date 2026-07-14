@@ -3,7 +3,10 @@
 
 #include <gtest/gtest.h>
 
+#include "timetable/domain/assignment/search/frontier/retention_operations.hpp"
+#include "timetable/domain/assignment/search/relations/paper_connection_relevance.hpp"
 #include "timetable/domain/assignment/search_pruning.hpp"
+#include "timetable/domain/assignment/search_pruning_plan.hpp"
 
 namespace timetable::domain::assignment {
 namespace {
@@ -158,6 +161,78 @@ TEST(SearchPruningApproximateRetention, AppliesPaperToleranceInequalitiesAndTran
         , policy
         , limits
     ));
+}
+
+TEST(PaperNodeConnectionSet, RelevanceOnlyConsidersKnownArrivalsNotLaterThanCandidate) {
+    PaperNodeConnectionSet set;
+    set.metrics.push_back(metrics(0.0, 40.0, 40.0, 2, 100.0));
+    set.metrics.push_back(metrics(20.0, 80.0, 60.0, 0, 10.0));
+    set.summary = summarize_pruning_metrics(paper_metric_span(set));
+
+    const auto candidate = metrics(10.0, 50.0, 40.0, 1, 50.0);
+
+    EXPECT_TRUE(paper_node_connection_relevant(
+          set
+        , ExactPruningPolicy{}
+        , candidate
+    ));
+}
+
+TEST(PaperNodeConnectionSet, RelevanceRejectsPaperDominatedCandidate) {
+    PaperNodeConnectionSet set;
+    set.metrics.push_back(metrics(20.0, 40.0, 30.0, 1, 50.0));
+    set.summary = summarize_pruning_metrics(paper_metric_span(set));
+
+    const auto candidate = metrics(10.0, 50.0, 40.0, 2, 60.0);
+
+    EXPECT_FALSE(paper_node_connection_relevant(
+          set
+        , ExactPruningPolicy{}
+        , candidate
+    ));
+}
+
+TEST(PaperNodeConnectionSet, InsertRemovesDominatedSuffixAndReportsLabels) {
+    SearchPruningExecutionPlan execution;
+    execution.exact_enabled = true;
+    execution.approximate_enabled = false;
+    execution.approximate_policy = std::nullopt;
+
+    PaperNodeConnectionSet set;
+    std::vector<PaperConnectionLabelId> removed_labels;
+
+    insert_paper_node_connection_metrics(
+          execution
+        , set
+        , metrics(0.0, 30.0, 30.0, 0, 30.0)
+        , PaperConnectionLabelId{ 1 }
+        , removed_labels
+    );
+    insert_paper_node_connection_metrics(
+          execution
+        , set
+        , metrics(0.0, 50.0, 50.0, 2, 50.0)
+        , PaperConnectionLabelId{ 2 }
+        , removed_labels
+    );
+
+    insert_paper_node_connection_metrics(
+          execution
+        , set
+        , metrics(10.0, 40.0, 30.0, 1, 25.0)
+        , PaperConnectionLabelId{ 3 }
+        , removed_labels
+    );
+
+    ASSERT_EQ(set.metrics.size(), 2u);
+    ASSERT_EQ(set.labels.size(), 2u);
+    ASSERT_EQ(removed_labels.size(), 1u);
+    EXPECT_EQ(removed_labels[0].value, 2u);
+    EXPECT_DOUBLE_EQ(set.metrics[0].arrival.value(), 30.0);
+    EXPECT_EQ(set.labels[0].value, 1u);
+    EXPECT_DOUBLE_EQ(set.metrics[1].arrival.value(), 40.0);
+    EXPECT_EQ(set.labels[1].value, 3u);
+    EXPECT_DOUBLE_EQ(set.summary.min_impedance, 25.0);
 }
 
 }  // namespace timetable::domain::assignment
