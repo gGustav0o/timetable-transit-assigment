@@ -63,7 +63,7 @@ namespace timetable::domain {
      */
     struct AssignmentPathSegment final {
         ConnectionSegment connection_segment{};
-        RouteSegment      route_segment{};
+        RouteSegment      route_segment;
     };
 
     /**

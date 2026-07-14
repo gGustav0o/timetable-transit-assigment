@@ -17,6 +17,10 @@ option(TIMETABLE_OVERRIDE_DISABLE_VEHICLE_JOURNEY_ITEM_OVERLOAD_ASSESSMENT
   "Force-disable vehicle journey item overload assessment when runtime overrides are enabled"
   OFF
 )
+option(TIMETABLE_BUILD_TESTS
+  "Build timetable unit tests"
+  ON
+)
 
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/ProjectOptions.cmake)
 
@@ -72,8 +76,7 @@ if(NOT TIMETABLE_XLSXIO_READ_TARGET)
   endif()
 endif()
 
-add_executable(timetable-transit-assigment
-  src/main.cpp
+set(TIMETABLE_CORE_SOURCES
   src/app/app.cpp
   src/app/cli.cpp
   src/domain/assignment/assignment_period.cpp
@@ -176,45 +179,53 @@ add_executable(timetable-transit-assigment
   include/timetable/timetable.hpp
 )
 
+add_library(timetable_core STATIC
+  ${TIMETABLE_CORE_SOURCES}
+)
+
+add_executable(timetable-transit-assigment
+  src/main.cpp
+)
+
 file(GLOB_RECURSE TIMETABLE_HEADERS
   CONFIGURE_DEPENDS
   ${CMAKE_CURRENT_LIST_DIR}/include/*.hpp
 )
 
-target_sources(timetable-transit-assigment PRIVATE
+target_sources(timetable_core PRIVATE
   ${TIMETABLE_HEADERS}
 )
 
-target_include_directories(timetable-transit-assigment
-  PRIVATE
+target_include_directories(timetable_core
+  PUBLIC
     ${CMAKE_CURRENT_LIST_DIR}/include
 )
 
-target_compile_features(timetable-transit-assigment PRIVATE cxx_std_20)
+target_compile_features(timetable_core PUBLIC cxx_std_20)
 
 if(TIMETABLE_ENABLE_RUNTIME_OVERRIDES)
-  target_compile_definitions(timetable-transit-assigment
+  target_compile_definitions(timetable_core
     PRIVATE
       TIMETABLE_ENABLE_RUNTIME_OVERRIDES
   )
 
   if(TIMETABLE_OVERRIDE_DISABLE_CAPACITY_AWARE_ASSIGNMENT)
-    target_compile_definitions(timetable-transit-assigment
+    target_compile_definitions(timetable_core
       PRIVATE
         TIMETABLE_OVERRIDE_DISABLE_CAPACITY_AWARE_ASSIGNMENT
     )
   endif()
 
   if(TIMETABLE_OVERRIDE_DISABLE_VEHICLE_JOURNEY_ITEM_OVERLOAD_ASSESSMENT)
-    target_compile_definitions(timetable-transit-assigment
+    target_compile_definitions(timetable_core
       PRIVATE
         TIMETABLE_OVERRIDE_DISABLE_VEHICLE_JOURNEY_ITEM_OVERLOAD_ASSESSMENT
     )
   endif()
 endif()
 
-target_link_libraries(timetable-transit-assigment
-  PRIVATE
+target_link_libraries(timetable_core
+  PUBLIC
     mathfp::all
     Boost::boost
     Boost::container
@@ -227,3 +238,14 @@ target_link_libraries(timetable-transit-assigment
     ftxui::dom
     ftxui::screen
 )
+
+target_link_libraries(timetable-transit-assigment
+  PRIVATE
+    timetable_core
+)
+
+if(TIMETABLE_BUILD_TESTS)
+  enable_testing()
+  find_package(GTest CONFIG REQUIRED)
+  add_subdirectory(tests)
+endif()

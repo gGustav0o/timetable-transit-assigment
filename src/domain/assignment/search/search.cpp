@@ -19,6 +19,38 @@
 #include "timetable/domain/assignment/validation.hpp"
 
 namespace timetable::domain::assignment {
+    namespace {
+
+        [[nodiscard]] mathfp::Expected<std::map<IntervalId, const TimeInterval*>> interval_lookup(
+            const InputModel& input
+        ) {
+            std::map<IntervalId, const TimeInterval*> lookup;
+            for (const auto& interval : input.intervals) {
+                if (!lookup.emplace(interval.id, &interval).second) {
+                    return mathfp::unexpected(
+                        mathfp::invalid_arg("duplicate interval id while building search tasks")
+                            .ctx("interval_id", interval.id.get())
+                    );
+                }
+            }
+            return lookup;
+        }
+
+        [[nodiscard]] std::vector<ConnectionSegmentId> connection_segments_of(
+            const ConnectionTrace& trace
+        ) {
+            std::vector<ConnectionSegmentId> segments;
+            segments.reserve(trace.legs.size());
+            for (const auto& leg : trace.legs) {
+                if (leg.connection_segment.has_value()) {
+                    segments.push_back(*leg.connection_segment);
+                }
+            }
+            return segments;
+        }
+
+    }  // namespace
+
     SearchConnection::SearchConnection(
         Connection connection
     )

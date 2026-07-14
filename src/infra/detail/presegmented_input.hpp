@@ -134,8 +134,8 @@ namespace timetable::infra::detail::presegmented_input {
     };
 
     struct SegmentSemantics final {
-        timetable::domain::WalkEndpoint                  from_endpoint{};
-        timetable::domain::WalkEndpoint                  to_endpoint{};
+        timetable::domain::WalkEndpoint                  from_endpoint;
+        timetable::domain::WalkEndpoint                  to_endpoint;
         bool                                             is_walk_segment{};
         std::optional<timetable::domain::StopOccurrence> from_occurrence{};
         std::optional<timetable::domain::StopOccurrence> to_occurrence{};

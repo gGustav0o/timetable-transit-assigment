@@ -30,8 +30,8 @@ namespace timetable::domain {
      * Walk segments live in the physical network space (stops/zones).
      */
     struct WalkRouteTopology final {
-        WalkEndpoint from{};
-        WalkEndpoint to{};
+        WalkEndpoint from;
+        WalkEndpoint to;
         WalkPath     path{};
     };
 
@@ -69,7 +69,7 @@ namespace timetable::domain {
         RouteSegmentId id;
         Length         length{};
         Time           run_time{};
-        RouteTopology  topology{};
+        RouteTopology  topology;
     };
 
     /**

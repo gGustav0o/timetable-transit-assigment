@@ -450,8 +450,10 @@ namespace timetable::domain::preprocessing {
 
                 const Pair key{ u, v };
                 const auto it = data.best_edges.find(key);
-                if (it == data.best_edges.end() || w < it->second.weight) {
-                    data.best_edges[key] = BestEdge{ w, link.id };
+                if (it == data.best_edges.end()) {
+                    data.best_edges.emplace(key, BestEdge{ w, link.id });
+                } else if (w < it->second.weight) {
+                    it->second = BestEdge{ w, link.id };
                 }
             }
 

@@ -320,6 +320,13 @@ namespace timetable::domain::assignment {
     mathfp::Expected<std::vector<SearchTreeJob>> build_origin_period_search_tree_jobs(
           std::span<const SearchTask>       tasks
         , const SearchTimeDomainExecution&  execution
+        , SearchDestinationScope            destination_scope
+        , std::span<const Zone>             declared_zones
+    );
+
+    mathfp::Expected<std::vector<SearchTreeJob>> build_origin_period_search_tree_jobs(
+          std::span<const SearchTask>       tasks
+        , const SearchTimeDomainExecution&  execution
     );
 
     mathfp::Expected<std::vector<SearchTreeJob>> build_declared_origin_period_search_tree_jobs(

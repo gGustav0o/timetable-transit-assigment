@@ -964,12 +964,6 @@ namespace timetable::domain::assignment::runtime {
             return graph;
         }
 
-        [[nodiscard]] RelaxedSuffixState relaxed_suffix_state(
-              const SearchBranch&   branch
-            , const SearchTask&     task
-            , const TransferLimits& limits
-        ) noexcept;
-
         [[nodiscard]] std::size_t reachability_rejection_count(
             const ReachabilityRejectionStats& stats
         ) noexcept {
@@ -2983,7 +2977,7 @@ namespace timetable::domain::assignment::runtime {
         }
 
         struct DayLevelTimedSupportPropagation final {
-            DayLevelTimedSupportLabel label{};
+            DayLevelTimedSupportLabel label;
             TimedSupportEnvelope      envelope{};
         };
 

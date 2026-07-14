@@ -243,7 +243,10 @@ namespace timetable::domain::assignment {
         labels.push_back(std::move(label));
         std::sort(labels.begin(), labels.end(), better_timed_support_label);
         if (labels.size() > kMaxTimedSupportEnvelopeLabels) {
-            labels.resize(kMaxTimedSupportEnvelopeLabels);
+            labels.erase(
+                  labels.begin() + static_cast<std::ptrdiff_t>(kMaxTimedSupportEnvelopeLabels)
+                , labels.end()
+            );
         }
     }
 
@@ -257,7 +260,10 @@ namespace timetable::domain::assignment {
             , labels.end()
         );
         if (labels.size() > kMaxTimedSupportEnvelopeLabels) {
-            labels.resize(kMaxTimedSupportEnvelopeLabels);
+            labels.erase(
+                  labels.begin() + static_cast<std::ptrdiff_t>(kMaxTimedSupportEnvelopeLabels)
+                , labels.end()
+            );
         }
         return TimedSupportEnvelope{
               .key = TimedSupportEnvelopeKey{
