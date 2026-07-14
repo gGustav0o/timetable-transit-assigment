@@ -8,7 +8,7 @@
 #include "timetable/domain/assignment/choice/choice_config.hpp"
 #include "timetable/domain/assignment/complete_connection_metrics.hpp"
 #include "timetable/domain/assignment/search_cost.hpp"
-#include "timetable/domain/assignment/search/search.hpp"
+#include "timetable/domain/assignment/search/connection.hpp"
 #include "timetable/domain/params.hpp"
 
 namespace timetable::domain::assignment {

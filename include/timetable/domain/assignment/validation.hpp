@@ -5,10 +5,11 @@
 
 #include "timetable/domain/assignment.hpp"
 #include "timetable/domain/assignment/choice/choice.hpp"
+#include "timetable/domain/assignment/complete_connection_retention.hpp"
+#include "timetable/domain/assignment/search/demand.hpp"
 #include "timetable/domain/assignment/search_pruning_config.hpp"
 #include "timetable/domain/assignment/search_pruning_plan.hpp"
 #include "timetable/domain/assignment/search/preprocessed_network.hpp"
-#include "timetable/domain/assignment/search/search.hpp"
 #include "timetable/domain/assignment/search_time_domain_builder.hpp"
 #include "timetable/domain/assignment/split/split.hpp"
 

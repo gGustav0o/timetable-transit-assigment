@@ -4,11 +4,14 @@
 
 #include <mathfp/core/expected.hpp>
 
+#include "timetable/domain/assignment/assignment_period.hpp"
 #include "timetable/domain/assignment/choice/choice_config.hpp"
+#include "timetable/domain/assignment/connection_admissibility.hpp"
 #include "timetable/domain/assignment/day_path.hpp"
+#include "timetable/domain/assignment/od_day_path_result.hpp"
+#include "timetable/domain/assignment/search/demand.hpp"
 #include "timetable/domain/assignment/search_cost.hpp"
 #include "timetable/domain/params.hpp"
-#include "timetable/domain/assignment/search/search.hpp"
 
 namespace timetable::domain::assignment {
 

@@ -119,7 +119,8 @@ set(TIMETABLE_CORE_SOURCES
   src/domain/assignment/projection/text_summary.cpp
   src/domain/assignment/search/frontier/retention_operations.cpp
   src/domain/assignment/search/generation/successor.cpp
-  src/domain/assignment/search/kernel/search_kernel.cpp
+  src/domain/assignment/search/execution.cpp
+  src/domain/assignment/search/projection.cpp
   src/domain/assignment/search/branch_state.cpp
   src/domain/assignment/search/model/retention.cpp
   src/domain/assignment/search/model/support.cpp

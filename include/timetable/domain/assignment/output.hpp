@@ -5,8 +5,10 @@
 #include "timetable/domain/assignment.hpp"
 #include "timetable/domain/assignment/connection_admissibility.hpp"
 #include "timetable/domain/assignment/choice.hpp"
+#include "timetable/domain/assignment/od_day_path_result.hpp"
 #include "timetable/domain/assignment/preprocessed_network.hpp"
-#include "timetable/domain/assignment/search.hpp"
+#include "timetable/domain/assignment/search/all_zone_result.hpp"
+#include "timetable/domain/assignment/search/demand.hpp"
 #include "timetable/domain/assignment/skim_config.hpp"
 #include "timetable/domain/assignment/split.hpp"
 

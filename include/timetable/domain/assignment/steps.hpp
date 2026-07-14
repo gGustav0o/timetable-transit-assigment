@@ -2,10 +2,10 @@
 
 // Compatibility umbrella over the staged assignment APIs.
 // New code should prefer the more specific headers:
-// - assignment/search.hpp
+// - assignment/search/branch_and_bound_search.hpp
 // - assignment/choice.hpp
 // - assignment/split.hpp
 
-#include "timetable/domain/assignment/search.hpp"
+#include "timetable/domain/assignment/search/branch_and_bound_search.hpp"
 #include "timetable/domain/assignment/choice.hpp"
 #include "timetable/domain/assignment/split.hpp"

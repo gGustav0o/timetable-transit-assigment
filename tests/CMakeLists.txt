@@ -2,7 +2,10 @@ include(GoogleTest)
 
 add_executable(timetable_tests
   domain/branch_arena_tests.cpp
-  domain/search_kernel_tests.cpp
+  domain/od_day_path_contract_tests.cpp
+  domain/search_execution_tests.cpp
+  domain/search_problem_tests.cpp
+  domain/search_projection_tests.cpp
   domain/search_pruning_tests.cpp
   domain/support_prefix_tests.cpp
   mathfp/ranges_zip_tests.cpp

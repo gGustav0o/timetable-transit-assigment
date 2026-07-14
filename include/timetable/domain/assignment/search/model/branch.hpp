@@ -4,7 +4,7 @@
 #include <optional>
 
 #include "timetable/domain/assignment/capacity.hpp"
-#include "timetable/domain/assignment/od_day_path_search.hpp"
+#include "timetable/domain/assignment/od_day_path_contract.hpp"
 #include "timetable/domain/assignment/search/model/support.hpp"
 #include "timetable/domain/assignment/search/residual_reachability.hpp"
 #include "timetable/domain/model.hpp"

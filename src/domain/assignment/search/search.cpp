@@ -1,4 +1,4 @@
-#include "timetable/domain/assignment/search/search.hpp"
+#include "timetable/domain/assignment/search/branch_and_bound_search.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -14,7 +14,10 @@
 
 #include "timetable/domain/assignment/complete_connection_retention.hpp"
 #include "timetable/domain/assignment/connection.hpp"
+#include "timetable/domain/assignment/od_day_path_runtime.hpp"
+#include "timetable/domain/assignment/od_day_path_search.hpp"
 #include "timetable/domain/assignment/search_cost.hpp"
+#include "timetable/domain/assignment/search/problem.hpp"
 #include "timetable/domain/assignment/search/runtime/search_runtime.hpp"
 #include "timetable/domain/assignment/validation.hpp"
 
@@ -510,349 +513,50 @@ namespace timetable::domain::assignment {
     }
 
     mathfp::Expected<ConnectionSearchResult> search_connections_branch_and_bound(
-          const PreprocessedNetwork& network
-        , std::span<const SearchTask> tasks
-        , SearchExecutionRequest     execution
-        , const SearchParams&        params
-        , const SearchCostContext&   search_cost
-        , const ChoiceConfig&         choice_config
-        , const AssignmentPeriodConfig& assignment_period
-        , const ConnectionAdmissibilityConfig& admissibility_config
-        , const SearchPruningExecutionPlan* pruning_execution
-        , const CompleteConnectionDominanceConfig& complete_connection_dominance
-        , SearchDiagnosticsContext diagnostics
+        const BranchAndBoundSearchRequest& request
     ) {
-        return runtime::search_connections_branch_and_bound(
-              network
-            , tasks
-            , execution
-            , params
-            , search_cost
-            , choice_config
-            , assignment_period
-            , admissibility_config
-            , pruning_execution
-            , complete_connection_dominance
-            , diagnostics
-        );
+        return runtime::search_connections_branch_and_bound(request);
     }
 
     mathfp::Expected<AllZoneConnectionSearchResult> search_all_zone_connections_branch_and_bound(
-          const PreprocessedNetwork& network
-        , std::span<const SearchTask> tasks
-        , SearchExecutionRequest     execution
-        , const SearchParams&        params
-        , const SearchCostContext&   search_cost
-        , const ChoiceConfig&         choice_config
-        , const AssignmentPeriodConfig& assignment_period
-        , const ConnectionAdmissibilityConfig& admissibility_config
-        , const SearchPruningExecutionPlan* pruning_execution
-        , const CompleteConnectionDominanceConfig& complete_connection_dominance
-        , SearchDiagnosticsContext diagnostics
+        const BranchAndBoundSearchRequest& request
     ) {
-        return runtime::search_all_zone_connections_branch_and_bound(
-              network
-            , tasks
-            , execution
-            , params
-            , search_cost
-            , choice_config
-            , assignment_period
-            , admissibility_config
-            , pruning_execution
-            , complete_connection_dominance
-            , diagnostics
-        );
+        return runtime::search_all_zone_connections_branch_and_bound(request);
     }
 
     mathfp::Expected<mathfp::Unit> search_od_day_paths_by_origin_branch_and_bound(
-          const PreprocessedNetwork& network
-        , std::span<const SearchTask> tasks
-        , SearchExecutionRequest     execution
-        , const SearchParams&        params
-        , const SearchCostContext&   search_cost
-        , const ChoiceConfig&         choice_config
-        , const AssignmentPeriodConfig& assignment_period
-        , const ConnectionAdmissibilityConfig& admissibility_config
-        , const SearchPruningExecutionPlan* pruning_execution
-        , const CompleteConnectionDominanceConfig& complete_connection_dominance
-        , OdDayOriginResultSink      origin_sink
-        , SearchDiagnosticsContext diagnostics
+        OdDayPathOriginSearchRequest request
     ) {
-        return runtime::search_od_day_paths_by_origin_branch_and_bound(
-              network
-            , tasks
-            , execution
-            , params
-            , search_cost
-            , choice_config
-            , assignment_period
-            , admissibility_config
-            , pruning_execution
-            , complete_connection_dominance
-            , std::move(origin_sink)
-            , diagnostics
-        );
+        return runtime::search_od_day_paths_by_origin_branch_and_bound(std::move(request));
     }
+
     mathfp::Expected<OdDayPathSearchResult> search_od_day_paths_branch_and_bound(
-          const PreprocessedNetwork& network
-        , std::span<const SearchTask> tasks
-        , SearchExecutionRequest     execution
-        , const SearchParams&        params
-        , const SearchCostContext&   search_cost
-        , const ChoiceConfig&         choice_config
-        , const AssignmentPeriodConfig& assignment_period
-        , const ConnectionAdmissibilityConfig& admissibility_config
-        , const SearchPruningExecutionPlan* pruning_execution
-        , const CompleteConnectionDominanceConfig& complete_connection_dominance
-        , SearchDiagnosticsContext diagnostics
+        const OdDayPathSearchRequest& request
     ) {
         OdDayPathSearchResult result;
         MATHFP_TRY(search_od_day_paths_by_origin_branch_and_bound(
-              network
-            , tasks
-            , execution
-            , params
-            , search_cost
-            , choice_config
-            , assignment_period
-            , admissibility_config
-            , pruning_execution
-            , complete_connection_dominance
-            , [&](OriginDaySearchResult origin_result) -> mathfp::Expected<mathfp::Unit> {
-                  result.origin_results.push_back(std::move(origin_result));
-                  return mathfp::kUnit;
-              }
-            , diagnostics
+            OdDayPathOriginSearchRequest{
+                  .search = request.search
+                , .origin_sink =
+                    [&](OriginDaySearchResult origin_result) -> mathfp::Expected<mathfp::Unit> {
+                        result.origin_results.push_back(std::move(origin_result));
+                        return mathfp::kUnit;
+                    }
+            }
         ));
         return result;
     }
 
     mathfp::Expected<OdDayConnectionSearchResult> search_od_day_connections_branch_and_bound(
-          const PreprocessedNetwork& network
-        , std::span<const SearchTask> tasks
-        , SearchExecutionRequest     execution
-        , const SearchParams&        params
-        , const SearchCostContext&   search_cost
-        , const ChoiceConfig&         choice_config
-        , const AssignmentPeriodConfig& assignment_period
-        , const ConnectionAdmissibilityConfig& admissibility_config
-        , const SearchPruningExecutionPlan* pruning_execution
-        , const CompleteConnectionDominanceConfig& complete_connection_dominance
-        , SearchDiagnosticsContext diagnostics
+        const OdDayPathSearchRequest& request
     ) {
-        return search_od_day_paths_branch_and_bound(
-              network
-            , tasks
-            , execution
-            , params
-            , search_cost
-            , choice_config
-            , assignment_period
-            , admissibility_config
-            , pruning_execution
-            , complete_connection_dominance
-            , diagnostics
-        );
+        return search_od_day_paths_branch_and_bound(request);
     }
 
     mathfp::Expected<mathfp::Unit> search_od_day_connections_by_origin_branch_and_bound(
-          const PreprocessedNetwork& network
-        , std::span<const SearchTask> tasks
-        , SearchExecutionRequest     execution
-        , const SearchParams&        params
-        , const SearchCostContext&   search_cost
-        , const ChoiceConfig&         choice_config
-        , const AssignmentPeriodConfig& assignment_period
-        , const ConnectionAdmissibilityConfig& admissibility_config
-        , const SearchPruningExecutionPlan* pruning_execution
-        , const CompleteConnectionDominanceConfig& complete_connection_dominance
-        , OdDayOriginResultSink      origin_sink
-        , SearchDiagnosticsContext diagnostics
+        OdDayPathOriginSearchRequest request
     ) {
-        return search_od_day_paths_by_origin_branch_and_bound(
-              network
-            , tasks
-            , execution
-            , params
-            , search_cost
-            , choice_config
-            , assignment_period
-            , admissibility_config
-            , pruning_execution
-            , complete_connection_dominance
-            , std::move(origin_sink)
-            , diagnostics
-        );
-    }
-
-    mathfp::Expected<ConnectionSearchResult> search_connections_branch_and_bound(
-          const PreprocessedNetwork& network
-        , std::span<const SearchTask> tasks
-        , const SearchParams&        params
-        , const SearchCostContext&   search_cost
-        , const ChoiceConfig&         choice_config
-        , const AssignmentPeriodConfig& assignment_period
-        , const ConnectionAdmissibilityConfig& admissibility_config
-        , const SearchPruningExecutionPlan* pruning_execution
-        , const CompleteConnectionDominanceConfig& complete_connection_dominance
-        , SearchDiagnosticsContext diagnostics
-    ) {
-        return search_connections_branch_and_bound(
-              network
-            , tasks
-            , SearchExecutionRequest{
-                  .config = make_interval_local_search_execution_config()
-              }
-            , params
-            , search_cost
-            , choice_config
-            , assignment_period
-            , admissibility_config
-            , pruning_execution
-            , complete_connection_dominance
-            , diagnostics
-        );
-    }
-
-    mathfp::Expected<ConnectionSearchResult> search_connections_branch_and_bound(
-          const PreprocessedNetwork& network
-        , std::span<const SearchTask> tasks
-        , const SearchParams&        params
-        , const SearchCostContext&   search_cost
-        , const ChoiceConfig&         choice_config
-        , const AssignmentPeriodConfig& assignment_period
-        , const ConnectionAdmissibilityConfig& admissibility_config
-        , const SearchPruningExecutionPlan* pruning_execution
-        , SearchDiagnosticsContext diagnostics
-    ) {
-        return search_connections_branch_and_bound(
-              network
-            , tasks
-            , params
-            , search_cost
-            , choice_config
-            , assignment_period
-            , admissibility_config
-            , pruning_execution
-            , CompleteConnectionDominanceConfig{}
-            , diagnostics
-        );
-    }
-
-    mathfp::Expected<ConnectionSearchResult> search_connections_branch_and_bound(
-          const PreprocessedNetwork& network
-        , std::span<const SearchTask> tasks
-        , SearchExecutionMode        execution_mode
-        , const SearchParams&        params
-        , const SearchCostContext&   search_cost
-        , const ChoiceConfig&         choice_config
-        , const AssignmentPeriodConfig& assignment_period
-        , const ConnectionAdmissibilityConfig& admissibility_config
-        , const SearchPruningExecutionPlan* pruning_execution
-        , const CompleteConnectionDominanceConfig& complete_connection_dominance
-        , SearchDiagnosticsContext diagnostics
-    ) {
-        return search_connections_branch_and_bound(
-              network
-            , tasks
-            , SearchExecutionRequest{
-                  .config = make_search_execution_config(execution_mode)
-              }
-            , params
-            , search_cost
-            , choice_config
-            , assignment_period
-            , admissibility_config
-            , pruning_execution
-            , complete_connection_dominance
-            , diagnostics
-        );
-    }
-
-    mathfp::Expected<ConnectionSearchResult> search_connections_branch_and_bound(
-          const PreprocessedNetwork& network
-        , std::span<const SearchTask> tasks
-        , SearchExecutionMode        execution_mode
-        , const SearchParams&        params
-        , const SearchCostContext&   search_cost
-        , const ChoiceConfig&         choice_config
-        , const AssignmentPeriodConfig& assignment_period
-        , const ConnectionAdmissibilityConfig& admissibility_config
-        , const SearchPruningExecutionPlan* pruning_execution
-        , SearchDiagnosticsContext diagnostics
-    ) {
-        return search_connections_branch_and_bound(
-              network
-            , tasks
-            , SearchExecutionRequest{
-                  .config = make_search_execution_config(execution_mode)
-              }
-            , params
-            , search_cost
-            , choice_config
-            , assignment_period
-            , admissibility_config
-            , pruning_execution
-            , CompleteConnectionDominanceConfig{}
-            , diagnostics
-        );
-    }
-
-    mathfp::Expected<ConnectionSearchResult> search_connections_branch_and_bound(
-          const PreprocessedNetwork& network
-        , std::span<const SearchTask> tasks
-        , double                     fare_scale
-        , const SearchParams&        params
-        , const ChoiceConfig&         choice_config
-        , const AssignmentPeriodConfig& assignment_period
-        , const ConnectionAdmissibilityConfig& admissibility_config
-        , const SearchPruningExecutionPlan* pruning_execution
-        , const CompleteConnectionDominanceConfig& complete_connection_dominance
-        , SearchDiagnosticsContext diagnostics
-    ) {
-        MATHFP_TRY_LET(
-              SearchCostContext
-            , search_cost
-            , make_base_search_cost_context(params.impedance, fare_scale)
-        );
-        return search_connections_branch_and_bound(
-              network
-            , tasks
-            , params
-            , search_cost
-            , choice_config
-            , assignment_period
-            , admissibility_config
-            , pruning_execution
-            , complete_connection_dominance
-            , diagnostics
-        );
-    }
-
-    mathfp::Expected<ConnectionSearchResult> search_connections_branch_and_bound(
-          const PreprocessedNetwork& network
-        , std::span<const SearchTask> tasks
-        , double                     fare_scale
-        , const SearchParams&        params
-        , const ChoiceConfig&         choice_config
-        , const AssignmentPeriodConfig& assignment_period
-        , const ConnectionAdmissibilityConfig& admissibility_config
-        , const SearchPruningExecutionPlan* pruning_execution
-        , SearchDiagnosticsContext diagnostics
-    ) {
-        return search_connections_branch_and_bound(
-              network
-            , tasks
-            , fare_scale
-            , params
-            , choice_config
-            , assignment_period
-            , admissibility_config
-            , pruning_execution
-            , CompleteConnectionDominanceConfig{}
-            , diagnostics
-        );
+        return search_od_day_paths_by_origin_branch_and_bound(std::move(request));
     }
 
 }  // namespace timetable::domain::assignment

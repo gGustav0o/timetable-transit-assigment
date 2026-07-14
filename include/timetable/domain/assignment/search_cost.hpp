@@ -13,6 +13,7 @@
 
 #include "timetable/enum_string.hpp"
 #include "timetable/domain/assignment/capacity_aware_assignment.hpp"
+#include "timetable/domain/assignment/search/connection.hpp"
 #include "timetable/domain/impedance.hpp"
 
 namespace timetable::domain::assignment {

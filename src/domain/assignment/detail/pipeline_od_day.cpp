@@ -131,48 +131,54 @@ namespace timetable::domain::assignment::detail {
         };
 
         MATHFP_TRY(search_od_day_paths_by_origin_branch_and_bound(
-              network
-            , prepared.tasks
-            , execution_request
-            , input.params
-            , prepared.search_cost
-            , input.choice
-            , input.assignment_period
-            , admissibility_config
-            , &prepared.pruning_execution
-            , input.complete_connection_dominance
-            , [&](OriginDaySearchResult origin_result) -> mathfp::Expected<mathfp::Unit> {
-                  append_od_day_search_summary(accumulation.search_summary, origin_result);
-                  MATHFP_TRY_LET(
-                        OriginDayDemandLoadResult
-                      , origin_load
-                      , load_origin_day_path_demand(
-                            origin_result
-                          , input.input
-                          , input.params
-                          , prepared.search_cost
-                          , input.choice
-                          , input.demand_segment_time
-                          , input.assignment_period
-                          , admissibility_config
-                      )
-                  );
-                  MATHFP_TRY(validate_od_day_origin_load_result(origin_load));
-                  append_origin_day_choice_result(
-                        accumulation
-                      , std::move(origin_load.alternatives)
-                  );
-                  append_origin_day_split_result(
-                        accumulation.split
-                      , std::move(origin_load.split_result)
-                  );
-                  MATHFP_TRY(accumulate_elementary_segment_loads(
-                        accumulation.elementary_segment_loads
-                      , origin_load.elementary_segment_loads
-                  ));
-                  return mathfp::kUnit;
-              }
-            , prepared.diagnostics
+            OdDayPathOriginSearchRequest{
+                  .search = BranchAndBoundSearchRequest{
+                        .network              = network
+                      , .tasks                = prepared.tasks
+                      , .execution            = execution_request
+                      , .params               = input.params
+                      , .search_cost          = prepared.search_cost
+                      , .choice_config        = input.choice
+                      , .assignment_period    = input.assignment_period
+                      , .admissibility_config = admissibility_config
+                      , .pruning_execution    = std::cref(prepared.pruning_execution)
+                      , .complete_connection_dominance =
+                          input.complete_connection_dominance
+                      , .diagnostics          = prepared.diagnostics
+                  }
+                , .origin_sink =
+                    [&](OriginDaySearchResult origin_result) -> mathfp::Expected<mathfp::Unit> {
+                        append_od_day_search_summary(accumulation.search_summary, origin_result);
+                        MATHFP_TRY_LET(
+                              OriginDayDemandLoadResult
+                            , origin_load
+                            , load_origin_day_path_demand(
+                                  origin_result
+                                , input.input
+                                , input.params
+                                , prepared.search_cost
+                                , input.choice
+                                , input.demand_segment_time
+                                , input.assignment_period
+                                , admissibility_config
+                            )
+                        );
+                        MATHFP_TRY(validate_od_day_origin_load_result(origin_load));
+                        append_origin_day_choice_result(
+                              accumulation
+                            , std::move(origin_load.alternatives)
+                        );
+                        append_origin_day_split_result(
+                              accumulation.split
+                            , std::move(origin_load.split_result)
+                        );
+                        MATHFP_TRY(accumulate_elementary_segment_loads(
+                              accumulation.elementary_segment_loads
+                            , origin_load.elementary_segment_loads
+                        ));
+                        return mathfp::kUnit;
+                    }
+            }
         ));
         MATHFP_TRY_LET(
               ElementarySegmentLoads

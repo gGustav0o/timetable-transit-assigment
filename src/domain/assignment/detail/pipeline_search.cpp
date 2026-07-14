@@ -215,6 +215,10 @@ namespace timetable::domain::assignment::detail {
             )
         );
         const auto execution_request = make_search_execution_request(input, prepared);
+        const auto admissibility_config = ConnectionAdmissibilityConfig{
+              .deletion    = input.connection_deletion
+            , .demand_time = input.demand_segment_time
+        };
 
         if (input.search_execution.result_projection
             == SearchResultProjection::CompletionTargets) {
@@ -222,20 +226,20 @@ namespace timetable::domain::assignment::detail {
                   AllZoneConnectionSearchResult
                 , all_zone_search_result
                 , search_all_zone_connections_branch_and_bound(
-                      net
-                    , prepared.tasks
-                    , execution_request
-                    , input.params
-                    , prepared.search_cost
-                    , input.choice
-                    , input.assignment_period
-                    , ConnectionAdmissibilityConfig{
-                          .deletion    = input.connection_deletion
-                        , .demand_time = input.demand_segment_time
+                    BranchAndBoundSearchRequest{
+                          .network              = net
+                        , .tasks                = prepared.tasks
+                        , .execution            = execution_request
+                        , .params               = input.params
+                        , .search_cost          = prepared.search_cost
+                        , .choice_config        = input.choice
+                        , .assignment_period    = input.assignment_period
+                        , .admissibility_config = admissibility_config
+                        , .pruning_execution    = std::cref(prepared.pruning_execution)
+                        , .complete_connection_dominance =
+                            input.complete_connection_dominance
+                        , .diagnostics          = prepared.diagnostics
                     }
-                    , &prepared.pruning_execution
-                    , input.complete_connection_dominance
-                    , prepared.diagnostics
                 )
             );
             return SearchStepResult{
@@ -250,20 +254,20 @@ namespace timetable::domain::assignment::detail {
               ConnectionSearchResult
             , search_result
             , search_connections_branch_and_bound(
-                  net
-                , prepared.tasks
-                , execution_request
-                , input.params
-                , prepared.search_cost
-                , input.choice
-                , input.assignment_period
-                , ConnectionAdmissibilityConfig{
-                      .deletion    = input.connection_deletion
-                    , .demand_time = input.demand_segment_time
+                BranchAndBoundSearchRequest{
+                      .network              = net
+                    , .tasks                = prepared.tasks
+                    , .execution            = execution_request
+                    , .params               = input.params
+                    , .search_cost          = prepared.search_cost
+                    , .choice_config        = input.choice
+                    , .assignment_period    = input.assignment_period
+                    , .admissibility_config = admissibility_config
+                    , .pruning_execution    = std::cref(prepared.pruning_execution)
+                    , .complete_connection_dominance =
+                        input.complete_connection_dominance
+                    , .diagnostics          = prepared.diagnostics
                 }
-                , &prepared.pruning_execution
-                , input.complete_connection_dominance
-                , prepared.diagnostics
             )
         );
         MATHFP_TRY(validate_search_step_output(
@@ -272,10 +276,7 @@ namespace timetable::domain::assignment::detail {
             , prepared.fare_scale
             , input.params
             , input.assignment_period
-            , ConnectionAdmissibilityConfig{
-                  .deletion    = input.connection_deletion
-                , .demand_time = input.demand_segment_time
-              }
+            , admissibility_config
         ));
         return SearchStepResult{
               .result     = std::move(search_result)

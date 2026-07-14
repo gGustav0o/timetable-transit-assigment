@@ -19,7 +19,7 @@
 #include "timetable/domain/assignment/day_path.hpp"
 #include "timetable/domain/assignment/execution_config.hpp"
 #include "timetable/domain/assignment/od_day_path_search.hpp"
-#include "timetable/domain/assignment/search/search.hpp"
+#include "timetable/domain/assignment/search/branch_and_bound_search.hpp"
 #include "timetable/domain/assignment/search_execution_config.hpp"
 #include "timetable/domain/assignment/search_pruning_config.hpp"
 #include "timetable/domain/assignment/search_time_domain_config.hpp"

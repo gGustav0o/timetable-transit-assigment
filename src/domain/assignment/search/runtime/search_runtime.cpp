@@ -38,7 +38,8 @@
 #include "timetable/domain/endpoints.hpp"
 #include "timetable/domain/assignment/complete_connection_retention.hpp"
 #include "timetable/domain/assignment/day_path.hpp"
-#include "timetable/domain/assignment/od_day_path_search.hpp"
+#include "timetable/domain/assignment/od_day_path_contract.hpp"
+#include "timetable/domain/assignment/od_day_path_runtime.hpp"
 #include "timetable/domain/assignment/search_cost.hpp"
 #include "timetable/domain/assignment/search_pruning.hpp"
 #include "timetable/domain/assignment/search_pruning_diagnostics.hpp"
@@ -50,7 +51,8 @@
 #include "timetable/domain/assignment/search/frontier/branch_arena.hpp"
 #include "timetable/domain/assignment/search/frontier/retention_operations.hpp"
 #include "timetable/domain/assignment/search/generation/successor.hpp"
-#include "timetable/domain/assignment/search/kernel/search_kernel.hpp"
+#include "timetable/domain/assignment/search/execution.hpp"
+#include "timetable/domain/assignment/search/projection.hpp"
 #include "timetable/domain/assignment/search/model/retention.hpp"
 #include "timetable/domain/assignment/search/model/support.hpp"
 #include "timetable/domain/assignment/search/relations/branch_metrics.hpp"
@@ -8183,22 +8185,23 @@ namespace timetable::domain::assignment::runtime {
 
     }  // namespace
     mathfp::Expected<ConnectionSearchResult> search_connections_branch_and_bound(
-          const PreprocessedNetwork& network
-        , std::span<const SearchTask> tasks
-        , SearchExecutionRequest     execution
-        , const SearchParams&        params
-        , const SearchCostContext&   search_cost
-        , const ChoiceConfig&         choice_config
-        , const AssignmentPeriodConfig& assignment_period
-        , const ConnectionAdmissibilityConfig& admissibility_config
-        , const SearchPruningExecutionPlan* pruning_execution
-        , const CompleteConnectionDominanceConfig& complete_connection_dominance
-        , SearchDiagnosticsContext diagnostics
+        const BranchAndBoundSearchRequest& request
     ) {
         using timetable::infra::LogLevel;
         using timetable::infra::progress::both;
         using timetable::infra::progress::log;
         using timetable::infra::progress::status;
+
+        const auto& network                       = request.network;
+        const auto  tasks                         = request.tasks;
+        const auto& execution                     = request.execution;
+        const auto& params                        = request.params;
+        const auto& search_cost                   = request.search_cost;
+        const auto& choice_config                 = request.choice_config;
+        const auto& assignment_period             = request.assignment_period;
+        const auto& admissibility_config          = request.admissibility_config;
+        const auto& complete_connection_dominance = request.complete_connection_dominance;
+        const auto  diagnostics                   = request.diagnostics;
 
         const auto execution_mode = execution.config.mode;
         MATHFP_TRY(validate_search_execution_projection_contract(execution.config));
@@ -8255,8 +8258,8 @@ namespace timetable::domain::assignment::runtime {
             )
         );
         const auto& effective_pruning_execution =
-            pruning_execution != nullptr
-                ? *pruning_execution
+            request.pruning_execution.has_value()
+                ? request.pruning_execution->get()
                 : default_pruning_execution;
 
         log(
@@ -8495,22 +8498,23 @@ namespace timetable::domain::assignment::runtime {
     }
 
     mathfp::Expected<AllZoneConnectionSearchResult> search_all_zone_connections_branch_and_bound(
-          const PreprocessedNetwork& network
-        , std::span<const SearchTask> tasks
-        , SearchExecutionRequest     execution
-        , const SearchParams&        params
-        , const SearchCostContext&   search_cost
-        , const ChoiceConfig&         choice_config
-        , const AssignmentPeriodConfig& assignment_period
-        , const ConnectionAdmissibilityConfig& admissibility_config
-        , const SearchPruningExecutionPlan* pruning_execution
-        , const CompleteConnectionDominanceConfig& complete_connection_dominance
-        , SearchDiagnosticsContext diagnostics
+        const BranchAndBoundSearchRequest& request
     ) {
         using timetable::infra::LogLevel;
         using timetable::infra::progress::both;
         using timetable::infra::progress::log;
         using timetable::infra::progress::status;
+
+        const auto& network                       = request.network;
+        const auto  tasks                         = request.tasks;
+        const auto& execution                     = request.execution;
+        const auto& params                        = request.params;
+        const auto& search_cost                   = request.search_cost;
+        const auto& choice_config                 = request.choice_config;
+        const auto& assignment_period             = request.assignment_period;
+        const auto& admissibility_config          = request.admissibility_config;
+        const auto& complete_connection_dominance = request.complete_connection_dominance;
+        const auto  diagnostics                   = request.diagnostics;
 
         MATHFP_TRY(validate_search_execution_projection_contract(execution.config));
         if (execution.config.result_projection != SearchResultProjection::CompletionTargets) {
@@ -8567,8 +8571,8 @@ namespace timetable::domain::assignment::runtime {
             )
         );
         const auto& effective_pruning_execution =
-            pruning_execution != nullptr
-                ? *pruning_execution
+            request.pruning_execution.has_value()
+                ? request.pruning_execution->get()
                 : default_pruning_execution;
 
         mathfp::Expected<std::vector<SearchTreeJob>> tree_jobs_result =
@@ -8773,23 +8777,26 @@ namespace timetable::domain::assignment::runtime {
     }
 
     mathfp::Expected<mathfp::Unit> search_od_day_paths_by_origin_branch_and_bound(
-          const PreprocessedNetwork& network
-        , std::span<const SearchTask> tasks
-        , SearchExecutionRequest     execution
-        , const SearchParams&        params
-        , const SearchCostContext&   search_cost
-        , const ChoiceConfig&         choice_config
-        , const AssignmentPeriodConfig& assignment_period
-        , const ConnectionAdmissibilityConfig& admissibility_config
-        , const SearchPruningExecutionPlan* pruning_execution
-        , const CompleteConnectionDominanceConfig& complete_connection_dominance
-        , OdDayOriginResultSink      origin_sink
-        , SearchDiagnosticsContext diagnostics
+        OdDayPathOriginSearchRequest request
     ) {
         using timetable::infra::LogLevel;
         using timetable::infra::progress::both;
         using timetable::infra::progress::log;
         using timetable::infra::progress::status;
+
+        auto        origin_sink                   = std::move(request.origin_sink);
+        const auto& search_request                = request.search;
+        const auto& network                       = search_request.network;
+        const auto  tasks                         = search_request.tasks;
+        const auto& execution                     = search_request.execution;
+        const auto& params                        = search_request.params;
+        const auto& search_cost                   = search_request.search_cost;
+        const auto& choice_config                 = search_request.choice_config;
+        const auto& assignment_period             = search_request.assignment_period;
+        const auto& admissibility_config          = search_request.admissibility_config;
+        const auto& complete_connection_dominance =
+            search_request.complete_connection_dominance;
+        const auto  diagnostics                   = search_request.diagnostics;
 
         MATHFP_TRY(validate_search_execution_projection_contract(execution.config));
         if (execution.config.result_projection != SearchResultProjection::OdDayPairs) {
@@ -8887,8 +8894,8 @@ namespace timetable::domain::assignment::runtime {
             )
         );
         const auto& effective_pruning_execution =
-            pruning_execution != nullptr
-                ? *pruning_execution
+            search_request.pruning_execution.has_value()
+                ? search_request.pruning_execution->get()
                 : default_pruning_execution;
 
         mathfp::Expected<std::vector<SearchTreeJob>> tree_jobs_result =

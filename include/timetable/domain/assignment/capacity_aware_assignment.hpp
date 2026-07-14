@@ -10,7 +10,8 @@
 
 #include "timetable/enum_string.hpp"
 #include "timetable/domain/assignment/capacity.hpp"
-#include "timetable/domain/assignment/search/search.hpp"
+#include "timetable/domain/assignment/od_day_path_result.hpp"
+#include "timetable/domain/assignment/search/connection.hpp"
 #include "timetable/domain/scalars.hpp"
 
 namespace timetable::domain::assignment {

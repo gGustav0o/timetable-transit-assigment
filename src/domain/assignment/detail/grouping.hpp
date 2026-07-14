@@ -6,7 +6,9 @@
 #include <span>
 #include <vector>
 
-#include "timetable/domain/assignment/search.hpp"
+#include "timetable/domain/assignment/od_day_path_result.hpp"
+#include "timetable/domain/assignment/search/connection.hpp"
+#include "timetable/domain/assignment/search/demand.hpp"
 #include "timetable/domain/assignment/split.hpp"
 #include "timetable/domain/model.hpp"
 

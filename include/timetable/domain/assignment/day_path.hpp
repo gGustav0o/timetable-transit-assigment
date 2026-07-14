@@ -14,7 +14,7 @@
 #include <mathfp/core/unit.hpp>
 
 #include "timetable/domain/assignment/complete_connection_retention.hpp"
-#include "timetable/domain/assignment/search/search.hpp"
+#include "timetable/domain/assignment/od_day_path_result.hpp"
 #include "timetable/domain/model.hpp"
 
 namespace timetable::domain::assignment {
