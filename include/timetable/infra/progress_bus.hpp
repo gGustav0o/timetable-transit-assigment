@@ -19,6 +19,13 @@ namespace timetable::infra::progress {
 
     // Process-wide progress diagnostics bus. When no sinks are installed, it
     // degrades to no-op delivery rather than failing.
+    //
+    // NOTE:
+    // Domain algorithms currently report progress
+    // through this global bus even though it lives in infra. This keeps the
+    // runtime surface small and avoids threading a diagnostic context through
+    // every routine.
+    // If the project grows should revisit
     mathfp::Expected<mathfp::Unit> set_sinks(SinkState sinks);
     mathfp::Expected<mathfp::Unit> set_status_sink(Sink sink);
     mathfp::Expected<mathfp::Unit> set_log_sink(Sink sink);
