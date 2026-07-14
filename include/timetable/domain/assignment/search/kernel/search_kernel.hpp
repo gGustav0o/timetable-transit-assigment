@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <span>
 #include <string_view>
@@ -44,10 +45,18 @@ namespace timetable::domain::assignment {
         ZoneId                                   destination;
         std::optional<IntervalId>                interval{};
         std::optional<SearchTaskRef>             task_ref{};
-        const SearchTask*                        task{};
+        std::optional<std::reference_wrapper<const SearchTask>> task{};
         std::optional<std::size_t>               result_index{};
         std::optional<SearchCompletionTargetRef> completion_target{};
     };
+
+    /*
+     * TODO: Continue replacing long-lived nullable borrowed pointers in
+     * search-facing domain contracts with references, optional references, or
+     * small lookup/value-id types where that expresses the invariant more
+     * precisely. Short local find/get_if pointers and C API boundaries can stay
+     * as pointers when they are the clearest borrowed-view representation.
+     */
 
     struct CompactCompleteConnectionRetention final {
         std::vector<std::vector<ConnectionSegmentId>> traces{};
@@ -99,7 +108,7 @@ namespace timetable::domain::assignment {
 
     struct SearchBatch final {
         SearchBatchKey                         key{};
-        const SearchTimeDomain*                departure_domain{};
+        std::reference_wrapper<const SearchTimeDomain> departure_domain;
         std::vector<SearchCompletionTarget>    completion_targets{};
         std::vector<SearchProjectionSlot>      projection_slots{};
     };

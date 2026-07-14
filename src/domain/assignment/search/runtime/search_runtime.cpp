@@ -5500,13 +5500,7 @@ namespace timetable::domain::assignment::runtime {
                         .ctx("projection_slots", static_cast<std::int64_t>(batch.projection_slots.size()))
                 );
             }
-            if (batch.departure_domain == nullptr) {
-                return mathfp::unexpected(
-                    mathfp::internal_error("OD-day production batch must carry the service-day first-boarding domain")
-                        .ctx("origin", batch.key.origin.get())
-                );
-            }
-            if (batch.departure_domain->windows.empty()) {
+            if (batch.departure_domain.get().windows.empty()) {
                 return mathfp::unexpected(
                     mathfp::internal_error("OD-day production first-boarding domain must not be empty")
                         .ctx("origin", batch.key.origin.get())
@@ -5516,7 +5510,7 @@ namespace timetable::domain::assignment::runtime {
                 const auto& slot = batch.projection_slots[slot_pos];
                 if (!slot.completion_target.has_value()
                     || slot.completion_target->get() != static_cast<std::int64_t>(slot_pos)
-                    || slot.task != nullptr
+                    || slot.task.has_value()
                     || slot.task_ref.has_value()
                     || slot.result_index.has_value()
                     || slot.interval.has_value()) {
@@ -6209,16 +6203,16 @@ namespace timetable::domain::assignment::runtime {
             if (complete.has_value()) {
                 ++stats.completed_connections;
                 if (slot.kind == SearchProjectionSlotKind::DemandTask) {
-                    const auto* task = slot.task;
-                    if (task == nullptr) {
+                    if (!slot.task.has_value()) {
                         return mathfp::unexpected(
                             mathfp::internal_error("demand projection slot has no task while retaining complete connection")
                         );
                     }
+                    const auto& task = slot.task->get();
                     const auto connection_metrics = metrics_of(*complete);
                     if (!connection_admissible_for_demand_segment(
                           connection_metrics
-                        , task->interval
+                        , task.interval
                         , assignment_period
                         , admissibility_config
                     )) {
@@ -6316,7 +6310,8 @@ namespace timetable::domain::assignment::runtime {
             std::deque<std::optional<FixedActiveMask>> completion_projection_states;
             std::deque<std::optional<DemandBranchProjectionState>> demand_projection_states;
             std::size_t                       released_branches = 0;
-            const SearchTimeDomain*           first_departure_domain = batch.departure_domain;
+            const SearchTimeDomain*           first_departure_domain =
+                &batch.departure_domain.get();
             const auto                        batch_task_span =
                 std::span<const SearchProjectionSlot>{
                       batch.projection_slots.data()
@@ -7835,13 +7830,11 @@ namespace timetable::domain::assignment::runtime {
         ) {
             std::vector<SearchTimeWindow> windows;
             for (const auto& batch : batches) {
-                if (batch.departure_domain == nullptr) {
-                    continue;
-                }
+                const auto& departure_domain = batch.departure_domain.get();
                 windows.insert(
                       windows.end()
-                    , batch.departure_domain->windows.begin()
-                    , batch.departure_domain->windows.end()
+                    , departure_domain.windows.begin()
+                    , departure_domain.windows.end()
                 );
             }
             if (windows.empty()) {
@@ -7863,14 +7856,6 @@ namespace timetable::domain::assignment::runtime {
         ) {
             for (std::size_t batch_pos = 0; batch_pos < batches.size(); ++batch_pos) {
                 const auto& batch = batches[batch_pos];
-                if (batch.departure_domain == nullptr) {
-                    return mathfp::unexpected(
-                        mathfp::internal_error("search batch has no departure domain")
-                            .ctx("batch", static_cast<std::int64_t>(batch_pos))
-                            .ctx("origin", batch.key.origin.get())
-                    );
-                }
-
                 switch (execution_mode) {
                     case SearchExecutionMode::IntervalLocal:
                         if (!batch.key.interval.has_value()) {
@@ -7941,7 +7926,7 @@ namespace timetable::domain::assignment::runtime {
                     switch (result_projection) {
                         case SearchResultProjection::DemandTasks: {
                             if (slot.kind != SearchProjectionSlotKind::DemandTask
-                                || slot.task == nullptr
+                                || !slot.task.has_value()
                                 || !slot.result_index.has_value()
                                 || !slot.task_ref.has_value()) {
                                 return mathfp::unexpected(
@@ -7959,7 +7944,7 @@ namespace timetable::domain::assignment::runtime {
                                         .ctx("task_count", static_cast<std::int64_t>(tasks.size()))
                                 );
                             }
-                            const auto& task = *slot.task;
+                            const auto& task = slot.task->get();
                             if (*slot.task_ref != task.index) {
                                 return mathfp::unexpected(
                                     mathfp::internal_error("search projection slot task ref disagrees with task payload")
@@ -7992,7 +7977,7 @@ namespace timetable::domain::assignment::runtime {
                         case SearchResultProjection::OdDayPairs:
                             if (slot.kind != SearchProjectionSlotKind::OdDayPair
                                 || !slot.completion_target.has_value()
-                                || slot.task != nullptr
+                                || slot.task.has_value()
                                 || slot.task_ref.has_value()
                                 || slot.result_index.has_value()
                                 || slot.interval.has_value()) {
@@ -8026,7 +8011,7 @@ namespace timetable::domain::assignment::runtime {
                         case SearchResultProjection::CompletionTargets:
                             if (slot.kind != SearchProjectionSlotKind::CompletionTarget
                                 || !slot.completion_target.has_value()
-                                || slot.task != nullptr
+                                || slot.task.has_value()
                                 || slot.task_ref.has_value()
                                 || slot.result_index.has_value()) {
                                 return mathfp::unexpected(
@@ -8321,22 +8306,24 @@ namespace timetable::domain::assignment::runtime {
                         .ctx("search_cost_mode", std::string(to_string(search_cost.mode)))
                 );
             }
-            if (execution.time_domain_execution == nullptr) {
+            if (!execution.time_domain_execution.has_value()) {
                 return mathfp::unexpected(
                     mathfp::invalid_arg("origin-period search requires SearchTimeDomainExecution")
                 );
             }
+            const auto& time_domain_execution =
+                execution.time_domain_execution->get();
             mathfp::Expected<std::vector<SearchTreeJob>> tree_jobs_result =
                 execution.config.origin_scope == SearchOriginScope::DeclaredZones
                     ? build_declared_origin_period_search_tree_jobs(
                           execution.declared_zones
                         , tasks
-                        , *execution.time_domain_execution
+                        , time_domain_execution
                         , execution.config.destination_scope
                       )
                     : build_origin_period_search_tree_jobs(
                           tasks
-                        , *execution.time_domain_execution
+                        , time_domain_execution
                         , execution.config.destination_scope
                         , execution.declared_zones
                       );
@@ -8544,11 +8531,13 @@ namespace timetable::domain::assignment::runtime {
                     .ctx("search_cost_mode", std::string(to_string(search_cost.mode)))
             );
         }
-        if (execution.time_domain_execution == nullptr) {
+        if (!execution.time_domain_execution.has_value()) {
             return mathfp::unexpected(
                 mathfp::invalid_arg("all-zone origin-period search requires SearchTimeDomainExecution")
             );
         }
+        const auto& time_domain_execution =
+            execution.time_domain_execution->get();
 
         MATHFP_TRY(validate_assignment_period_config(assignment_period));
         MATHFP_TRY(validate_connection_admissibility_config(admissibility_config));
@@ -8587,12 +8576,12 @@ namespace timetable::domain::assignment::runtime {
                 ? build_declared_origin_period_search_tree_jobs(
                       execution.declared_zones
                     , tasks
-                    , *execution.time_domain_execution
+                    , time_domain_execution
                     , execution.config.destination_scope
                   )
                 : build_origin_period_search_tree_jobs(
                       tasks
-                    , *execution.time_domain_execution
+                    , time_domain_execution
                     , execution.config.destination_scope
                     , execution.declared_zones
                   );
@@ -8821,11 +8810,13 @@ namespace timetable::domain::assignment::runtime {
                     .ctx("search_cost_mode", std::string(to_string(search_cost.mode)))
             );
         }
-        if (execution.time_domain_execution == nullptr) {
+        if (!execution.time_domain_execution.has_value()) {
             return mathfp::unexpected(
                 mathfp::invalid_arg("OD-day origin-period search requires SearchTimeDomainExecution")
             );
         }
+        const auto& time_domain_execution =
+            execution.time_domain_execution->get();
         if (!origin_sink) {
             return mathfp::unexpected(
                 mathfp::invalid_arg("OD-day by-origin search requires a result sink")
@@ -8905,12 +8896,12 @@ namespace timetable::domain::assignment::runtime {
                 ? build_declared_origin_period_search_tree_jobs(
                       execution.declared_zones
                     , tasks
-                    , *execution.time_domain_execution
+                    , time_domain_execution
                     , execution.config.destination_scope
                   )
                 : build_origin_period_search_tree_jobs(
                       tasks
-                    , *execution.time_domain_execution
+                    , time_domain_execution
                     , execution.config.destination_scope
                     , execution.declared_zones
                   );

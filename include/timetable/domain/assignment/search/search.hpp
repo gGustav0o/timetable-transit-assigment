@@ -43,7 +43,8 @@ namespace timetable::domain::assignment {
      */
     struct SearchExecutionRequest final {
         SearchExecutionConfig            config{};
-        const SearchTimeDomainExecution* time_domain_execution{};
+        std::optional<std::reference_wrapper<const SearchTimeDomainExecution>>
+            time_domain_execution{};
         std::span<const Zone>            declared_zones{};
     };
 

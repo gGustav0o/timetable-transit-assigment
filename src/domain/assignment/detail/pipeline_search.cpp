@@ -1,5 +1,6 @@
 #include "pipeline_steps.hpp"
 
+#include <functional>
 #include <span>
 #include <utility>
 
@@ -186,8 +187,10 @@ namespace timetable::domain::assignment::detail {
         return SearchExecutionRequest{
               .config = input.search_execution
             , .time_domain_execution = prepared.time_domain_execution.has_value()
-                ? &*prepared.time_domain_execution
-                : nullptr
+                ? std::optional<std::reference_wrapper<const SearchTimeDomainExecution>>{
+                    std::cref(*prepared.time_domain_execution)
+                  }
+                : std::nullopt
             , .declared_zones = std::span<const Zone>{
                   input.input.zones.data()
                 , input.input.zones.size()

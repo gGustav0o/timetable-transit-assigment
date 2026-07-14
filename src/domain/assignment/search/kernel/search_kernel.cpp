@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <utility>
 
@@ -74,7 +75,7 @@ namespace timetable::domain::assignment {
             , .destination  = task.destination
             , .interval     = task.interval.id
             , .task_ref     = task.index
-            , .task         = &task
+            , .task         = std::cref(task)
             , .result_index = result_index
         };
     }
@@ -110,7 +111,6 @@ namespace timetable::domain::assignment {
                     , .origin            = job.origin
                     , .destination       = target.destination
                     , .interval          = std::nullopt
-                    , .task              = nullptr
                     , .result_index      = std::nullopt
                     , .completion_target = target.index
                 }
@@ -131,7 +131,6 @@ namespace timetable::domain::assignment {
                     , .origin            = job.origin
                     , .destination       = target.destination
                     , .interval          = std::nullopt
-                    , .task              = nullptr
                     , .result_index      = std::nullopt
                     , .completion_target = target.index
                 }
@@ -166,7 +165,7 @@ namespace timetable::domain::assignment {
                       , .interval = std::nullopt
                       , .departure_windows = job.departure_domain.windows
                   }
-                , .departure_domain = &job.departure_domain
+                , .departure_domain = std::cref(job.departure_domain)
                 , .completion_targets = {}
                 , .projection_slots = {}
             };
@@ -222,7 +221,7 @@ namespace timetable::domain::assignment {
                 batches.push_back(
                     SearchBatch{
                           .key              = std::move(key)
-                        , .departure_domain = &task.departure_domain
+                        , .departure_domain = std::cref(task.departure_domain)
                         , .completion_targets = {
                               SearchCompletionTarget{
                                     .index = SearchCompletionTargetRef{ 0 }
