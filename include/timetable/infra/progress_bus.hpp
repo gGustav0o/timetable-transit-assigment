@@ -20,11 +20,12 @@ namespace timetable::infra::progress {
     // Process-wide progress diagnostics bus. When no sinks are installed, it
     // degrades to no-op delivery rather than failing.
     //
-    // TODO:
+    // Architecture note:
     // Domain algorithms currently report progress through this global infra
     // bus. This is an intentional short-term compromise: it keeps the runtime
     // surface small and avoids threading a diagnostic context through every
     // search, choice, split and preprocessing routine.
+    // See ARCHITECTURE.md for the accepted compromise and exit criteria.
     //
     // The clean design would keep domain computations pure:
     // algorithms would return their result together with structured diagnostic

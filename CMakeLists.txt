@@ -77,6 +77,10 @@ if(NOT TIMETABLE_XLSXIO_READ_TARGET)
 endif()
 
 set(TIMETABLE_CORE_SOURCES
+  # Intentional architecture compromise:
+  # timetable_core is currently broad because domain diagnostics still cross
+  # into infra progress reporting. See ARCHITECTURE.md before splitting this
+  # target; the desired split must follow the dependency-boundary cleanup.
   src/app/app.cpp
   src/app/cli.cpp
   src/domain/assignment/assignment_period.cpp

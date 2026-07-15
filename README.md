@@ -59,6 +59,9 @@ The following constraints are intentional project scope decisions for the curren
 - built-in runtime rollout configuration is still used
 - the current target is a minimal working project, not the full final product surface
 
+The broader architecture compromises behind these scope decisions are documented
+in [ARCHITECTURE.md](ARCHITECTURE.md).
+
 ## Run
 
 In Debug builds, if no argument is provided, the app looks for `data/test`
@@ -103,6 +106,9 @@ Use `q`, `Esc`, or `Ctrl+C` to exit.
 - `infra/` — concrete adapters (file input, logging sinks)
 - `ui/` — FTXUI rendering only
 - `app/` — orchestration, threads, wiring
+
+Known temporary boundary compromises are kept explicit in
+[ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Notes
 

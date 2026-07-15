@@ -11,6 +11,7 @@ namespace timetable::io {
 
     // Deprecated compatibility input.
     // Explicitly outside the current maintained minimal-working-project scope.
+    // See ARCHITECTURE.md for the retained-but-not-maintained input contract.
     struct DataDirSpec {
         std::filesystem::path root;
     };
@@ -31,6 +32,7 @@ namespace timetable::io {
 
     // Deprecated compatibility input.
     // Explicitly outside the current maintained minimal-working-project scope.
+    // See ARCHITECTURE.md for the retained-but-not-maintained input contract.
     struct DataFileSpec {
         std::filesystem::path path;
     };
