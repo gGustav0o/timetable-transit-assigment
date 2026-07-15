@@ -60,25 +60,6 @@ namespace timetable::domain::assignment {
         };
     }
 
-    StructuralLabelState structural_label_state(
-        const SearchBranch& branch
-    ) noexcept {
-        return StructuralLabelState{
-              .physical           = branch.trace.current_physical
-            , .current_occurrence = branch.trace.current_occurrence
-            , .phase              = branch.trace.phase
-        };
-    }
-
-    OdDayLabelState od_day_label_state(
-        const SearchBranch& branch
-    ) noexcept {
-        return OdDayLabelState{
-              .structural = structural_label_state(branch)
-            , .support    = branch.od_day_carrier.support_envelope.key
-        };
-    }
-
     bool is_complete_connection(
           const SearchBranch& branch
         , ZoneId              task_destination

@@ -75,7 +75,6 @@ namespace timetable::domain::assignment {
     struct TreePartialRetention final {
         PaperConnectionNodeMetricMap paper_connections{};
         NodeMetricMap                known_metrics{};
-        OdDayLabelStateMap           od_day_label_states{};
     };
 
     struct SearchSlotResult final {

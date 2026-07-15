@@ -81,46 +81,100 @@ runtime orchestration APIs.
    search inputs, mutable batch state, and runtime-only effects. It is a
    context value, not a replacement algorithm.
 
-8. `search/runtime/reachability_masks`
+8. `search/runtime/batch_state`
+   Owns batch-local mutable storage and safe construction of
+   `SearchBatchContext`: projection sinks, retentions, branch arena, frontier
+   state, reachability caches, OD-day destination membership, and per-slot
+   diagnostics. It is the lifetime owner behind the context view.
+
+9. `search/runtime/batch_diagnostics`
+   Owns runtime-only diagnostics effects for one batch: progress status,
+   heartbeat logs, storage diagnostics, OD-day memory-limit reporting,
+   projection detail logs, cancellation logs, and batch summary logs.
+
+10. `search/runtime/reachability_masks`
    Owns cached residual reachability masks and rejection accounting values used
    at the projection boundary.
 
-9. `search/runtime/accepted_successor_application`
+11. `search/runtime/accepted_successor_application`
    Owns application of a successor already accepted by the paper tree step:
    OD-day carrier projection, phase validation, transfer-limit rejection, and
    composition of the projection/filter/enqueue substeps. It does not generate
    successors and does not decide paper `C_y` acceptance.
 
-10. `search/runtime/projection_application`
+12. `search/runtime/projection_application`
     Owns applying a candidate branch to projection sinks: complete target
     detection, complete connection retention, and zone-sink rejection. It does
     not enqueue branches or compute continuation masks.
 
-11. `search/runtime/continuation_filter`
+13. `search/runtime/continuation_filter`
     Owns the continuation feasibility filter after projection application:
     residual reachability masks, suffix lower-bound pruning, tree-global and
     projection-slot-local partial retention, and active-mask propagation.
 
-12. `search/runtime/branch_enqueue`
+14. `search/runtime/branch_enqueue`
     Owns branch arena insertion, projection-state storage, accepted-branch
     statistics, and level-frontier placement. It does not decide whether a
     branch is mathematically admissible.
 
-13. `search/runtime/od_day_frontier_synchronization`
+15. `search/runtime/od_day_frontier_synchronization`
     Owns synchronization of OD-day frontier queues with paper `C_y` label
     liveness: stale branch release and frontier compaction. Runtime logging
     remains in the batch runner.
 
-14. `search/runtime/root_initialization`
+16. `search/runtime/root_initialization`
     Owns the root branch value, initial root projection masks, root
     reachability rejection accounting, and frontier seeding.
 
-15. `search/runtime/result_finalization`
+17. `search/runtime/result_finalization`
     Owns the post-tree projection from retained alternatives to
     `SearchSlotResult` values, tolerance finalization, result validation, and
     finalization-time diagnostics accounting. It does not log and does not run
     the tree.
 
-The existing `search_runtime.cpp` remains the only full batch runner during
-this transition. New modules must move existing behavior rather than create a
-second branch-and-bound implementation.
+18. `search/runtime/batch_tree_execution`
+    Owns the batch-specific callback layer around `search/tree/tree_runner`:
+    cancellation checkpoints, runtime heartbeats, OD-day frontier synchronization,
+    successor generation dispatch, paper successor acceptance, and accepted
+    successor application. It is runtime glue, not a second tree traversal loop.
+
+19. `search/runtime/batch_planning`
+    Owns public-runner search setup lowered to runtime values: origin-period
+    tree jobs, interval-local batches, projection-contract validation, expected
+    tree counts, batch execution diagnostics, and optional time-domain summary.
+    It does not run batches and does not log.
+
+20. `search/runtime/batch_runner`
+    Owns the shared internal batch execution scenario:
+    batch validation, state preparation, root initialization, tree execution,
+    post-tree C_y cleanup, result finalization, and batch-level invariant
+    checks. It is not a public runner.
+
+21. `search/runtime/result_materialization`
+    Owns public-runner support values after batches have been executed:
+    common formatting helpers, result connection counting, demand-task
+    materialization, OD-day origin materialization, and count-only all-zone
+    sink state.
+
+22. `search/runtime/demand_runner.cpp`,
+    `search/runtime/all_zone_runner.cpp`, and `search/runtime/od_day_runner.cpp`
+    own the three public runtime entry scenarios. They prepare public execution
+    contracts, batching, parallel orchestration, and result materialization, but
+    reuse the same internal batch runner.
+
+`search/runtime/search_runtime.hpp` remains only the API-facing declaration
+for public search entry points. There is no corresponding monolithic
+`search_runtime.cpp` implementation.
+
+`SearchBatchContext` is a narrowed runtime view over already prepared state.
+It must not carry setup-only inputs such as the residual graph or day-level
+supply switch once `search/runtime/batch_state` has derived reachability,
+projection indices, and OD-day supply mode.
+
+The legacy OD-day label-state retention path has been removed from the
+production model. OD-day production retains the paper C_y carrier through
+`ConnectionSetCy` and frontier labels; stale label storage is not representable
+in `TreePartialRetention`.
+
+New modules must move existing behavior rather than create a second
+branch-and-bound implementation.

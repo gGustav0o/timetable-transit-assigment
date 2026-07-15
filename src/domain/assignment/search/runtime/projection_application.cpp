@@ -98,13 +98,14 @@ namespace timetable::domain::assignment::runtime {
                 complete_task_positions.push_back(position_it->second);
             }
         } else if (fixed.target_projection_slots
+            && fixed.target_positions_by_destination != nullptr
             && candidate.metrics.departure.has_value()
             && candidate.trace.current_physical.kind == EndpointKind::Zone) {
             const auto position_it =
-                fixed.target_positions_by_destination.find(
+                fixed.target_positions_by_destination->find(
                     ZoneId{ candidate.trace.current_physical.id }
                 );
-            if (position_it != fixed.target_positions_by_destination.end()
+            if (position_it != fixed.target_positions_by_destination->end()
                 && active_targets.contains(position_it->second)) {
                 completed_target = true;
                 complete_task_positions.push_back(position_it->second);

@@ -84,27 +84,4 @@ namespace timetable::domain::assignment {
         , const SearchPruningMetrics& metrics
     ) noexcept;
 
-    [[nodiscard]] bool contains_od_day_label_representative(
-          const OdDayLabelRepresentativeSet& representatives
-        , const SearchPruningMetrics&        metrics
-        , const TimedSupportEnvelope&        support
-    ) noexcept;
-
-    [[nodiscard]] bool timed_support_envelope_covers(
-          const TimedSupportEnvelope& existing
-        , const TimedSupportEnvelope& candidate
-    ) noexcept;
-
-    [[nodiscard]] SearchPruningMetricSet compatible_od_day_label_metrics(
-          const OdDayLabelRepresentativeSet& representatives
-        , const TimedSupportEnvelope&        support
-    );
-
-    void insert_od_day_label_representative(
-          const SearchPruningExecutionPlan& pruning_execution
-        , OdDayLabelRepresentativeSet&      representatives
-        , const SearchPruningMetrics&       metrics
-        , const TimedSupportEnvelope&       support
-    );
-
 }  // namespace timetable::domain::assignment

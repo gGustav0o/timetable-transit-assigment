@@ -105,10 +105,6 @@ namespace timetable::domain::assignment::runtime {
         float       tree_pruning_load_factor{};
         std::size_t tree_pruning_metrics{};
         std::size_t tree_pruning_labels{};
-        std::size_t od_day_label_state_nodes{};
-        std::size_t od_day_label_state_buckets{};
-        float       od_day_label_state_load_factor{};
-        std::size_t od_day_label_representatives{};
         std::size_t tree_pruning_insertions{};
         std::size_t retained_complete_connections{};
         std::size_t retained_day_paths{};
@@ -119,7 +115,6 @@ namespace timetable::domain::assignment::runtime {
         std::optional<std::size_t> max_branch_slots_per_tree{};
         std::optional<std::size_t> max_live_branches_per_tree{};
         std::optional<std::size_t> max_frontier_per_tree{};
-        std::optional<std::size_t> max_od_day_label_states_per_tree{};
         std::optional<std::size_t> max_retained_day_paths_per_tree{};
         std::optional<std::size_t> max_approximate_direct_bytes_per_tree{};
     };

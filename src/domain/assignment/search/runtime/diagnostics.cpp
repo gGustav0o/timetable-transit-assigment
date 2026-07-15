@@ -197,13 +197,6 @@ namespace timetable::domain::assignment::runtime {
             pruning_metrics += metric_set.size();
             pruning_labels += metric_set.size();
         }
-        const auto od_day_label_state_nodes = tree_retention.od_day_label_states.size();
-        const auto od_day_label_state_buckets = tree_retention.od_day_label_states.bucket_count();
-        std::size_t od_day_label_representatives = 0u;
-        for (const auto& [state, representative_set] : tree_retention.od_day_label_states) {
-            (void)state;
-            od_day_label_representatives += representative_set.representatives.size();
-        }
         const auto live_branches = branches.size() - released_branches;
         std::size_t compact_complete_metrics = 0;
         std::size_t day_path_alternatives = 0;
@@ -223,9 +216,6 @@ namespace timetable::domain::assignment::runtime {
             + pruning_buckets * sizeof(void*)
             + pruning_metrics * sizeof(SearchPruningMetrics)
             + pruning_labels * sizeof(PaperConnectionLabelId)
-            + od_day_label_state_nodes * sizeof(OdDayLabelStateMap::value_type)
-            + od_day_label_state_buckets * sizeof(void*)
-            + od_day_label_representatives * sizeof(OdDayLabelRepresentative)
             + compact_complete_metrics * sizeof(CompleteConnectionMetrics)
             + day_path_alternatives * sizeof(DayPathAlternative);
         return SearchStorageDiagnostics{
@@ -238,10 +228,6 @@ namespace timetable::domain::assignment::runtime {
             , .tree_pruning_load_factor = tree_retention.paper_connections.load_factor()
             , .tree_pruning_metrics = pruning_metrics
             , .tree_pruning_labels = pruning_labels
-            , .od_day_label_state_nodes = od_day_label_state_nodes
-            , .od_day_label_state_buckets = od_day_label_state_buckets
-            , .od_day_label_state_load_factor = tree_retention.od_day_label_states.load_factor()
-            , .od_day_label_representatives = od_day_label_representatives
             , .tree_pruning_insertions = pruning_stats.inserted_metrics
             , .retained_complete_connections = retained_connection_count(retentions)
             , .retained_day_paths = retained_day_path_count(retentions)
@@ -253,7 +239,7 @@ namespace timetable::domain::assignment::runtime {
         const SearchStorageDiagnostics& diagnostics
     ) {
         return fmt::format(
-              "search storage: branch_slots={} live_branches={} released_branches={} projection_states={} c_y(nodes/buckets/load/metrics/labels/insertions)={}/{}/{:.3f}/{}/{}/{} path_identity=compact_prefix support=compact_prefix legacy_od_day_label_states(nodes/buckets/load/reps)={}/{}/{:.3f}/{} retained_complete={} post_layer_day_paths={} approx_direct_mb={:.2f}"
+              "search storage: branch_slots={} live_branches={} released_branches={} projection_states={} c_y(nodes/buckets/load/metrics/labels/insertions)={}/{}/{:.3f}/{}/{}/{} path_identity=compact_prefix support=compact_prefix retained_complete={} post_layer_day_paths={} approx_direct_mb={:.2f}"
             , diagnostics.branch_slots
             , diagnostics.live_branches
             , diagnostics.released_branches
@@ -264,10 +250,6 @@ namespace timetable::domain::assignment::runtime {
             , diagnostics.tree_pruning_metrics
             , diagnostics.tree_pruning_labels
             , diagnostics.tree_pruning_insertions
-            , diagnostics.od_day_label_state_nodes
-            , diagnostics.od_day_label_state_buckets
-            , diagnostics.od_day_label_state_load_factor
-            , diagnostics.od_day_label_representatives
             , diagnostics.retained_complete_connections
             , diagnostics.retained_day_paths
             , static_cast<double>(diagnostics.approximate_direct_bytes)
@@ -282,7 +264,7 @@ namespace timetable::domain::assignment::runtime {
         , std::size_t                     next_frontier
     ) {
         return fmt::format(
-              "OD-day theory diagnostics: paper=connection_segment_tree carrier=compact_connection_segment_prefix branch_projection_state=none reachability_prefilter=disabled_not_built reachability_masks=disabled c_y=network_node_known_connections c_y_key=physical_y c_y_carrier=physical_node_only c_y_applies_to=all_connection_segments_before_sink dominance=dep_arr_imp_nt tolerance=node_local tree_bounds=c_y_before_day_path_sink frontier=connection_segment_level_queues frontier_sync=label_registry_with_compaction successor_contract=single_connection_segment_before_visitor temporal_suitability=timed_window_walk_always_available transfer_walk=first_class_segment composite_transfer_walk=disabled_in_production late_guard=assert_only day_path_retention=immediate_day_path_projection suffix_bound=disabled_for_od_day walk_lookup=lazy_phase_specific live_branches={} frontier={} projection_states={} c_y_nodes={} c_y_metrics={} c_y_labels={} c_y_removed(dominated/stale)={}/{} frontier_compaction(runs/removed/current/next)={}/{}/{}/{} stale_frontier_skipped={} post_layer_day_paths={} post_layer(candidates/inserted/replaced/max_supports)={}/{}/{}/{} enqueued_after_c_y={} suffix_bound_pruned_legacy={} c_y_pruned={} paper_lookup_pruned(phase/budget/time_domain/same_trip/same_line/feasibility)={}/{}/{}/{}/{}/{} late_guard(time_domain/feasibility/reboarding)={}/{}/{} walk_lookup_counts({}) legacy_od_label_states={} legacy_label_reps={}"
+              "OD-day theory diagnostics: paper=connection_segment_tree carrier=compact_connection_segment_prefix branch_projection_state=none reachability_prefilter=disabled_not_built reachability_masks=disabled c_y=network_node_known_connections c_y_key=physical_y c_y_carrier=physical_node_only c_y_applies_to=all_connection_segments_before_sink dominance=dep_arr_imp_nt tolerance=node_local tree_bounds=c_y_before_day_path_sink frontier=connection_segment_level_queues frontier_sync=label_registry_with_compaction successor_contract=single_connection_segment_before_visitor temporal_suitability=timed_window_walk_always_available transfer_walk=first_class_segment composite_transfer_walk=disabled_in_production late_guard=assert_only day_path_retention=immediate_day_path_projection suffix_bound=disabled_for_od_day walk_lookup=lazy_phase_specific live_branches={} frontier={} projection_states={} c_y_nodes={} c_y_metrics={} c_y_labels={} c_y_removed(dominated/stale)={}/{} frontier_compaction(runs/removed/current/next)={}/{}/{}/{} stale_frontier_skipped={} post_layer_day_paths={} post_layer(candidates/inserted/replaced/max_supports)={}/{}/{}/{} enqueued_after_c_y={} suffix_bound_pruned_legacy={} c_y_pruned={} paper_lookup_pruned(phase/budget/time_domain/same_trip/same_line/feasibility)={}/{}/{}/{}/{}/{} late_guard(time_domain/feasibility/reboarding)={}/{}/{} walk_lookup_counts({})"
             , diagnostics.live_branches
             , current_frontier + next_frontier
             , diagnostics.projection_states
@@ -314,8 +296,6 @@ namespace timetable::domain::assignment::runtime {
             , stats.rejected_feasibility
             , stats.rejected_reboarding
             , format_walk_lookup_stats(stats.walk_lookup)
-            , diagnostics.od_day_label_state_nodes
-            , diagnostics.od_day_label_representatives
         );
     }
 
@@ -347,21 +327,6 @@ namespace timetable::domain::assignment::runtime {
                     .ctx("origin", batch.key.origin.get())
                     .ctx("c_y_metrics", static_cast<std::int64_t>(storage.tree_pruning_metrics))
                     .ctx("c_y_labels", static_cast<std::int64_t>(storage.tree_pruning_labels))
-            );
-        }
-        if (storage.od_day_label_state_nodes != 0u
-            || storage.od_day_label_representatives != 0u) {
-            return mathfp::unexpected(
-                mathfp::internal_error("OD-day production batch used legacy OD-day label storage")
-                    .ctx("origin", batch.key.origin.get())
-                    .ctx(
-                          "legacy_label_nodes"
-                        , static_cast<std::int64_t>(storage.od_day_label_state_nodes)
-                      )
-                    .ctx(
-                          "legacy_label_representatives"
-                        , static_cast<std::int64_t>(storage.od_day_label_representatives)
-                      )
             );
         }
         if (stats.completed_connections != stats.post_layer_day_path_candidates) {
@@ -457,15 +422,6 @@ namespace timetable::domain::assignment::runtime {
         if (limits.max_frontier_per_tree.has_value()
             && frontier > *limits.max_frontier_per_tree) {
             return fail("frontier", frontier, *limits.max_frontier_per_tree);
-        }
-        if (limits.max_od_day_label_states_per_tree.has_value()
-            && diagnostics.od_day_label_state_nodes
-                > *limits.max_od_day_label_states_per_tree) {
-            return fail(
-                  "od_day_label_states"
-                , diagnostics.od_day_label_state_nodes
-                , *limits.max_od_day_label_states_per_tree
-            );
         }
         if (limits.max_retained_day_paths_per_tree.has_value()
             && diagnostics.retained_day_paths > *limits.max_retained_day_paths_per_tree) {

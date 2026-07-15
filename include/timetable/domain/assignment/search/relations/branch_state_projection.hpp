@@ -32,14 +32,6 @@ namespace timetable::domain::assignment {
         const SearchBranch& branch
     ) noexcept;
 
-    [[nodiscard]] StructuralLabelState structural_label_state(
-        const SearchBranch& branch
-    ) noexcept;
-
-    [[nodiscard]] OdDayLabelState od_day_label_state(
-        const SearchBranch& branch
-    ) noexcept;
-
     [[nodiscard]] bool is_complete_connection(
           const SearchBranch& branch
         , ZoneId              task_destination
