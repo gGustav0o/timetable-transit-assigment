@@ -143,9 +143,17 @@ set(TIMETABLE_CORE_SOURCES
   src/domain/assignment/search/relations/paper_connection_relevance.cpp
   src/domain/assignment/search/tree/level_expansion.cpp
   src/domain/assignment/search/tree/paper_successor_step.cpp
+  src/domain/assignment/search/runtime/accepted_successor_application.cpp
+  src/domain/assignment/search/runtime/branch_enqueue.cpp
   src/domain/assignment/search/runtime/cancellation.cpp
+  src/domain/assignment/search/runtime/continuation_filter.cpp
   src/domain/assignment/search/runtime/diagnostics.cpp
+  src/domain/assignment/search/runtime/od_day_frontier_synchronization.cpp
   src/domain/assignment/search/runtime/parallel.cpp
+  src/domain/assignment/search/runtime/projection_application.cpp
+  src/domain/assignment/search/runtime/reachability_masks.cpp
+  src/domain/assignment/search/runtime/result_finalization.cpp
+  src/domain/assignment/search/runtime/root_initialization.cpp
   src/domain/assignment/search/runtime/search_runtime.cpp
   src/domain/assignment/search/search.cpp
   src/domain/assignment/run.cpp

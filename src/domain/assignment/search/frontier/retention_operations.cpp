@@ -7,6 +7,10 @@
 #include <utility>
 
 #include <mathfp/core/error.hpp>
+#include <mathfp/core/try.hpp>
+
+#include "timetable/domain/assignment/search/relations/branch_metrics.hpp"
+#include "timetable/domain/assignment/search/relations/branch_state_projection.hpp"
 
 namespace timetable::domain::assignment {
 
@@ -178,6 +182,137 @@ namespace timetable::domain::assignment {
         } else {
             update_paper_node_summary_with_metrics(set.summary_, inserted_metrics);
         }
+    }
+
+    namespace {
+
+        void insert_pruning_metrics(
+              NodeMetricMap&                    known_metrics
+            , const SearchPruningExecutionPlan& pruning_execution
+            , SearchNodeKey                     node
+            , SearchPruningMetrics              metrics
+        ) {
+            auto& known = known_metrics[node];
+            insert_search_pruning_metrics_in_place(
+                  pruning_execution
+                , known
+                , std::move(metrics)
+            );
+        }
+
+    }  // namespace
+
+    mathfp::Expected<SearchPruningDecision> retain_branch(
+          const SearchBranch&               branch
+        , NodeMetricMap&                    known_metrics
+        , const SearchParams&               params
+        , const SearchCostContext&          search_cost
+        , const SearchPruningExecutionPlan& pruning_execution
+        , SearchPruningRuntimeStats&        pruning_stats
+    ) {
+        if (!branch.metrics.departure.has_value()
+            || !branch.metrics.current_time.has_value()) {
+            return SearchPruningDecision{
+                  .layer    = SearchPruningLayer::Exact
+                , .reason   = SearchPruningReason::Accepted
+                , .accepted = true
+            };
+        }
+
+        ++pruning_stats.evaluated_candidates;
+        MATHFP_TRY_LET(
+              SearchPruningMetrics
+            , metrics
+            , make_partial_pruning_metrics(branch, search_cost)
+        );
+        const auto node = search_node_key(branch, pruning_execution);
+        auto it = known_metrics.find(node);
+        if (it == known_metrics.end()) {
+            if (stores_search_pruning_metrics(pruning_execution)) {
+                insert_pruning_metrics(
+                      known_metrics
+                    , pruning_execution
+                    , node
+                    , std::move(metrics)
+                );
+                ++pruning_stats.inserted_metrics;
+            } else {
+                ++pruning_stats.skipped_insertions;
+            }
+            ++pruning_stats.accepted_candidates;
+            return SearchPruningDecision{
+                  .layer    = SearchPruningLayer::Exact
+                , .reason   = SearchPruningReason::Accepted
+                , .accepted = true
+            };
+        }
+
+        const auto pruning_decision = evaluate_search_pruning(
+              pruning_execution
+            , metrics
+            , it->second
+            , params.transfers
+        );
+        if (!pruning_decision.accepted) {
+            switch (pruning_decision.layer) {
+                case SearchPruningLayer::Exact:
+                    ++pruning_stats.rejected_exact;
+                    break;
+                case SearchPruningLayer::Approximate:
+                    ++pruning_stats.rejected_approximate;
+                    break;
+            }
+            return pruning_decision;
+        }
+        if (stores_search_pruning_metrics(pruning_execution)) {
+            insert_pruning_metrics(
+                  known_metrics
+                , pruning_execution
+                , node
+                , std::move(metrics)
+            );
+            ++pruning_stats.inserted_metrics;
+        } else {
+            ++pruning_stats.skipped_insertions;
+        }
+        ++pruning_stats.accepted_candidates;
+        return pruning_decision;
+    }
+
+    mathfp::Expected<SearchPruningDecision> retain_branch(
+          const SearchBranch&               branch
+        , SearchProjectionRetention&        retention
+        , const SearchParams&               params
+        , const SearchCostContext&          search_cost
+        , const SearchPruningExecutionPlan& pruning_execution
+        , SearchPruningRuntimeStats&        pruning_stats
+    ) {
+        return retain_branch(
+              branch
+            , retention.known_metrics
+            , params
+            , search_cost
+            , pruning_execution
+            , pruning_stats
+        );
+    }
+
+    mathfp::Expected<SearchPruningDecision> retain_branch(
+          const SearchBranch&               branch
+        , TreePartialRetention&             retention
+        , const SearchParams&               params
+        , const SearchCostContext&          search_cost
+        , const SearchPruningExecutionPlan& pruning_execution
+        , SearchPruningRuntimeStats&        pruning_stats
+    ) {
+        return retain_branch(
+              branch
+            , retention.known_metrics
+            , params
+            , search_cost
+            , pruning_execution
+            , pruning_stats
+        );
     }
 
     bool same_pruning_metrics(

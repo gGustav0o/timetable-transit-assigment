@@ -71,8 +71,55 @@ runtime orchestration APIs.
    effects, but no direct cancellation, logging, threading, or batch reporting.
 
 6. `search/runtime/cancellation` and `search/runtime/parallel`
-   Own effectful runtime orchestration values. These modules remain outside the
-   paper-level tree core.
+   Own effectful runtime orchestration values. `parallel` owns worker count,
+   batch claiming, async worker execution, fast-fail cancellation, and
+   completed/cancelled accounting. These modules remain outside the paper-level
+   tree core.
+
+7. `search/runtime/batch_context`
+   Owns the explicit non-owning boundary between a batch runner, immutable
+   search inputs, mutable batch state, and runtime-only effects. It is a
+   context value, not a replacement algorithm.
+
+8. `search/runtime/reachability_masks`
+   Owns cached residual reachability masks and rejection accounting values used
+   at the projection boundary.
+
+9. `search/runtime/accepted_successor_application`
+   Owns application of a successor already accepted by the paper tree step:
+   OD-day carrier projection, phase validation, transfer-limit rejection, and
+   composition of the projection/filter/enqueue substeps. It does not generate
+   successors and does not decide paper `C_y` acceptance.
+
+10. `search/runtime/projection_application`
+    Owns applying a candidate branch to projection sinks: complete target
+    detection, complete connection retention, and zone-sink rejection. It does
+    not enqueue branches or compute continuation masks.
+
+11. `search/runtime/continuation_filter`
+    Owns the continuation feasibility filter after projection application:
+    residual reachability masks, suffix lower-bound pruning, tree-global and
+    projection-slot-local partial retention, and active-mask propagation.
+
+12. `search/runtime/branch_enqueue`
+    Owns branch arena insertion, projection-state storage, accepted-branch
+    statistics, and level-frontier placement. It does not decide whether a
+    branch is mathematically admissible.
+
+13. `search/runtime/od_day_frontier_synchronization`
+    Owns synchronization of OD-day frontier queues with paper `C_y` label
+    liveness: stale branch release and frontier compaction. Runtime logging
+    remains in the batch runner.
+
+14. `search/runtime/root_initialization`
+    Owns the root branch value, initial root projection masks, root
+    reachability rejection accounting, and frontier seeding.
+
+15. `search/runtime/result_finalization`
+    Owns the post-tree projection from retained alternatives to
+    `SearchSlotResult` values, tolerance finalization, result validation, and
+    finalization-time diagnostics accounting. It does not log and does not run
+    the tree.
 
 The existing `search_runtime.cpp` remains the only full batch runner during
 this transition. New modules must move existing behavior rather than create a

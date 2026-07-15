@@ -8,9 +8,13 @@
 #include <mathfp/core/unit.hpp>
 
 #include "timetable/domain/assignment/search/model/retention.hpp"
+#include "timetable/domain/assignment/search/projection.hpp"
 #include "timetable/domain/assignment/search_pruning.hpp"
+#include "timetable/domain/assignment/search_pruning_diagnostics.hpp"
 #include "timetable/domain/assignment/search_pruning_plan.hpp"
+#include "timetable/domain/assignment/search_cost.hpp"
 #include "timetable/domain/model.hpp"
+#include "timetable/domain/params.hpp"
 
 namespace timetable::domain::assignment {
 
@@ -41,6 +45,33 @@ namespace timetable::domain::assignment {
         , SearchPruningMetrics              metrics
         , PaperConnectionLabelId            label
         , std::vector<PaperConnectionLabelId>& removed_labels
+    );
+
+    [[nodiscard]] mathfp::Expected<SearchPruningDecision> retain_branch(
+          const SearchBranch&               branch
+        , NodeMetricMap&                    known_metrics
+        , const SearchParams&               params
+        , const SearchCostContext&          search_cost
+        , const SearchPruningExecutionPlan& pruning_execution
+        , SearchPruningRuntimeStats&        pruning_stats
+    );
+
+    [[nodiscard]] mathfp::Expected<SearchPruningDecision> retain_branch(
+          const SearchBranch&               branch
+        , SearchProjectionRetention&        retention
+        , const SearchParams&               params
+        , const SearchCostContext&          search_cost
+        , const SearchPruningExecutionPlan& pruning_execution
+        , SearchPruningRuntimeStats&        pruning_stats
+    );
+
+    [[nodiscard]] mathfp::Expected<SearchPruningDecision> retain_branch(
+          const SearchBranch&               branch
+        , TreePartialRetention&             retention
+        , const SearchParams&               params
+        , const SearchCostContext&          search_cost
+        , const SearchPruningExecutionPlan& pruning_execution
+        , SearchPruningRuntimeStats&        pruning_stats
     );
 
     [[nodiscard]] bool same_pruning_metrics(

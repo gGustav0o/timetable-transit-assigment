@@ -1,7 +1,6 @@
 #include "timetable/domain/assignment/search/runtime/search_runtime.hpp"
 
 #include <algorithm>
-#include <array>
 #include <atomic>
 #include <bit>
 #include <chrono>
@@ -9,23 +8,16 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
-#include <future>
 #include <iterator>
 #include <limits>
 #include <map>
 #include <mutex>
 #include <optional>
-#include <queue>
 #include <span>
 #include <string>
-#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
-
-#include <boost/container/small_vector.hpp>
-#include <boost/container_hash/hash.hpp>
-#include <boost/unordered/unordered_flat_map.hpp>
 
 #include <mathfp/core/error.hpp>
 #include <mathfp/core/try.hpp>
@@ -62,9 +54,15 @@
 #include "timetable/domain/assignment/search/relations/branch_metrics.hpp"
 #include "timetable/domain/assignment/search/relations/branch_state_projection.hpp"
 #include "timetable/domain/assignment/search/residual_reachability.hpp"
+#include "timetable/domain/assignment/search/runtime/accepted_successor_application.hpp"
+#include "timetable/domain/assignment/search/runtime/batch_context.hpp"
 #include "timetable/domain/assignment/search/runtime/cancellation.hpp"
 #include "timetable/domain/assignment/search/runtime/diagnostics.hpp"
+#include "timetable/domain/assignment/search/runtime/od_day_frontier_synchronization.hpp"
 #include "timetable/domain/assignment/search/runtime/parallel.hpp"
+#include "timetable/domain/assignment/search/runtime/reachability_masks.hpp"
+#include "timetable/domain/assignment/search/runtime/result_finalization.hpp"
+#include "timetable/domain/assignment/search/runtime/root_initialization.hpp"
 #include "timetable/domain/assignment/search/tree/level_expansion.hpp"
 #include "timetable/domain/assignment/search/tree/paper_successor_step.hpp"
 #include "timetable/domain/assignment/search/tree/tree_runner.hpp"
@@ -119,68 +117,12 @@ namespace timetable::domain::assignment::runtime {
             return std::to_string(interval->get());
         }
 
-        struct RejectedReachabilityTask final {
-            std::size_t                 task_position{};
-            ReachabilityRejectionReason reason{ ReachabilityRejectionReason::UnreachableDestination };
-        };
-
-        struct RejectedSuffixLowerBoundTask final {
-            std::size_t                     task_position{};
-            SuffixLowerBoundRejectionReason reason{ SuffixLowerBoundRejectionReason::ToleranceImpedance };
-        };
-
         constexpr std::size_t kTaskProgressStep    = 10;
         constexpr std::size_t kSearchHeartbeatStep = 100'000;
         constexpr std::size_t kSearchWallClockSuccessorCheckStep = 16'384;
         constexpr std::size_t kInitialTaskBranchReserve = 4'096;
         constexpr auto kSearchWallClockHeartbeatInterval =
             std::chrono::seconds{ 30 };
-
-        void insert_pruning_metrics(
-              NodeMetricMap&                    known_metrics
-            , const SearchPruningExecutionPlan& pruning_execution
-            , SearchNodeKey                     node
-            , PartialPruningMetrics             metrics
-        ) {
-            auto& known = known_metrics[node];
-            insert_search_pruning_metrics_in_place(
-                  pruning_execution
-                , known
-                , std::move(metrics)
-            );
-        }
-
-        void insert_pruning_metrics(
-              PaperConnectionNodeMetricMap&     known_metrics
-            , const SearchPruningExecutionPlan& pruning_execution
-            , PaperConnectionNodeKey            node
-            , PartialPruningMetrics             metrics
-            , PaperConnectionLabelId            label
-            , std::vector<PaperConnectionLabelId>& removed_labels
-        ) {
-            auto& known = known_metrics[node];
-            insert_paper_node_connection_metrics(
-                  pruning_execution
-                , known
-                , std::move(metrics)
-                , label
-                , removed_labels
-            );
-        }
-
-        void insert_pruning_metrics(
-              SearchProjectionRetention&        retention
-            , const SearchPruningExecutionPlan& pruning_execution
-            , SearchNodeKey                     node
-            , PartialPruningMetrics             metrics
-        ) {
-            insert_pruning_metrics(
-                  retention.known_metrics
-                , pruning_execution
-                , std::move(node)
-                , std::move(metrics)
-            );
-        }
 
         [[nodiscard]] DayPathLeg make_day_path_walk_leg(
               ConnectionLegKind   kind
@@ -307,118 +249,6 @@ namespace timetable::domain::assignment::runtime {
             (void)walk_rejection_visitor;
         }
 
-        mathfp::Expected<SearchPruningDecision> retain_branch(
-              const SearchBranch&               branch
-            , NodeMetricMap&                    known_metrics
-            , const SearchParams&               params
-            , const SearchCostContext&          search_cost
-            , const SearchPruningExecutionPlan& pruning_execution
-            , SearchPruningRuntimeStats&        pruning_stats
-        ) {
-            if (!branch.metrics.departure.has_value() || !branch.metrics.current_time.has_value()) {
-                return SearchPruningDecision{
-                      .layer    = SearchPruningLayer::Exact
-                    , .reason   = SearchPruningReason::Accepted
-                    , .accepted = true
-                };
-            }
-
-            ++pruning_stats.evaluated_candidates;
-            MATHFP_TRY_LET(
-                  PartialPruningMetrics
-                , metrics
-                , make_partial_pruning_metrics(branch, search_cost)
-            );
-            const auto node  = search_node_key(branch, pruning_execution);
-            auto it          = known_metrics.find(node);
-            if (it == known_metrics.end()) {
-                if (stores_search_pruning_metrics(pruning_execution)) {
-                    insert_pruning_metrics(
-                          known_metrics
-                        , pruning_execution
-                        , node
-                        , std::move(metrics)
-                    );
-                    ++pruning_stats.inserted_metrics;
-                } else {
-                    ++pruning_stats.skipped_insertions;
-                }
-                ++pruning_stats.accepted_candidates;
-                return SearchPruningDecision{
-                      .layer    = SearchPruningLayer::Exact
-                    , .reason   = SearchPruningReason::Accepted
-                    , .accepted = true
-                };
-            }
-
-            const auto pruning_decision = evaluate_search_pruning(
-                  pruning_execution
-                , metrics
-                , it->second
-                , params.transfers
-            );
-            if (!pruning_decision.accepted) {
-                switch (pruning_decision.layer) {
-                    case SearchPruningLayer::Exact:
-                        ++pruning_stats.rejected_exact;
-                        break;
-                    case SearchPruningLayer::Approximate:
-                        ++pruning_stats.rejected_approximate;
-                        break;
-                }
-                return pruning_decision;
-            }
-            if (stores_search_pruning_metrics(pruning_execution)) {
-                insert_pruning_metrics(
-                      known_metrics
-                    , pruning_execution
-                    , node
-                    , std::move(metrics)
-                );
-                ++pruning_stats.inserted_metrics;
-            } else {
-                ++pruning_stats.skipped_insertions;
-            }
-            ++pruning_stats.accepted_candidates;
-            return pruning_decision;
-        }
-
-        mathfp::Expected<SearchPruningDecision> retain_branch(
-              const SearchBranch&               branch
-            , SearchProjectionRetention&        retention
-            , const SearchParams&               params
-            , const SearchCostContext&          search_cost
-            , const SearchPruningExecutionPlan& pruning_execution
-            , SearchPruningRuntimeStats&        pruning_stats
-        ) {
-            return retain_branch(
-                  branch
-                , retention.known_metrics
-                , params
-                , search_cost
-                , pruning_execution
-                , pruning_stats
-            );
-        }
-
-        mathfp::Expected<SearchPruningDecision> retain_branch(
-              const SearchBranch&               branch
-            , TreePartialRetention&             retention
-            , const SearchParams&               params
-            , const SearchCostContext&          search_cost
-            , const SearchPruningExecutionPlan& pruning_execution
-            , SearchPruningRuntimeStats&        pruning_stats
-        ) {
-            return retain_branch(
-                  branch
-                , retention.known_metrics
-                , params
-                , search_cost
-                , pruning_execution
-                , pruning_stats
-            );
-        }
-
         mathfp::Expected<SearchPruningDecision> retain_od_day_label_branch(
               const SearchBranch&               branch
             , TreePartialRetention&             retention
@@ -526,385 +356,6 @@ namespace timetable::domain::assignment::runtime {
                 : std::string("unbounded");
         }
 
-        struct ReachabilityTaskFilter final {
-            ActiveIndexSet reachable{};
-            std::vector<RejectedReachabilityTask> unreachable{};
-        };
-
-        struct CompactReachabilityReasons final {
-            static constexpr std::size_t inline_capacity = FixedActiveMask::max_size;
-            static constexpr std::size_t bits_per_reason = 2u;
-            static constexpr std::size_t reasons_per_word = 64u / bits_per_reason;
-            static constexpr std::size_t inline_word_count =
-                (inline_capacity + reasons_per_word - 1u) / reasons_per_word;
-
-            std::size_t size{};
-            std::array<std::uint64_t, inline_word_count> inline_words{};
-            std::vector<std::uint64_t> heap_words{};
-
-            CompactReachabilityReasons() = default;
-
-            explicit CompactReachabilityReasons(
-                  std::size_t                 element_count
-                , ReachabilityRejectionReason initial_reason
-            )
-                : size{ element_count }
-            {
-                if (!uses_inline_storage()) {
-                    heap_words.assign(word_count(), 0u);
-                }
-                for (std::size_t i = 0; i < size; ++i) {
-                    set(i, initial_reason);
-                }
-            }
-
-            [[nodiscard]] bool uses_inline_storage() const noexcept {
-                return size <= inline_capacity;
-            }
-
-            [[nodiscard]] std::size_t word_count() const noexcept {
-                return (size + reasons_per_word - 1u) / reasons_per_word;
-            }
-
-            [[nodiscard]] std::uint64_t word(std::size_t index) const noexcept {
-                return uses_inline_storage()
-                    ? inline_words[index]
-                    : heap_words[index];
-            }
-
-            [[nodiscard]] std::uint64_t& word(std::size_t index) noexcept {
-                return uses_inline_storage()
-                    ? inline_words[index]
-                    : heap_words[index];
-            }
-
-            [[nodiscard]] static std::uint64_t reason_code(
-                ReachabilityRejectionReason reason
-            ) noexcept {
-                switch (reason) {
-                    case ReachabilityRejectionReason::Phase:
-                        return 0u;
-                    case ReachabilityRejectionReason::TransferBudget:
-                        return 1u;
-                    case ReachabilityRejectionReason::UnreachableDestination:
-                        return 2u;
-                }
-                return 2u;
-            }
-
-            [[nodiscard]] static ReachabilityRejectionReason reason_from_code(
-                std::uint64_t code
-            ) noexcept {
-                switch (code) {
-                    case 0u:
-                        return ReachabilityRejectionReason::Phase;
-                    case 1u:
-                        return ReachabilityRejectionReason::TransferBudget;
-                    case 2u:
-                    default:
-                        return ReachabilityRejectionReason::UnreachableDestination;
-                }
-            }
-
-            [[nodiscard]] ReachabilityRejectionReason get(
-                std::size_t index
-            ) const noexcept {
-                const auto word_index = index / reasons_per_word;
-                const auto bit_offset = (index % reasons_per_word) * bits_per_reason;
-                return reason_from_code(
-                    (word(word_index) >> bit_offset) & std::uint64_t{ 0b11 }
-                );
-            }
-
-            void set(
-                  std::size_t                 index
-                , ReachabilityRejectionReason reason
-            ) noexcept {
-                if (index >= size) {
-                    return;
-                }
-                const auto word_index = index / reasons_per_word;
-                const auto bit_offset = (index % reasons_per_word) * bits_per_reason;
-                const auto mask = std::uint64_t{ 0b11 } << bit_offset;
-                auto& target_word = word(word_index);
-                target_word =
-                    (target_word & ~mask)
-                    | (reason_code(reason) << bit_offset);
-            }
-        };
-
-        struct ReachabilityMaskEntry final {
-            ActiveIndexSet reachable{};
-            CompactReachabilityReasons rejection_reasons{};
-        };
-
-        [[nodiscard]] ResidualReachabilityKey reachability_mask_key(
-              const SearchBranch&   branch
-            , const TransferLimits& limits
-        ) noexcept {
-            return ResidualReachabilityKey{
-                  .current_physical    = branch.trace.current_physical
-                , .phase               = branch.trace.phase
-                , .remaining_transfers = remaining_transfer_budget(branch, limits)
-            };
-        }
-
-        [[nodiscard]] RelaxedSuffixState relaxed_suffix_state(
-              const ResidualReachabilityKey& key
-            , ZoneId                         destination
-        ) noexcept {
-            return RelaxedSuffixState{
-                  .current_physical    = key.current_physical
-                , .destination         = destination
-                , .phase               = key.phase
-                , .remaining_transfers = key.remaining_transfers
-            };
-        }
-
-        [[nodiscard]] ReachabilityMaskEntry build_target_reachability_mask(
-              const ResidualReachabilityKey&          key
-            , std::span<const SearchCompletionTarget> targets
-            , const ResidualReachability&             reachability
-            , TransferCount                           max_transfers
-        ) {
-            ReachabilityMaskEntry result{
-                  .reachable = ActiveIndexSet{ targets.size() }
-                , .rejection_reasons = CompactReachabilityReasons{
-                      targets.size()
-                    , ReachabilityRejectionReason::UnreachableDestination
-                  }
-            };
-            for (std::size_t target_pos = 0; target_pos < targets.size(); ++target_pos) {
-                const auto decision = evaluate_residual_reachability(
-                      reachability
-                    , relaxed_suffix_state(key, targets[target_pos].destination)
-                    , max_transfers
-                );
-                if (decision.feasible) {
-                    result.reachable.set(target_pos);
-                } else {
-                    result.rejection_reasons.set(
-                          target_pos
-                        , decision.rejection_reason
-                    );
-                }
-            }
-            return result;
-        }
-
-        [[nodiscard]] ReachabilityMaskEntry build_slot_reachability_mask(
-              const ResidualReachabilityKey&       key
-            , std::span<const SearchProjectionSlot> slots
-            , const ResidualReachability&          reachability
-            , TransferCount                        max_transfers
-        ) {
-            ReachabilityMaskEntry result{
-                  .reachable = ActiveIndexSet{ slots.size() }
-                , .rejection_reasons = CompactReachabilityReasons{
-                      slots.size()
-                    , ReachabilityRejectionReason::UnreachableDestination
-                  }
-            };
-            for (std::size_t task_pos = 0; task_pos < slots.size(); ++task_pos) {
-                const auto decision = evaluate_residual_reachability(
-                      reachability
-                    , relaxed_suffix_state(key, slots[task_pos].destination)
-                    , max_transfers
-                );
-                if (decision.feasible) {
-                    result.reachable.set(task_pos);
-                } else {
-                    result.rejection_reasons.set(
-                          task_pos
-                        , decision.rejection_reason
-                    );
-                }
-            }
-            return result;
-        }
-
-        struct ReachabilityMaskCache final {
-            const ResidualReachability&             reachability;
-            std::span<const SearchCompletionTarget> targets;
-            std::span<const SearchProjectionSlot>   slots;
-            TransferCount                           max_transfers;
-            bool                                    unified_completion_targets{};
-            std::unordered_map<
-                  ResidualReachabilityKey
-                , ReachabilityMaskEntry
-                , ResidualReachabilityKeyHash
-            > target_masks{};
-            std::unordered_map<
-                  ResidualReachabilityKey
-                , ReachabilityMaskEntry
-                , ResidualReachabilityKeyHash
-            > slot_masks{};
-
-            const ReachabilityMaskEntry& target_entry(
-                const ResidualReachabilityKey& key
-            ) {
-                const auto existing = target_masks.find(key);
-                if (existing != target_masks.end()) {
-                    return existing->second;
-                }
-                const auto [it, inserted] = target_masks.emplace(
-                      key
-                    , build_target_reachability_mask(
-                          key
-                        , targets
-                        , reachability
-                        , max_transfers
-                      )
-                );
-                (void)inserted;
-                return it->second;
-            }
-
-            const ReachabilityMaskEntry& slot_entry(
-                const ResidualReachabilityKey& key
-            ) {
-                if (unified_completion_targets) {
-                    return target_entry(key);
-                }
-                const auto existing = slot_masks.find(key);
-                if (existing != slot_masks.end()) {
-                    return existing->second;
-                }
-                const auto [it, inserted] = slot_masks.emplace(
-                      key
-                    , build_slot_reachability_mask(
-                          key
-                        , slots
-                        , reachability
-                        , max_transfers
-                      )
-                );
-                (void)inserted;
-                return it->second;
-            }
-        };
-
-        [[nodiscard]] ActiveIndexSet filter_target_positions_by_reachability(
-              const ActiveIndexSet&                     target_positions
-            , const ReachabilityMaskEntry&              reachability_entry
-        ) {
-            return target_positions.intersect(reachability_entry.reachable);
-        }
-
-        [[nodiscard]] ReachabilityRejectionReason summarize_target_reachability_rejection(
-              const ActiveIndexSet&        target_positions
-            , const ReachabilityMaskEntry& reachability_entry
-        ) noexcept {
-            const auto priority = [](ReachabilityRejectionReason reason) noexcept {
-                switch (reason) {
-                    case ReachabilityRejectionReason::UnreachableDestination:
-                        return 3;
-                    case ReachabilityRejectionReason::TransferBudget:
-                        return 2;
-                    case ReachabilityRejectionReason::Phase:
-                        return 1;
-                }
-                return 0;
-            };
-            auto result = ReachabilityRejectionReason::Phase;
-            target_positions.for_each_difference_index(reachability_entry.reachable, [&](std::size_t target_pos) {
-                const auto reason = reachability_entry.rejection_reasons.get(target_pos);
-                if (priority(reason) > priority(result)) {
-                    result = reason;
-                }
-            });
-            return result;
-        }
-
-        [[nodiscard]] ReachabilityTaskFilter filter_task_positions_by_reachability(
-              const ActiveIndexSet&        task_positions
-            , const ReachabilityMaskEntry& reachability_entry
-        ) {
-            ReachabilityTaskFilter result{
-                  .reachable = task_positions.intersect(reachability_entry.reachable)
-            };
-            const auto active_count = task_positions.active_count();
-            const auto reachable_count = result.reachable.active_count();
-            result.unreachable.reserve(active_count - reachable_count);
-            task_positions.for_each_difference_index(reachability_entry.reachable, [&](std::size_t task_pos) {
-                result.unreachable.push_back(
-                    RejectedReachabilityTask{
-                          .task_position = task_pos
-                        , .reason        = reachability_entry.rejection_reasons.get(task_pos)
-                    }
-                );
-            });
-            return result;
-        }
-
-        void record_reachability_rejections(
-              std::span<const RejectedReachabilityTask> rejected_tasks
-            , std::vector<TaskSearchStats>& task_stats
-            , TaskSearchStats&              stats
-        ) noexcept {
-            for (const auto rejected : rejected_tasks) {
-                add_reachability_rejection(stats, rejected.reason);
-                add_reachability_rejection(
-                      task_stats[rejected.task_position]
-                    , rejected.reason
-                );
-            }
-        }
-
-        void record_suffix_lower_bound_rejections(
-              std::span<const RejectedSuffixLowerBoundTask> rejected_tasks
-            , std::vector<TaskSearchStats>&                 task_stats
-            , TaskSearchStats&                              stats
-        ) noexcept {
-            for (const auto rejected : rejected_tasks) {
-                add_suffix_lower_bound_rejection(stats, rejected.reason);
-                add_suffix_lower_bound_rejection(
-                      task_stats[rejected.task_position]
-                    , rejected.reason
-                );
-            }
-        }
-
-        [[nodiscard]] std::vector<std::size_t> matching_complete_tasks(
-              const SearchBranch&              branch
-            , const ActiveIndexSet&             active_tasks
-            , std::span<const SearchProjectionSlot> batch_tasks
-        ) {
-            std::vector<std::size_t> matches;
-            if (!branch.metrics.departure.has_value()
-                || branch.trace.current_physical.kind != EndpointKind::Zone) {
-                return matches;
-            }
-
-            active_tasks.for_each_index([&](std::size_t task_pos) {
-                if (batch_tasks[task_pos].destination.get()
-                    == branch.trace.current_physical.id) {
-                    matches.push_back(task_pos);
-                }
-            });
-            return matches;
-        }
-
-        [[nodiscard]] bool matches_completion_target(
-              const SearchBranch&                       branch
-            , const ActiveIndexSet&                      active_targets
-            , std::span<const SearchCompletionTarget>    batch_targets
-        ) noexcept {
-            if (!branch.metrics.departure.has_value()
-                || branch.trace.current_physical.kind != EndpointKind::Zone) {
-                return false;
-            }
-
-            bool matches = false;
-            active_targets.for_each_index([&](std::size_t target_pos) {
-                if (batch_targets[target_pos].destination.get()
-                    == branch.trace.current_physical.id) {
-                    matches = true;
-                }
-            });
-            return matches;
-        }
-
         [[nodiscard]] std::map<ZoneId, std::size_t> completion_target_position_by_destination(
             std::span<const SearchCompletionTarget> batch_targets
         ) {
@@ -913,29 +364,6 @@ namespace timetable::domain::assignment::runtime {
                 positions[batch_targets[target_pos].destination] = target_pos;
             }
             return positions;
-        }
-
-        void add_complete_projection_retention_diagnostics(
-              TaskSearchStats&                                stats
-            , const CompleteProjectionRetentionDiagnostics&    diagnostics
-        ) noexcept {
-            stats.completed_connections += diagnostics.completed_connections;
-            stats.rejected_complete_admissibility +=
-                diagnostics.rejected_complete_admissibility;
-            stats.rejected_complete_dominance +=
-                diagnostics.rejected_complete_dominance;
-            stats.removed_complete_dominated +=
-                diagnostics.removed_complete_dominated;
-            stats.post_layer_day_path_candidates +=
-                diagnostics.post_layer_day_path_candidates;
-            stats.post_layer_day_path_inserted +=
-                diagnostics.post_layer_day_path_inserted;
-            stats.post_layer_day_path_representative_replaced +=
-                diagnostics.post_layer_day_path_representative_replaced;
-            stats.post_layer_day_path_supports = std::max(
-                  stats.post_layer_day_path_supports
-                , diagnostics.post_layer_day_path_supports
-            );
         }
 
         mathfp::Expected<std::vector<SearchSlotResult>> search_batch_connections(
@@ -1098,110 +526,55 @@ namespace timetable::domain::assignment::runtime {
                 level_expansion.current_frontier_by_phase;
             auto& next_frontier_by_phase =
                 level_expansion.next_frontier_by_phase;
-            //tex:
-            // The tree is traversed with two frontier buffers. `current_frontier`
-            // is exhausted before `next_frontier` becomes current. In this
-            // implementation the level is transfer-depth oriented: walk legs and
-            // the first boarding stay in the current level, while a later timed
-            // boarding after a transfer moves the branch to the next level.
-            const auto root_branch_index = append_branch(
-                branches
-              , SearchBranch{
-                    .trace = SearchPartialTrace{
-                          .origin                   = batch.key.origin
-                        , .current_physical         = endpoint_key(batch.key.origin)
-                        , .current_occurrence       = std::nullopt
-                        , .phase                    = SearchBranchPhase::AtOrigin
-                        , .parent_branch            = std::nullopt
-                        , .incoming_segment         = std::nullopt
-                        , .last_timed_segment       = nullptr
-                        , .last_timed_route_segment = nullptr
-                    }
-                  , .metrics = SearchPartialMetrics{
-                          .departure        = std::nullopt
-                        , .current_time     = std::nullopt
-                        , .access_time      = Time{ 0.0 }
-                        , .in_vehicle_time  = Time{ 0.0 }
-                        , .transfer_wait_time = Time{ 0.0 }
-                        , .transfer_walk_time = Time{ 0.0 }
-                        , .egress_time      = Time{ 0.0 }
-                        , .transfers        = TransferCount{ 0 }
-                        , .fare             = 0.0
-                        , .capacity_exposure = CapacityExposure{ Time{ 0.0 } }
+            SearchBatchContext batch_context{
+                  .fixed = SearchBatchStaticContext{
+                      .batch = batch
+                    , .network = network
+                    , .reverse_graph = reverse_graph
+                    , .params = params
+                    , .search_cost = search_cost
+                    , .choice_config = choice_config
+                    , .assignment_period = assignment_period
+                    , .admissibility_config = admissibility_config
+                    , .pruning_execution = pruning_execution
+                    , .complete_connection_dominance =
+                          complete_connection_dominance
+                    , .partial_retention_scope = partial_retention_scope
+                    , .diagnostics = diagnostics
+                    , .batch_index = batch_index
+                    , .batch_count = batch_count
+                    , .day_level_supply = day_level_supply
+                    , .od_day_supply = od_day_supply
+                    , .cancellation = cancellation
+                    , .first_departure_domain = first_departure_domain
+                    , .batch_tasks = batch_task_span
+                    , .batch_targets = batch_target_span
+                    , .projection_sinks = projection_sinks
+                    , .target_projection_slots = target_projection_slots
+                    , .od_day_slots = od_day_slots
+                    , .target_positions_by_destination =
+                          target_positions_by_destination
+                    , .projection_positions_by_destination =
+                          &projection_positions_by_destination
+                    , .od_day_destination_ids = &od_day_destination_ids
                   }
-                  , .od_day_carrier = OdDayProductionCarrier{
-                        .path_identity = make_od_day_path_prefix(batch.key.origin)
-                    }
-              }
-            );
-            if (diagnostics.validate_phase_invariants) {
-                MATHFP_TRY(validate_search_branch_phase_invariants(
-                    branch_at(branches, root_branch_index)
-                ));
-            }
-            if (!od_day_slots && target_projection_slots) {
-                const auto root_reachability_key = reachability_mask_key(
-                      branch_at(branches, root_branch_index)
-                    , params.transfers
-                );
-                auto root_reachable_targets = filter_target_positions_by_reachability(
-                      ActiveIndexSet::full(batch.completion_targets.size())
-                    , reachability_cache->target_entry(root_reachability_key)
-                );
-                auto root_reachability = filter_task_positions_by_reachability(
-                      ActiveIndexSet::full(batch.projection_slots.size())
-                    , reachability_cache->slot_entry(root_reachability_key)
-                );
-                record_reachability_rejections(
-                      std::span<const RejectedReachabilityTask>{
-                          root_reachability.unreachable.data()
-                        , root_reachability.unreachable.size()
-                      }
-                    , task_stats
-                    , stats
-                );
-                if (!root_reachability.reachable.equals(root_reachable_targets)) {
-                    return mathfp::unexpected(
-                        mathfp::internal_error("completion-target root reachability masks disagree")
-                            .ctx("origin", batch.key.origin.get())
-                    );
-                }
-                completion_projection_states.push_back(
-                    FixedActiveMask::from(root_reachability.reachable)
-                );
-            } else if (!od_day_slots) {
-                const auto root_reachability_key = reachability_mask_key(
-                      branch_at(branches, root_branch_index)
-                    , params.transfers
-                );
-                auto root_reachable_targets = filter_target_positions_by_reachability(
-                      ActiveIndexSet::full(batch.completion_targets.size())
-                    , reachability_cache->target_entry(root_reachability_key)
-                );
-                auto root_reachability = filter_task_positions_by_reachability(
-                      ActiveIndexSet::full(batch.projection_slots.size())
-                    , reachability_cache->slot_entry(root_reachability_key)
-                );
-                record_reachability_rejections(
-                      std::span<const RejectedReachabilityTask>{
-                          root_reachability.unreachable.data()
-                        , root_reachability.unreachable.size()
-                      }
-                    , task_stats
-                    , stats
-                );
-                demand_projection_states.push_back(
-                    DemandBranchProjectionState{
-                          .active_tasks = std::move(root_reachability.reachable)
-                        , .active_targets = std::move(root_reachable_targets)
-                    }
-                );
-            }
-            seed_search_level_expansion(
-                  level_expansion
-                , root_branch_index
-                , SearchBranchPhase::AtOrigin
-            );
+                , .mutable_state = SearchBatchMutableState{
+                      .retentions = retentions
+                    , .tree_partial_retention = tree_partial_retention
+                    , .paper_label_registry = paper_label_registry
+                    , .stats = stats
+                    , .task_stats = task_stats
+                    , .branches = branches
+                    , .completion_projection_states =
+                          completion_projection_states
+                    , .demand_projection_states = demand_projection_states
+                    , .released_branches = released_branches
+                    , .reachability = reachability
+                    , .reachability_cache = reachability_cache
+                    , .level_expansion = level_expansion
+                  }
+            };
+            MATHFP_TRY(initialize_search_batch_root(batch_context));
             auto retained_production_alternative_count = [&]() noexcept {
                 return od_day_slots
                     ? retained_day_path_count(retentions)
@@ -1355,65 +728,33 @@ namespace timetable::domain::assignment::runtime {
             constexpr auto kOdDayFrontierCompactionMinRemoved = std::size_t{ 1024u };
             constexpr auto kOdDayFrontierCompactionMinSize    = std::size_t{ 4096u };
             auto c_y_removed_since_frontier_compaction = std::size_t{ 0u };
-            auto compact_frontier_queue =
-                [&](SearchFrontierLayer& queue, BranchPhaseStats& phase_stats) {
-                    auto kept = std::vector<std::size_t>{};
-                    kept.reserve(queue.size());
-                    auto removed = std::size_t{ 0u };
-                    for (auto i = queue.head; i < queue.entries.size(); ++i) {
-                        const auto queued_index = queue.entries[i];
-                        if (!branch_alive(branches, queued_index)) {
-                            ++removed;
-                            continue;
-                        }
-                        const auto& queued_branch = branch_at(branches, queued_index);
-                        if (paper_connection_label_active(
-                              paper_label_registry
-                            , queued_branch.paper_connection_label
-                        )) {
-                            kept.push_back(queued_index);
-                            continue;
-                        }
-                        decrement_phase_stats(phase_stats, queued_branch.trace.phase);
-                        release_branch_if_closed(
-                              branches
-                            , queued_index
-                            , release_projection_payload
-                        );
-                        ++removed;
-                    }
-                    queue.entries = std::move(kept);
-                    queue.head = 0u;
-                    return removed;
-                };
-            auto compact_od_day_frontiers = [&](const char* reason) {
+            auto compact_od_day_frontier_state = [&](const char* reason) {
                 if (!od_day_slots) {
                     return;
                 }
-                const auto removed_current = compact_frontier_queue(
-                      current_frontier
-                    , current_frontier_by_phase
+                const auto compaction = compact_od_day_frontiers(
+                      level_expansion
+                    , branches
+                    , paper_label_registry
+                    , released_branches
                 );
-                const auto removed_next = compact_frontier_queue(
-                      next_frontier
-                    , next_frontier_by_phase
-                );
-                const auto removed = removed_current + removed_next;
+                const auto removed = compaction.removed();
                 if (removed == 0u) {
                     return;
                 }
                 ++stats.frontier_compaction_runs;
                 stats.frontier_compaction_removed += removed;
-                stats.frontier_compaction_removed_current += removed_current;
-                stats.frontier_compaction_removed_next += removed_next;
+                stats.frontier_compaction_removed_current +=
+                    compaction.removed_current;
+                stats.frontier_compaction_removed_next += compaction.removed_next;
                 log(
                     fmt::format(
                           "OD-day frontier compacted: origin={} reason={} removed={} current_removed={} next_removed={} frontier={}/{}"
                         , batch.key.origin.get()
                         , reason
                         , removed
-                        , removed_current
-                        , removed_next
+                        , compaction.removed_current
+                        , compaction.removed_next
                         , current_frontier.size()
                         , next_frontier.size()
                     )
@@ -1450,7 +791,7 @@ namespace timetable::domain::assignment::runtime {
                           return SearchTreeRunDirective::Continue;
                       }
                     , [&]() -> mathfp::Expected<mathfp::Unit> {
-                    compact_od_day_frontiers("level_swap");
+                    compact_od_day_frontier_state("level_swap");
                     c_y_removed_since_frontier_compaction = 0u;
                     return mathfp::kUnit;
                       }
@@ -1463,20 +804,17 @@ namespace timetable::domain::assignment::runtime {
                 stats.max_current_frontier = std::max(stats.max_current_frontier, current_frontier.size());
                 stats.max_next_frontier    = std::max(stats.max_next_frontier   , next_frontier   .size());
 
-                const auto& branch = branch_at(branches, branch_index);
                 if (od_day_slots
-                    && !paper_connection_label_active(
-                          paper_label_registry
-                        , branch.paper_connection_label
-                    )) {
-                    ++stats.stale_frontier_skipped;
-                    release_branch_if_closed(
+                    && !synchronize_od_day_frontier_branch(
                           branches
                         , branch_index
-                        , release_projection_payload
-                    );
+                        , paper_label_registry
+                        , released_branches
+                    )) {
+                    ++stats.stale_frontier_skipped;
                     return SearchTreeRunDirective::Continue;
                 }
+                const auto& branch = branch_at(branches, branch_index);
                 emit_wall_clock_heartbeat("branch", branch_index);
                 ActiveIndexSet completion_active;
                 const ActiveIndexSet* active_tasks_ptr{};
@@ -1690,7 +1028,7 @@ namespace timetable::domain::assignment::runtime {
                                 >= kOdDayFrontierCompactionMinRemoved
                             && (current_frontier.size() + next_frontier.size())
                                 >= kOdDayFrontierCompactionMinSize) {
-                            compact_od_day_frontiers("c_y_removal");
+                            compact_od_day_frontier_state("c_y_removal");
                             c_y_removed_since_frontier_compaction = 0u;
                         }
                     }
@@ -1733,349 +1071,29 @@ namespace timetable::domain::assignment::runtime {
                                 return;
                         }
                     }
-                    auto candidate = std::move(step_decision->branch);
-                    candidate->od_day_carrier = project_od_day_carrier_transition(
-                          branch.od_day_carrier
-                        , successor_ref
-                        , successor
-                        , route_segment_at(network, successor.route_segment)
-                    );
+                    auto candidate = std::move(*step_decision->branch);
                     if (od_day_slots) {
-                        /*
-                         * Production OD-day candidates carry their structural
-                         * path and timed witness in compact prefixes. Detaching
-                         * the trace parent before any retention/materialization
-                         * keeps the production contour from falling back to
-                         * raw timed prefix chains.
-                         */
-                        candidate->trace.parent_branch = std::nullopt;
-                        candidate->paper_connection_label =
+                        candidate.paper_connection_label =
                             step_decision->accepted_paper_label;
                     }
-                    if (diagnostics.validate_phase_invariants) {
-                        if (auto invariant_result = validate_search_branch_phase_invariants(*candidate);
-                            !invariant_result) {
-                            successor_error = mathfp::unexpected(
-                                std::move(invariant_result.error())
-                            );
-                            return;
-                        }
-                    }
-
-                    if (candidate->metrics.transfers > params.transfers.max_transfers) {
-                        ++stats.rejected_transfer_limit;
-                        return;
-                    }
-
-                    std::vector<std::size_t> complete_task_positions;
-                    bool completed_target = false;
-                    if (od_day_slots
-                        && candidate->metrics.departure.has_value()
-                        && candidate->trace.current_physical.kind == EndpointKind::Zone) {
-                        const auto position_it = projection_positions_by_destination.find(
-                            ZoneId{ candidate->trace.current_physical.id }
-                        );
-                        if (position_it != projection_positions_by_destination.end()) {
-                            completed_target = true;
-                            complete_task_positions.push_back(position_it->second);
-                        }
-                    } else if (target_projection_slots
-                        && candidate->metrics.departure.has_value()
-                        && candidate->trace.current_physical.kind == EndpointKind::Zone) {
-                        const auto position_it = target_positions_by_destination.find(
-                            ZoneId{ candidate->trace.current_physical.id }
-                        );
-                        if (position_it != target_positions_by_destination.end()
-                            && active_targets.contains(position_it->second)) {
-                            completed_target = true;
-                            complete_task_positions.push_back(position_it->second);
-                        }
-                    } else {
-                        completed_target = matches_completion_target(
-                              *candidate
-                            , active_targets
-                            , batch_target_span
-                        );
-                        if (completed_target) {
-                            complete_task_positions = matching_complete_tasks(
-                                  *candidate
-                                , active_tasks
-                                , batch_task_span
-                            );
-                        }
-                    }
-                    if (completed_target) {
-                        bool retained_complete = false;
-                        for (const auto task_pos : complete_task_positions) {
-                            auto complete_result = retain_complete_projection_for_slot(
-                                  *candidate
-                                , branches
-                                , network
-                                , params.transfers
-                                , search_cost
-                                , batch.projection_slots[task_pos]
-                                , assignment_period
-                                , admissibility_config
-                                , complete_connection_dominance
-                                , retentions[task_pos]
-                            );
-                            if (!complete_result) {
-                                successor_error = mathfp::unexpected(
-                                    std::move(complete_result.error())
-                                );
-                                return;
-                            }
-                            add_complete_projection_retention_diagnostics(
-                                  task_stats[task_pos]
-                                , *complete_result
-                            );
-                            add_complete_projection_retention_diagnostics(
-                                  stats
-                                , *complete_result
-                            );
-                            retained_complete =
-                                retained_complete
-                                || complete_result->completed_connections > 0u;
-                        }
-                        if (retained_complete && successor_ref.walk_transition.has_value()) {
-                            increment_walk_kind_stats(
-                                  stats.accepted_walk
-                                , successor_ref.walk_transition->kind
-                            );
-                        }
-                        return;
-                    }
-
-                    if (candidate->trace.current_physical.kind == EndpointKind::Zone) {
-                        ++stats.rejected_dominance_or_tolerance;
-                        return;
-                    }
-
-                    if (od_day_slots) {
-                        ++stats.accepted_branches;
-                        if (successor_ref.walk_transition.has_value()) {
-                            increment_walk_kind_stats(
-                                  stats.accepted_walk
-                                , successor_ref.walk_transition->kind
-                            );
-                        }
-                        increment_phase_stats(
-                              stats.accepted_branches_by_phase
-                            , candidate->trace.phase
-                        );
-                        const auto candidate_phase = candidate->trace.phase;
-                        const auto candidate_index = append_branch(
-                              branches
-                            , std::move(*candidate)
-                        );
-                        push_search_level_branch(
-                              level_expansion
-                            , candidate_index
-                            , candidate_phase
-                            , SearchLevelPlacement::Next
-                        );
-                        if (od_day_memory_limits.max_frontier_per_tree.has_value()
-                            && (current_frontier.size() + next_frontier.size()
-                                > *od_day_memory_limits.max_frontier_per_tree)) {
-                            successor_error = validate_od_day_production_memory_limits(
-                                  make_storage_diagnostics()
-                                , current_frontier.size()
-                                , next_frontier.size()
-                                , od_day_memory_limits
-                                , batch.key.origin
-                            );
-                        }
-                        return;
-                    }
-
-                    const auto candidate_reachability_key = reachability_mask_key(
-                          *candidate
-                        , params.transfers
+                    auto application_result = apply_accepted_successor(
+                          batch_context
+                        , branch
+                        , successor_ref
+                        , successor
+                        , std::move(candidate)
+                        , active_tasks
+                        , active_targets
                     );
-                    const auto& target_reachability_entry =
-                        reachability_cache->target_entry(candidate_reachability_key);
-                    auto next_active_targets = filter_target_positions_by_reachability(
-                          active_targets
-                        , target_reachability_entry
-                    );
-                    if (next_active_targets.empty()) {
-                        add_reachability_rejection(
-                              stats
-                            , summarize_target_reachability_rejection(
-                                  active_targets
-                                , target_reachability_entry
-                              )
+                    if (!application_result) {
+                        successor_error = mathfp::unexpected(
+                            std::move(application_result.error())
                         );
                         return;
                     }
-
-                    if (!od_day_slots
-                        && partial_retention_scope
-                            == SearchPartialRetentionScope::TreeGlobal) {
-                        auto pruning_decision = retain_branch(
-                                  *candidate
-                                , tree_partial_retention
-                                , params
-                                , search_cost
-                                , pruning_execution
-                                , stats.pruning
-                              );
-                        if (!pruning_decision) {
-                            successor_error = mathfp::unexpected(
-                                std::move(pruning_decision.error())
-                            );
-                            return;
-                        }
-                        if (!pruning_decision->accepted) {
-                            ++stats.rejected_dominance_or_tolerance;
-                            return;
-                        }
-                    }
-
-                    const auto reachable_tasks = filter_task_positions_by_reachability(
-                          active_tasks
-                        , reachability_cache->slot_entry(candidate_reachability_key)
-                    );
-                    record_reachability_rejections(
-                          std::span<const RejectedReachabilityTask>{
-                              reachable_tasks.unreachable.data()
-                            , reachable_tasks.unreachable.size()
-                          }
-                        , task_stats
-                        , stats
-                    );
-
-                    ActiveIndexSet next_active_tasks{ batch.projection_slots.size() };
-                    std::vector<RejectedSuffixLowerBoundTask> lower_bound_rejected_tasks;
-                    lower_bound_rejected_tasks.reserve(reachable_tasks.reachable.active_count());
-                    reachable_tasks.reachable.for_each_index([&](std::size_t task_pos) {
-                        if (!successor_error) {
-                            return;
-                        }
-                        if (batch.projection_slots[task_pos].kind
-                            == SearchProjectionSlotKind::OdDayPair) {
-                            next_active_tasks.set(task_pos);
-                            return;
-                        }
-                        auto lower_bound_decision = target_projection_slots
-                            ? evaluate_suffix_lower_bound_pruning(
-                                  *candidate
-                                , batch.projection_slots[task_pos].destination
-                                , *reachability
-                                , retentions[task_pos].compact_complete_connections
-                                , params
-                                , search_cost
-                                , choice_config
-                                , complete_connection_dominance
-                              )
-                            : evaluate_suffix_lower_bound_pruning(
-                                  *candidate
-                                , batch.projection_slots[task_pos].destination
-                                , *reachability
-                                , retentions[task_pos].complete_connections
-                                , params
-                                , search_cost
-                                , choice_config
-                                , complete_connection_dominance
-                              );
-                        if (!lower_bound_decision) {
-                            successor_error = mathfp::unexpected(
-                                std::move(lower_bound_decision.error())
-                            );
-                            return;
-                        }
-                        if (!lower_bound_decision->feasible) {
-                            lower_bound_rejected_tasks.push_back(
-                                RejectedSuffixLowerBoundTask{
-                                      .task_position = task_pos
-                                    , .reason        = lower_bound_decision->rejection_reason
-                                }
-                            );
-                            ++task_stats[task_pos].rejected_dominance_or_tolerance;
-                            return;
-                        }
-
-                        if (partial_retention_scope
-                            == SearchPartialRetentionScope::ProjectionSlotLocal) {
-                            auto pruning_decision = retain_branch(
-                                  *candidate
-                                , retentions[task_pos]
-                                , params
-                                , search_cost
-                                , pruning_execution
-                                , stats.pruning
-                            );
-                            if (!pruning_decision) {
-                                successor_error = mathfp::unexpected(
-                                    std::move(pruning_decision.error())
-                                );
-                                return;
-                            }
-                            if (!pruning_decision->accepted) {
-                                ++task_stats[task_pos].rejected_dominance_or_tolerance;
-                                return;
-                            }
-                        }
-                        next_active_tasks.set(task_pos);
-                    });
-                    if (!successor_error) {
-                        return;
-                    }
-                    record_suffix_lower_bound_rejections(
-                          std::span<const RejectedSuffixLowerBoundTask>{
-                              lower_bound_rejected_tasks.data()
-                            , lower_bound_rejected_tasks.size()
-                          }
-                        , task_stats
-                        , stats
-                    );
-                    if (next_active_tasks.empty()) {
-                        ++stats.rejected_dominance_or_tolerance;
-                        return;
-                    }
-
-                    ++stats.accepted_branches;
-                    if (successor_ref.walk_transition.has_value()) {
-                        increment_walk_kind_stats(
-                              stats.accepted_walk
-                            , successor_ref.walk_transition->kind
-                        );
-                    }
-                    increment_phase_stats(
-                          stats.accepted_branches_by_phase
-                        , candidate->trace.phase
-                    );
-                    //tex:
-                    // Frontier placement follows the transfer-depth level used
-                    // above: always-available walk segments and the first timed
-                    // boarding do not increase $$NT$$, while subsequent timed
-                    // boardings represent the next transfer level.
-                    const auto level_placement =
-                        paper_successor_level_placement(branch, successor);
-                    const auto candidate_phase = candidate->trace.phase;
-                    const auto candidate_index = append_branch(
-                          branches
-                        , std::move(*candidate)
-                    );
-                    if (target_projection_slots) {
-                        completion_projection_states.push_back(
-                            FixedActiveMask::from(next_active_tasks)
-                        );
-                    } else {
-                        demand_projection_states.push_back(
-                            DemandBranchProjectionState{
-                                  .active_tasks = std::move(next_active_tasks)
-                                , .active_targets = std::move(next_active_targets)
-                            }
-                        );
-                    }
-                    push_search_level_branch(
-                          level_expansion
-                        , candidate_index
-                        , candidate_phase
-                        , level_placement
-                    );
-                    if (od_day_slots
+                    if (application_result->outcome
+                            == AcceptedSuccessorApplicationOutcome::Enqueued
+                        && od_day_slots
                         && od_day_memory_limits.max_frontier_per_tree.has_value()
                         && (current_frontier.size() + next_frontier.size()
                             > *od_day_memory_limits.max_frontier_per_tree)) {
@@ -2087,6 +1105,7 @@ namespace timetable::domain::assignment::runtime {
                             , batch.key.origin
                         );
                     }
+                    return;
                 }
                     , [&](std::size_t rejected_walk_count) {
                           stats.rejected_consecutive_walk += rejected_walk_count;
@@ -2134,80 +1153,31 @@ namespace timetable::domain::assignment::runtime {
                 ));
             }
 
-            std::vector<SearchSlotResult> slot_results;
-            slot_results.reserve(batch.projection_slots.size());
-            std::size_t batch_final_found = 0;
-            std::size_t batch_retained_before_tolerance = 0;
-            for (std::size_t task_pos = 0; task_pos < batch.projection_slots.size(); ++task_pos) {
-                const auto& slot = batch.projection_slots[task_pos];
-                auto& retention   = retentions[task_pos];
-                MATHFP_TRY(validate_od_day_post_layer_retention(slot, retention));
-                const auto before_tolerance = target_projection_slots
-                    ? retention.compact_complete_connections.metrics.size()
-                    : slot.kind == SearchProjectionSlotKind::OdDayPair
-                        ? day_path_retention_size(retention.day_paths)
-                        : retention.complete_connections.alternatives.size();
-                std::vector<SearchConnection> connections;
-                std::vector<DayPathAlternative> day_path_alternatives;
-                std::size_t connection_count = 0u;
-                if (target_projection_slots) {
-                    connection_count = finalize_compact_complete_connection_count(
-                          retention.compact_complete_connections
-                        , params.choice_tolerances
-                        , choice_config.rollout_stage
-                    );
-                } else {
-                    if (slot.kind == SearchProjectionSlotKind::OdDayPair) {
-                        /*
-                         * Production OD-day search finalizes only OD path
-                         * alternatives. Raw completed SearchConnection objects
-                         * remain support payload under DayPathAlternative and
-                         * must not become the slot result.
-                         */
-                        (void)choice_config;
-                        day_path_alternatives = finalize_day_path_alternatives(
-                            std::move(retention.day_paths)
-                        );
-                        for (std::size_t i = 0; i < day_path_alternatives.size(); ++i) {
-                            MATHFP_TRY(validate_day_path_alternative(
-                                  day_path_alternatives[i]
-                                , i
-                            ));
-                        }
-                        connection_count = day_path_alternatives.size();
-                    } else {
-                        connections = finalize_complete_connection_retention(
-                              retention.complete_connections
-                            , params.choice_tolerances
-                            , choice_config.rollout_stage
-                        );
-                        connection_count = connections.size();
-                    }
-                    task_stats[task_pos].rejected_complete_tolerance =
-                        before_tolerance - connection_count;
-                }
-                if (target_projection_slots) {
-                    task_stats[task_pos].rejected_complete_tolerance =
-                        before_tolerance - connection_count;
-                }
-                stats.rejected_complete_admissibility += task_stats[task_pos].rejected_complete_admissibility;
-                stats.rejected_complete_dominance += task_stats[task_pos].rejected_complete_dominance;
-                stats.removed_complete_dominated  += task_stats[task_pos].removed_complete_dominated;
-                stats.rejected_complete_tolerance += task_stats[task_pos].rejected_complete_tolerance;
-                batch_final_found += connection_count;
-                batch_retained_before_tolerance += before_tolerance;
-                slot_results.push_back(
-                    SearchSlotResult{
-                          .slot = slot
-                        , .connection_count = connection_count
-                        , .connections = std::move(connections)
-                        , .day_path_alternatives = std::move(day_path_alternatives)
-                    }
-                );
-                MATHFP_TRY(validate_od_day_post_layer_result(slot_results.back()));
-                MATHFP_TRY(validate_reachability_rejection_stats(task_stats[task_pos]));
-                MATHFP_TRY(validate_suffix_lower_bound_rejection_stats(task_stats[task_pos]));
-
+            MATHFP_TRY_LET(
+                  SearchBatchFinalization
+                , finalization
+                , finalize_search_batch_results(
+                      std::span<const SearchProjectionSlot>{
+                          batch.projection_slots.data()
+                        , batch.projection_slots.size()
+                      }
+                    , std::span<SearchProjectionRetention>{
+                          retentions.data()
+                        , retentions.size()
+                      }
+                    , params.choice_tolerances
+                    , choice_config.rollout_stage
+                    , target_projection_slots
+                    , task_stats
+                    , stats
+                )
+            );
+            for (std::size_t task_pos = 0; task_pos < finalization.slot_results.size(); ++task_pos) {
+                const auto& slot_result = finalization.slot_results[task_pos];
+                const auto& slot = slot_result.slot;
+                const auto before_tolerance =
+                    finalization.slot_finalizations[task_pos]
+                        .retained_before_tolerance;
                 if (diagnostics.log_projection_details) {
                     log(
                         fmt::format(
@@ -2227,7 +1197,7 @@ namespace timetable::domain::assignment::runtime {
                             , slot.interval.has_value()
                                 ? std::to_string(slot.interval->get())
                                 : std::string{"<none>"}
-                            , slot_results.back().connection_count
+                            , slot_result.connection_count
                             , before_tolerance
                             , task_stats[task_pos].rejected_complete_admissibility
                             , task_stats[task_pos].rejected_complete_dominance
@@ -2247,8 +1217,6 @@ namespace timetable::domain::assignment::runtime {
                     );
                 }
             }
-            MATHFP_TRY(validate_reachability_rejection_stats(stats));
-            MATHFP_TRY(validate_suffix_lower_bound_rejection_stats(stats));
 
             log(
                 fmt::format(
@@ -2269,9 +1237,9 @@ namespace timetable::domain::assignment::runtime {
                     , batch.key.origin.get()
                     , format_batch_interval(batch.key.interval)
                     , batch.projection_slots.size()
-                    , batch_final_found
+                    , finalization.final_found
                     , stats.completed_connections
-                    , batch_retained_before_tolerance
+                    , finalization.retained_before_tolerance
                     , stats.rejected_complete_admissibility
                     , stats.rejected_complete_dominance
                     , stats.rejected_complete_tolerance
@@ -2337,7 +1305,7 @@ namespace timetable::domain::assignment::runtime {
                 ));
             }
 
-            return slot_results;
+            return finalization.slot_results;
         }
 
     }  // namespace
@@ -2917,105 +1885,69 @@ namespace timetable::domain::assignment::runtime {
         std::atomic<std::size_t> found_connections{ 0u };
         SearchParallelBatchRuntime parallel_runtime;
         CountOnlyAllZoneSearchResultSink result_sink;
-        std::vector<std::future<mathfp::Expected<mathfp::Unit>>> workers;
-        workers.reserve(worker_count);
+        auto first_worker_error = run_search_parallel_batches(
+              parallel_runtime
+            , worker_count
+            , batches.size()
+            , [&](std::size_t worker, std::size_t i)
+                  -> mathfp::Expected<SearchParallelBatchStepStatus> {
+                  const auto& batch = batches[i];
+                  if (
+                         i == 0
+                      || (i % kTaskProgressStep) == 0
+                      || (i + 1) == batches.size()
+                  ) {
+                      status(
+                          fmt::format(
+                                "all-zone search: worker={} batch {}/{} origin={} targets={} projection_slots={} completed={} total_found={}"
+                              , worker
+                              , i + 1
+                              , batches.size()
+                              , batch.key.origin.get()
+                              , batch.completion_targets.size()
+                              , batch.projection_slots.size()
+                              , completed_search_batches(parallel_runtime)
+                              , found_connections.load(std::memory_order_relaxed)
+                          )
+                      );
+                  }
 
-        for (std::size_t worker = 0; worker < worker_count; ++worker) {
-            workers.push_back(
-                std::async(
-                      std::launch::async
-                    , [&, worker]() -> mathfp::Expected<mathfp::Unit> {
-                          for (;;) {
-                              if (search_cancelled(&parallel_runtime.cancellation)) {
-                                  return mathfp::kUnit;
-                              }
-                              const auto claimed_batch = claim_next_search_batch(
-                                    parallel_runtime
-                                  , batches.size()
-                              );
-                              if (!claimed_batch.has_value()) {
-                                  return mathfp::kUnit;
-                              }
-                              const auto i = *claimed_batch;
-
-                              const auto& batch = batches[i];
-                              if (
-                                     i == 0
-                                  || (i % kTaskProgressStep) == 0
-                                  || (i + 1) == batches.size()
-                              ) {
-                                  status(
-                                      fmt::format(
-                                            "all-zone search: worker={} batch {}/{} origin={} targets={} projection_slots={} completed={} total_found={}"
-                                          , worker
-                                          , i + 1
-                                          , batches.size()
-                                          , batch.key.origin.get()
-                                          , batch.completion_targets.size()
-                                          , batch.projection_slots.size()
-                                          , completed_search_batches(parallel_runtime)
-                                          , found_connections.load(std::memory_order_relaxed)
-                                      )
-                                  );
-                              }
-
-                              auto results_result = search_batch_connections(
-                                        batch
-                                      , network
-                                      , residual_reverse_graph
-                                      , params
-                                      , search_cost
-                                      , choice_config
-                                      , assignment_period
-                                      , admissibility_config
-                                      , effective_pruning_execution
-                                      , complete_connection_dominance
-                                      , execution.config.partial_retention_scope
-                                      , diagnostics
-                                      , i
-                                      , batches.size()
-                                      , nullptr
-                                      , &parallel_runtime.cancellation
-                                  );
-                              if (!results_result) {
-                                  request_search_cancellation(
-                                      &parallel_runtime.cancellation
-                                  );
-                                  return mathfp::unexpected(std::move(results_result.error()));
-                              }
-                              if (search_cancelled(&parallel_runtime.cancellation)) {
-                                  mark_search_batch_cancelled(parallel_runtime);
-                                  return mathfp::kUnit;
-                              }
-                              auto results = std::move(*results_result);
-                              found_connections.fetch_add(
-                                    search_slot_connection_count(results)
-                                  , std::memory_order_relaxed
-                              );
-                              auto sink_result = result_sink.accept(std::move(results));
-                              if (!sink_result) {
-                                  request_search_cancellation(
-                                      &parallel_runtime.cancellation
-                                  );
-                                  return mathfp::unexpected(std::move(sink_result.error()));
-                              }
-                              mark_search_batch_completed(parallel_runtime);
-                          }
-                      }
-                )
-            );
-        }
-
-        mathfp::Expected<mathfp::Unit> first_worker_error = mathfp::kUnit;
-        for (auto& worker : workers) {
-            auto worker_result = worker.get();
-            if (!worker_result && first_worker_error) {
-                request_search_cancellation(&parallel_runtime.cancellation);
-                first_worker_error = mathfp::unexpected(
-                    std::move(worker_result.error())
-                );
-            }
-        }
+                  auto results_result = search_batch_connections(
+                            batch
+                          , network
+                          , residual_reverse_graph
+                          , params
+                          , search_cost
+                          , choice_config
+                          , assignment_period
+                          , admissibility_config
+                          , effective_pruning_execution
+                          , complete_connection_dominance
+                          , execution.config.partial_retention_scope
+                          , diagnostics
+                          , i
+                          , batches.size()
+                          , nullptr
+                          , &parallel_runtime.cancellation
+                      );
+                  if (!results_result) {
+                      return mathfp::unexpected(std::move(results_result.error()));
+                  }
+                  if (search_cancelled(&parallel_runtime.cancellation)) {
+                      return SearchParallelBatchStepStatus::Cancelled;
+                  }
+                  auto results = std::move(*results_result);
+                  found_connections.fetch_add(
+                        search_slot_connection_count(results)
+                      , std::memory_order_relaxed
+                  );
+                  auto sink_result = result_sink.accept(std::move(results));
+                  if (!sink_result) {
+                      return mathfp::unexpected(std::move(sink_result.error()));
+                  }
+                  return SearchParallelBatchStepStatus::Completed;
+              }
+        );
         if (cancelled_search_batches(parallel_runtime) != 0u) {
             log(
                 fmt::format(
@@ -3303,128 +2235,96 @@ namespace timetable::domain::assignment::runtime {
         std::atomic<std::size_t> empty_pair_count{ 0u };
         SearchParallelBatchRuntime parallel_runtime;
         std::mutex origin_sink_mutex;
-        std::vector<std::future<mathfp::Expected<mathfp::Unit>>> workers;
-        workers.reserve(worker_count);
+        auto first_worker_error = run_search_parallel_batches(
+              parallel_runtime
+            , worker_count
+            , batches.size()
+            , [&](std::size_t worker, std::size_t i)
+                  -> mathfp::Expected<SearchParallelBatchStepStatus> {
+                  const auto& batch = batches[i];
+                  if (
+                         i == 0
+                      || (i % kTaskProgressStep) == 0
+                      || (i + 1) == batches.size()
+                  ) {
+                      status(
+                          fmt::format(
+                                "OD-day search: worker={} origin batch {}/{} origin={} targets={} projection_slots={} completed={} total_found={}"
+                              , worker
+                              , i + 1
+                              , batches.size()
+                              , batch.key.origin.get()
+                              , batch.completion_targets.size()
+                              , batch.projection_slots.size()
+                              , completed_search_batches(parallel_runtime)
+                              , day_path_alternative_count.load(std::memory_order_relaxed)
+                          )
+                      );
+                  }
 
-        for (std::size_t worker = 0; worker < worker_count; ++worker) {
-            workers.push_back(
-                std::async(
-                      std::launch::async
-                    , [&, worker]() -> mathfp::Expected<mathfp::Unit> {
-                          for (;;) {
-                              if (search_cancelled(&parallel_runtime.cancellation)) {
-                                  return mathfp::kUnit;
-                              }
-                              const auto claimed_batch = claim_next_search_batch(
-                                    parallel_runtime
-                                  , batches.size()
-                              );
-                              if (!claimed_batch.has_value()) {
-                                  return mathfp::kUnit;
-                              }
-                              const auto i = *claimed_batch;
-
-                              const auto& batch = batches[i];
-                              if (
-                                     i == 0
-                                  || (i % kTaskProgressStep) == 0
-                                  || (i + 1) == batches.size()
-                              ) {
-                                  status(
-                                      fmt::format(
-                                            "OD-day search: worker={} origin batch {}/{} origin={} targets={} projection_slots={} completed={} total_found={}"
-                                          , worker
-                                          , i + 1
-                                          , batches.size()
-                                          , batch.key.origin.get()
-                                          , batch.completion_targets.size()
-                                          , batch.projection_slots.size()
-                                          , completed_search_batches(parallel_runtime)
-                                          , day_path_alternative_count.load(std::memory_order_relaxed)
-                                      )
-                                  );
-                              }
-
-                              auto slot_results_result = search_batch_connections(
-                                        batch
-                                      , network
-                                      , residual_reverse_graph
-                                      , params
-                                      , search_cost
-                                      , choice_config
-                                      , assignment_period
-                                      , admissibility_config
-                                      , effective_pruning_execution
-                                      , complete_connection_dominance
-                                      , execution.config.partial_retention_scope
-                                      , diagnostics
-                                      , i
-                                      , batches.size()
-                                      , nullptr
-                                      , &parallel_runtime.cancellation
-                                  );
-                              if (!slot_results_result) {
-                                  request_search_cancellation(
-                                      &parallel_runtime.cancellation
-                                  );
-                                  return mathfp::unexpected(std::move(slot_results_result.error()));
-                              }
-                              if (search_cancelled(&parallel_runtime.cancellation)) {
-                                  mark_search_batch_cancelled(parallel_runtime);
-                                  return mathfp::kUnit;
-                              }
-                              auto slot_results = std::move(*slot_results_result);
-                              auto origin_result = materialize_origin_day_search_result(
-                                    batch.key.origin
-                                  , std::move(slot_results)
-                              );
-                              auto origin_alternatives = std::size_t{ 0u };
-                              auto origin_empty_pairs = std::size_t{ 0u };
-                              for (const auto& pair_result : origin_result.pair_results) {
-                                  origin_alternatives += pair_result.alternatives.size();
-                                  if (pair_result.alternatives.empty()) {
-                                      ++origin_empty_pairs;
-                                  }
-                              }
-                              day_path_alternative_count.fetch_add(
-                                    origin_alternatives
-                                  , std::memory_order_relaxed
-                              );
-                              empty_pair_count.fetch_add(
-                                    origin_empty_pairs
-                                  , std::memory_order_relaxed
-                              );
-                              pair_count.fetch_add(
-                                    origin_result.pair_results.size()
-                                  , std::memory_order_relaxed
-                              );
-                              {
-                                  std::scoped_lock lock(origin_sink_mutex);
-                                  auto sink_result = origin_sink(std::move(origin_result));
-                                  if (!sink_result) {
-                                      request_search_cancellation(
-                                          &parallel_runtime.cancellation
-                                      );
-                                      return mathfp::unexpected(std::move(sink_result.error()));
-                                  }
-                              }
-                              mark_search_batch_completed(parallel_runtime);
-                          }
+                  auto slot_results_result = search_batch_connections(
+                            batch
+                          , network
+                          , residual_reverse_graph
+                          , params
+                          , search_cost
+                          , choice_config
+                          , assignment_period
+                          , admissibility_config
+                          , effective_pruning_execution
+                          , complete_connection_dominance
+                          , execution.config.partial_retention_scope
+                          , diagnostics
+                          , i
+                          , batches.size()
+                          , nullptr
+                          , &parallel_runtime.cancellation
+                      );
+                  if (!slot_results_result) {
+                      return mathfp::unexpected(
+                          std::move(slot_results_result.error())
+                      );
+                  }
+                  if (search_cancelled(&parallel_runtime.cancellation)) {
+                      return SearchParallelBatchStepStatus::Cancelled;
+                  }
+                  auto slot_results = std::move(*slot_results_result);
+                  auto origin_result = materialize_origin_day_search_result(
+                        batch.key.origin
+                      , std::move(slot_results)
+                  );
+                  auto origin_alternatives = std::size_t{ 0u };
+                  auto origin_empty_pairs = std::size_t{ 0u };
+                  for (const auto& pair_result : origin_result.pair_results) {
+                      origin_alternatives += pair_result.alternatives.size();
+                      if (pair_result.alternatives.empty()) {
+                          ++origin_empty_pairs;
                       }
-                )
-            );
-        }
-
-        mathfp::Expected<mathfp::Unit> first_worker_error = mathfp::kUnit;
-        for (auto& worker : workers) {
-            auto worker_result = worker.get();
-            if (!worker_result && first_worker_error) {
-                request_search_cancellation(&parallel_runtime.cancellation);
-                first_worker_error = mathfp::unexpected(
-                    std::move(worker_result.error())
-                );
-            }
-        }
+                  }
+                  day_path_alternative_count.fetch_add(
+                        origin_alternatives
+                      , std::memory_order_relaxed
+                  );
+                  empty_pair_count.fetch_add(
+                        origin_empty_pairs
+                      , std::memory_order_relaxed
+                  );
+                  pair_count.fetch_add(
+                        origin_result.pair_results.size()
+                      , std::memory_order_relaxed
+                  );
+                  {
+                      std::scoped_lock lock(origin_sink_mutex);
+                      auto sink_result = origin_sink(std::move(origin_result));
+                      if (!sink_result) {
+                          return mathfp::unexpected(
+                              std::move(sink_result.error())
+                          );
+                      }
+                  }
+                  return SearchParallelBatchStepStatus::Completed;
+              }
+        );
         if (cancelled_search_batches(parallel_runtime) != 0u) {
             log(
                 fmt::format(
