@@ -10,30 +10,6 @@
 
 namespace timetable::domain::assignment::runtime {
 
-    [[nodiscard]] std::size_t& phase_counter(
-          BranchPhaseStats& stats
-        , SearchBranchPhase phase
-    ) noexcept {
-        switch (phase) {
-            case SearchBranchPhase::AtOrigin:
-                return stats.at_origin;
-
-            case SearchBranchPhase::BeforeFirstBoarding:
-                return stats.before_first_boarding;
-
-            case SearchBranchPhase::AfterTimedRide:
-                return stats.after_timed_ride;
-
-            case SearchBranchPhase::AfterTransferWalk:
-                return stats.after_transfer_walk;
-
-            case SearchBranchPhase::Completed:
-                return stats.completed;
-        }
-
-        return stats.completed;
-    }
-
     void increment_walk_kind_stats(
           WalkKindStats&    stats
         , ConnectionLegKind kind
@@ -56,23 +32,6 @@ namespace timetable::domain::assignment::runtime {
             case ConnectionLegKind::TransferWait:
             case ConnectionLegKind::FinalWait:
                 return;
-        }
-    }
-
-    void increment_phase_stats(
-          BranchPhaseStats& stats
-        , SearchBranchPhase phase
-    ) noexcept {
-        ++phase_counter(stats, phase);
-    }
-
-    void decrement_phase_stats(
-          BranchPhaseStats& stats
-        , SearchBranchPhase phase
-    ) noexcept {
-        auto& counter = phase_counter(stats, phase);
-        if (counter > 0u) {
-            --counter;
         }
     }
 

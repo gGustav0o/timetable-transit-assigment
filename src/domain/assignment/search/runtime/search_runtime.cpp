@@ -18,7 +18,6 @@
 #include <queue>
 #include <span>
 #include <string>
-#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -49,12 +48,12 @@
 #include "timetable/domain/assignment/search/frontier/active_index_set.hpp"
 #include "timetable/domain/assignment/search/frontier/branch_arena.hpp"
 #include "timetable/domain/assignment/search/frontier/retention_operations.hpp"
-#include "timetable/domain/assignment/search/generation/branch_transition.hpp"
 #include "timetable/domain/assignment/search/generation/successor.hpp"
 #include "timetable/domain/assignment/search/execution.hpp"
 #include "timetable/domain/assignment/search/projection.hpp"
 #include "timetable/domain/assignment/search/projection/contract.hpp"
 #include "timetable/domain/assignment/search/projection/complete_connection.hpp"
+#include "timetable/domain/assignment/search/projection/sink.hpp"
 #include "timetable/domain/assignment/search/pruning/suffix_lower_bound.hpp"
 #include "timetable/domain/assignment/search/model/retention.hpp"
 #include "timetable/domain/assignment/search/model/support.hpp"
@@ -62,35 +61,19 @@
 #include "timetable/domain/assignment/search/od_day/supply_graph.hpp"
 #include "timetable/domain/assignment/search/relations/branch_metrics.hpp"
 #include "timetable/domain/assignment/search/relations/branch_state_projection.hpp"
-#include "timetable/domain/assignment/search/relations/paper_connection_relevance.hpp"
 #include "timetable/domain/assignment/search/residual_reachability.hpp"
+#include "timetable/domain/assignment/search/runtime/cancellation.hpp"
 #include "timetable/domain/assignment/search/runtime/diagnostics.hpp"
-#include "timetable/domain/segment_semantics.hpp"
+#include "timetable/domain/assignment/search/runtime/parallel.hpp"
+#include "timetable/domain/assignment/search/tree/level_expansion.hpp"
+#include "timetable/domain/assignment/search/tree/paper_successor_step.hpp"
+#include "timetable/domain/assignment/search/tree/tree_runner.hpp"
 #include "timetable/infra/progress_bus.hpp"
 
 namespace timetable::domain::assignment::runtime {
     namespace {
 
         using PartialPruningMetrics = SearchPruningMetrics;
-
-        struct SearchCancellationToken final {
-            std::atomic_bool requested{ false };
-        };
-
-        [[nodiscard]] bool search_cancelled(
-            const SearchCancellationToken* token
-        ) noexcept {
-            return token != nullptr
-                && token->requested.load(std::memory_order_acquire);
-        }
-
-        void request_search_cancellation(
-            SearchCancellationToken* token
-        ) noexcept {
-            if (token != nullptr) {
-                token->requested.store(true, std::memory_order_release);
-            }
-        }
 
         [[nodiscard]] mathfp::Expected<std::map<IntervalId, const TimeInterval*>> interval_lookup(
             const InputModel& input
@@ -434,161 +417,6 @@ namespace timetable::domain::assignment::runtime {
                 , pruning_execution
                 , pruning_stats
             );
-        }
-
-        struct PaperConnectionRetentionDecision final {
-            SearchPruningDecision pruning{};
-            PaperConnectionLabelId label{};
-            std::vector<PaperConnectionLabelId> removed_labels{};
-            std::size_t removed_stale_labels{};
-
-            [[nodiscard]] bool accepted() const noexcept {
-                return pruning.accepted;
-            }
-        };
-
-        mathfp::Expected<PaperConnectionRetentionDecision> retain_paper_connection_tree_node(
-              PaperConnectionNodeKey            node
-            , PartialPruningMetrics             metrics
-            , std::optional<PaperConnectionLabelId> parent_label
-            , PaperConnectionLabelRegistry&      label_registry
-            , TreePartialRetention&             retention
-            , const SearchParams&               params
-            , const SearchPruningExecutionPlan& pruning_execution
-            , SearchPruningRuntimeStats&        pruning_stats
-        ) {
-            //tex:
-            // Paper $$C_y$$ retention at the current tree node. A candidate
-            // $$c_y^*=c_x^*+s^*_{x,y}$$ is accepted only if no retained
-            // $$c\in C_y$$ dominates it by $$DEP,ARR,IMP,NT$$ and the node-local
-            // tolerance bounds for $$IMP,JT,NT$$ and $$MAXNT$$ are satisfied.
-            // The map is created per origin batch, so $$C_y$$ contains only
-            // connections that start from the same origin.
-            ++pruning_stats.evaluated_candidates;
-            auto it = retention.paper_connections.find(node);
-            if (it == retention.paper_connections.end()) {
-                const auto label = allocate_paper_connection_label(
-                      label_registry
-                    , parent_label
-                );
-                std::vector<PaperConnectionLabelId> removed_labels;
-                if (stores_search_pruning_metrics(pruning_execution)) {
-                    insert_pruning_metrics(
-                          retention.paper_connections
-                        , pruning_execution
-                        , node
-                        , std::move(metrics)
-                        , label
-                        , removed_labels
-                    );
-                    ++pruning_stats.inserted_metrics;
-                } else {
-                    ++pruning_stats.skipped_insertions;
-                }
-                ++pruning_stats.accepted_candidates;
-                return PaperConnectionRetentionDecision{
-                      .pruning = SearchPruningDecision{
-                          .layer    = SearchPruningLayer::Exact
-                        , .reason   = SearchPruningReason::Accepted
-                        , .accepted = true
-                      }
-                    , .label = label
-                    , .removed_labels = std::move(removed_labels)
-                };
-            }
-
-            const auto removed_stale_labels =
-                remove_inactive_paper_node_connection_metrics(
-                      it->second
-                    , label_registry
-                );
-            if (it->second.empty()) {
-                const auto label = allocate_paper_connection_label(
-                      label_registry
-                    , parent_label
-                );
-                std::vector<PaperConnectionLabelId> removed_labels;
-                if (stores_search_pruning_metrics(pruning_execution)) {
-                    insert_pruning_metrics(
-                          retention.paper_connections
-                        , pruning_execution
-                        , node
-                        , std::move(metrics)
-                        , label
-                        , removed_labels
-                    );
-                    ++pruning_stats.inserted_metrics;
-                } else {
-                    ++pruning_stats.skipped_insertions;
-                }
-                ++pruning_stats.accepted_candidates;
-                return PaperConnectionRetentionDecision{
-                      .pruning = SearchPruningDecision{
-                          .layer    = SearchPruningLayer::Exact
-                        , .reason   = SearchPruningReason::Accepted
-                        , .accepted = true
-                      }
-                    , .label = label
-                    , .removed_labels = std::move(removed_labels)
-                    , .removed_stale_labels = removed_stale_labels
-                };
-            }
-
-            const auto pruning_decision = evaluate_paper_node_connection_set(
-                  pruning_execution
-                , metrics
-                , it->second
-                , params.transfers
-            );
-            if (!pruning_decision.accepted) {
-                switch (pruning_decision.layer) {
-                    case SearchPruningLayer::Exact:
-                        ++pruning_stats.rejected_exact;
-                        break;
-                    case SearchPruningLayer::Approximate:
-                        ++pruning_stats.rejected_approximate;
-                        break;
-                }
-                return PaperConnectionRetentionDecision{
-                      .pruning = pruning_decision
-                    , .removed_stale_labels = removed_stale_labels
-                };
-            }
-            if (stores_search_pruning_metrics(pruning_execution)) {
-                const auto label = allocate_paper_connection_label(
-                      label_registry
-                    , parent_label
-                );
-                std::vector<PaperConnectionLabelId> removed_labels;
-                insert_pruning_metrics(
-                      retention.paper_connections
-                    , pruning_execution
-                    , node
-                    , std::move(metrics)
-                    , label
-                    , removed_labels
-                );
-                ++pruning_stats.inserted_metrics;
-                pruning_stats.accepted_candidates++;
-                return PaperConnectionRetentionDecision{
-                      .pruning = pruning_decision
-                    , .label = label
-                    , .removed_labels = std::move(removed_labels)
-                    , .removed_stale_labels = removed_stale_labels
-                };
-            } else {
-                const auto label = allocate_paper_connection_label(
-                      label_registry
-                    , parent_label
-                );
-                ++pruning_stats.skipped_insertions;
-                ++pruning_stats.accepted_candidates;
-                return PaperConnectionRetentionDecision{
-                      .pruning = pruning_decision
-                    , .label = label
-                    , .removed_stale_labels = removed_stale_labels
-                };
-            }
         }
 
         mathfp::Expected<SearchPruningDecision> retain_od_day_label_branch(
@@ -1087,16 +915,6 @@ namespace timetable::domain::assignment::runtime {
             return positions;
         }
 
-        [[nodiscard]] std::map<ZoneId, std::size_t> projection_slot_position_by_destination(
-            std::span<const SearchProjectionSlot> batch_slots
-        ) {
-            std::map<ZoneId, std::size_t> positions;
-            for (std::size_t slot_pos = 0; slot_pos < batch_slots.size(); ++slot_pos) {
-                positions[batch_slots[slot_pos].destination] = slot_pos;
-            }
-            return positions;
-        }
-
         void add_complete_projection_retention_diagnostics(
               TaskSearchStats&                                stats
             , const CompleteProjectionRetentionDiagnostics&    diagnostics
@@ -1171,11 +989,16 @@ namespace timetable::domain::assignment::runtime {
                 , day_level_supply != nullptr
             ));
 
-            std::vector<SearchProjectionRetention> retentions;
-            retentions.reserve(batch.projection_slots.size());
-            for (const auto& slot : batch.projection_slots) {
-                retentions.push_back(SearchProjectionRetention{ .slot = slot });
-            }
+            const auto batch_task_span =
+                std::span<const SearchProjectionSlot>{
+                      batch.projection_slots.data()
+                    , batch.projection_slots.size()
+                };
+            const auto projection_sinks =
+                make_search_projection_sink_set(batch_task_span);
+            auto retentions = make_search_projection_retentions(
+                projection_sinks
+            );
             TreePartialRetention tree_partial_retention{};
             PaperConnectionLabelRegistry paper_label_registry{};
 
@@ -1187,27 +1010,21 @@ namespace timetable::domain::assignment::runtime {
             std::size_t                       released_branches = 0;
             const SearchTimeDomain*           first_departure_domain =
                 &batch.departure_domain.get();
-            const auto                        batch_task_span =
-                std::span<const SearchProjectionSlot>{
-                      batch.projection_slots.data()
-                    , batch.projection_slots.size()
-                };
             const auto                        batch_target_span =
                 std::span<const SearchCompletionTarget>{
                       batch.completion_targets.data()
                     , batch.completion_targets.size()
                 };
             const auto target_projection_slots =
-                completion_target_projection_slots(batch_task_span);
+                projection_sinks.completion_target_slots;
             const auto od_day_slots =
-                od_day_projection_slots(batch_task_span);
+                projection_sinks.od_day_slots;
             const auto* od_day_supply = od_day_slots ? nullptr : day_level_supply;
             const auto target_positions_by_destination = target_projection_slots
                 ? completion_target_position_by_destination(batch_target_span)
                 : std::map<ZoneId, std::size_t>{};
-            const auto od_day_slot_positions_by_destination = od_day_slots
-                ? projection_slot_position_by_destination(batch_task_span)
-                : std::map<ZoneId, std::size_t>{};
+            const auto& projection_positions_by_destination =
+                projection_sinks.position_by_destination;
             std::unordered_set<std::int64_t> od_day_destination_ids;
             if (od_day_slots) {
                 od_day_destination_ids.reserve(batch.completion_targets.size());
@@ -1274,8 +1091,13 @@ namespace timetable::domain::assignment::runtime {
                 );
             }
 
-            SearchFrontierLayer current_frontier;
-            SearchFrontierLayer next_frontier;
+            SearchLevelExpansion level_expansion;
+            auto& current_frontier = level_expansion.current_frontier;
+            auto& next_frontier = level_expansion.next_frontier;
+            auto& current_frontier_by_phase =
+                level_expansion.current_frontier_by_phase;
+            auto& next_frontier_by_phase =
+                level_expansion.next_frontier_by_phase;
             //tex:
             // The tree is traversed with two frontier buffers. `current_frontier`
             // is exhausted before `next_frontier` becomes current. In this
@@ -1375,11 +1197,9 @@ namespace timetable::domain::assignment::runtime {
                     }
                 );
             }
-            current_frontier.push_back(root_branch_index);
-            BranchPhaseStats current_frontier_by_phase;
-            BranchPhaseStats next_frontier_by_phase;
-            increment_phase_stats(
-                  current_frontier_by_phase
+            seed_search_level_expansion(
+                  level_expansion
+                , root_branch_index
                 , SearchBranchPhase::AtOrigin
             );
             auto retained_production_alternative_count = [&]() noexcept {
@@ -1605,41 +1425,45 @@ namespace timetable::domain::assignment::runtime {
                     ? ActiveIndexSet::full(batch.completion_targets.size())
                     : ActiveIndexSet{};
 
-            while (!current_frontier.empty() || !next_frontier.empty()) {
-                if (search_cancelled(cancellation)) {
-                    log(
-                        fmt::format(
-                              "search batch cancelled: {}/{} origin={} interval={} expanded={} accepted={} found={} reason=sibling_failed"
-                            , batch_index + 1
-                            , batch_count
-                            , batch.key.origin.get()
-                            , format_batch_interval(batch.key.interval)
-                            , stats.expanded_branches
-                            , stats.accepted_branches
-                            , retained_production_alternative_count()
-                        )
-                        , LogLevel::Warning
-                    );
-                    return std::vector<SearchSlotResult>{};
-                }
-                if (current_frontier.empty()) {
+            MATHFP_TRY_LET(
+                  SearchTreeRunStatus
+                , tree_run_status
+                , run_search_tree_levels(
+                      level_expansion
+                    , [&]() -> mathfp::Expected<SearchTreeRunDirective> {
+                          if (search_cancelled(cancellation)) {
+                              log(
+                                  fmt::format(
+                                        "search batch cancelled: {}/{} origin={} interval={} expanded={} accepted={} found={} reason=sibling_failed"
+                                      , batch_index + 1
+                                      , batch_count
+                                      , batch.key.origin.get()
+                                      , format_batch_interval(batch.key.interval)
+                                      , stats.expanded_branches
+                                      , stats.accepted_branches
+                                      , retained_production_alternative_count()
+                                  )
+                                  , LogLevel::Warning
+                              );
+                              return SearchTreeRunDirective::Stop;
+                          }
+                          return SearchTreeRunDirective::Continue;
+                      }
+                    , [&]() -> mathfp::Expected<mathfp::Unit> {
                     compact_od_day_frontiers("level_swap");
                     c_y_removed_since_frontier_compaction = 0u;
-                    current_frontier.swap(next_frontier);
-                    current_frontier_by_phase = next_frontier_by_phase;
-                    next_frontier_by_phase = BranchPhaseStats{};
-                    if (current_frontier.empty()) {
-                        continue;
-                    }
-                }
+                    return mathfp::kUnit;
+                      }
+                    , [&](std::size_t queued_branch_index) noexcept {
+                          return branch_at(branches, queued_branch_index).trace.phase;
+                      }
+                    , [&](std::size_t branch_index)
+                          -> mathfp::Expected<SearchTreeRunDirective> {
 
                 stats.max_current_frontier = std::max(stats.max_current_frontier, current_frontier.size());
                 stats.max_next_frontier    = std::max(stats.max_next_frontier   , next_frontier   .size());
 
-                const auto branch_index = current_frontier.front();
-                current_frontier.pop_front();
                 const auto& branch = branch_at(branches, branch_index);
-                decrement_phase_stats(current_frontier_by_phase, branch.trace.phase);
                 if (od_day_slots
                     && !paper_connection_label_active(
                           paper_label_registry
@@ -1651,7 +1475,7 @@ namespace timetable::domain::assignment::runtime {
                         , branch_index
                         , release_projection_payload
                     );
-                    continue;
+                    return SearchTreeRunDirective::Continue;
                 }
                 emit_wall_clock_heartbeat("branch", branch_index);
                 ActiveIndexSet completion_active;
@@ -1785,7 +1609,7 @@ namespace timetable::domain::assignment::runtime {
                         , branch_index
                         , release_projection_payload
                     );
-                    continue;
+                    return SearchTreeRunDirective::Continue;
                 }
 
                 mathfp::Expected<mathfp::Unit> successor_error = mathfp::kUnit;
@@ -1815,139 +1639,101 @@ namespace timetable::domain::assignment::runtime {
                         emit_wall_clock_heartbeat("successor", branch_index);
                     }
                     const auto& successor = connection_segment_at(network, successor_ref.connection);
-                    if (!od_day_slots || !successor_ref.support_envelope.has_value()) {
-                        /*
-                         * In production OD-day this is an invariant guard: the
-                         * generator must have emitted only insertable paper
-                         * successors. Legacy timed search keeps the predicate
-                         * as its working filter.
-                         */
-                        const auto feasibility_decision =
-                            evaluate_paper_search_successor_feasibility(
-                                  branch
-                                , network
-                                , successor_ref
-                                , first_departure_domain
-                                , params.transfers
-                            );
-                        if (!feasibility_decision.accepted()) {
-                            record_paper_successor_feasibility_rejection(
-                                  stats
-                                , feasibility_decision.rejection
-                            );
-                            if (od_day_slots) {
-                                successor_error = mathfp::unexpected(
-                                    mathfp::internal_error("OD-day paper successor failed late insertability invariant")
-                                        .ctx("origin", batch.key.origin.get())
-                                        .ctx("branch", static_cast<std::int64_t>(branch_index))
-                                        .ctx("connection", static_cast<std::int64_t>(successor_ref.connection.get()))
-                                        .ctx("rejection", static_cast<std::int64_t>(feasibility_decision.rejection))
-                                );
-                            }
-                            return;
-                        }
-                    }
-
-                    std::optional<PaperConnectionLabelId> accepted_paper_label;
-                    if (od_day_slots
-                        && partial_retention_scope
-                            == SearchPartialRetentionScope::TreeGlobal) {
-                        auto paper_prefix =
-                            evaluate_paper_connection_prefix_before_branch(
-                                  branches
-                                , branch
-                                , network
-                                , successor_ref
-                                , batch.key.interval
-                                , search_cost
-                            );
-                        if (!paper_prefix) {
-                            successor_error = mathfp::unexpected(
-                                std::move(paper_prefix.error())
-                            );
-                            return;
-                        }
-                        if (!paper_prefix->connection_candidate.has_value()) {
-                            if (paper_prefix->rejection == BranchTransitionRejection::RepeatedPhysicalNode
-                                || paper_prefix->rejection == BranchTransitionRejection::RepeatedStopOccurrence) {
-                                ++stats.rejected_cycles;
-                                return;
-                            }
-                            if (!paper_prefix->accepted()) {
-                                return;
-                            }
-                        } else {
-                            if (paper_prefix->connection_candidate->metrics.transfers
-                                > params.transfers.max_transfers) {
-                                ++stats.rejected_transfer_limit;
-                                return;
-                            }
-
-                            auto pruning_decision = retain_paper_connection_tree_node(
-                                  paper_prefix->connection_candidate->node
-                                , std::move(paper_prefix->connection_candidate->metrics)
-                                , branch.paper_connection_label
-                                , paper_label_registry
-                                , tree_partial_retention
-                                , params
-                                , pruning_execution
-                                , stats.pruning
-                            );
-                            if (!pruning_decision) {
-                                successor_error = mathfp::unexpected(
-                                    std::move(pruning_decision.error())
-                                );
-                                return;
-                            }
-                            if (!pruning_decision->accepted()) {
-                                ++stats.rejected_dominance_or_tolerance;
-                                return;
-                            }
-                            for (const auto removed_label : pruning_decision->removed_labels) {
-                                deactivate_paper_connection_label(
-                                      paper_label_registry
-                                    , removed_label
-                                );
-                            }
-                            const auto removed_from_c_y =
-                                  pruning_decision->removed_labels.size()
-                                + pruning_decision->removed_stale_labels;
-                            stats.c_y_removed_dominated +=
-                                pruning_decision->removed_labels.size();
-                            stats.c_y_removed_stale +=
-                                pruning_decision->removed_stale_labels;
-                            c_y_removed_since_frontier_compaction += removed_from_c_y;
-                            if (c_y_removed_since_frontier_compaction
-                                    >= kOdDayFrontierCompactionMinRemoved
-                                && (current_frontier.size() + next_frontier.size())
-                                    >= kOdDayFrontierCompactionMinSize) {
-                                compact_od_day_frontiers("c_y_removal");
-                                c_y_removed_since_frontier_compaction = 0u;
-                            }
-                            accepted_paper_label = pruning_decision->label;
-                        }
-                    }
-
-                    auto candidate_result = transition_search_branch(
+                    auto step_decision = evaluate_paper_successor_step(
                           branches
                         , branch_index
                         , branch
                         , network
                         , successor_ref
                         , batch.key.interval
+                        , first_departure_domain
+                        , params.transfers
                         , search_cost
+                        , PaperSuccessorStepConfig{
+                              .late_feasibility_prechecked =
+                                  od_day_slots
+                                  && successor_ref.support_envelope.has_value()
+                            , .retain_in_paper_c_y =
+                                  od_day_slots
+                                  && partial_retention_scope
+                                      == SearchPartialRetentionScope::TreeGlobal
+                          }
+                        , paper_label_registry
+                        , tree_partial_retention.paper_connections
+                        , pruning_execution
+                        , stats.pruning
                     );
-                    if (!candidate_result) {
+                    if (!step_decision) {
                         successor_error = mathfp::unexpected(
-                            std::move(candidate_result.error())
+                            std::move(step_decision.error())
                         );
                         return;
                     }
-                    auto candidate = std::move(*candidate_result);
-                    if (!candidate.has_value()) {
-                        ++stats.rejected_cycles;
-                        return;
+                    if (step_decision->retention.has_value()
+                        && step_decision->retention->accepted()) {
+                        const auto& retention = *step_decision->retention;
+                        for (const auto removed_label : retention.removed_labels) {
+                            deactivate_paper_connection_label(
+                                  paper_label_registry
+                                , removed_label
+                            );
+                        }
+                        const auto removed_from_c_y =
+                              retention.removed_labels.size()
+                            + retention.removed_stale_labels;
+                        stats.c_y_removed_dominated +=
+                            retention.removed_labels.size();
+                        stats.c_y_removed_stale +=
+                            retention.removed_stale_labels;
+                        c_y_removed_since_frontier_compaction += removed_from_c_y;
+                        if (c_y_removed_since_frontier_compaction
+                                >= kOdDayFrontierCompactionMinRemoved
+                            && (current_frontier.size() + next_frontier.size())
+                                >= kOdDayFrontierCompactionMinSize) {
+                            compact_od_day_frontiers("c_y_removal");
+                            c_y_removed_since_frontier_compaction = 0u;
+                        }
                     }
+                    if (!step_decision->accepted()) {
+                        switch (step_decision->rejection) {
+                            case PaperSuccessorStepRejection::None:
+                                return;
+
+                            case PaperSuccessorStepRejection::LateFeasibility:
+                                record_paper_successor_feasibility_rejection(
+                                      stats
+                                    , step_decision->feasibility_rejection
+                                );
+                                if (od_day_slots) {
+                                    successor_error = mathfp::unexpected(
+                                        mathfp::internal_error("OD-day paper successor failed late insertability invariant")
+                                            .ctx("origin", batch.key.origin.get())
+                                            .ctx("branch", static_cast<std::int64_t>(branch_index))
+                                            .ctx("connection", static_cast<std::int64_t>(successor_ref.connection.get()))
+                                            .ctx("rejection", static_cast<std::int64_t>(step_decision->feasibility_rejection))
+                                    );
+                                }
+                                return;
+
+                            case PaperSuccessorStepRejection::PrefixCycle:
+                            case PaperSuccessorStepRejection::BranchCycle:
+                                ++stats.rejected_cycles;
+                                return;
+
+                            case PaperSuccessorStepRejection::PrefixRejected:
+                                return;
+
+                            case PaperSuccessorStepRejection::PrefixTransferLimit:
+                            case PaperSuccessorStepRejection::BranchTransferLimit:
+                                ++stats.rejected_transfer_limit;
+                                return;
+
+                            case PaperSuccessorStepRejection::PrefixRetention:
+                                ++stats.rejected_dominance_or_tolerance;
+                                return;
+                        }
+                    }
+                    auto candidate = std::move(step_decision->branch);
                     candidate->od_day_carrier = project_od_day_carrier_transition(
                           branch.od_day_carrier
                         , successor_ref
@@ -1963,7 +1749,8 @@ namespace timetable::domain::assignment::runtime {
                          * raw timed prefix chains.
                          */
                         candidate->trace.parent_branch = std::nullopt;
-                        candidate->paper_connection_label = accepted_paper_label;
+                        candidate->paper_connection_label =
+                            step_decision->accepted_paper_label;
                     }
                     if (diagnostics.validate_phase_invariants) {
                         if (auto invariant_result = validate_search_branch_phase_invariants(*candidate);
@@ -1985,10 +1772,10 @@ namespace timetable::domain::assignment::runtime {
                     if (od_day_slots
                         && candidate->metrics.departure.has_value()
                         && candidate->trace.current_physical.kind == EndpointKind::Zone) {
-                        const auto position_it = od_day_slot_positions_by_destination.find(
+                        const auto position_it = projection_positions_by_destination.find(
                             ZoneId{ candidate->trace.current_physical.id }
                         );
-                        if (position_it != od_day_slot_positions_by_destination.end()) {
+                        if (position_it != projection_positions_by_destination.end()) {
                             completed_target = true;
                             complete_task_positions.push_back(position_it->second);
                         }
@@ -2081,8 +1868,12 @@ namespace timetable::domain::assignment::runtime {
                               branches
                             , std::move(*candidate)
                         );
-                        next_frontier.push_back(candidate_index);
-                        increment_phase_stats(next_frontier_by_phase, candidate_phase);
+                        push_search_level_branch(
+                              level_expansion
+                            , candidate_index
+                            , candidate_phase
+                            , SearchLevelPlacement::Next
+                        );
                         if (od_day_memory_limits.max_frontier_per_tree.has_value()
                             && (current_frontier.size() + next_frontier.size()
                                 > *od_day_memory_limits.max_frontier_per_tree)) {
@@ -2254,13 +2045,13 @@ namespace timetable::domain::assignment::runtime {
                           stats.accepted_branches_by_phase
                         , candidate->trace.phase
                     );
-                    const auto same_level =
-                        is_walk_connection(successor) || !branch.metrics.departure.has_value();
                     //tex:
                     // Frontier placement follows the transfer-depth level used
                     // above: always-available walk segments and the first timed
                     // boarding do not increase $$NT$$, while subsequent timed
                     // boardings represent the next transfer level.
+                    const auto level_placement =
+                        paper_successor_level_placement(branch, successor);
                     const auto candidate_phase = candidate->trace.phase;
                     const auto candidate_index = append_branch(
                           branches
@@ -2278,13 +2069,12 @@ namespace timetable::domain::assignment::runtime {
                             }
                         );
                     }
-                    if (same_level) {
-                        current_frontier.push_back(candidate_index);
-                        increment_phase_stats(current_frontier_by_phase, candidate_phase);
-                    } else {
-                        next_frontier   .push_back(candidate_index);
-                        increment_phase_stats(next_frontier_by_phase, candidate_phase);
-                    }
+                    push_search_level_branch(
+                          level_expansion
+                        , candidate_index
+                        , candidate_phase
+                        , level_placement
+                    );
                     if (od_day_slots
                         && od_day_memory_limits.max_frontier_per_tree.has_value()
                         && (current_frontier.size() + next_frontier.size()
@@ -2321,9 +2111,15 @@ namespace timetable::domain::assignment::runtime {
                         )
                         , LogLevel::Warning
                     );
-                    return std::vector<SearchSlotResult>{};
+                    return SearchTreeRunDirective::Stop;
                 }
                 MATHFP_TRY(std::move(successor_error));
+                return SearchTreeRunDirective::Continue;
+                    }
+                )
+            );
+            if (tree_run_status == SearchTreeRunStatus::Stopped) {
+                return std::vector<SearchSlotResult>{};
             }
 
             if (od_day_slots) {
@@ -2555,36 +2351,6 @@ namespace timetable::domain::assignment::runtime {
                 total += result.connection_count;
             }
             return total;
-        }
-
-        [[nodiscard]] std::size_t search_batch_worker_count(
-              std::size_t batch_count
-            , const SearchExecutionConfig& config
-        ) noexcept {
-            if (batch_count == 0u || config.max_parallel_batches == 0u) {
-                return 0u;
-            }
-            const auto hardware = std::max(
-                  1u
-                , std::thread::hardware_concurrency()
-            );
-            auto worker_count = std::min(
-                  batch_count
-                , std::min<std::size_t>(
-                      static_cast<std::size_t>(hardware)
-                    , config.max_parallel_batches
-                  )
-            );
-            if (config.max_parallel_memory_mb.has_value()
-                && config.estimated_memory_mb_per_parallel_batch > 0u) {
-                const auto memory_limited_workers = std::max<std::size_t>(
-                      1u
-                    , *config.max_parallel_memory_mb
-                        / config.estimated_memory_mb_per_parallel_batch
-                );
-                worker_count = std::min(worker_count, memory_limited_workers);
-            }
-            return worker_count;
         }
 
         [[nodiscard]] ConnectionSearchResult materialize_demand_task_search_result(
@@ -3148,11 +2914,8 @@ namespace timetable::domain::assignment::runtime {
             , LogLevel::Info
         );
 
-        std::atomic<std::size_t> next_batch{ 0u };
-        std::atomic<std::size_t> completed_batches{ 0u };
-        std::atomic<std::size_t> cancelled_batches{ 0u };
         std::atomic<std::size_t> found_connections{ 0u };
-        SearchCancellationToken cancellation;
+        SearchParallelBatchRuntime parallel_runtime;
         CountOnlyAllZoneSearchResultSink result_sink;
         std::vector<std::future<mathfp::Expected<mathfp::Unit>>> workers;
         workers.reserve(worker_count);
@@ -3163,16 +2926,17 @@ namespace timetable::domain::assignment::runtime {
                       std::launch::async
                     , [&, worker]() -> mathfp::Expected<mathfp::Unit> {
                           for (;;) {
-                              if (search_cancelled(&cancellation)) {
+                              if (search_cancelled(&parallel_runtime.cancellation)) {
                                   return mathfp::kUnit;
                               }
-                              const auto i = next_batch.fetch_add(
-                                    1u
-                                  , std::memory_order_relaxed
+                              const auto claimed_batch = claim_next_search_batch(
+                                    parallel_runtime
+                                  , batches.size()
                               );
-                              if (i >= batches.size()) {
+                              if (!claimed_batch.has_value()) {
                                   return mathfp::kUnit;
                               }
+                              const auto i = *claimed_batch;
 
                               const auto& batch = batches[i];
                               if (
@@ -3189,7 +2953,7 @@ namespace timetable::domain::assignment::runtime {
                                           , batch.key.origin.get()
                                           , batch.completion_targets.size()
                                           , batch.projection_slots.size()
-                                          , completed_batches.load(std::memory_order_relaxed)
+                                          , completed_search_batches(parallel_runtime)
                                           , found_connections.load(std::memory_order_relaxed)
                                       )
                                   );
@@ -3211,14 +2975,16 @@ namespace timetable::domain::assignment::runtime {
                                       , i
                                       , batches.size()
                                       , nullptr
-                                      , &cancellation
+                                      , &parallel_runtime.cancellation
                                   );
                               if (!results_result) {
-                                  request_search_cancellation(&cancellation);
+                                  request_search_cancellation(
+                                      &parallel_runtime.cancellation
+                                  );
                                   return mathfp::unexpected(std::move(results_result.error()));
                               }
-                              if (search_cancelled(&cancellation)) {
-                                  cancelled_batches.fetch_add(1u, std::memory_order_relaxed);
+                              if (search_cancelled(&parallel_runtime.cancellation)) {
+                                  mark_search_batch_cancelled(parallel_runtime);
                                   return mathfp::kUnit;
                               }
                               auto results = std::move(*results_result);
@@ -3228,10 +2994,12 @@ namespace timetable::domain::assignment::runtime {
                               );
                               auto sink_result = result_sink.accept(std::move(results));
                               if (!sink_result) {
-                                  request_search_cancellation(&cancellation);
+                                  request_search_cancellation(
+                                      &parallel_runtime.cancellation
+                                  );
                                   return mathfp::unexpected(std::move(sink_result.error()));
                               }
-                              completed_batches.fetch_add(1u, std::memory_order_relaxed);
+                              mark_search_batch_completed(parallel_runtime);
                           }
                       }
                 )
@@ -3242,17 +3010,17 @@ namespace timetable::domain::assignment::runtime {
         for (auto& worker : workers) {
             auto worker_result = worker.get();
             if (!worker_result && first_worker_error) {
-                request_search_cancellation(&cancellation);
+                request_search_cancellation(&parallel_runtime.cancellation);
                 first_worker_error = mathfp::unexpected(
                     std::move(worker_result.error())
                 );
             }
         }
-        if (cancelled_batches.load(std::memory_order_relaxed) != 0u) {
+        if (cancelled_search_batches(parallel_runtime) != 0u) {
             log(
                 fmt::format(
                       "all-zone search fast-fail cancellation: cancelled_batches={}"
-                    , cancelled_batches.load(std::memory_order_relaxed)
+                    , cancelled_search_batches(parallel_runtime)
                 )
                 , LogLevel::Warning
             );
@@ -3530,13 +3298,10 @@ namespace timetable::domain::assignment::runtime {
             , LogLevel::Info
         );
 
-        std::atomic<std::size_t> next_batch{ 0u };
-        std::atomic<std::size_t> completed_batches{ 0u };
-        std::atomic<std::size_t> cancelled_batches{ 0u };
         std::atomic<std::size_t> pair_count{ 0u };
         std::atomic<std::size_t> day_path_alternative_count{ 0u };
         std::atomic<std::size_t> empty_pair_count{ 0u };
-        SearchCancellationToken cancellation;
+        SearchParallelBatchRuntime parallel_runtime;
         std::mutex origin_sink_mutex;
         std::vector<std::future<mathfp::Expected<mathfp::Unit>>> workers;
         workers.reserve(worker_count);
@@ -3547,16 +3312,17 @@ namespace timetable::domain::assignment::runtime {
                       std::launch::async
                     , [&, worker]() -> mathfp::Expected<mathfp::Unit> {
                           for (;;) {
-                              if (search_cancelled(&cancellation)) {
+                              if (search_cancelled(&parallel_runtime.cancellation)) {
                                   return mathfp::kUnit;
                               }
-                              const auto i = next_batch.fetch_add(
-                                    1u
-                                  , std::memory_order_relaxed
+                              const auto claimed_batch = claim_next_search_batch(
+                                    parallel_runtime
+                                  , batches.size()
                               );
-                              if (i >= batches.size()) {
+                              if (!claimed_batch.has_value()) {
                                   return mathfp::kUnit;
                               }
+                              const auto i = *claimed_batch;
 
                               const auto& batch = batches[i];
                               if (
@@ -3573,7 +3339,7 @@ namespace timetable::domain::assignment::runtime {
                                           , batch.key.origin.get()
                                           , batch.completion_targets.size()
                                           , batch.projection_slots.size()
-                                          , completed_batches.load(std::memory_order_relaxed)
+                                          , completed_search_batches(parallel_runtime)
                                           , day_path_alternative_count.load(std::memory_order_relaxed)
                                       )
                                   );
@@ -3595,14 +3361,16 @@ namespace timetable::domain::assignment::runtime {
                                       , i
                                       , batches.size()
                                       , nullptr
-                                      , &cancellation
+                                      , &parallel_runtime.cancellation
                                   );
                               if (!slot_results_result) {
-                                  request_search_cancellation(&cancellation);
+                                  request_search_cancellation(
+                                      &parallel_runtime.cancellation
+                                  );
                                   return mathfp::unexpected(std::move(slot_results_result.error()));
                               }
-                              if (search_cancelled(&cancellation)) {
-                                  cancelled_batches.fetch_add(1u, std::memory_order_relaxed);
+                              if (search_cancelled(&parallel_runtime.cancellation)) {
+                                  mark_search_batch_cancelled(parallel_runtime);
                                   return mathfp::kUnit;
                               }
                               auto slot_results = std::move(*slot_results_result);
@@ -3634,11 +3402,13 @@ namespace timetable::domain::assignment::runtime {
                                   std::scoped_lock lock(origin_sink_mutex);
                                   auto sink_result = origin_sink(std::move(origin_result));
                                   if (!sink_result) {
-                                      request_search_cancellation(&cancellation);
+                                      request_search_cancellation(
+                                          &parallel_runtime.cancellation
+                                      );
                                       return mathfp::unexpected(std::move(sink_result.error()));
                                   }
                               }
-                              completed_batches.fetch_add(1u, std::memory_order_relaxed);
+                              mark_search_batch_completed(parallel_runtime);
                           }
                       }
                 )
@@ -3649,17 +3419,17 @@ namespace timetable::domain::assignment::runtime {
         for (auto& worker : workers) {
             auto worker_result = worker.get();
             if (!worker_result && first_worker_error) {
-                request_search_cancellation(&cancellation);
+                request_search_cancellation(&parallel_runtime.cancellation);
                 first_worker_error = mathfp::unexpected(
                     std::move(worker_result.error())
                 );
             }
         }
-        if (cancelled_batches.load(std::memory_order_relaxed) != 0u) {
+        if (cancelled_search_batches(parallel_runtime) != 0u) {
             log(
                 fmt::format(
                       "OD-day search fast-fail cancellation: cancelled_batches={}"
-                    , cancelled_batches.load(std::memory_order_relaxed)
+                    , cancelled_search_batches(parallel_runtime)
                 )
                 , LogLevel::Warning
             );

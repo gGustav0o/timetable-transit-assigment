@@ -117,6 +117,7 @@ set(TIMETABLE_CORE_SOURCES
   src/domain/assignment/projection/csv.cpp
   src/domain/assignment/projection/summary.cpp
   src/domain/assignment/projection/text_summary.cpp
+  src/domain/assignment/search/frontier/paper_connection_retention.cpp
   src/domain/assignment/search/frontier/retention_operations.cpp
   src/domain/assignment/search/generation/successor.cpp
   src/domain/assignment/search/execution.cpp
@@ -126,6 +127,7 @@ set(TIMETABLE_CORE_SOURCES
   src/domain/assignment/search/projection.cpp
   src/domain/assignment/search/projection/contract.cpp
   src/domain/assignment/search/projection/complete_connection.cpp
+  src/domain/assignment/search/projection/sink.cpp
   src/domain/assignment/search/branch_state.cpp
   src/domain/assignment/search/model/branch.cpp
   src/domain/assignment/search/model/retention.cpp
@@ -139,7 +141,11 @@ set(TIMETABLE_CORE_SOURCES
   src/domain/assignment/search/relations/branch_metrics.cpp
   src/domain/assignment/search/relations/branch_state_projection.cpp
   src/domain/assignment/search/relations/paper_connection_relevance.cpp
+  src/domain/assignment/search/tree/level_expansion.cpp
+  src/domain/assignment/search/tree/paper_successor_step.cpp
+  src/domain/assignment/search/runtime/cancellation.cpp
   src/domain/assignment/search/runtime/diagnostics.cpp
+  src/domain/assignment/search/runtime/parallel.cpp
   src/domain/assignment/search/runtime/search_runtime.cpp
   src/domain/assignment/search/search.cpp
   src/domain/assignment/run.cpp

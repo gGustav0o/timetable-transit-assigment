@@ -16,6 +16,7 @@
 #include "timetable/domain/assignment/search/pruning/suffix_lower_bound.hpp"
 #include "timetable/domain/assignment/search/projection.hpp"
 #include "timetable/domain/assignment/search/residual_reachability.hpp"
+#include "timetable/domain/assignment/search/tree/level_expansion.hpp"
 #include "timetable/domain/assignment/search_pruning_diagnostics.hpp"
 #include "timetable/domain/endpoints.hpp"
 
@@ -39,14 +40,6 @@ namespace timetable::domain::assignment::runtime {
         std::size_t egress{};
         std::size_t skipped_by_phase{};
         std::size_t skipped_by_transfer_budget{};
-    };
-
-    struct BranchPhaseStats final {
-        std::size_t at_origin{};
-        std::size_t before_first_boarding{};
-        std::size_t after_timed_ride{};
-        std::size_t after_transfer_walk{};
-        std::size_t completed{};
     };
 
     struct SuffixLowerBoundRejectionStats final {
@@ -134,16 +127,6 @@ namespace timetable::domain::assignment::runtime {
     void increment_walk_kind_stats(
           WalkKindStats&    stats
         , ConnectionLegKind kind
-    ) noexcept;
-
-    void increment_phase_stats(
-          BranchPhaseStats& stats
-        , SearchBranchPhase phase
-    ) noexcept;
-
-    void decrement_phase_stats(
-          BranchPhaseStats& stats
-        , SearchBranchPhase phase
     ) noexcept;
 
     [[nodiscard]] std::string format_walk_kind_stats(
