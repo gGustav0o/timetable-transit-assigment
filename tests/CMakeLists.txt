@@ -2,6 +2,7 @@ include(GoogleTest)
 
 add_executable(timetable_tests
   domain/branch_arena_tests.cpp
+  domain/friedrich_hofsaess_wekeck_regression_tests.cpp
   domain/od_day_successor_tests.cpp
   domain/od_day_supply_graph_tests.cpp
   domain/od_day_path_contract_tests.cpp
