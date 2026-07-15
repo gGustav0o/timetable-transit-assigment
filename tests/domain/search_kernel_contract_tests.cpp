@@ -9,6 +9,7 @@
 #include "timetable/domain/assignment/search/policy.hpp"
 #include "timetable/domain/assignment/search/problem.hpp"
 #include "timetable/domain/assignment/search/kernel.hpp"
+#include "timetable/domain/params/make/tolerances.hpp"
 
 namespace timetable::domain::assignment {
 namespace {
@@ -16,14 +17,19 @@ namespace {
     using test_support::domain;
 
     SearchTolerances permissive_search_tolerances() {
-        return SearchTolerances{
-              .imp_mult = Dimless{ 2.0 }
-            , .imp_add  = Dimless{ 60.0 }
-            , .jt_mult  = Dimless{ 2.0 }
-            , .jt_add   = Dimless{ 60.0 }
-            , .nt_mult  = Dimless{ 2.0 }
-            , .nt_add   = Dimless{ 2.0 }
-        };
+        auto result = make_search_tolerances(
+              Dimless{ 2.0 }
+            , Dimless{ 60.0 }
+            , Dimless{ 2.0 }
+            , Time{ 60.0 }
+            , Dimless{ 2.0 }
+            , Dimless{ 2.0 }
+        );
+        if (!result) {
+            ADD_FAILURE() << result.error().message();
+            return SearchTolerances{};
+        }
+        return *result;
     }
 
     TransferLimits transfer_limits() {
@@ -124,7 +130,7 @@ TEST(SearchKernelContract, PolicyIsMathematicalSearchPolicyOnly) {
         , ExactDominanceContract::ExtensionSafeCurrentState
     );
     EXPECT_DOUBLE_EQ(
-          mathfp::units::as_dimless(policy->tolerance.tolerances.imp_mult)
+          policy->tolerance.tolerances.imp_mult.value()
         , 2.0
     );
     EXPECT_EQ(

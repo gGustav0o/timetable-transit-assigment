@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "timetable/domain/assignment/search/pruning/suffix_lower_bound.hpp"
+#include "timetable/domain/params/make/tolerances.hpp"
 
 namespace timetable::domain::assignment {
 namespace {
@@ -73,6 +74,16 @@ TEST(SuffixLowerBoundPruning, CompleteAlternativeCanDominateCompletionLowerBound
 
 TEST(SuffixLowerBoundPruning, ToleranceLowerBoundReportsViolatedCoordinate) {
     auto reason = SuffixLowerBoundRejectionReason::ToleranceJourneyTime;
+    const auto tolerances = make_choice_tolerances(
+          Dimless{ 1.0 }
+        , Dimless{ 0.0 }
+        , Dimless{ 1.0 }
+        , Time{ 0.0 }
+        , Dimless{ 1.0 }
+        , Dimless{ 0.0 }
+    );
+    ASSERT_TRUE(tolerances.has_value()) << tolerances.error().message();
+
     const auto violates = violates_complete_tolerance_lower_bound(
           CompletionMetricLowerBound{
                 .journey_time = Time{ 20.0 }
@@ -85,14 +96,7 @@ TEST(SuffixLowerBoundPruning, ToleranceLowerBoundReportsViolatedCoordinate) {
               , .min_transfers    = 0.0
               , .empty            = false
             }
-        , ChoiceTolerances{
-                .imp_mult = Dimless{ 1.0 }
-              , .imp_add  = Dimless{ 0.0 }
-              , .jt_mult  = Dimless{ 1.0 }
-              , .jt_add   = Dimless{ 0.0 }
-              , .nt_mult  = Dimless{ 1.0 }
-              , .nt_add   = Dimless{ 0.0 }
-            }
+        , *tolerances
         , reason
     );
 

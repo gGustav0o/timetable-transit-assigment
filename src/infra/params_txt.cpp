@@ -81,10 +81,10 @@ namespace timetable::infra::params_txt {
                 , params.transfers.allow_end_wait   ? "true" : "false"
                 , params.transfers.min_transfer_wait.value()
                 , params.transfers.max_transfer_wait.value()
-                , mathfp::units::as_dimless(params.search_tolerances.imp_add)
-                , mathfp::units::as_dimless(params.search_tolerances.jt_add)
-                , mathfp::units::as_dimless(params.choice_tolerances.imp_add)
-                , mathfp::units::as_dimless(params.choice_tolerances.jt_add)
+                , params.search_tolerances.imp_add.value()
+                , params.search_tolerances.jt_add.seconds()
+                , params.choice_tolerances.imp_add.value()
+                , params.choice_tolerances.jt_add.seconds()
             )
             , LogLevel::Info
         );
@@ -122,10 +122,10 @@ namespace timetable::infra::params_txt {
                 , timetable::domain::assignment::to_string(params.skim_matrix.func)
                 , params.search.transfers.min_transfer_wait.value()
                 , params.search.transfers.max_transfer_wait.value()
-                , mathfp::units::as_dimless(params.search.search_tolerances.imp_add)
-                , mathfp::units::as_dimless(params.search.search_tolerances.jt_add)
-                , mathfp::units::as_dimless(params.search.choice_tolerances.imp_add)
-                , mathfp::units::as_dimless(params.search.choice_tolerances.jt_add)
+                , params.search.search_tolerances.imp_add.value()
+                , params.search.search_tolerances.jt_add.seconds()
+                , params.search.choice_tolerances.imp_add.value()
+                , params.search.choice_tolerances.jt_add.seconds()
                 , params.assignment_period.pre_assign_period.value()
                 , params.assignment_period.post_assign_period.value()
                 , params.connection_deletion.delete_outside_assignment_period ? "true" : "false"

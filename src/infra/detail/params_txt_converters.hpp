@@ -26,7 +26,7 @@ namespace timetable::infra::params_txt::detail::converters {
               Dimless{ fields.imp_mult }
             , Dimless{ codecs::temporal_parameter_seconds(fields.imp_add) }
             , Dimless{ fields.jt_mult }
-            , Dimless{ codecs::temporal_parameter_seconds(fields.jt_add) }
+            , Time{ codecs::temporal_parameter_seconds(fields.jt_add) }
             , Dimless{ fields.nt_mult }
             , Dimless{ fields.nt_add }
         );
@@ -41,7 +41,7 @@ namespace timetable::infra::params_txt::detail::converters {
               Dimless{ fields.imp_mult }
             , Dimless{ codecs::temporal_parameter_seconds(fields.imp_add) }
             , Dimless{ fields.jt_mult }
-            , Dimless{ codecs::temporal_parameter_seconds(fields.jt_add) }
+            , Time{ codecs::temporal_parameter_seconds(fields.jt_add) }
             , Dimless{ fields.nt_mult }
             , Dimless{ fields.nt_add }
         );

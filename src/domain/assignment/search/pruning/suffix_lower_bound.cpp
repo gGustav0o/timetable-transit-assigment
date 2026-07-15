@@ -173,27 +173,27 @@ namespace timetable::domain::assignment {
         }
 
         const auto impedance_bound =
-              mathfp::units::as_dimless(tolerances.imp_mult)
+              tolerances.imp_mult.value()
             * summary.min_impedance
-            + mathfp::units::as_dimless(tolerances.imp_add);
+            + tolerances.imp_add.value();
         if (lower_bound.impedance > impedance_bound) {
             reason = SuffixLowerBoundRejectionReason::ToleranceImpedance;
             return true;
         }
 
         const auto journey_time_bound =
-              mathfp::units::as_dimless(tolerances.jt_mult)
+              tolerances.jt_mult.value()
             * summary.min_journey_time
-            + mathfp::units::as_dimless(tolerances.jt_add);
+            + tolerances.jt_add.seconds();
         if (lower_bound.journey_time.value() > journey_time_bound) {
             reason = SuffixLowerBoundRejectionReason::ToleranceJourneyTime;
             return true;
         }
 
         const auto transfer_bound =
-              mathfp::units::as_dimless(tolerances.nt_mult)
+              tolerances.nt_mult.value()
             * summary.min_transfers
-            + mathfp::units::as_dimless(tolerances.nt_add);
+            + tolerances.nt_add.value();
         if (lower_bound.transfers > transfer_bound) {
             reason = SuffixLowerBoundRejectionReason::ToleranceTransfers;
             return true;

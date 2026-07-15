@@ -43,27 +43,27 @@ namespace timetable::domain::assignment {
             const SearchTolerances& tolerances
         ) {
             MATHFP_TRY(validate_non_negative_scalar(
-                  mathfp::units::as_dimless(tolerances.imp_mult)
+                  tolerances.imp_mult.value()
                 , "imp_mult"
             ));
             MATHFP_TRY(validate_non_negative_scalar(
-                  mathfp::units::as_dimless(tolerances.imp_add)
+                  tolerances.imp_add.value()
                 , "imp_add"
             ));
             MATHFP_TRY(validate_non_negative_scalar(
-                  mathfp::units::as_dimless(tolerances.jt_mult)
+                  tolerances.jt_mult.value()
                 , "jt_mult"
             ));
             MATHFP_TRY(validate_non_negative_scalar(
-                  mathfp::units::as_dimless(tolerances.jt_add)
+                  tolerances.jt_add.seconds()
                 , "jt_add"
             ));
             MATHFP_TRY(validate_non_negative_scalar(
-                  mathfp::units::as_dimless(tolerances.nt_mult)
+                  tolerances.nt_mult.value()
                 , "nt_mult"
             ));
             MATHFP_TRY(validate_non_negative_scalar(
-                  mathfp::units::as_dimless(tolerances.nt_add)
+                  tolerances.nt_add.value()
                 , "nt_add"
             ));
             return mathfp::kUnit;

@@ -9,12 +9,45 @@
 
 namespace timetable::domain::assignment {
 
-    struct NonNegativeScalar final {
-        double value{};
+    class NonNegativeScalar final {
+    public:
+        constexpr NonNegativeScalar() = default;
+
+        [[nodiscard]] constexpr double value() const noexcept {
+            return value_;
+        }
+
+    private:
+        constexpr explicit NonNegativeScalar(double value) noexcept
+            : value_(value) {}
+
+        double value_{};
+
+        friend mathfp::Expected<NonNegativeScalar> make_non_negative_scalar(
+              double
+            , const char*
+        );
     };
 
-    struct PositiveScalar final {
-        double value{ 1.0 };
+    class PositiveScalar final {
+    public:
+        constexpr PositiveScalar() noexcept
+            : value_(1.0) {}
+
+        [[nodiscard]] constexpr double value() const noexcept {
+            return value_;
+        }
+
+    private:
+        constexpr explicit PositiveScalar(double value) noexcept
+            : value_(value) {}
+
+        double value_{ 1.0 };
+
+        friend mathfp::Expected<PositiveScalar> make_positive_scalar(
+              double
+            , const char*
+        );
     };
 
     [[nodiscard]] inline mathfp::Expected<NonNegativeScalar> make_non_negative_scalar(
@@ -28,7 +61,7 @@ namespace timetable::domain::assignment {
                     .ctx("value", value)
             );
         }
-        return NonNegativeScalar{ .value = value };
+        return NonNegativeScalar{ value };
     }
 
     [[nodiscard]] inline mathfp::Expected<PositiveScalar> make_positive_scalar(
@@ -42,7 +75,7 @@ namespace timetable::domain::assignment {
                     .ctx("value", value)
             );
         }
-        return PositiveScalar{ .value = value };
+        return PositiveScalar{ value };
     }
 
     [[nodiscard]] inline mathfp::Expected<mathfp::Unit> validate_non_negative_scalar(

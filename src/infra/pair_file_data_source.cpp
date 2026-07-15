@@ -515,7 +515,7 @@ namespace timetable::infra {
                           Dimless{ kPairRuntimeDefaultSpec.search_tolerances.imp_mult }
                         , Dimless{ kPairRuntimeDefaultSpec.search_tolerances.imp_add }
                         , Dimless{ kPairRuntimeDefaultSpec.search_tolerances.jt_mult }
-                        , Dimless{ kPairRuntimeDefaultSpec.search_tolerances.jt_add }
+                        , Time{ kPairRuntimeDefaultSpec.search_tolerances.jt_add }
                         , Dimless{ kPairRuntimeDefaultSpec.search_tolerances.nt_mult }
                         , Dimless{ kPairRuntimeDefaultSpec.search_tolerances.nt_add }
                     )
@@ -523,7 +523,7 @@ namespace timetable::infra {
                           Dimless{ kPairRuntimeDefaultSpec.choice_tolerances.imp_mult }
                         , Dimless{ kPairRuntimeDefaultSpec.choice_tolerances.imp_add }
                         , Dimless{ kPairRuntimeDefaultSpec.choice_tolerances.jt_mult }
-                        , Dimless{ kPairRuntimeDefaultSpec.choice_tolerances.jt_add }
+                        , Time{ kPairRuntimeDefaultSpec.choice_tolerances.jt_add }
                         , Dimless{ kPairRuntimeDefaultSpec.choice_tolerances.nt_mult }
                         , Dimless{ kPairRuntimeDefaultSpec.choice_tolerances.nt_add }
                     )

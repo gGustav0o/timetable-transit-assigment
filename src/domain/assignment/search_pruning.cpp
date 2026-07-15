@@ -258,17 +258,17 @@ namespace timetable::domain::assignment {
         return
                candidate.transfers <= limits.max_transfers
             && candidate.impedance
-                   <= mathfp::units::as_dimless(policy.tolerances.imp_mult)
+                   <= policy.tolerances.imp_mult.value()
                     * summary.min_impedance
-                    + mathfp::units::as_dimless(policy.tolerances.imp_add)
+                    + policy.tolerances.imp_add.value()
             && candidate.journey_time.value()
-                   <= mathfp::units::as_dimless(policy.tolerances.jt_mult)
+                   <= policy.tolerances.jt_mult.value()
                     * summary.min_journey_time
-                    + mathfp::units::as_dimless(policy.tolerances.jt_add)
+                    + policy.tolerances.jt_add.seconds()
             && static_cast<double>(candidate.transfers.get())
-                   <= mathfp::units::as_dimless(policy.tolerances.nt_mult)
+                   <= policy.tolerances.nt_mult.value()
                     * summary.min_transfers
-                    + mathfp::units::as_dimless(policy.tolerances.nt_add);
+                    + policy.tolerances.nt_add.value();
     }
 
     ExactPruningDecision evaluate_exact_pruning(

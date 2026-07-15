@@ -7,6 +7,7 @@
 #include "timetable/domain/assignment/search/relations/paper_connection_relevance.hpp"
 #include "timetable/domain/assignment/search_pruning.hpp"
 #include "timetable/domain/assignment/search_pruning_plan.hpp"
+#include "timetable/domain/params/make/tolerances.hpp"
 
 namespace timetable::domain::assignment {
 namespace {
@@ -39,14 +40,19 @@ namespace {
         , double nt_mult
         , double nt_add
     ) {
-        return SearchTolerances{
-              .imp_mult = Dimless{ imp_mult }
-            , .imp_add  = Dimless{ imp_add }
-            , .jt_mult  = Dimless{ jt_mult }
-            , .jt_add   = Dimless{ jt_add }
-            , .nt_mult  = Dimless{ nt_mult }
-            , .nt_add   = Dimless{ nt_add }
-        };
+        auto result = make_search_tolerances(
+              Dimless{ imp_mult }
+            , Dimless{ imp_add }
+            , Dimless{ jt_mult }
+            , Time{ jt_add }
+            , Dimless{ nt_mult }
+            , Dimless{ nt_add }
+        );
+        if (!result) {
+            ADD_FAILURE() << result.error().message();
+            return SearchTolerances{};
+        }
+        return *result;
     }
 
 }  // namespace

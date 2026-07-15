@@ -258,19 +258,19 @@ namespace timetable::domain::assignment {
         // complete connections after branch-and-bound search.
         return
                metrics.impedance
-            <= mathfp::units::as_dimless(tolerances.imp_mult)
+            <= tolerances.imp_mult.value()
              * summary.min_impedance
-             + mathfp::units::as_dimless(tolerances.imp_add)
+             + tolerances.imp_add.value()
 
             && metrics.journey_time.value()
-            <= mathfp::units::as_dimless(tolerances.jt_mult)
+            <= tolerances.jt_mult.value()
              * summary.min_journey_time
-             + mathfp::units::as_dimless(tolerances.jt_add)
+             + tolerances.jt_add.seconds()
 
             && static_cast<double>(metrics.transfers.get())
-            <= mathfp::units::as_dimless(tolerances.nt_mult)
+            <= tolerances.nt_mult.value()
              * summary.min_transfers
-             + mathfp::units::as_dimless(tolerances.nt_add);
+             + tolerances.nt_add.value();
     }
 
     mathfp::Expected<CompleteConnectionRetentionDecision> retain_exact_complete_connection(
