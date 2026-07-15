@@ -64,6 +64,34 @@ namespace {
         auto operator<=>(const ExpectedConnection&) const = default;
     };
 
+    struct ExpectedConnectionMetrics final {
+        ExpectedConnection connection{};
+        double             journey_time{};
+        double             in_vehicle_time{};
+        double             transfer_wait_time{};
+        double             split_impedance{};
+
+        auto operator<=>(const ExpectedConnectionMetrics&) const = default;
+    };
+
+    struct SplitOracleAlternative final {
+        ExpectedConnection key{};
+        ConnectionMetrics  metrics{};
+        double             perceived_journey_time{};
+        double             independence{};
+        double             probability{};
+    };
+
+    struct SplitShareSummary final {
+        ExpectedConnection key{};
+        double             independence{};
+        double             split_impedance{};
+        double             probability{};
+        double             passengers{};
+
+        auto operator<=>(const SplitShareSummary&) const = default;
+    };
+
     struct ArticleScenario final {
         InputModel                  input{};
         PreprocessedNetwork         network{};
@@ -506,6 +534,213 @@ namespace {
         return expected;
     }
 
+    [[nodiscard]] ExpectedConnection connection_key(
+        const ConnectionMetrics& metrics
+    ) noexcept {
+        return ExpectedConnection{
+              .departure = metrics.departure_time.value()
+            , .arrival = metrics.arrival_time.value()
+            , .transfers = metrics.transfer_count.get()
+        };
+    }
+
+    [[nodiscard]] std::vector<ExpectedConnectionMetrics> figure_one_metric_oracle() {
+        std::vector<ExpectedConnectionMetrics> expected{
+              ExpectedConnectionMetrics{
+                    .connection = ExpectedConnection{ .departure = 10.0, .arrival = 41.0, .transfers = 1 }
+                  , .journey_time = 31.0
+                  , .in_vehicle_time = 28.0
+                  , .transfer_wait_time = 3.0
+                  , .split_impedance = 39.0
+              }
+            , ExpectedConnectionMetrics{
+                    .connection = ExpectedConnection{ .departure = 10.0, .arrival = 55.0, .transfers = 0 }
+                  , .journey_time = 45.0
+                  , .in_vehicle_time = 45.0
+                  , .transfer_wait_time = 0.0
+                  , .split_impedance = 45.0
+              }
+            , ExpectedConnectionMetrics{
+                    .connection = ExpectedConnection{ .departure = 55.0, .arrival = 100.0, .transfers = 0 }
+                  , .journey_time = 45.0
+                  , .in_vehicle_time = 45.0
+                  , .transfer_wait_time = 0.0
+                  , .split_impedance = 45.0
+              }
+            , ExpectedConnectionMetrics{
+                    .connection = ExpectedConnection{ .departure = 85.0, .arrival = 121.0, .transfers = 1 }
+                  , .journey_time = 36.0
+                  , .in_vehicle_time = 28.0
+                  , .transfer_wait_time = 8.0
+                  , .split_impedance = 54.0
+              }
+            , ExpectedConnectionMetrics{
+                    .connection = ExpectedConnection{ .departure = 85.0, .arrival = 130.0, .transfers = 0 }
+                  , .journey_time = 45.0
+                  , .in_vehicle_time = 45.0
+                  , .transfer_wait_time = 0.0
+                  , .split_impedance = 45.0
+              }
+        };
+        std::sort(expected.begin(), expected.end());
+        return expected;
+    }
+
+    [[nodiscard]] std::vector<ExpectedConnectionMetrics> metric_summary(
+        std::span<const SearchConnection> connections
+    ) {
+        std::vector<ExpectedConnectionMetrics> summary;
+        summary.reserve(connections.size());
+        for (const auto& connection : connections) {
+            const auto metrics = metrics_of(connection);
+            summary.push_back(
+                ExpectedConnectionMetrics{
+                      .connection = connection_key(metrics)
+                    , .journey_time = metrics.journey_time.value()
+                    , .in_vehicle_time = metrics.in_vehicle_time.value()
+                    , .transfer_wait_time = metrics.transfer_wait_time.value()
+                    , .split_impedance =
+                          metrics.in_vehicle_time.value()
+                        + 3.0 * metrics.transfer_wait_time.value()
+                        + 2.0 * static_cast<double>(metrics.transfer_count.get())
+                }
+            );
+        }
+        std::sort(summary.begin(), summary.end());
+        return summary;
+    }
+
+    [[nodiscard]] double figure_one_perceived_journey_time(
+        const ConnectionMetrics& metrics
+    ) noexcept {
+        return
+              metrics.in_vehicle_time.value()
+            + metrics.access_time.value()
+            + metrics.egress_time.value()
+            + 3.0 * metrics.transfer_walk_time.value()
+            + 3.0 * metrics.transfer_wait_time.value()
+            + 2.0 * static_cast<double>(metrics.transfer_count.get());
+    }
+
+    [[nodiscard]] double oracle_temporal_similarity(
+          const SplitOracleAlternative& lhs
+        , const SplitOracleAlternative& rhs
+    ) noexcept {
+        return 0.5 * (
+              std::abs(rhs.metrics.departure_time.value() - lhs.metrics.departure_time.value())
+            + std::abs(rhs.metrics.arrival_time.value() - lhs.metrics.arrival_time.value())
+        );
+    }
+
+    [[nodiscard]] double oracle_capped_proximity(
+          double similarity
+        , double scale
+    ) noexcept {
+        return 1.0 - std::min(1.0, similarity / scale);
+    }
+
+    [[nodiscard]] double oracle_connection_influence(
+          const SplitOracleAlternative& base
+        , const SplitOracleAlternative& other
+    ) noexcept {
+        constexpr auto gamma = 0.5;
+        constexpr auto temporal_similarity_scale = 30.0;
+        constexpr auto perceived_journey_time_scale = 30.0;
+
+        const auto proximity = oracle_capped_proximity(
+              oracle_temporal_similarity(base, other)
+            , temporal_similarity_scale
+        );
+        const auto perceived_journey_time_delta =
+            other.perceived_journey_time - base.perceived_journey_time;
+        const auto quality_distance = std::min(
+              1.0
+            , std::abs(perceived_journey_time_delta) / perceived_journey_time_scale
+        );
+        return proximity * (1.0 - gamma * quality_distance);
+    }
+
+    [[nodiscard]] double oracle_independence(
+          std::span<const SplitOracleAlternative> alternatives
+        , std::size_t                            index
+    ) noexcept {
+        auto influence_sum = 0.0;
+        for (std::size_t i = 0; i < alternatives.size(); ++i) {
+            if (i == index) {
+                continue;
+            }
+            influence_sum += oracle_connection_influence(alternatives[index], alternatives[i]);
+        }
+        return 1.0 / (1.0 + influence_sum);
+    }
+
+    [[nodiscard]] std::vector<SplitOracleAlternative> figure_one_split_oracle(
+        std::span<const ConnectionDemandShare> shares
+    ) {
+        std::vector<SplitOracleAlternative> expected;
+        expected.reserve(shares.size());
+        for (const auto& share : shares) {
+            const auto metrics = metrics_of(share.connection);
+            expected.push_back(
+                SplitOracleAlternative{
+                      .key = connection_key(metrics)
+                    , .metrics = metrics
+                    , .perceived_journey_time = figure_one_perceived_journey_time(metrics)
+                }
+            );
+        }
+        std::sort(
+              expected.begin()
+            , expected.end()
+            , [](const auto& lhs, const auto& rhs) {
+                  return lhs.key < rhs.key;
+              }
+        );
+
+        for (std::size_t i = 0; i < expected.size(); ++i) {
+            expected[i].independence = oracle_independence(expected, i);
+        }
+
+        std::vector<double> log_weights;
+        log_weights.reserve(expected.size());
+        for (const auto& alternative : expected) {
+            log_weights.push_back(
+                  std::log(alternative.independence)
+                - 2.0 * alternative.perceived_journey_time
+            );
+        }
+        const auto max_log_weight = *std::max_element(log_weights.begin(), log_weights.end());
+        auto normalizer = 0.0;
+        for (const auto log_weight : log_weights) {
+            normalizer += std::exp(log_weight - max_log_weight);
+        }
+        for (std::size_t i = 0; i < expected.size(); ++i) {
+            expected[i].probability = std::exp(log_weights[i] - max_log_weight) / normalizer;
+        }
+
+        return expected;
+    }
+
+    [[nodiscard]] std::vector<SplitShareSummary> split_share_summary(
+        std::span<const ConnectionDemandShare> shares
+    ) {
+        std::vector<SplitShareSummary> summary;
+        summary.reserve(shares.size());
+        for (const auto& share : shares) {
+            summary.push_back(
+                SplitShareSummary{
+                      .key = connection_key(metrics_of(share.connection))
+                    , .independence = share.independence
+                    , .split_impedance = share.split_impedance
+                    , .probability = share.probability
+                    , .passengers = share.passengers
+                }
+            );
+        }
+        std::sort(summary.begin(), summary.end());
+        return summary;
+    }
+
     [[nodiscard]] double probability_sum(const DemandSplitResult& split) {
         return std::accumulate(
               split.shares.begin()
@@ -595,6 +830,7 @@ TEST(FriedrichHofsaessWekeckRegression, FigureOneTimedSearchChoiceAndSplit) {
 
     const auto& task_connections = search_result->task_results.front().connections;
     EXPECT_EQ(connection_summary(task_connections), figure_one_connections());
+    EXPECT_EQ(metric_summary(task_connections), figure_one_metric_oracle());
 
     const auto wide_choice = choose_connections(
           *search_result
@@ -648,6 +884,21 @@ TEST(FriedrichHofsaessWekeckRegression, FigureOneTimedSearchChoiceAndSplit) {
         EXPECT_TRUE(std::isfinite(share.independence));
         EXPECT_GT(share.independence, 0.0);
         EXPECT_TRUE(std::isfinite(share.split_impedance));
+    }
+
+    const auto actual_split = split_share_summary(split->shares);
+    const auto expected_split = figure_one_split_oracle(split->shares);
+    ASSERT_EQ(actual_split.size(), expected_split.size());
+    for (std::size_t i = 0; i < actual_split.size(); ++i) {
+        EXPECT_EQ(actual_split[i].key, expected_split[i].key);
+        EXPECT_NEAR(
+              actual_split[i].split_impedance
+            , expected_split[i].perceived_journey_time
+            , 1e-12
+        );
+        EXPECT_NEAR(actual_split[i].independence, expected_split[i].independence, 1e-12);
+        EXPECT_NEAR(actual_split[i].probability, expected_split[i].probability, 1e-12);
+        EXPECT_NEAR(actual_split[i].passengers, kDemand * expected_split[i].probability, 1e-9);
     }
 }
 

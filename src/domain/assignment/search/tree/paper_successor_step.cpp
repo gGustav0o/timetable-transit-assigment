@@ -122,8 +122,8 @@ namespace timetable::domain::assignment {
         }
         if (transition.branch->metrics.transfers > limits.max_transfers) {
             return PaperSuccessorStepDecision{
-                  .rejection = PaperSuccessorStepRejection::BranchTransferLimit
-                , .accepted_paper_label = accepted_paper_label
+                  .accepted_paper_label = accepted_paper_label
+                , .rejection = PaperSuccessorStepRejection::BranchTransferLimit
                 , .retention = std::move(retention_decision)
             };
         }
