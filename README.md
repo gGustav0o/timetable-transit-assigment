@@ -7,9 +7,39 @@ outlined in `Timetable-Based_Transit_Assignment_Using_Branch_an.pdf`.
 
 This project uses CMake and vcpkg.
 
+### Windows
+
+Set `VCPKG_ROOT` to a user-writable vcpkg checkout used by the project presets.
+Manifest mode writes under `VCPKG_ROOT/buildtrees`, so a read-only or
+partially-writable vcpkg installation is not a reproducible test environment.
+The repository provides a Windows test wrapper that imports the Visual Studio
+C++ environment and then uses the CMake/CTest presets.
+
+```powershell
+$env:VCPKG_ROOT = "D:\vcpkg"
+.\tools\test.ps1
 ```
-cmake --preset default
-cmake --build --preset default
+
+By default, the wrapper performs a fresh CMake configure so stale compiler
+paths in an existing build directory cannot affect the test result. For a fast
+incremental local run after the environment is already known-good:
+
+```powershell
+.\tools\test.ps1 -ReuseConfigure
+```
+
+The equivalent explicit preset workflow is:
+
+```powershell
+cmake --fresh --preset vcpkg
+cmake --build --preset windows-msvc-debug
+ctest --preset windows-msvc-debug
+```
+
+To run a single test or test suite:
+
+```powershell
+.\tools\test.ps1 -TestRegex FriedrichHofsaessWekeckRegression
 ```
 
 ## Current Scope

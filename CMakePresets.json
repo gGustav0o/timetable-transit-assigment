@@ -66,6 +66,18 @@
       "configuration": "Release"
     },
     {
+      "name": "windows-msvc-debug",
+      "displayName": "Windows MSVC Debug",
+      "configurePreset": "vcpkg",
+      "configuration": "Debug"
+    },
+    {
+      "name": "windows-msvc-release",
+      "displayName": "Windows MSVC Release",
+      "configurePreset": "vcpkg",
+      "configuration": "Release"
+    },
+    {
       "name": "release-no-capacity-stages",
       "configurePreset": "vcpkg-no-capacity-stages",
       "configuration": "Release"
@@ -84,6 +96,32 @@
       "name": "wsl-release-no-capacity-stages",
       "configurePreset": "vcpkg-linux-no-capacity-stages",
       "configuration": "Release"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "windows-msvc-debug",
+      "displayName": "Windows MSVC Debug tests",
+      "configurePreset": "vcpkg",
+      "configuration": "Debug",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "windows-msvc-release",
+      "displayName": "Windows MSVC Release tests",
+      "configurePreset": "vcpkg",
+      "configuration": "Release",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
     }
   ]
 }
