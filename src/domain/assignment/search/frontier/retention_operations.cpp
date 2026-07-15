@@ -10,98 +10,6 @@
 
 namespace timetable::domain::assignment {
 
-    std::span<const SearchPruningMetrics> paper_metric_span(
-        const PaperNodeConnectionSet& set
-    ) noexcept {
-        return std::span<const SearchPruningMetrics>{
-              set.metrics.data()
-            , set.metrics.size()
-        };
-    }
-
-    std::size_t remove_inactive_paper_node_connection_metrics(
-          PaperNodeConnectionSet&             set
-        , const PaperConnectionLabelRegistry& registry
-    ) {
-        auto write = std::size_t{ 0u };
-        for (std::size_t read = 0u; read < set.metrics.size(); ++read) {
-            if (read >= set.labels.size()) {
-                continue;
-            }
-            if (!paper_connection_label_active(
-                  registry
-                , std::optional<PaperConnectionLabelId>{ set.labels[read] }
-            )) {
-                continue;
-            }
-            if (write != read) {
-                set.metrics[write] = set.metrics[read];
-                set.labels[write] = set.labels[read];
-            }
-            ++write;
-        }
-        const auto removed = set.metrics.size() - write;
-        set.metrics.resize(write);
-        set.labels.resize(write);
-        if (removed != 0u) {
-            set.summary = summarize_pruning_metrics(paper_metric_span(set));
-        }
-        return removed;
-    }
-
-    std::size_t remove_inactive_paper_connection_metrics(
-          PaperConnectionNodeMetricMap&       retention
-        , const PaperConnectionLabelRegistry& registry
-    ) {
-        auto removed = std::size_t{ 0u };
-        for (auto it = retention.begin(); it != retention.end();) {
-            removed += remove_inactive_paper_node_connection_metrics(
-                  it->second
-                , registry
-            );
-            if (it->second.metrics.empty()) {
-                it = retention.erase(it);
-            } else {
-                ++it;
-            }
-        }
-        return removed;
-    }
-
-    mathfp::Expected<mathfp::Unit> validate_paper_connection_label_sync(
-          const PaperConnectionNodeMetricMap& retention
-        , const PaperConnectionLabelRegistry& registry
-        , ZoneId                              origin
-    ) {
-        for (const auto& [node, set] : retention) {
-            if (set.metrics.size() != set.labels.size()) {
-                return mathfp::unexpected(
-                    mathfp::internal_error("paper C_y metric/label cardinality mismatch")
-                        .ctx("origin", origin.get())
-                        .ctx("node_kind", static_cast<std::int64_t>(node.physical.kind))
-                        .ctx("node_id", node.physical.id)
-                        .ctx("metrics", static_cast<std::int64_t>(set.metrics.size()))
-                        .ctx("labels", static_cast<std::int64_t>(set.labels.size()))
-                );
-            }
-            for (const auto label : set.labels) {
-                if (!paper_connection_label_active(
-                      registry
-                    , std::optional<PaperConnectionLabelId>{ label }
-                )) {
-                    return mathfp::unexpected(
-                        mathfp::internal_error("paper C_y retained inactive frontier label")
-                            .ctx("origin", origin.get())
-                            .ctx("node_kind", static_cast<std::int64_t>(node.physical.kind))
-                            .ctx("node_id", node.physical.id)
-                            .ctx("label", static_cast<std::int64_t>(label.value))
-                    );
-                }
-            }
-        }
-        return mathfp::kUnit;
-    }
-
     void update_paper_node_summary_with_metrics(
           SearchPruningSummary&       summary
         , const SearchPruningMetrics& metrics
@@ -131,9 +39,87 @@ namespace timetable::domain::assignment {
         summary.min_fare = std::min(summary.min_fare, metrics.fare);
     }
 
+    SearchPruningSummary summarize_connection_set_c_y(
+        const ConnectionSetCyEntryVector& entries
+    ) noexcept {
+        SearchPruningSummary summary{};
+        for (const auto& entry : entries) {
+            update_paper_node_summary_with_metrics(summary, entry.metrics);
+        }
+        return summary;
+    }
+
+    std::size_t remove_inactive_paper_node_connection_metrics(
+          ConnectionSetCy&                    set
+        , const PaperConnectionLabelRegistry& registry
+    ) {
+        auto write = std::size_t{ 0u };
+        for (std::size_t read = 0u; read < set.entries_.size(); ++read) {
+            if (!paper_connection_label_active(
+                  registry
+                , std::optional<PaperConnectionLabelId>{ set.entries_[read].label }
+            )) {
+                continue;
+            }
+            if (write != read) {
+                set.entries_[write] = std::move(set.entries_[read]);
+            }
+            ++write;
+        }
+        const auto removed = set.entries_.size() - write;
+        set.entries_.resize(write);
+        if (removed != 0u) {
+            set.summary_ = summarize_connection_set_c_y(set.entries_);
+        }
+        return removed;
+    }
+
+    std::size_t remove_inactive_paper_connection_metrics(
+          PaperConnectionNodeMetricMap&       retention
+        , const PaperConnectionLabelRegistry& registry
+    ) {
+        auto removed = std::size_t{ 0u };
+        for (auto it = retention.begin(); it != retention.end();) {
+            removed += remove_inactive_paper_node_connection_metrics(
+                  it->second
+                , registry
+            );
+            if (it->second.empty()) {
+                it = retention.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        return removed;
+    }
+
+    mathfp::Expected<mathfp::Unit> validate_paper_connection_label_sync(
+          const PaperConnectionNodeMetricMap& retention
+        , const PaperConnectionLabelRegistry& registry
+        , ZoneId                              origin
+    ) {
+        for (const auto& [node, set] : retention) {
+            for (const auto& entry : set.entries()) {
+                if (!paper_connection_label_active(
+                      registry
+                    , std::optional<PaperConnectionLabelId>{ entry.label }
+                )) {
+                    return mathfp::unexpected(
+                        mathfp::internal_error("paper C_y retained inactive frontier label")
+                            .ctx("origin", origin.get())
+                            .ctx("node_kind", static_cast<std::int64_t>(node.physical.kind))
+                            .ctx("node_id", node.physical.id)
+                            .ctx("label", static_cast<std::int64_t>(entry.label.value))
+                    );
+                }
+            }
+        }
+        return mathfp::kUnit;
+    }
+
     void insert_paper_node_connection_metrics(
           const SearchPruningExecutionPlan& pruning_execution
-        , PaperNodeConnectionSet&           set
+        , ConnectionSetCy&                  set
         , SearchPruningMetrics              metrics
         , PaperConnectionLabelId            label
         , std::vector<PaperConnectionLabelId>& removed_labels
@@ -143,61 +129,54 @@ namespace timetable::domain::assignment {
         }
 
         const auto dominated_begin = std::lower_bound(
-              set.metrics.begin()
-            , set.metrics.end()
+              set.entries_.begin()
+            , set.entries_.end()
             , metrics.arrival.value()
-            , [](const SearchPruningMetrics& lhs, double arrival_value) {
-                return lhs.arrival.value() < arrival_value;
+            , [](const ConnectionSetCyEntry& lhs, double arrival_value) {
+                return lhs.metrics.arrival.value() < arrival_value;
             }
         );
 
         auto erase_pos = static_cast<std::size_t>(
-            std::distance(set.metrics.begin(), dominated_begin)
+            std::distance(set.entries_.begin(), dominated_begin)
         );
         auto removed_any = false;
         auto write_pos = erase_pos;
-        for (auto read_pos = erase_pos; read_pos < set.metrics.size(); ++read_pos) {
-            if (dominates_exactly(pruning_execution.exact_policy, metrics, set.metrics[read_pos])) {
-                if (read_pos < set.labels.size()) {
-                    removed_labels.push_back(set.labels[read_pos]);
-                }
+        for (auto read_pos = erase_pos; read_pos < set.entries_.size(); ++read_pos) {
+            if (dominates_exactly(pruning_execution.exact_policy, metrics, set.entries_[read_pos].metrics)) {
+                removed_labels.push_back(set.entries_[read_pos].label);
                 removed_any = true;
                 continue;
             }
             if (write_pos != read_pos) {
-                set.metrics[write_pos] = std::move(set.metrics[read_pos]);
-                if (read_pos < set.labels.size() && write_pos < set.labels.size()) {
-                    set.labels[write_pos] = set.labels[read_pos];
-                }
+                set.entries_[write_pos] = std::move(set.entries_[read_pos]);
             }
             ++write_pos;
         }
         if (removed_any) {
-            set.metrics.resize(write_pos);
-            set.labels.resize(write_pos);
+            set.entries_.resize(write_pos);
         }
 
         const auto insertion = std::lower_bound(
-              set.metrics.begin()
-            , set.metrics.end()
+              set.entries_.begin()
+            , set.entries_.end()
             , metrics.arrival.value()
-            , [](const SearchPruningMetrics& lhs, double arrival_value) {
-                return lhs.arrival.value() < arrival_value;
+            , [](const ConnectionSetCyEntry& lhs, double arrival_value) {
+                return lhs.metrics.arrival.value() < arrival_value;
             }
         );
         const auto inserted_metrics = metrics;
-        const auto insertion_pos = static_cast<std::size_t>(
-            std::distance(set.metrics.begin(), insertion)
-        );
-        set.metrics.insert(insertion, std::move(metrics));
-        set.labels.insert(
-              set.labels.begin() + static_cast<std::ptrdiff_t>(insertion_pos)
-            , label
+        set.entries_.insert(
+              insertion
+            , ConnectionSetCyEntry{
+                  .metrics = std::move(metrics)
+                , .label   = label
+              }
         );
         if (removed_any) {
-            set.summary = summarize_pruning_metrics(paper_metric_span(set));
+            set.summary_ = summarize_connection_set_c_y(set.entries_);
         } else {
-            update_paper_node_summary_with_metrics(set.summary, inserted_metrics);
+            update_paper_node_summary_with_metrics(set.summary_, inserted_metrics);
         }
     }
 

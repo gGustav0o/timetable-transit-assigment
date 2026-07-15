@@ -3,6 +3,9 @@
 #include <cstddef>
 #include <optional>
 
+#include <mathfp/core/expected.hpp>
+#include <mathfp/core/unit.hpp>
+
 #include "timetable/domain/assignment/capacity.hpp"
 #include "timetable/domain/assignment/od_day_path_contract.hpp"
 #include "timetable/domain/assignment/search/model/support.hpp"
@@ -85,5 +88,13 @@ namespace timetable::domain::assignment {
         OdDayProductionCarrier  od_day_carrier{};
         std::optional<PaperConnectionLabelId> paper_connection_label{};
     };
+
+    [[nodiscard]] const char* search_branch_phase_name(
+        SearchBranchPhase phase
+    ) noexcept;
+
+    [[nodiscard]] mathfp::Expected<mathfp::Unit> validate_search_branch_phase_invariants(
+        const SearchBranch& branch
+    );
 
 }  // namespace timetable::domain::assignment

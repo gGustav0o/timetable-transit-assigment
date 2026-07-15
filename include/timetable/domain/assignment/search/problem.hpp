@@ -27,6 +27,16 @@ namespace timetable::domain::assignment {
         std::vector<ZoneId> destinations{};
     };
 
+    [[nodiscard]] mathfp::Expected<mathfp::Unit> validate_search_problem(
+        const SearchProblem& problem
+    );
+
+    [[nodiscard]] mathfp::Expected<SearchProblem> make_search_problem(
+          ZoneId           origin
+        , SearchTimeDomain departure_domain
+        , std::vector<ZoneId> destinations
+    );
+
     struct SearchTreeJobRefTag {};
 
     using SearchTreeJobRef = DomainId<SearchTreeJobRefTag>;

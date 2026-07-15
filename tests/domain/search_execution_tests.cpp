@@ -6,6 +6,8 @@
 #include "search_test_support.hpp"
 
 #include "timetable/domain/assignment/search/execution.hpp"
+#include "timetable/domain/assignment/search/projection/contract.hpp"
+#include "timetable/domain/assignment/search_pruning.hpp"
 
 namespace timetable::domain::assignment {
 namespace {
@@ -69,6 +71,46 @@ TEST(SearchBatchBuilder, OriginPeriodBatchesUseTreeJobDomainAndProjectionSlots) 
     EXPECT_EQ(&batches[0].projection_slots[0].task->get(), &tasks[0]);
     ASSERT_TRUE(batches[0].projection_slots[1].task.has_value());
     EXPECT_EQ(&batches[0].projection_slots[1].task->get(), &tasks[1]);
+}
+
+TEST(SearchProjectionContract, OdDayProductionRejectsStructuralDayLevelSupply) {
+    std::vector<SearchTask> tasks{};
+    std::vector<SearchTreeJob> jobs{
+        SearchTreeJob{
+              .index              = SearchTreeJobRef{ 0 }
+            , .origin             = ZoneId{ 1 }
+            , .departure_domain   = domain(0.0, 500.0)
+            , .completion_targets = {
+                  completion_target(0, 2)
+              }
+        }
+    };
+
+    const auto batches_result = build_origin_period_search_batches(
+          std::span<const SearchTask>{ tasks.data(), tasks.size() }
+        , std::span<const SearchTreeJob>{ jobs.data(), jobs.size() }
+        , SearchResultProjection::OdDayPairs
+    );
+    ASSERT_TRUE(batches_result.has_value()) << batches_result.error().message();
+
+    SearchPruningExecutionPlan pruning_execution{};
+    pruning_execution.approximate_policy = ApproximatePruningPolicy{};
+
+    const auto accepted = validate_od_day_production_batch_contract(
+          batches_result->front()
+        , SearchPartialRetentionScope::TreeGlobal
+        , pruning_execution
+        , false
+    );
+    EXPECT_TRUE(accepted.has_value()) << accepted.error().message();
+
+    const auto rejected = validate_od_day_production_batch_contract(
+          batches_result->front()
+        , SearchPartialRetentionScope::TreeGlobal
+        , pruning_execution
+        , true
+    );
+    EXPECT_FALSE(rejected.has_value());
 }
 
 }  // namespace timetable::domain::assignment

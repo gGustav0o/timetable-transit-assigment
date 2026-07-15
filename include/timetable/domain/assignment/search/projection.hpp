@@ -14,9 +14,11 @@
 #include "timetable/domain/assignment/day_path.hpp"
 #include "timetable/domain/assignment/od_day_path_result.hpp"
 #include "timetable/domain/assignment/search/demand.hpp"
+#include "timetable/domain/assignment/search/generation/successor.hpp"
 #include "timetable/domain/assignment/search/model/retention.hpp"
 #include "timetable/domain/assignment/search/problem.hpp"
 #include "timetable/domain/model.hpp"
+#include "timetable/domain/segments.hpp"
 
 namespace timetable::domain::assignment {
 
@@ -98,6 +100,29 @@ namespace timetable::domain::assignment {
 
     [[nodiscard]] std::vector<SearchProjectionSlot> build_od_day_pair_projection_slots(
         const SearchTreeJob& job
+    );
+
+    /**
+     * @brief Projection-layer update of the OD-day carrier for one accepted
+     * branch transition.
+     *
+     * Branch transition owns only structural state and incremental metrics.
+     * OD-day path identity and timed support witness are projection concerns.
+     */
+    [[nodiscard]] OdDayProductionCarrier project_od_day_carrier_transition(
+          const OdDayProductionCarrier& carrier
+        , const SearchSuccessor&        successor
+        , const ConnectionSegment&      connection
+        , const RouteSegment&           route_segment
+    );
+
+    [[nodiscard]] mathfp::Expected<mathfp::Unit> validate_od_day_post_layer_retention(
+          const SearchProjectionSlot&       slot
+        , const SearchProjectionRetention&  retention
+    );
+
+    [[nodiscard]] mathfp::Expected<mathfp::Unit> validate_od_day_post_layer_result(
+        const SearchSlotResult& result
     );
 
 }  // namespace timetable::domain::assignment

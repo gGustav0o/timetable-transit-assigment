@@ -60,20 +60,6 @@ namespace timetable::domain::assignment {
             double        fare{};
         };
 
-        const RouteSegment& route_segment_at(
-              const PreprocessedNetwork& network
-            , RouteSegmentId             id
-        ) {
-            return network.route_segments.at(static_cast<std::size_t>(id.get()));
-        }
-
-        const ConnectionSegment& connection_segment_at(
-              const PreprocessedNetwork& network
-            , ConnectionSegmentId        id
-        ) {
-            return network.connection_segments.at(static_cast<std::size_t>(id.get()));
-        }
-
         void warn(std::string_view message) {
             timetable::infra::progress::log(message, timetable::infra::LogLevel::Warning);
         }

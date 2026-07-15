@@ -163,11 +163,28 @@ TEST(SearchPruningApproximateRetention, AppliesPaperToleranceInequalitiesAndTran
     ));
 }
 
-TEST(PaperNodeConnectionSet, RelevanceOnlyConsidersKnownArrivalsNotLaterThanCandidate) {
-    PaperNodeConnectionSet set;
-    set.metrics.push_back(metrics(0.0, 40.0, 40.0, 2, 100.0));
-    set.metrics.push_back(metrics(20.0, 80.0, 60.0, 0, 10.0));
-    set.summary = summarize_pruning_metrics(paper_metric_span(set));
+TEST(ConnectionSetCy, RelevanceOnlyConsidersKnownArrivalsNotLaterThanCandidate) {
+    SearchPruningExecutionPlan execution;
+    execution.exact_enabled = true;
+    execution.approximate_enabled = false;
+    execution.approximate_policy = std::nullopt;
+
+    ConnectionSetCy set;
+    std::vector<PaperConnectionLabelId> removed_labels;
+    insert_paper_node_connection_metrics(
+          execution
+        , set
+        , metrics(0.0, 40.0, 40.0, 2, 100.0)
+        , PaperConnectionLabelId{ 1 }
+        , removed_labels
+    );
+    insert_paper_node_connection_metrics(
+          execution
+        , set
+        , metrics(20.0, 80.0, 60.0, 0, 10.0)
+        , PaperConnectionLabelId{ 2 }
+        , removed_labels
+    );
 
     const auto candidate = metrics(10.0, 50.0, 40.0, 1, 50.0);
 
@@ -178,10 +195,21 @@ TEST(PaperNodeConnectionSet, RelevanceOnlyConsidersKnownArrivalsNotLaterThanCand
     ));
 }
 
-TEST(PaperNodeConnectionSet, RelevanceRejectsPaperDominatedCandidate) {
-    PaperNodeConnectionSet set;
-    set.metrics.push_back(metrics(20.0, 40.0, 30.0, 1, 50.0));
-    set.summary = summarize_pruning_metrics(paper_metric_span(set));
+TEST(ConnectionSetCy, RelevanceRejectsPaperDominatedCandidate) {
+    SearchPruningExecutionPlan execution;
+    execution.exact_enabled = true;
+    execution.approximate_enabled = false;
+    execution.approximate_policy = std::nullopt;
+
+    ConnectionSetCy set;
+    std::vector<PaperConnectionLabelId> removed_labels;
+    insert_paper_node_connection_metrics(
+          execution
+        , set
+        , metrics(20.0, 40.0, 30.0, 1, 50.0)
+        , PaperConnectionLabelId{ 1 }
+        , removed_labels
+    );
 
     const auto candidate = metrics(10.0, 50.0, 40.0, 2, 60.0);
 
@@ -192,13 +220,13 @@ TEST(PaperNodeConnectionSet, RelevanceRejectsPaperDominatedCandidate) {
     ));
 }
 
-TEST(PaperNodeConnectionSet, InsertRemovesDominatedSuffixAndReportsLabels) {
+TEST(ConnectionSetCy, InsertRemovesDominatedSuffixAndReportsLabels) {
     SearchPruningExecutionPlan execution;
     execution.exact_enabled = true;
     execution.approximate_enabled = false;
     execution.approximate_policy = std::nullopt;
 
-    PaperNodeConnectionSet set;
+    ConnectionSetCy set;
     std::vector<PaperConnectionLabelId> removed_labels;
 
     insert_paper_node_connection_metrics(
@@ -224,15 +252,14 @@ TEST(PaperNodeConnectionSet, InsertRemovesDominatedSuffixAndReportsLabels) {
         , removed_labels
     );
 
-    ASSERT_EQ(set.metrics.size(), 2u);
-    ASSERT_EQ(set.labels.size(), 2u);
+    ASSERT_EQ(set.size(), 2u);
     ASSERT_EQ(removed_labels.size(), 1u);
     EXPECT_EQ(removed_labels[0].value, 2u);
-    EXPECT_DOUBLE_EQ(set.metrics[0].arrival.value(), 30.0);
-    EXPECT_EQ(set.labels[0].value, 1u);
-    EXPECT_DOUBLE_EQ(set.metrics[1].arrival.value(), 40.0);
-    EXPECT_EQ(set.labels[1].value, 3u);
-    EXPECT_DOUBLE_EQ(set.summary.min_impedance, 25.0);
+    EXPECT_DOUBLE_EQ(set.entries()[0].metrics.arrival.value(), 30.0);
+    EXPECT_EQ(set.entries()[0].label.value, 1u);
+    EXPECT_DOUBLE_EQ(set.entries()[1].metrics.arrival.value(), 40.0);
+    EXPECT_EQ(set.entries()[1].label.value, 3u);
+    EXPECT_DOUBLE_EQ(set.summary().min_impedance, 25.0);
 }
 
 }  // namespace timetable::domain::assignment

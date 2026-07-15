@@ -20,6 +20,21 @@
 #include "timetable/infra/progress_bus.hpp"
 
 namespace timetable::domain::assignment {
+
+    const RouteSegment& route_segment_at(
+          const PreprocessedNetwork& network
+        , RouteSegmentId             id
+    ) {
+        return network.route_segments.at(static_cast<std::size_t>(id.get()));
+    }
+
+    const ConnectionSegment& connection_segment_at(
+          const PreprocessedNetwork& network
+        , ConnectionSegmentId        id
+    ) {
+        return network.connection_segments.at(static_cast<std::size_t>(id.get()));
+    }
+
     namespace {
 
         [[nodiscard]] bool is_positive_fare(

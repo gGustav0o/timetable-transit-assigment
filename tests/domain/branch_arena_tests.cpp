@@ -91,4 +91,42 @@ TEST(BranchArena, ReleasePayloadReceivesClosedSlotsFromLeafToRoot) {
     EXPECT_EQ(released[1], root);
 }
 
+TEST(SearchFrontierLayer, IsFifoLayerOfBranchIndices) {
+    SearchFrontierLayer layer;
+
+    layer.push_back(4u);
+    layer.push_back(9u);
+
+    ASSERT_EQ(layer.size(), 2u);
+    EXPECT_EQ(layer.front(), 4u);
+    layer.pop_front();
+    EXPECT_EQ(layer.front(), 9u);
+    layer.pop_front();
+    EXPECT_TRUE(layer.empty());
+}
+
+TEST(SearchFrontier, AdvancesNextLayerToCurrentLayer) {
+    SearchFrontier frontier;
+    frontier.current.push_back(1u);
+    frontier.next.push_back(2u);
+
+    EXPECT_EQ(frontier.size(), 2u);
+    frontier.current.pop_front();
+    frontier.advance_layer();
+
+    ASSERT_FALSE(frontier.current.empty());
+    EXPECT_EQ(frontier.current.front(), 2u);
+    EXPECT_TRUE(frontier.next.empty());
+}
+
+TEST(SearchBranchModel, RejectsAtOriginBranchWithOccurrenceState) {
+    auto impossible = branch(ZoneId{ 1 }, endpoint_key(ZoneId{ 1 }));
+    impossible.trace.current_occurrence = StopOccurrenceKey{
+          .stop     = StopId{ 10 }
+        , .position = RoutePosition{ 0 }
+    };
+
+    EXPECT_FALSE(validate_search_branch_phase_invariants(impossible).has_value());
+}
+
 }  // namespace timetable::domain::assignment

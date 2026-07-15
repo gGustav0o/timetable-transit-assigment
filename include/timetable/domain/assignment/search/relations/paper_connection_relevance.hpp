@@ -8,7 +8,7 @@
 namespace timetable::domain::assignment {
 
     [[nodiscard]] bool paper_node_connection_relevant(
-          const PaperNodeConnectionSet& set
+          const ConnectionSetCy&        set
         , const ExactPruningPolicy&     policy
         , const SearchPruningMetrics&   candidate
     ) noexcept;
@@ -16,7 +16,7 @@ namespace timetable::domain::assignment {
     [[nodiscard]] SearchPruningDecision evaluate_paper_node_connection_set(
           const SearchPruningExecutionPlan& execution
         , const SearchPruningMetrics&       candidate
-        , const PaperNodeConnectionSet&     set
+        , const ConnectionSetCy&            set
         , const TransferLimits&             limits
     ) noexcept;
 

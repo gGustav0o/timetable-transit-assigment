@@ -120,14 +120,26 @@ set(TIMETABLE_CORE_SOURCES
   src/domain/assignment/search/frontier/retention_operations.cpp
   src/domain/assignment/search/generation/successor.cpp
   src/domain/assignment/search/execution.cpp
+  src/domain/assignment/search/kernel.cpp
+  src/domain/assignment/search/policy.cpp
+  src/domain/assignment/search/problem.cpp
   src/domain/assignment/search/projection.cpp
+  src/domain/assignment/search/projection/contract.cpp
+  src/domain/assignment/search/projection/complete_connection.cpp
   src/domain/assignment/search/branch_state.cpp
+  src/domain/assignment/search/model/branch.cpp
   src/domain/assignment/search/model/retention.cpp
   src/domain/assignment/search/model/support.cpp
+  src/domain/assignment/search/od_day/successor.cpp
+  src/domain/assignment/search/od_day/supply_graph.cpp
   src/domain/assignment/search/preprocessed_network.cpp
+  src/domain/assignment/search/pruning/suffix_lower_bound.cpp
+  src/domain/assignment/search/residual_reachability.cpp
+  src/domain/assignment/search/generation/branch_transition.cpp
   src/domain/assignment/search/relations/branch_metrics.cpp
   src/domain/assignment/search/relations/branch_state_projection.cpp
   src/domain/assignment/search/relations/paper_connection_relevance.cpp
+  src/domain/assignment/search/runtime/diagnostics.cpp
   src/domain/assignment/search/runtime/search_runtime.cpp
   src/domain/assignment/search/search.cpp
   src/domain/assignment/run.cpp

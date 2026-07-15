@@ -19,6 +19,16 @@ namespace timetable::domain::assignment {
         preprocessing::ConnectionSegmentIndex connection_index{};
     };
 
+    [[nodiscard]] const RouteSegment& route_segment_at(
+          const PreprocessedNetwork& network
+        , RouteSegmentId             id
+    );
+
+    [[nodiscard]] const ConnectionSegment& connection_segment_at(
+          const PreprocessedNetwork& network
+        , ConnectionSegmentId        id
+    );
+
     /**
      * @brief Build route/connection segments and their indices from the input model.
      */

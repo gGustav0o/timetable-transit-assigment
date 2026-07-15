@@ -101,7 +101,7 @@ namespace timetable::domain::assignment {
         }
     }
 
-    struct LevelFrontierBuffer final {
+    struct SearchFrontierLayer final {
         std::vector<std::size_t> entries{};
         std::size_t              head{};
 
@@ -132,9 +132,34 @@ namespace timetable::domain::assignment {
             head = 0u;
         }
 
-        void swap(LevelFrontierBuffer& rhs) noexcept {
+        void swap(SearchFrontierLayer& rhs) noexcept {
             entries.swap(rhs.entries);
             std::swap(head, rhs.head);
+        }
+    };
+
+    /**
+     * @brief Two-layer transfer-depth frontier of branch indices.
+     *
+     * The current layer is exhausted before the next layer becomes current.
+     * This is the mathematical frontier of the branch-and-bound expansion; it
+     * is not an ownership structure for branches.
+     */
+    struct SearchFrontier final {
+        SearchFrontierLayer current{};
+        SearchFrontierLayer next{};
+
+        [[nodiscard]] bool empty() const noexcept {
+            return current.empty() && next.empty();
+        }
+
+        [[nodiscard]] std::size_t size() const noexcept {
+            return current.size() + next.size();
+        }
+
+        void advance_layer() noexcept {
+            current.swap(next);
+            next.clear();
         }
     };
 

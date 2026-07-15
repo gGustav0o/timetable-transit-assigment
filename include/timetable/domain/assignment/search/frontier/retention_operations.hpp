@@ -14,12 +14,8 @@
 
 namespace timetable::domain::assignment {
 
-    [[nodiscard]] std::span<const SearchPruningMetrics> paper_metric_span(
-        const PaperNodeConnectionSet& set
-    ) noexcept;
-
     [[nodiscard]] std::size_t remove_inactive_paper_node_connection_metrics(
-          PaperNodeConnectionSet&             set
+          ConnectionSetCy&                    set
         , const PaperConnectionLabelRegistry& registry
     );
 
@@ -41,7 +37,7 @@ namespace timetable::domain::assignment {
 
     void insert_paper_node_connection_metrics(
           const SearchPruningExecutionPlan& pruning_execution
-        , PaperNodeConnectionSet&           set
+        , ConnectionSetCy&                  set
         , SearchPruningMetrics              metrics
         , PaperConnectionLabelId            label
         , std::vector<PaperConnectionLabelId>& removed_labels

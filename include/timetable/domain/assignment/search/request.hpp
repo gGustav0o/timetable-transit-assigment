@@ -18,6 +18,14 @@
 
 namespace timetable::domain::assignment {
 
+    /**
+     * @brief Application-level execution request for branch-and-bound search.
+     *
+     * This is not the mathematical kernel input. Runtime code must lower this
+     * request into SearchProblem + SearchPolicy values before invoking the
+     * branch-and-bound kernel. Choice, assignment-period, admissibility,
+     * projection and diagnostics fields belong to orchestration layers.
+     */
     struct BranchAndBoundSearchRequest final {
         const PreprocessedNetwork&          network;
         std::span<const SearchTask>          tasks;

@@ -1,37 +1,77 @@
 #pragma once
 
+#include <cstdint>
 #include <utility>
 
-#include "timetable/domain/assignment/complete_connection_retention.hpp"
+#include <mathfp/core/expected.hpp>
+#include <mathfp/core/unit.hpp>
+
+#include "timetable/domain/assignment/search_pruning.hpp"
 #include "timetable/domain/assignment/search_cost.hpp"
 #include "timetable/domain/params.hpp"
 
 namespace timetable::domain::assignment {
 
+    struct SearchTemporalSuitabilityPolicy final {
+        TransferLimits transfer_limits{};
+    };
+
+    struct SearchNodeRelevancePolicy final {
+        ExactPruningPolicy exact{};
+    };
+
+    struct SearchNodeTolerancePolicy final {
+        SearchTolerances tolerances{};
+    };
+
+    enum class SearchLoopTransferPolicy : std::uint8_t {
+        SameLineReboardingOnlyForTimeSavingLoop
+    };
+
+    struct SearchLoopPolicy final {
+        SearchLoopTransferPolicy transfer_policy{
+            SearchLoopTransferPolicy::SameLineReboardingOnlyForTimeSavingLoop
+        };
+    };
+
     /**
      * @brief Mathematical policy used while building a connection tree.
      *
-     * Final connection choice is deliberately excluded. ChoiceTolerances and
-     * ChoiceConfig belong to post-search pruning over complete alternatives.
+     * This is the complete branch-and-bound kernel policy. It deliberately
+     * excludes final connection choice, demand projection, runtime rollout,
+     * logging, cancellation and output concerns.
      */
     struct SearchPolicy final {
-        SearchCostContext                  cost{};
-        TransferLimits                     transfer_limits{};
-        SearchTolerances                   tolerances{};
-        CompleteConnectionDominanceConfig  complete_connection_dominance{};
+        SearchCostContext               cost{};
+        SearchTemporalSuitabilityPolicy temporal{};
+        SearchNodeRelevancePolicy       relevance{};
+        SearchNodeTolerancePolicy       tolerance{};
+        SearchLoopPolicy                loops{};
     };
 
-    [[nodiscard]] inline SearchPolicy make_search_policy(
-          SearchCostContext                 cost
-        , const SearchParams&               params
-        , CompleteConnectionDominanceConfig complete_connection_dominance = {}
-    ) {
-        return SearchPolicy{
-              .cost                          = std::move(cost)
-            , .transfer_limits               = params.transfers
-            , .tolerances                    = params.search_tolerances
-            , .complete_connection_dominance = complete_connection_dominance
-        };
-    }
+    [[nodiscard]] mathfp::Expected<mathfp::Unit> validate_search_temporal_suitability_policy(
+        const SearchTemporalSuitabilityPolicy& policy
+    );
+
+    [[nodiscard]] mathfp::Expected<mathfp::Unit> validate_search_node_relevance_policy(
+        const SearchNodeRelevancePolicy& policy
+    );
+
+    [[nodiscard]] mathfp::Expected<mathfp::Unit> validate_search_node_tolerance_policy(
+        const SearchNodeTolerancePolicy& policy
+    );
+
+    [[nodiscard]] mathfp::Expected<mathfp::Unit> validate_search_loop_policy(
+        const SearchLoopPolicy& policy
+    );
+
+    [[nodiscard]] mathfp::Expected<mathfp::Unit> validate_search_policy(
+        const SearchPolicy& policy
+    );
+
+    [[nodiscard]] mathfp::Expected<SearchPolicy> make_search_policy(
+          SearchCostContext cost
+        , const SearchParams& params
+    );
 
 }  // namespace timetable::domain::assignment

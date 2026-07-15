@@ -6,25 +6,25 @@
 namespace timetable::domain::assignment {
 
     bool paper_node_connection_relevant(
-          const PaperNodeConnectionSet& set
+          const ConnectionSetCy&        set
         , const ExactPruningPolicy&     policy
         , const SearchPruningMetrics&   candidate
     ) noexcept {
         const auto prefix_end = std::upper_bound(
-              set.metrics.begin()
-            , set.metrics.end()
+              set.entries_.begin()
+            , set.entries_.end()
             , candidate.arrival.value()
-            , [](double arrival_value, const SearchPruningMetrics& rhs) {
-                return arrival_value < rhs.arrival.value();
+            , [](double arrival_value, const ConnectionSetCyEntry& rhs) {
+                return arrival_value < rhs.metrics.arrival.value();
             }
         );
 
         auto prefix_count = static_cast<std::size_t>(
-            std::distance(set.metrics.begin(), prefix_end)
+            std::distance(set.entries_.begin(), prefix_end)
         );
         while (prefix_count > 0u) {
             --prefix_count;
-            if (dominates_exactly(policy, set.metrics[prefix_count], candidate)) {
+            if (dominates_exactly(policy, set.entries_[prefix_count].metrics, candidate)) {
                 return false;
             }
         }
@@ -34,7 +34,7 @@ namespace timetable::domain::assignment {
     SearchPruningDecision evaluate_paper_node_connection_set(
           const SearchPruningExecutionPlan& execution
         , const SearchPruningMetrics&       candidate
-        , const PaperNodeConnectionSet&     set
+        , const ConnectionSetCy&            set
         , const TransferLimits&             limits
     ) noexcept {
         if (execution.exact_enabled
@@ -54,7 +54,7 @@ namespace timetable::domain::assignment {
             && execution.approximate_policy.has_value()
             && !within_approximate_retention(
                   candidate
-                , set.summary
+                , set.summary()
                 , *execution.approximate_policy
                 , limits
             )) {

@@ -197,6 +197,33 @@ namespace timetable::domain::assignment {
         );
     }
 
+    TimedSuccessorEnumerationResult collect_timed_connection_successors(
+          const PreprocessedNetwork& network
+        , EndpointKey                physical_from
+        , std::optional<Time>        current_time
+        , const TransferLimits&      limits
+        , const SearchTimeDomain*    first_departure_domain
+    ) {
+        TimedSuccessorEnumerationResult result;
+        if (!current_time.has_value() && first_departure_domain != nullptr) {
+            result.diagnostics.scanned_windows = first_departure_domain->windows.size();
+        } else if (physical_from.kind == EndpointKind::Stop) {
+            result.diagnostics.scanned_windows = 1u;
+        }
+        for_each_timed_connection_successor(
+              network
+            , physical_from
+            , current_time
+            , limits
+            , first_departure_domain
+            , [&](ConnectionSegmentId successor) {
+                  result.successors.push_back(successor);
+              }
+        );
+        result.diagnostics.emitted_successors = result.successors.size();
+        return result;
+    }
+
     TimedSupportEnvelope propagate_timed_support_envelope(
           const ConnectionSegment& connection
         , const RouteSegment&      route_segment
