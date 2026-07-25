@@ -1,19 +1,52 @@
 include(GoogleTest)
 
 add_executable(timetable_tests
+  domain/architecture_rules_tests.cpp
   domain/branch_arena_tests.cpp
+  domain/capacity_aware_config_tests.cpp
+  domain/capacity_aware_diagnostics_tests.cpp
+  domain/capacity_aware_exposure_tests.cpp
+  domain/capacity_aware_load_state_tests.cpp
+  domain/capacity_aware_load_state_iteration_tests.cpp
+  domain/capacity_aware_penalty_tests.cpp
+  domain/capacity_load_projection_tests.cpp
+  domain/capacity_overload_assessment_tests.cpp
+  domain/capacity_overload_tests.cpp
+  domain/day_path_alternative_tests.cpp
+  domain/day_path_signature_tests.cpp
+  domain/day_path_support_tests.cpp
+  domain/day_path_retention_tests.cpp
+  domain/day_path_finalization_tests.cpp
   domain/friedrich_hofsaess_wekeck_regression_tests.cpp
   domain/od_day_successor_tests.cpp
   domain/od_day_supply_graph_tests.cpp
   domain/od_day_path_contract_tests.cpp
+  domain/residual_closure_tests.cpp
+  domain/residual_graph_tests.cpp
+  domain/residual_lower_bound_tests.cpp
+  domain/residual_query_tests.cpp
   domain/residual_reachability_tests.cpp
+  domain/residual_transition_tests.cpp
+  domain/residual_validation_tests.cpp
   domain/search_execution_tests.cpp
+  domain/search_cost_capacity_index_tests.cpp
+  domain/search_cost_exposure_tests.cpp
+  domain/search_cost_impedance_tests.cpp
+  domain/search_cost_validation_tests.cpp
   domain/search_generation_spec_tests.cpp
   domain/search_kernel_contract_tests.cpp
   domain/search_problem_tests.cpp
   domain/search_projection_tests.cpp
   domain/search_pruning_tests.cpp
   domain/search_runtime_diagnostics_tests.cpp
+  domain/split_choice_weight_tests.cpp
+  domain/split_allocation_tests.cpp
+  domain/split_demand_projection_tests.cpp
+  domain/split_impedance_tests.cpp
+  domain/split_independence_tests.cpp
+  domain/split_load_accumulation_tests.cpp
+  domain/split_probability_tests.cpp
+  domain/split_kernel_tests.cpp
   domain/suffix_lower_bound_tests.cpp
   domain/support_prefix_tests.cpp
   mathfp/ranges_zip_tests.cpp
@@ -23,6 +56,11 @@ target_link_libraries(timetable_tests
   PRIVATE
     timetable_core
     GTest::gtest_main
+)
+
+target_compile_definitions(timetable_tests
+  PRIVATE
+    TIMETABLE_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
 )
 
 gtest_discover_tests(timetable_tests)

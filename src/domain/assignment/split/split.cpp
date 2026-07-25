@@ -3,7 +3,6 @@
 #include <algorithm>
 #include <cstdint>
 #include <cmath>
-#include <limits>
 #include <map>
 #include <optional>
 #include <span>
@@ -23,7 +22,10 @@
 #include "../detail/grouping.hpp"
 #include "timetable/domain/assignment/capacity_aware_assignment.hpp"
 #include "timetable/domain/assignment/connection_admissibility.hpp"
-#include "timetable/domain/numeric.hpp"
+#include "timetable/domain/assignment/split/choice_weight.hpp"
+#include "timetable/domain/assignment/split/impedance_transform.hpp"
+#include "timetable/domain/assignment/split/independence.hpp"
+#include "timetable/domain/assignment/split/split_allocation.hpp"
 #include "timetable/infra/progress_bus.hpp"
 
 namespace timetable::domain::assignment {
@@ -87,86 +89,10 @@ namespace timetable::domain::assignment {
             const VehicleJourneyItemCapacitySet* capacity_set{};
         };
 
-        std::size_t max_weight_index(
-            std::span<const double> weights
-        ) noexcept {
-            std::size_t index = 0;
-            for (std::size_t i = 1; i < weights.size(); ++i) {
-                if (weights[i] > weights[index]) {
-                    index = i;
-                }
-            }
-            return index;
-        }
-
-        bool is_non_negative_roundoff(
-              double value
-            , double scale
-        ) noexcept {
-            return value >= 0.0
-                || mathfp::almost_equal(
-                      value
-                    , 0.0
-                    , mathfp::abs_tolerance(scale)
-                    , mathfp::rel_tolerance_coeff<double>()
-                );
-        }
-
-        double split_support_probability_tolerance() noexcept {
-            return mathfp::abs_tolerance(1.0);
-        }
-
-        double split_support_passenger_tolerance(
-            double demand_passengers
-        ) noexcept {
-            return mathfp::abs_tolerance(demand_passengers);
-        }
-
-        bool is_numerically_significant_share(
-              double probability
-            , double passengers
-            , double demand_passengers
-        ) noexcept {
-            return probability > split_support_probability_tolerance()
-                && passengers  > split_support_passenger_tolerance(demand_passengers);
-        }
-
-        std::size_t compact_numerical_support(
-              std::vector<double>& probabilities
-            , std::vector<double>& passengers
-            , std::size_t          residual_index
-            , double               demand_passengers
-        ) noexcept {
-            mathfp::CompensatedSum<double> suppressed_probability;
-            mathfp::CompensatedSum<double> suppressed_passengers;
-            std::size_t suppressed_count = 0;
-
-            // Values below floating-point resolution do not form a meaningful
-            // numerical support; move their mass to the residual alternative so
-            // the reported split still conserves probability and passengers.
-            for (std::size_t i = 0; i < probabilities.size(); ++i) {
-                if (i == residual_index) {
-                    continue;
-                }
-                if (is_numerically_significant_share(
-                      probabilities[i]
-                    , passengers[i]
-                    , demand_passengers
-                )) {
-                    continue;
-                }
-
-                suppressed_probability.add(probabilities[i]);
-                suppressed_passengers .add(passengers[i]);
-                probabilities[i] = 0.0;
-                passengers[i]    = 0.0;
-                ++suppressed_count;
-            }
-
-            probabilities[residual_index] += suppressed_probability.value();
-            passengers   [residual_index] += suppressed_passengers .value();
-            return suppressed_count;
-        }
+        struct MaterializedSplitShareAllocation final {
+            std::vector<SplitAlternative> alternatives{};
+            SplitShareAllocationResult    allocation;
+        };
 
         double perceived_journey_time(
               const ConnectionMetrics&           metrics
@@ -198,385 +124,75 @@ namespace timetable::domain::assignment {
                 );
         }
 
-        Time split_reference_time(
-              const ConnectionMetrics& metrics
-            , DemandSegmentBasis       basis
+        [[nodiscard]] SplitIndependenceAlternativeView independence_view(
+            const SplitAlternative& alternative
         ) noexcept {
-            switch (basis) {
-                case DemandSegmentBasis::Departure:
-                    return metrics.departure_time;
-                case DemandSegmentBasis::Arrival:
-                    return metrics.arrival_time;
-            }
-            return metrics.departure_time;
+            return SplitIndependenceAlternativeView{
+                  .departure_time = alternative.metrics.departure_time.value()
+                , .arrival_time = alternative.metrics.arrival_time.value()
+                , .perceived_journey_time = alternative.perceived_journey_time
+                , .fare = alternative.metrics.fare
+            };
         }
 
-        double split_early_deviation(
-              Time                reference_time
-            , const TimeInterval& interval
+        [[nodiscard]] SplitImpedanceAlternativeView impedance_view(
+            const SplitAlternative& alternative
         ) noexcept {
-            return std::max(
-                  0.0
-                , interval.start.value() - reference_time.value()
-            );
+            return SplitImpedanceAlternativeView{
+                  .departure_time = alternative.metrics.departure_time
+                , .arrival_time = alternative.metrics.arrival_time
+                , .perceived_journey_time = alternative.perceived_journey_time
+                , .fare = alternative.metrics.fare
+            };
         }
 
-        double split_late_deviation(
-              Time                reference_time
-            , const TimeInterval& interval
+        [[nodiscard]] SplitImpedancePolicy split_impedance_policy(
+              const SplitParams& params
+            , DemandSegmentBasis basis
         ) noexcept {
-            return std::max(
-                  0.0
-                , reference_time.value() - interval.end.value()
-            );
+            const auto impedance_basis =
+                basis == DemandSegmentBasis::Arrival
+                    ? SplitReferenceTimeBasis::Arrival
+                    : SplitReferenceTimeBasis::Departure;
+            return SplitImpedancePolicy{
+                  .q_time = params.q_time
+                , .q_departure = params.q_departure
+                , .q_fare = params.q_fare
+                , .temporal_utility = SplitTemporalUtilityPolicy{
+                      .basis = impedance_basis
+                    , .weights = params.temporal_utility
+                  }
+            };
         }
 
-        double temporal_utility(
-              const SplitAlternative&       alternative
-            , const TimeInterval&           interval
-            , DemandSegmentBasis            basis
-            , const TemporalUtilityWeights& weights
-        ) noexcept {
-            //tex:
-            // Temporal utility compares the chosen demand interval $$a$$ with
-            // the realized departure or arrival reference time:
-            // $$U_a(c)=u_e\max(0,start(a)-T(c))+u_l\max(0,T(c)-end(a)).$$
-            // Hence $$U_a(c)=0$$ inside the interval and grows monotonically
-            // outside it.
-            const auto reference_time = split_reference_time(
-                  alternative.metrics
-                , basis
-            );
-            return
-                  mathfp::units::as_dimless(weights.early_departure)
-                    * split_early_deviation(reference_time, interval)
-                + mathfp::units::as_dimless(weights.late_departure)
-                    * split_late_deviation(reference_time, interval);
-        }
-
-        double split_impedance(
-              const SplitAlternative& alternative
-            , const TimeInterval&     interval
-            , const SplitParams&      params
-            , DemandSegmentBasis      basis
-        ) noexcept {
-            //tex:
-            // Interval-specific split impedance:
-            // $$IMP_a(c)=q_1PJT(c)+q_2U_a(c)+q_3FARE(c).$$
-            return
-                  mathfp::units::as_dimless(params.q_time)
-                    * alternative.perceived_journey_time
-                + mathfp::units::as_dimless(params.q_departure)
-                    * temporal_utility(
-                          alternative
-                        , interval
-                        , basis
-                        , params.temporal_utility
-                    )
-                + mathfp::units::as_dimless(params.q_fare)
-                    * alternative.metrics.fare;
-        }
-
-        double box_cox_transform(
-              double value
-            , double t
-        ) noexcept {
-            //tex:
-            // Box--Cox transform from the paper:
-            // $$b^{(t)}(IMP)=\begin{cases}(IMP^t-1)/t,&t\ne0,\\ \log(IMP),&t=0.\end{cases}$$
-            // A positive numerical floor is applied only to keep logarithms and
-            // powers well-defined for near-zero modeled impedances.
-            const auto positive = std::max(value, numeric::positive_stability_floor());
-            if (mathfp::almost_zero(t)) {
-                return std::log(positive);
-            }
-            return (std::pow(positive, t) - 1.0) / t;
-        }
-
-        double transform_split_impedance(
-              const SplitImpedanceTransformConfig& config
-            , double                                impedance
-        ) noexcept {
-            const auto positive = std::max(
-                  impedance
-                , numeric::positive_stability_floor()
-            );
-            if (!config.boxcox_transform_enabled) {
-                return positive;
-            }
-            return box_cox_transform(
-                  positive
-                , mathfp::units::as_dimless(config.boxcox_t)
-            );
-        }
-
-        double positive_log_argument(
-            double value
-        ) noexcept {
-            return std::max(value, numeric::positive_stability_floor());
-        }
-
-        double log_independence_weight(
-            double independence
-        ) noexcept {
-            return std::log(positive_log_argument(independence));
-        }
-
-        double kirchhoff_log_weight(
-              double exponent
-            , double impedance
-            , double independence
-        ) noexcept {
-            return log_independence_weight(independence)
-                - exponent * std::log(positive_log_argument(impedance));
-        }
-
-        double logit_log_weight(
-              double exponent
-            , double impedance
-            , double independence
-        ) noexcept {
-            return log_independence_weight(independence)
-                - exponent * impedance;
-        }
-
-        double transformed_impedance_log_weight(
-              double exponent
-            , double impedance
-            , double independence
-        ) noexcept {
-            return log_independence_weight(independence)
-                - exponent * impedance;
-        }
-
-        mathfp::Expected<mathfp::Unit> validate_supported_split_choice_model(
-            SplitChoiceModel model
+        mathfp::Expected<mathfp::Unit> assign_split_independences(
+              std::vector<SplitAlternative>& alternatives
+            , const SplitIndependenceConfig& config
         ) {
-            if (model == SplitChoiceModel::Lohse) {
-                return mathfp::unexpected(
-                    mathfp::invalid_arg("Lohse split choice model is not implemented")
-                        .ctx("choice_model", std::string(to_string(model)))
-                );
+            std::vector<SplitIndependenceAlternativeView> views;
+            views.reserve(alternatives.size());
+            for (std::size_t i = 0; i < alternatives.size(); ++i) {
+                views.push_back(independence_view(alternatives[i]));
+            }
+
+            MATHFP_TRY_LET(
+                  std::vector<SplitIndependenceWeight>
+                , independences
+                , compute_split_independences(
+                      config
+                    , std::span<const SplitIndependenceAlternativeView>{
+                          views.data()
+                        , views.size()
+                      }
+                  )
+            );
+            for (std::size_t i = 0; i < alternatives.size(); ++i) {
+                alternatives[i].independence = independences[i].get();
             }
             return mathfp::kUnit;
         }
 
-        mathfp::Expected<double> split_choice_log_weight(
-              const SplitChoiceModelConfig& model
-            , double                        transformed_impedance
-            , double                        independence
-        ) {
-            if (!std::isfinite(transformed_impedance)) {
-                return mathfp::unexpected(
-                    mathfp::invalid_arg("split choice impedance must be finite")
-                        .ctx("choice_model", std::string(to_string(model.model)))
-                        .ctx("impedance", transformed_impedance)
-                );
-            }
-
-            const auto exponent = mathfp::units::as_dimless(model.exponent);
-            //tex:
-            // The BoxCox branch implements the MNL weight from the paper in log
-            // space:
-            // $$\log w_a(c)=\log IND(c)-\beta b^{(t)}(IMP_a(c)).$$
-            // The value passed here is already either raw $$IMP_a(c)$$ or the
-            // transformed $$b^{(t)}(IMP_a(c))$$ according to SplitImpedanceTransformConfig.
-            switch (model.model) {
-                case SplitChoiceModel::Kirchhoff:
-                    return kirchhoff_log_weight(
-                          exponent
-                        , transformed_impedance
-                        , independence
-                    );
-
-                case SplitChoiceModel::Logit:
-                    return logit_log_weight(
-                          exponent
-                        , transformed_impedance
-                        , independence
-                    );
-
-                case SplitChoiceModel::BoxCox:
-                    return transformed_impedance_log_weight(
-                          exponent
-                        , transformed_impedance
-                        , independence
-                    );
-
-                case SplitChoiceModel::Lohse:
-                    return mathfp::unexpected(
-                        mathfp::invalid_arg("Lohse split choice model is not implemented")
-                            .ctx("choice_model", std::string(to_string(model.model)))
-                    );
-            }
-
-            return mathfp::unexpected(
-                mathfp::invalid_arg("unsupported split choice model")
-                    .ctx("choice_model", static_cast<std::int64_t>(model.model))
-            );
-        }
-
-        double temporal_similarity(
-              const SplitAlternative& lhs
-            , const SplitAlternative& rhs
-        ) noexcept {
-            //tex:
-            // Temporal similarity term:
-            // $$x_c(c')=\frac{|DEP(c)-DEP(c')|+|ARR(c)-ARR(c')|}{2}.$$
-            return
-                0.5
-                * (
-                std::abs(rhs.metrics.departure_time.value() - lhs.metrics.departure_time.value())
-                + std::abs(rhs.metrics.arrival_time.value() - lhs.metrics.arrival_time.value())
-            );
-        }
-
-        double base_journey_quality_advantage(
-              const SplitAlternative& lhs
-            , const SplitAlternative& rhs
-        ) noexcept {
-            //tex:
-            // Perceived-journey-time advantage of base connection $$c$$:
-            // $$y_c(c')=PJT(c')-PJT(c).$$
-            return rhs.perceived_journey_time - lhs.perceived_journey_time;
-        }
-
-        double base_fare_quality_advantage(
-              const SplitAlternative& lhs
-            , const SplitAlternative& rhs
-        ) noexcept {
-            //tex:
-            // Fare advantage of base connection $$c$$:
-            // $$z_c(c')=FARE(c')-FARE(c).$$
-            return rhs.metrics.fare - lhs.metrics.fare;
-        }
-
-        bool compared_connection_is_superior(
-            double base_quality_advantage
-        ) noexcept {
-            return base_quality_advantage < 0.0;
-        }
-
-        double asymmetric_scale(
-              double             base_quality_advantage
-            , Dimless            higher_scale
-            , Dimless            lower_scale
-        ) noexcept {
-            return compared_connection_is_superior(base_quality_advantage)
-                ? mathfp::units::as_dimless(higher_scale)
-                : mathfp::units::as_dimless(lower_scale);
-        }
-
-        double paper_independence_quality_scale(
-              double                         base_quality_advantage
-            , Dimless                        higher_scale
-            , Dimless                        lower_scale
-        ) noexcept {
-            return asymmetric_scale(base_quality_advantage, higher_scale, lower_scale);
-        }
-
-        double capped_proximity(
-              double similarity
-            , double scale
-        ) noexcept {
-            if (scale <= 0.0) {
-                return similarity <= 0.0 ? 1.0 : 0.0;
-            }
-            return 1.0 - std::min(1.0, similarity / scale);
-        }
-
-        double connection_influence(
-              const SplitAlternative& base
-            , const SplitAlternative& other
-            , const SplitIndependenceConfig& config
-        ) noexcept {
-            //tex:
-            // Non-negative influence $$f_c(c')$$ combines temporal proximity
-            // and asymmetric quality/fare distances. Large similarity in
-            // departure-arrival time and small quality/fare differences increase
-            // overlap, thereby reducing $$IND(c)$$.
-            // The production formula is the paper formula:
-            // $$f_c(c')=\left(1-\frac{x_c(c')^+}{s_x}\right)^+\left(1-\gamma\min\left\{1,\frac{s_z|y_c(c')|+s_y|z_c(c')|}{s_y s_z}\right\}\right)^+.$$
-            // The scales $$s_y$$ and $$s_z$$ are selected by the signs of
-            // $$y_c(c')$$ and $$z_c(c')$$ respectively, as required by the
-            // asymmetry rule in the article: a superior compared connection
-            // $$c'$$ uses the higher-quality scale and therefore can exert
-            // stronger influence on inferior base connection $$c$$.
-            const auto x = temporal_similarity(base, other);
-            const auto y = base_journey_quality_advantage(base, other);
-            const auto z = base_fare_quality_advantage(base, other);
-            const auto proximity = capped_proximity(
-                  x
-                , mathfp::units::as_dimless(config.temporal_similarity_scale)
-            );
-            const auto s_y = paper_independence_quality_scale(
-                  y
-                , config.higher_perceived_journey_time_scale
-                , config.lower_perceived_journey_time_scale
-            );
-            const auto s_z = paper_independence_quality_scale(
-                  z
-                , config.higher_fare_scale
-                , config.lower_fare_scale
-            );
-            const auto denominator = s_y * s_z;
-            if (denominator <= 0.0) {
-                return 0.0;
-            }
-
-            const auto quality_distance = std::min(
-                  1.0
-                , (
-                      s_z * std::abs(y)
-                    + s_y * std::abs(z)
-                  ) / denominator
-            );
-            const auto quality_factor = 1.0
-                - mathfp::units::as_dimless(config.gamma) * quality_distance;
-
-            return proximity * std::max(0.0, quality_factor);
-        }
-
-        double split_independence(
-              const SplitIndependenceConfig&    config
-            , std::span<const SplitAlternative> alternatives
-            , std::size_t                       index
-        ) noexcept {
-            //tex:
-            // Independence of one connection within the OD set $$C$$:
-            // $$IND(c)=\frac{1}{1+\sum_{c'\in C,\ c'\ne c}f_c(c')}.$$
-            if (!config.enabled) {
-                return 1.0;
-            }
-
-            mathfp::CompensatedSum<double> influence_sum;
-            for (std::size_t i = 0; i < alternatives.size(); ++i) {
-                if (i == index) {
-                    continue;
-                }
-                influence_sum.add(connection_influence(
-                      alternatives[index]
-                    , alternatives[i]
-                    , config
-                ));
-            }
-            return 1.0 / (1.0 + influence_sum.value());
-        }
-
-        void assign_split_independences(
-              std::vector<SplitAlternative>& alternatives
-            , const SplitIndependenceConfig& config
-        ) noexcept {
-            for (std::size_t i = 0; i < alternatives.size(); ++i) {
-                alternatives[i].independence = split_independence(
-                      config
-                    , alternatives
-                    , i
-                );
-            }
-        }
-
-        std::vector<SplitAlternative> derive_split_alternatives(
+        mathfp::Expected<std::vector<SplitAlternative>> derive_split_alternatives(
               const std::vector<const SearchConnection*>& connections
             , const SplitParams&            params
         ) {
@@ -602,12 +218,12 @@ namespace timetable::domain::assignment {
                 );
             }
 
-            assign_split_independences(alternatives, params.independence);
+            MATHFP_TRY(assign_split_independences(alternatives, params.independence));
 
             return alternatives;
         }
 
-        std::vector<SplitAlternative> derive_split_alternatives(
+        mathfp::Expected<std::vector<SplitAlternative>> derive_split_alternatives(
               const std::vector<SplitConnectionAlternative>& supports
             , const SplitParams&                                    params
         ) {
@@ -638,7 +254,7 @@ namespace timetable::domain::assignment {
                 );
             }
 
-            assign_split_independences(alternatives, params.independence);
+            MATHFP_TRY(assign_split_independences(alternatives, params.independence));
 
             return alternatives;
         }
@@ -729,7 +345,7 @@ namespace timetable::domain::assignment {
                 );
             }
 
-            assign_split_independences(adjusted, params.independence);
+            MATHFP_TRY(assign_split_independences(adjusted, params.independence));
             return adjusted;
         }
 
@@ -1279,12 +895,11 @@ namespace timetable::domain::assignment {
             return mathfp::kUnit;
         }
 
-        mathfp::Expected<std::size_t> append_split_shares(
-              DemandSplitResult&                    result
-            , const SplitDemandUnit&                demand
+        mathfp::Expected<MaterializedSplitShareAllocation> compute_materialized_split_share_allocation(
+              const SplitDemandUnit&                demand
             , const TimeInterval&                   interval
             , const std::vector<SplitAlternative>&  base_alternatives
-            , const SearchParams&                   params
+            , const SplitParams&                    split_params
             , DemandSegmentBasis                    demand_basis
             , const SplitCapacityContext*           capacity_context
         ) {
@@ -1295,7 +910,7 @@ namespace timetable::domain::assignment {
             // receives rounding mass so probabilities and passenger totals conserve
             // $$DEM(a)$$.
             if (base_alternatives.empty()) {
-                return std::size_t{ 0 };
+                return MaterializedSplitShareAllocation{};
             }
 
             MATHFP_TRY_LET(
@@ -1304,102 +919,83 @@ namespace timetable::domain::assignment {
                 , apply_capacity_to_split_alternatives(
                       base_alternatives
                     , demand.interval
-                    , params.split
+                    , split_params
                     , capacity_context
                 )
             );
 
-            std::vector<double> independences;
-            std::vector<double> split_impedances;
-            std::vector<double> log_weights;
-            independences   .reserve(alternatives.size());
-            split_impedances.reserve(alternatives.size());
-            log_weights     .reserve(alternatives.size());
+            std::vector<SplitShareAlternativeView> allocation_views;
+            allocation_views.reserve(alternatives.size());
 
-            double max_log_weight = -std::numeric_limits<double>::infinity();
             for (std::size_t i = 0; i < alternatives.size(); ++i) {
-                const auto independence = alternatives[i].independence;
-                const auto imp = split_impedance(
-                      alternatives[i]
+                allocation_views.push_back(
+                    SplitShareAlternativeView{
+                          .impedance = impedance_view(alternatives[i])
+                        , .independence = SplitIndependenceWeight{
+                              alternatives[i].independence
+                          }
+                    }
+                );
+            }
+
+            auto allocation_result = compute_split_share_allocation(
+                  std::span<const SplitShareAlternativeView>{
+                      allocation_views.data()
+                    , allocation_views.size()
+                  }
+                , interval
+                , SplitDemandMass{ demand.passengers }
+                , SplitShareAllocationPolicy{
+                      .impedance = split_impedance_policy(split_params, demand_basis)
+                    , .impedance_transform = SplitImpedanceTransformPolicy{
+                          .config = split_params.impedance_transform
+                      }
+                    , .choice_model = split_params.choice_model
+                    , .probability = ProbabilityPolicy{}
+                  }
+            );
+            if (!allocation_result) {
+                auto error = std::move(allocation_result.error());
+                error.ctx("origin"     , demand.origin.get())
+                     .ctx("destination", demand.destination.get())
+                     .ctx("interval"   , demand.interval.get());
+                return mathfp::unexpected(std::move(error));
+            }
+            auto allocation = std::move(*allocation_result);
+
+            return MaterializedSplitShareAllocation{
+                  .alternatives = std::move(alternatives)
+                , .allocation = std::move(allocation)
+            };
+        }
+
+        mathfp::Expected<std::size_t> append_split_shares(
+              DemandSplitResult&                    result
+            , const SplitDemandUnit&                demand
+            , const TimeInterval&                   interval
+            , const std::vector<SplitAlternative>&  base_alternatives
+            , const SearchParams&                   params
+            , DemandSegmentBasis                    demand_basis
+            , const SplitCapacityContext*           capacity_context
+        ) {
+            MATHFP_TRY_LET(
+                  MaterializedSplitShareAllocation
+                , split_allocation
+                , compute_materialized_split_share_allocation(
+                      demand
                     , interval
+                    , base_alternatives
                     , params.split
                     , demand_basis
-                );
-                const auto choice_impedance = transform_split_impedance(
-                      params.split.impedance_transform
-                    , imp
-                );
-                MATHFP_TRY_LET(double, log_weight, split_choice_log_weight(
-                      params.split.choice_model
-                    , choice_impedance
-                    , independence
-                ));
-                independences   .push_back(independence);
-                split_impedances.push_back(imp);
-                log_weights     .push_back(log_weight);
-                max_log_weight = std::max(max_log_weight, log_weight);
-            }
-
-            std::vector<double> weights;
-            weights.reserve(log_weights.size());
-            for (const auto log_weight : log_weights) {
-                weights.push_back(std::exp(log_weight - max_log_weight));
-            }
-            const auto weight_sum = mathfp::compensated_sum(weights);
-            if (!(weight_sum > 0.0) || !std::isfinite(weight_sum)) {
-                return mathfp::unexpected(
-                    mathfp::domain_error("invalid OD-day split weight normalization")
-                        .ctx("origin"     , demand.origin.get())
-                        .ctx("destination", demand.destination.get())
-                        .ctx("interval"   , demand.interval.get())
-                );
-            }
-
-            const auto residual_index = max_weight_index(weights);
-            std::vector<double> probabilities(alternatives.size(), 0.0);
-            std::vector<double> passengers(alternatives.size(), 0.0);
-
-            mathfp::CompensatedSum<double> probability_prefix;
-            mathfp::CompensatedSum<double> passenger_prefix;
-            for (std::size_t i = 0; i < alternatives.size(); ++i) {
-                if (i == residual_index) {
-                    continue;
-                }
-                const auto probability = weights[i] / weight_sum;
-                const auto passenger_count = demand.passengers * probability;
-                probabilities[i] = probability;
-                passengers[i] = passenger_count;
-                probability_prefix.add(probability);
-                passenger_prefix.add(passenger_count);
-            }
-
-            auto residual_probability = 1.0 - probability_prefix.value();
-            auto residual_passengers = demand.passengers - passenger_prefix.value();
-            if (!is_non_negative_roundoff(residual_probability, 1.0)
-                || !is_non_negative_roundoff(residual_passengers, demand.passengers)) {
-                return mathfp::unexpected(
-                    mathfp::domain_error("invalid OD-day residual split normalization")
-                        .ctx("origin"              , demand.origin.get())
-                        .ctx("destination"         , demand.destination.get())
-                        .ctx("interval"            , demand.interval.get())
-                        .ctx("residual_probability", residual_probability)
-                        .ctx("residual_passengers" , residual_passengers)
-                );
-            }
-            residual_probability = std::max(0.0, residual_probability);
-            residual_passengers = std::max(0.0, residual_passengers);
-            probabilities[residual_index] = residual_probability;
-            passengers[residual_index] = residual_passengers;
-
-            const auto suppressed = compact_numerical_support(
-                  probabilities
-                , passengers
-                , residual_index
-                , demand.passengers
+                    , capacity_context
+                  )
             );
+            const auto& alternatives = split_allocation.alternatives;
+            const auto& allocation = split_allocation.allocation.allocation;
 
             for (std::size_t i = 0; i < alternatives.size(); ++i) {
-                if (!(probabilities[i] > 0.0) && !(passengers[i] > 0.0)) {
+                if (!(allocation.probabilities[i].get() > 0.0)
+                    && !(allocation.passengers[i].get() > 0.0)) {
                     continue;
                 }
                 result.shares.push_back(
@@ -1411,15 +1007,17 @@ namespace timetable::domain::assignment {
                         , .day_path        = alternatives[i].day_path
                         , .connection      = connection_of(alternatives[i])
                         , .day_path_support = materialize_day_path_support(alternatives[i])
-                        , .passengers      = passengers[i]
-                        , .probability     = probabilities[i]
-                        , .independence    = independences[i]
-                        , .split_impedance = split_impedances[i]
+                        , .passengers      = allocation.passengers[i].get()
+                        , .probability     = allocation.probabilities[i].get()
+                        , .independence    =
+                              split_allocation.allocation.independences[i].get()
+                        , .split_impedance =
+                              split_allocation.allocation.split_impedances[i].get()
                     }
                 );
             }
 
-            return suppressed;
+            return allocation.suppressed_numerical_shares;
         }
 
         mathfp::Expected<DemandSplitResult> split_demand_over_connections_impl(
@@ -1505,134 +1103,33 @@ namespace timetable::domain::assignment {
             for (const auto& connection : task_result.connections) {
                 task_connections.push_back(&connection);
             }
-            const auto base_alternatives = derive_split_alternatives(
-                  task_connections
-                , params.split
-            );
             MATHFP_TRY_LET(
                   std::vector<SplitAlternative>
-                , alternatives
-                , apply_capacity_to_split_alternatives(
-                      base_alternatives
-                    , demand.interval
+                , base_alternatives
+                , derive_split_alternatives(
+                      task_connections
                     , params.split
+                  )
+            );
+            MATHFP_TRY_LET(
+                  std::size_t
+                , suppressed
+                , append_split_shares(
+                      result
+                    , SplitDemandUnit{
+                          .origin      = demand.origin
+                        , .destination = demand.destination
+                        , .interval    = demand.interval
+                        , .passengers  = demand.passengers
+                      }
+                    , *interval
+                    , base_alternatives
+                    , params
+                    , demand_segment_time.basis
                     , capacity_context
                 )
             );
-            std::vector<double> independences;
-            std::vector<double> split_impedances;
-            std::vector<double> log_weights;
-
-            independences   .reserve(alternatives.size());
-            split_impedances.reserve(alternatives.size());
-            log_weights     .reserve(alternatives.size());
-
-            double max_log_weight = -std::numeric_limits<double>::infinity();
-            for (std::size_t i = 0; i < alternatives.size(); ++i) {
-                const auto independence = alternatives[i].independence;
-                const auto imp = split_impedance(
-                      alternatives[i]
-                    , *interval
-                    , params.split
-                    , demand_segment_time.basis
-                );
-                const auto choice_impedance = transform_split_impedance(
-                      params.split.impedance_transform
-                    , imp
-                );
-                MATHFP_TRY_LET(double, log_weight, split_choice_log_weight(
-                      params.split.choice_model
-                    , choice_impedance
-                    , independence
-                ));
-
-                independences   .push_back(independence);
-                split_impedances.push_back(imp);
-                log_weights     .push_back(log_weight);
-
-                max_log_weight = std::max(max_log_weight, log_weight);
-            }
-
-            std::vector<double> weights;
-            weights.reserve(log_weights.size());
-            for (const auto log_weight : log_weights) {
-                const auto weight = std::exp(log_weight - max_log_weight);
-                weights.push_back(weight);
-            }
-            const auto weight_sum = mathfp::compensated_sum(weights);
-
-            if (!(weight_sum > 0.0) || !std::isfinite(weight_sum)) {
-                return mathfp::unexpected(
-                    mathfp::domain_error("invalid split weight normalization")
-                        .ctx("origin"     , demand.origin.get())
-                        .ctx("destination", demand.destination.get())
-                        .ctx("interval"   , task_result.task.interval.id.get())
-                );
-            }
-
-            const auto residual_index = max_weight_index(weights);
-            std::vector<double> probabilities(alternatives.size(), 0.0);
-            std::vector<double> passengers(alternatives.size(), 0.0);
-
-            mathfp::CompensatedSum<double> probability_prefix;
-            mathfp::CompensatedSum<double> passenger_prefix;
-            for (std::size_t i = 0; i < alternatives.size(); ++i) {
-                if (i == residual_index) {
-                    continue;
-                }
-                const auto probability = weights[i] / weight_sum;
-                const auto passenger_count = demand.passengers * probability;
-                probabilities[i] = probability;
-                passengers[i] = passenger_count;
-                probability_prefix.add(probability);
-                passenger_prefix.add(passenger_count);
-            }
-
-            auto residual_probability = 1.0 - probability_prefix.value();
-            auto residual_passengers = demand.passengers - passenger_prefix.value();
-            if (!is_non_negative_roundoff(residual_probability, 1.0)
-                || !is_non_negative_roundoff(residual_passengers, demand.passengers)) {
-                return mathfp::unexpected(
-                    mathfp::domain_error("invalid residual split normalization")
-                        .ctx("origin"              , demand.origin.get())
-                        .ctx("destination"         , demand.destination.get())
-                        .ctx("interval"            , task_result.task.interval.id.get())
-                        .ctx("residual_probability", residual_probability)
-                        .ctx("residual_passengers" , residual_passengers)
-                );
-            }
-            residual_probability = std::max(0.0, residual_probability);
-            residual_passengers = std::max(0.0, residual_passengers);
-            probabilities[residual_index] = residual_probability;
-            passengers[residual_index] = residual_passengers;
-
-            suppressed_numerical_shares += compact_numerical_support(
-                  probabilities
-                , passengers
-                , residual_index
-                , demand.passengers
-            );
-
-            for (std::size_t i = 0; i < alternatives.size(); ++i) {
-                if (!(probabilities[i] > 0.0) && !(passengers[i] > 0.0)) {
-                    continue;
-                }
-                result.shares.push_back(
-                    ConnectionDemandShare{
-                          .origin          = demand.origin
-                        , .destination     = demand.destination
-                        , .interval        = demand.interval
-                        , .source          = alternatives[i].source
-                        , .day_path        = alternatives[i].day_path
-                        , .connection      = connection_of(alternatives[i])
-                        , .day_path_support = materialize_day_path_support(alternatives[i])
-                        , .passengers      = passengers[i]
-                        , .probability     = probabilities[i]
-                        , .independence    = independences[i]
-                        , .split_impedance = split_impedances[i]
-                    }
-                );
-            }
+            suppressed_numerical_shares += suppressed;
         }
 
         log(
@@ -1818,9 +1315,13 @@ namespace timetable::domain::assignment {
                     );
                     continue;
                 }
-                const auto base_alternatives = derive_split_alternatives(
-                      split_connections.alternatives
-                    , params.split
+                MATHFP_TRY_LET(
+                      std::vector<SplitAlternative>
+                    , base_alternatives
+                    , derive_split_alternatives(
+                          split_connections.alternatives
+                        , params.split
+                      )
                 );
 
                 const auto share_begin = result.shares.size();
@@ -1997,9 +1498,13 @@ namespace timetable::domain::assignment {
                 );
                 continue;
             }
-            const auto base_alternatives = derive_split_alternatives(
-                  split_connections.alternatives
-                , params.split
+            MATHFP_TRY_LET(
+                  std::vector<SplitAlternative>
+                , base_alternatives
+                , derive_split_alternatives(
+                      split_connections.alternatives
+                    , params.split
+                  )
             );
             const auto share_begin = result.shares.size();
             MATHFP_TRY_LET(

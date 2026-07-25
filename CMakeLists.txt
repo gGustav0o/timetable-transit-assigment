@@ -85,12 +85,25 @@ set(TIMETABLE_CORE_SOURCES
   src/app/cli.cpp
   src/domain/assignment/assignment_period.cpp
   src/domain/assignment/capacity.cpp
-  src/domain/assignment/capacity_aware_assignment.cpp
+  src/domain/assignment/capacity/load_projection.cpp
+  src/domain/assignment/capacity/overload.cpp
+  src/domain/assignment/capacity/overload_assessment.cpp
+  src/domain/assignment/capacity_aware/config.cpp
+  src/domain/assignment/capacity_aware/diagnostics.cpp
+  src/domain/assignment/capacity_aware/exposure.cpp
+  src/domain/assignment/capacity_aware/load_state.cpp
+  src/domain/assignment/capacity_aware/load_state_iteration.cpp
+  src/domain/assignment/capacity_aware/penalty.cpp
   src/domain/assignment/choice/choice.cpp
   src/domain/assignment/complete_connection_diagnostics.cpp
   src/domain/assignment/complete_connection_retention.cpp
   src/domain/assignment/connection_admissibility.cpp
   src/domain/assignment/connection.cpp
+  src/domain/assignment/day_path/alternative.cpp
+  src/domain/assignment/day_path/signature.cpp
+  src/domain/assignment/day_path/support.cpp
+  src/domain/assignment/day_path/retention.cpp
+  src/domain/assignment/day_path/finalization.cpp
   src/domain/assignment/day_path.cpp
   src/domain/assignment/execution_config.cpp
   src/domain/assignment/output.cpp
@@ -110,6 +123,10 @@ set(TIMETABLE_CORE_SOURCES
   src/domain/assignment/search_pruning.cpp
   src/domain/assignment/search_pruning_diagnostics.cpp
   src/domain/assignment/search_pruning_plan.cpp
+  src/domain/assignment/search/cost/capacity_index.cpp
+  src/domain/assignment/search/cost/exposure.cpp
+  src/domain/assignment/search/cost/impedance.cpp
+  src/domain/assignment/search/cost/validation.cpp
   src/domain/assignment/search_cost.cpp
   src/domain/assignment/search_time_domain.cpp
   src/domain/assignment/search_time_domain_diagnostics.cpp
@@ -140,6 +157,13 @@ set(TIMETABLE_CORE_SOURCES
   src/domain/assignment/search/od_day/supply_graph.cpp
   src/domain/assignment/search/preprocessed_network.cpp
   src/domain/assignment/search/pruning/suffix_lower_bound.cpp
+  src/domain/assignment/search/residual/closure.cpp
+  src/domain/assignment/search/residual/graph.cpp
+  src/domain/assignment/search/residual/lower_bound.cpp
+  src/domain/assignment/search/residual/query.cpp
+  src/domain/assignment/search/residual/transition.cpp
+  src/domain/assignment/search/residual/types.cpp
+  src/domain/assignment/search/residual/validation.cpp
   src/domain/assignment/search/residual_reachability.cpp
   src/domain/assignment/search/generation/branch_transition.cpp
   src/domain/assignment/search/relations/branch_metrics.cpp
@@ -170,6 +194,14 @@ set(TIMETABLE_CORE_SOURCES
   src/domain/assignment/search/search.cpp
   src/domain/assignment/run.cpp
   src/domain/assignment/runtime_overrides.cpp
+  src/domain/assignment/split/choice_weight.cpp
+  src/domain/assignment/split/demand_projection.cpp
+  src/domain/assignment/split/impedance_transform.cpp
+  src/domain/assignment/split/independence.cpp
+  src/domain/assignment/split/load_accumulation.cpp
+  src/domain/assignment/split/probability.cpp
+  src/domain/assignment/split/split_allocation.cpp
+  src/domain/assignment/split/split_kernel.cpp
   src/domain/assignment/split/split.cpp
   src/domain/assignment/validation/choice.cpp
   src/domain/assignment/validation/complete_connection_dominance.cpp

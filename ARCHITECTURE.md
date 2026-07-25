@@ -102,4 +102,5 @@ Exit criteria for removal:
 
 ## Related design notes
 
+- [Domain module decomposition](architecture/domain-module-decomposition.md)
 - [Search runtime decomposition](architecture/search-runtime-decomposition.md)
