@@ -1,5 +1,10 @@
 {
   "version": 2,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 20,
+    "patch": 0
+  },
   "configurePresets": [
     {
       "name": "vcpkg",
@@ -52,6 +57,19 @@
         "TIMETABLE_OVERRIDE_DISABLE_CAPACITY_AWARE_ASSIGNMENT": "ON",
         "TIMETABLE_OVERRIDE_DISABLE_VEHICLE_JOURNEY_ITEM_OVERLOAD_ASSESSMENT": "ON"
       }
+    },
+    {
+      "name": "code-intel",
+      "displayName": "Code intelligence: MSVC + Ninja + vcpkg",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/code-intel",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "TIMETABLE_BUILD_TESTS": "ON",
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+        "VCPKG_TARGET_TRIPLET": "x64-windows"
+      }
     }
   ],
   "buildPresets": [
@@ -96,6 +114,10 @@
       "name": "wsl-release-no-capacity-stages",
       "configurePreset": "vcpkg-linux-no-capacity-stages",
       "configuration": "Release"
+    },
+    {
+      "name": "code-intel",
+      "configurePreset": "code-intel"
     }
   ],
   "testPresets": [
@@ -121,6 +143,13 @@
       },
       "execution": {
         "noTestsAction": "error"
+      }
+    }, 
+    {
+      "name": "code-intel",
+      "configurePreset": "code-intel",
+      "output": {
+        "outputOnFailure": true
       }
     }
   ]

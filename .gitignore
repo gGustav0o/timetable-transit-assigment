@@ -1,6 +1,7 @@
 # Build artifacts
 build/
 out/
+compile_commands.json
 
 # CMake files
 CMakeFiles/
@@ -10,6 +11,8 @@ compile_commands.json
 
 # IDE
 .vs/
+.cache/
+.venv/
 
 # vcpkg artifacts
 vcpkg_installed/
@@ -32,5 +35,9 @@ baselines/
 data/
 runs/
 docs/
-/AGENTS.md
+AGENTS.md
 
+# Tools artifacts
+graphify-out/
+.codex/tmp/
+.serena/compile_commands.json
