@@ -30,7 +30,7 @@ namespace timetable::domain {
      *        + u_late  * max(0, DEP(c) - end(a))
      * IMP_a(c) = q_time * PJT(c) + q_departure * U_a(c) + q_fare * FARE(c).
      *
-     * This keeps the split model aligned with the paper while making the two
+     * This keeps the split model aligned with the split formulation while making the two
      * user-defined subfunctions PJT and U_a explicit in the domain model.
      */
     struct PerceivedJourneyTimeWeights final {
@@ -95,7 +95,7 @@ namespace timetable::domain {
      * argument transformation applied to IMP.
      */
     //tex:
-    // For the paper's Box--Cox MNL form, enable this transform and use
+    // For the Box--Cox MNL form, enable this transform and use
     // `SplitChoiceModel::BoxCox`:
     // $$b^{(t)}(IMP)=\begin{cases}(IMP^t-1)/t,&t\ne0,\\ \log(IMP),&t=0.\end{cases}$$
     // The transform is separate from the weight family so experiments can use
@@ -118,7 +118,7 @@ namespace timetable::domain {
     };
 
     //tex:
-    // Independence parameters implement the paper's overlap correction
+    // Independence parameters implement the split overlap correction
     // $$IND(c)=\frac{1}{1+\sum_{c'\ne c}f_c(c')}.$$
     // `temporal_similarity_scale` is $$s_x$$. The perceived-journey-time
     // scales provide $$s_y$$ and the fare scales provide $$s_z$$; each pair is
@@ -133,7 +133,7 @@ namespace timetable::domain {
      * impedance_transform controls optional transformation of raw split
      * impedance before the model-specific weight is evaluated.
      * independence controls whether the alternative-overlap correction is
-     * active and stores the parameters of the paper's evaluation function
+     * active and stores the parameters of the split evaluation function
      * f_c(c').
      * - temporal_similarity_scale corresponds to s_x
      * - higher/lower_perceived_journey_time_scale correspond to sign-dependent
@@ -141,8 +141,8 @@ namespace timetable::domain {
      *   base connection c.
      * - higher/lower_fare_scale correspond to sign-dependent s_z
      *   by the same rule for fare.
-     * - higher/lower_quality_scale are legacy input fallbacks for older params
-     *   files and should mirror the paper-specific scales when both are absent
+     * - higher/lower_quality_scale are older-input fallbacks for older params
+     *   files and should mirror the source-article-specific scales when both are absent
      */
     struct SplitParams final {
         Dimless                     q_time{};

@@ -68,12 +68,12 @@ namespace timetable::domain::assignment::runtime {
         std::size_t post_layer_day_path_inserted{};
         std::size_t post_layer_day_path_representative_replaced{};
         std::size_t post_layer_day_path_supports{};
-        std::size_t paper_timed_lookup_skipped_phase{};
-        std::size_t paper_timed_lookup_skipped_transfer_budget{};
-        std::size_t paper_timed_successor_rejected_time_domain{};
-        std::size_t paper_timed_successor_rejected_same_trip{};
-        std::size_t paper_timed_successor_rejected_same_line{};
-        std::size_t paper_timed_successor_rejected_feasibility{};
+        std::size_t timed_successor_lookup_skipped_phase{};
+        std::size_t timed_successor_lookup_skipped_transfer_budget{};
+        std::size_t timed_successor_rejected_time_domain{};
+        std::size_t timed_successor_rejected_same_trip{};
+        std::size_t timed_successor_rejected_same_line{};
+        std::size_t timed_successor_rejected_feasibility{};
         BranchPhaseStats accepted_branches_by_phase{};
         std::size_t rejected_time_domain{};
         std::size_t rejected_feasibility{};

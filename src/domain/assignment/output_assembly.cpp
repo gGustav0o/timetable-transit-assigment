@@ -22,7 +22,7 @@ namespace timetable::domain::assignment::detail {
         using ChosenConnectionIndexMap = std::map<grouping::ConnectionTraceKey, std::size_t>;
         using TaskConnectionTraceMap = std::map<grouping::DemandKey, std::map<grouping::ConnectionTraceKey, bool>>;
         using OdDayPathMap = std::map<grouping::OdKey, std::map<DayPathSignature, bool>>;
-        using OdDayPaperSplitSummaryMap = std::map<grouping::OdKey, AssignmentOdPaperSplitSummary>;
+        using OdDaySplitSummaryMap = std::map<grouping::OdKey, AssignmentOdSplitSummary>;
         using UnassignedDemandByKey = std::map<grouping::DemandKey, std::vector<const UnassignedDemand*>>;
 
         AssignmentOdResult make_empty_od_result(
@@ -36,7 +36,7 @@ namespace timetable::domain::assignment::detail {
                 , .connections             = {}
                 , .intervals               = {}
                 , .diagnostics             = {}
-                , .paper_split             = {}
+                , .split_summary             = {}
             };
         }
 
@@ -127,11 +127,11 @@ namespace timetable::domain::assignment::detail {
                 );
         }
 
-        mathfp::Expected<OdDayPaperSplitSummaryMap> build_od_day_paper_split_summary_map(
+        mathfp::Expected<OdDaySplitSummaryMap> build_od_day_split_summary_map(
               const OdDayPathChoiceResult& choice_result
             , const DemandSplitResult&     split_result
         ) {
-            OdDayPaperSplitSummaryMap summaries;
+            OdDaySplitSummaryMap summaries;
 
             for (const auto& origin_result : choice_result.origin_results) {
                 for (const auto& pair_result : origin_result.pair_results) {
@@ -151,7 +151,7 @@ namespace timetable::domain::assignment::detail {
                 }
             }
 
-            for (const auto& certificate : split_result.od_day_paper_split) {
+            for (const auto& certificate : split_result.od_day_split_certificates) {
                 auto& summary = summaries[grouping::OdKey{
                       .origin      = certificate.origin
                     , .destination = certificate.destination
@@ -176,10 +176,10 @@ namespace timetable::domain::assignment::detail {
             return summaries;
         }
 
-        [[nodiscard]] AssignmentOdPaperSplitSummary summarize_paper_split_totals(
-            const OdDayPaperSplitSummaryMap& summaries
+        [[nodiscard]] AssignmentOdSplitSummary summarize_split_totals(
+            const OdDaySplitSummaryMap& summaries
         ) noexcept {
-            AssignmentOdPaperSplitSummary total;
+            AssignmentOdSplitSummary total;
             for (const auto& [_, summary] : summaries) {
                 total.structural_day_path_count += summary.structural_day_path_count;
                 total.timed_support_alternative_count += summary.timed_support_alternative_count;
@@ -499,17 +499,17 @@ namespace timetable::domain::assignment::detail {
             , const OdDayPathSearchSummary& search_summary
             , const OdDayPathChoiceResult&        choice_result
             , const DemandSplitResult&            split_result
-            , const OdDayPaperSplitSummaryMap&     paper_split_summaries
+            , const OdDaySplitSummaryMap&     split_summaries
         ) {
-            const auto paper_totals = summarize_paper_split_totals(paper_split_summaries);
+            const auto split_totals = summarize_split_totals(split_summaries);
             return AssignmentOutput::Summary{
                   .demand_share_count      = split_result .shares     .size()
                 , .structural_day_path_count =
-                      paper_totals.structural_day_path_count
+                      split_totals.structural_day_path_count
                 , .timed_support_alternative_count =
-                      paper_totals.timed_support_alternative_count
+                      split_totals.timed_support_alternative_count
                 , .interval_admissible_split_alternative_count =
-                      paper_totals.interval_admissible_split_alternative_count
+                      split_totals.interval_admissible_split_alternative_count
                 , .unassigned_demand_count = split_result.unassigned.size()
                 , .total_demand_passengers = total_input_demand(input)
                 , .assigned_passengers     = total_assigned_passengers(split_result)
@@ -649,20 +649,20 @@ namespace timetable::domain::assignment::detail {
             return mathfp::kUnit;
         }
 
-        mathfp::Expected<mathfp::Unit> validate_od_day_paper_split_runtime_contract(
+        mathfp::Expected<mathfp::Unit> validate_od_day_split_runtime_contract(
               const InputModel&                    input
             , const DemandSplitResult&             split_result
             , const AssignmentPeriodConfig&        assignment_period
             , const ConnectionAdmissibilityConfig& admissibility_config
         ) {
             /*
-             * Output-time guard for the paper split boundary. C(a) is a split
+             * Output-time guard for the connection split boundary. C(a) is a split
              * stage object: production may compact DayPath alternatives before
              * output assembly, so the output layer validates the compact
              * certificate written while timed supports were still available.
              */
-            std::map<grouping::DemandKey, const OdDayPaperSplitCertificate*> certificate_by_key;
-            for (const auto& certificate : split_result.od_day_paper_split) {
+            std::map<grouping::DemandKey, const OdDaySplitCertificate*> certificate_by_key;
+            for (const auto& certificate : split_result.od_day_split_certificates) {
                 const auto key = grouping::DemandKey{
                       .origin      = certificate.origin
                     , .destination = certificate.destination
@@ -670,7 +670,7 @@ namespace timetable::domain::assignment::detail {
                 };
                 if (!certificate_by_key.emplace(key, &certificate).second) {
                     return mathfp::unexpected(
-                        mathfp::internal_error("paper split invariant failed: duplicate C(a) certificate")
+                        mathfp::internal_error("connection split invariant failed: duplicate C(a) certificate")
                             .ctx("origin"     , certificate.origin.get())
                             .ctx("destination", certificate.destination.get())
                             .ctx("interval_id", certificate.interval.get())
@@ -698,7 +698,7 @@ namespace timetable::domain::assignment::detail {
                 const auto certificate_it = certificate_by_key.find(key);
                 if (certificate_it == certificate_by_key.end()) {
                     return mathfp::unexpected(
-                        mathfp::internal_error("paper split invariant failed: missing C(a) certificate")
+                        mathfp::internal_error("connection split invariant failed: missing C(a) certificate")
                             .ctx("origin"     , demand.origin.get())
                             .ctx("destination", demand.destination.get())
                             .ctx("interval_id", demand.interval.get())
@@ -707,7 +707,7 @@ namespace timetable::domain::assignment::detail {
                 const auto& certificate = *certificate_it->second;
                 if (!almost_equal_scalar(certificate.demand_passengers, demand.passengers)) {
                     return mathfp::unexpected(
-                        mathfp::internal_error("paper split invariant failed: C(a) certificate demand mismatch")
+                        mathfp::internal_error("connection split invariant failed: C(a) certificate demand mismatch")
                             .ctx("origin"                , demand.origin.get())
                             .ctx("destination"           , demand.destination.get())
                             .ctx("interval_id"           , demand.interval.get())
@@ -719,7 +719,7 @@ namespace timetable::domain::assignment::detail {
                     != certificate.interval_admissible_support_count
                      + certificate.interval_rejected_support_count) {
                     return mathfp::unexpected(
-                        mathfp::internal_error("paper split invariant failed: C(a) certificate support counts are inconsistent")
+                        mathfp::internal_error("connection split invariant failed: C(a) certificate support counts are inconsistent")
                             .ctx("origin"      , demand.origin.get())
                             .ctx("destination" , demand.destination.get())
                             .ctx("interval_id" , demand.interval.get())
@@ -749,7 +749,7 @@ namespace timetable::domain::assignment::detail {
 
                 if (c_a_size > 0u && !has_shares) {
                     return mathfp::unexpected(
-                        mathfp::internal_error("paper split invariant failed: nonempty C(a) produced no demand shares")
+                        mathfp::internal_error("connection split invariant failed: nonempty C(a) produced no demand shares")
                             .ctx("origin"     , demand.origin.get())
                             .ctx("destination", demand.destination.get())
                             .ctx("interval_id", demand.interval.get())
@@ -758,7 +758,7 @@ namespace timetable::domain::assignment::detail {
                 }
                 if (c_a_size == 0u && has_shares) {
                     return mathfp::unexpected(
-                        mathfp::internal_error("paper split invariant failed: empty C(a) produced demand shares")
+                        mathfp::internal_error("connection split invariant failed: empty C(a) produced demand shares")
                             .ctx("origin"     , demand.origin.get())
                             .ctx("destination", demand.destination.get())
                             .ctx("interval_id", demand.interval.get())
@@ -772,7 +772,7 @@ namespace timetable::domain::assignment::detail {
                         || !almost_equal_scalar(certificate.assigned_passengers, 0.0)
                         || !almost_equal_scalar(certificate.unassigned_passengers, demand.passengers)) {
                         return mathfp::unexpected(
-                            mathfp::internal_error("paper split invariant failed: empty C(a) must become explicit unassigned demand")
+                            mathfp::internal_error("connection split invariant failed: empty C(a) must become explicit unassigned demand")
                                 .ctx("origin"     , demand.origin.get())
                                 .ctx("destination", demand.destination.get())
                                 .ctx("interval_id", demand.interval.get())
@@ -787,7 +787,7 @@ namespace timetable::domain::assignment::detail {
                     if (share->source != DemandShareAlternativeSource::DayPath
                         || !share->day_path_support.has_value()) {
                         return mathfp::unexpected(
-                            mathfp::internal_error("paper split invariant failed: split alternative is not a concrete timed support")
+                            mathfp::internal_error("connection split invariant failed: split alternative is not a concrete timed support")
                                 .ctx("origin"     , share->origin.get())
                                 .ctx("destination", share->destination.get())
                                 .ctx("interval_id", share->interval.get())
@@ -800,7 +800,7 @@ namespace timetable::domain::assignment::detail {
                         , admissibility_config
                     )) {
                         return mathfp::unexpected(
-                            mathfp::internal_error("paper split invariant failed: elementary load share references support outside C(a)")
+                            mathfp::internal_error("connection split invariant failed: elementary load share references support outside C(a)")
                                 .ctx("origin"     , share->origin.get())
                                 .ctx("destination", share->destination.get())
                                 .ctx("interval_id", share->interval.get())
@@ -815,7 +815,7 @@ namespace timetable::domain::assignment::detail {
                     || !almost_equal_scalar(certificate.assigned_passengers, passenger_sum.value())
                     || !almost_equal_scalar(certificate.unassigned_passengers, 0.0)) {
                     return mathfp::unexpected(
-                        mathfp::internal_error("paper split invariant failed: C(a) certificate does not match shares")
+                        mathfp::internal_error("connection split invariant failed: C(a) certificate does not match shares")
                             .ctx("origin"     , demand.origin.get())
                             .ctx("destination", demand.destination.get())
                             .ctx("interval_id", demand.interval.get())
@@ -829,7 +829,7 @@ namespace timetable::domain::assignment::detail {
                 }
                 if (!almost_equal_scalar(probability_sum.value(), 1.0)) {
                     return mathfp::unexpected(
-                        mathfp::internal_error("paper split invariant failed: probabilities over C(a) do not sum to one")
+                        mathfp::internal_error("connection split invariant failed: probabilities over C(a) do not sum to one")
                             .ctx("origin"         , demand.origin.get())
                             .ctx("destination"    , demand.destination.get())
                             .ctx("interval_id"    , demand.interval.get())
@@ -982,14 +982,14 @@ namespace timetable::domain::assignment::detail {
             , const grouping::BorrowedOdConnectionGroups&   chosen_by_od
             , const grouping::DemandEntryGroups&            demand_by_od
             , const grouping::ShareGroups&                  shares_by_key
-            , const OdDayPaperSplitSummaryMap*               paper_split_summaries = nullptr
+            , const OdDaySplitSummaryMap*               split_summaries = nullptr
         ) {
             auto od_result = make_empty_od_result(od);
             assign_search_alternative_count(od_result, search_counts, od);
-            if (paper_split_summaries != nullptr) {
-                if (const auto it = paper_split_summaries->find(od);
-                    it != paper_split_summaries->end()) {
-                    od_result.paper_split = it->second;
+            if (split_summaries != nullptr) {
+                if (const auto it = split_summaries->find(od);
+                    it != split_summaries->end()) {
+                    od_result.split_summary = it->second;
                 }
             }
 
@@ -1041,7 +1041,7 @@ namespace timetable::domain::assignment::detail {
         const auto all_ods       = collect_all_ods(search_counts, chosen_by_od, demand_by_od);
 
         /*
-         * This legacy output path is kept for non-default diagnostics and
+         * This fallback output path is kept for non-default diagnostics and
          * compatibility. The required OD-day production path below receives
          * elementary_segment_loads from the origin-streaming pipeline.
          */
@@ -1129,7 +1129,7 @@ namespace timetable::domain::assignment::detail {
         MATHFP_TRY(validate_capacity_aware_assignment_diagnostics(capacity_aware));
         MATHFP_TRY(validate_od_day_choice_flat_projection(choice_result));
         MATHFP_TRY(validate_split_shares_are_od_day_choice_local(choice_result, split_result));
-        MATHFP_TRY(validate_od_day_paper_split_runtime_contract(
+        MATHFP_TRY(validate_od_day_split_runtime_contract(
               input
             , split_result
             , assignment_period
@@ -1146,9 +1146,9 @@ namespace timetable::domain::assignment::detail {
         const auto shares_by_key = grouping::group_shares_by_demand_key(split_result.shares);
         const auto all_ods       = collect_all_ods(search_counts, chosen_by_od, demand_by_od);
         MATHFP_TRY_LET(
-              OdDayPaperSplitSummaryMap
-            , paper_split_summaries
-            , build_od_day_paper_split_summary_map(
+              OdDaySplitSummaryMap
+            , split_summaries
+            , build_od_day_split_summary_map(
                   choice_result
                 , split_result
             )
@@ -1195,7 +1195,7 @@ namespace timetable::domain::assignment::detail {
                 , search_summary
                 , choice_result
                 , split_result
-                , paper_split_summaries
+                , split_summaries
               )
             , .od_results  = {}
             , .loads       = std::move(visum_loads)
@@ -1218,7 +1218,7 @@ namespace timetable::domain::assignment::detail {
                     , chosen_by_od
                     , demand_by_od
                     , shares_by_key
-                    , &paper_split_summaries
+                    , &split_summaries
                 )
             );
             output.od_results.push_back(std::move(od_result));

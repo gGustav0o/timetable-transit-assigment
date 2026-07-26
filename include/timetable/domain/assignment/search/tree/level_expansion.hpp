@@ -68,7 +68,7 @@ namespace timetable::domain::assignment {
         , SearchLevelPlacement  placement
     );
 
-    [[nodiscard]] SearchLevelPlacement paper_successor_level_placement(
+    [[nodiscard]] SearchLevelPlacement successor_level_placement(
           const SearchBranch&      parent
         , const ConnectionSegment& successor
     ) noexcept;

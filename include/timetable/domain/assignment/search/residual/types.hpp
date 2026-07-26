@@ -16,7 +16,7 @@ namespace timetable::domain::assignment {
     /**
      * @brief Phase of a branch in the timetable connection tree.
      *
-     * The phase captures the structural constraints of the paper's connection
+     * The phase captures the structural constraints of the connection-tree
      * tree. Walk legs are atomic connection segments: access may occur only
      * before the first boarding, transfer walk may occur only after a timed
      * ride and cannot be chained with another walk leg, and completion occurs

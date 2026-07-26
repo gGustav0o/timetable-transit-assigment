@@ -59,7 +59,7 @@ namespace timetable::domain {
      * - occurrence-aware timetable line topology.
      */
     //tex:
-    // Paper correspondence. The preprocessing route-segment object is the paper's pseudo-record
+    // Source correspondence. The preprocessing route-segment object is the route-segment pseudo-record
     // $$y=(i,j,\ell,\tau,\sigma).$$
     // Here initial/terminal nodes are stored in the topology variant, $$\ell$$ is length,
     // $$\tau$$ is run time, and $$\sigma$$ is either a transit line/route reference
@@ -76,7 +76,7 @@ namespace timetable::domain {
      * @brief Timetable-level segment with concrete times (or always-available walk).
      */
     //tex:
-    // Paper connection segment. A timed ride connection is a route segment
+    // Connection segment. A timed ride connection is a route segment
     // instantiated by a concrete trip and therefore carries
     // $$t_{\mathrm{dep}}(s),t_{\mathrm{arr}}(s).$$
     // A walk connection keeps the same route-segment reference but has no fixed

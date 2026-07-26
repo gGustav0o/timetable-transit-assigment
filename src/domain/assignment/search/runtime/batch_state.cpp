@@ -86,7 +86,7 @@ namespace timetable::domain::assignment::runtime {
         , projection_sinks{ std::move(other.projection_sinks) }
         , retentions{ std::move(other.retentions) }
         , tree_partial_retention{ std::move(other.tree_partial_retention) }
-        , paper_label_registry{ std::move(other.paper_label_registry) }
+        , retained_label_registry{ std::move(other.retained_label_registry) }
         , stats{ std::move(other.stats) }
         , task_stats{ std::move(other.task_stats) }
         , branches{ std::move(other.branches) }
@@ -131,7 +131,7 @@ namespace timetable::domain::assignment::runtime {
         projection_sinks = std::move(other.projection_sinks);
         retentions = std::move(other.retentions);
         tree_partial_retention = std::move(other.tree_partial_retention);
-        paper_label_registry = std::move(other.paper_label_registry);
+        retained_label_registry = std::move(other.retained_label_registry);
         stats = std::move(other.stats);
         task_stats = std::move(other.task_stats);
         branches = std::move(other.branches);
@@ -200,7 +200,7 @@ namespace timetable::domain::assignment::runtime {
             , .mutable_state = SearchBatchMutableState{
                   .retentions = retentions
                 , .tree_partial_retention = tree_partial_retention
-                , .paper_label_registry = paper_label_registry
+                , .retained_label_registry = retained_label_registry
                 , .stats = stats
                 , .task_stats = task_stats
                 , .branches = branches

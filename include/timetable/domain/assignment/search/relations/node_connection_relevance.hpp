@@ -7,13 +7,13 @@
 
 namespace timetable::domain::assignment {
 
-    [[nodiscard]] bool paper_node_connection_relevant(
+    [[nodiscard]] bool node_connection_relevant(
           const ConnectionSetCy&        set
         , const ExactPruningPolicy&     policy
         , const SearchPruningMetrics&   candidate
     ) noexcept;
 
-    [[nodiscard]] SearchPruningDecision evaluate_paper_node_connection_set(
+    [[nodiscard]] SearchPruningDecision evaluate_node_connection_set(
           const SearchPruningExecutionPlan& execution
         , const SearchPruningMetrics&       candidate
         , const ConnectionSetCy&            set

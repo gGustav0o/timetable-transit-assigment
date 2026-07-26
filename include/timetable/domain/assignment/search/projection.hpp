@@ -73,7 +73,7 @@ namespace timetable::domain::assignment {
      * @brief Tree-level partial retention shared by projection slots.
      */
     struct TreePartialRetention final {
-        PaperConnectionNodeMetricMap paper_connections{};
+        NodeConnectionSetMap node_connection_sets{};
         NodeMetricMap                known_metrics{};
     };
 

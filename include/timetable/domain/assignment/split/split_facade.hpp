@@ -12,16 +12,16 @@
 namespace timetable::domain::assignment {
 
     /**
-     * Тонкий фасад для разбиения спроса
-     * Валидация входных данных и вызов чистого ядра
+     * Thin facade for demand splitting.
+     * Validates input data and delegates to the pure kernel.
      */
     struct SplitFacadePolicy {
         SplitKernelPolicy kernel;
-        SplitParams split_params; // Для обратной совместимости
+        SplitParams split_params; // Backward-compatible parameter bridge.
     };
 
     /**
-     * Результат работы фасада разбиения
+     * Result produced by the demand split facade.
      */
     struct SplitFacadeResult final {
         std::vector<SplitProbabilityMass> probabilities{};
@@ -38,14 +38,14 @@ namespace timetable::domain::assignment {
     };
 
     /**
-     * Тонкий фасад для разбиения спроса
+     * Thin facade for demand splitting.
      *
-     * @param log_weights вектор логарифмических весов альтернатив
-     * @param demand пассажирский спрос
-     * @param trip_indices индексы рейсов для каждой альтернативы
-     * @param stop_indices индексы остановок для каждой альтернативы
-     * @param segment_indices индексы сегментов для каждой альтернативы
-     * @param policy конфигурация фасада
+     * @param log_weights vector of alternative log weights
+     * @param demand passenger demand
+     * @param trip_indices trip indices for each alternative
+     * @param stop_indices stop indices for each alternative
+     * @param segment_indices segment indices for each alternative
+     * @param policy facade configuration
      */
     [[nodiscard]] mathfp::Expected<SplitFacadeResult> split_demand(
           std::span<const SplitLogWeight> log_weights

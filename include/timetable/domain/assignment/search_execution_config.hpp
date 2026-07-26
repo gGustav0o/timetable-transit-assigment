@@ -18,9 +18,9 @@ namespace timetable::domain::assignment {
      * formulation directly instead of spelling out an error-prone tuple of
      * origin/time/destination/projection scopes.
      *
-     * TimedConnectionDiagnostics is the only supported contour for legacy
+     * TimedConnectionDiagnostics is the only supported contour for fallback
      * timed path enumeration. The required production formulation is
-     * OdDayAssignment; DemandTaskAssignment is kept only as a rejected legacy
+     * OdDayAssignment; DemandTaskAssignment is kept only as a rejected fallback
      * token for explicit configuration errors.
      */
     enum class AssignmentCalculationFormulation : std::uint8_t {
@@ -181,7 +181,7 @@ namespace timetable::domain::assignment {
     /**
      * @brief Result materialization contract for a search tree.
      *
-     * DemandTasks is the legacy OD-interval assignment projection: complete
+     * DemandTasks is the fallback OD-interval assignment projection: complete
      * connections are retained in task-local result slots induced by positive
      * OD demand rows.
      *
@@ -227,7 +227,7 @@ namespace timetable::domain::assignment {
     /**
      * @brief Scope of partial-branch retention inside one search tree.
      *
-     * ProjectionSlotLocal is the conservative legacy implementation: partial
+     * ProjectionSlotLocal is the conservative fallback implementation: partial
      * prefixes are retained separately for every result projection slot.
      *
      * TreeGlobal is the article-like branch-and-bound implementation:
@@ -280,7 +280,7 @@ namespace timetable::domain::assignment {
      * partial_retention_scope is separate from both fields: it defines whether
      * partial-branch relevance is stored globally for the tree, as in the
      * article, or independently for each projection slot, as in the conservative
-     * legacy implementation.
+     * fallback implementation.
      *
      * validate_phase_invariants is a diagnostic switch. It enables expensive
      * per-branch checks of the phase automaton invariants and must not change

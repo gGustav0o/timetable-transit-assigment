@@ -64,7 +64,7 @@ namespace timetable::domain::assignment::runtime {
 
         record_accepted_branch_stats(state.stats, candidate, successor);
         const auto level_placement =
-            paper_successor_level_placement(parent_branch, connection);
+            successor_level_placement(parent_branch, connection);
         const auto candidate_phase = candidate.trace.phase;
         const auto candidate_index = append_branch(
               state.branches

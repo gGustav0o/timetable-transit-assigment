@@ -24,7 +24,7 @@ namespace timetable::domain::assignment::runtime {
               SearchFrontierLayer&                    queue
             , BranchPhaseStats&                       phase_stats
             , BranchArena&                            branches
-            , const PaperConnectionLabelRegistry&     label_registry
+            , const RetainedConnectionLabelRegistry&     label_registry
             , std::size_t&                            released_branches
         ) {
             auto kept = std::vector<std::size_t>{};
@@ -37,9 +37,9 @@ namespace timetable::domain::assignment::runtime {
                     continue;
                 }
                 const auto& queued_branch = branch_at(branches, queued_index);
-                if (paper_connection_label_active(
+                if (retained_connection_label_active(
                       label_registry
-                    , queued_branch.paper_connection_label
+                    , queued_branch.retained_connection_label
                 )) {
                     kept.push_back(queued_index);
                     continue;
@@ -62,13 +62,13 @@ namespace timetable::domain::assignment::runtime {
     bool synchronize_od_day_frontier_branch(
           BranchArena&                              branches
         , std::size_t                               branch_index
-        , const PaperConnectionLabelRegistry&       label_registry
+        , const RetainedConnectionLabelRegistry&       label_registry
         , std::size_t&                              released_branches
     ) {
         const auto& branch = branch_at(branches, branch_index);
-        if (paper_connection_label_active(
+        if (retained_connection_label_active(
               label_registry
-            , branch.paper_connection_label
+            , branch.retained_connection_label
         )) {
             return true;
         }
@@ -83,7 +83,7 @@ namespace timetable::domain::assignment::runtime {
     OdDayFrontierCompactionResult compact_od_day_frontiers(
           SearchLevelExpansion&                    expansion
         , BranchArena&                             branches
-        , const PaperConnectionLabelRegistry&      label_registry
+        , const RetainedConnectionLabelRegistry&      label_registry
         , std::size_t&                             released_branches
     ) {
         return OdDayFrontierCompactionResult{

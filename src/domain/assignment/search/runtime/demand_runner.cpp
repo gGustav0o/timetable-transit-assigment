@@ -67,7 +67,7 @@
 #include "timetable/domain/assignment/search/runtime/result_finalization.hpp"
 #include "timetable/domain/assignment/search/runtime/root_initialization.hpp"
 #include "timetable/domain/assignment/search/tree/level_expansion.hpp"
-#include "timetable/domain/assignment/search/tree/paper_successor_step.hpp"
+#include "timetable/domain/assignment/search/tree/tree_successor_step.hpp"
 #include "timetable/domain/assignment/search/tree/tree_runner.hpp"
 #include "timetable/infra/progress_bus.hpp"
 

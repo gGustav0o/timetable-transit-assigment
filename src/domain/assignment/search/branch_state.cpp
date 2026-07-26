@@ -92,7 +92,7 @@ namespace timetable::domain::assignment {
             }
 
             // The same physical stop may appear at multiple route positions on
-            // a loop line. The paper's "earlier service trip" case means that
+            // a loop line. The loop-line earlier-service-trip case means that
             // the boarded vehicle is already farther along the loop at the same
             // physical stop. Thus the route-position axis stays linear: after
             // reaching an occurrence, the search must not wrap to an earlier one.

@@ -168,7 +168,7 @@ namespace timetable::domain {
      *  - NT(c)  <= nt_mult  * min NT  + nt_add
      */
     //tex:
-    // Paper connection-choice tolerances are stricter whole-connection rules:
+    // Connection-choice tolerances are stricter whole-connection rules:
     // $$IMP(c)\le p_1\min_{c'\in C_{od}}IMP(c')+p_2.$$
     // $$JT(c)\le q_1\min_{c'\in C_{od}}JT(c')+q_2.$$
     // $$NT(c)\le r_1\min_{c'\in C_{od}}NT(c')+r_2.$$

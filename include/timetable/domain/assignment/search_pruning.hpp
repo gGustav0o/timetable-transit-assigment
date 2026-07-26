@@ -70,10 +70,10 @@ namespace timetable::domain::assignment {
      */
     //tex:
     // For a partial connection prefix $$c_y$$ ending at node $$y$$, pruning stores
-    // the paper comparison coordinates
+    // the connection-tree comparison coordinates
     // $$(DEP(c_y),ARR(c_y),JT(c_y),NT(c_y),FARE(c_y),IMP(c_y))$$
     // plus the implementation's explicit walk-time coordinate used by tolerance
-    // retention. They are compared only inside an extension-safe state or paper
+    // retention. They are compared only inside an extension-safe state or node-local
     // node-local set, so branch width is reduced without changing the
     // connection-leg depth semantics of the tree.
     struct SearchPruningMetrics final {

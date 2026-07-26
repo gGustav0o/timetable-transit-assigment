@@ -118,7 +118,7 @@ namespace timetable::domain::assignment {
         );
         timetable::infra::progress::log(
             fmt::format(
-                  "paper split diagnostics: structural_day_paths={} timed_support_alternatives={} interval_admissible_Ca_alternatives={} demand_shares={} unassigned_intervals={} assigned_passengers={:.6f} unassigned_passengers={:.6f} full_path_dump={}"
+                  "connection split diagnostics: structural_day_paths={} timed_support_alternatives={} interval_admissible_Ca_alternatives={} demand_shares={} unassigned_intervals={} assigned_passengers={:.6f} unassigned_passengers={:.6f} full_path_dump={}"
                 , output->summary.structural_day_path_count
                 , output->summary.timed_support_alternative_count
                 , output->summary.interval_admissible_split_alternative_count

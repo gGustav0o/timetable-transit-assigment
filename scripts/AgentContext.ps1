@@ -46,7 +46,7 @@ function Require-Command {
 
     $Command = Get-Command $Name -ErrorAction Ignore
     if (-not $Command) {
-        throw "Не найдена команда '$Name'."
+        throw "Required command '$Name' was not found."
     }
 
     return $Command
@@ -59,7 +59,7 @@ function Invoke-Checked {
     )
 
     $RenderedCommand = "$Command $($Arguments -join ' ')".Trim()
-    Write-Host "    Выполняется: $RenderedCommand"
+    Write-Host "    Running: $RenderedCommand"
 
     $Stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
@@ -69,10 +69,10 @@ function Invoke-Checked {
     $Stopwatch.Stop()
 
     if ($ExitCode -ne 0) {
-        throw "'$RenderedCommand' завершилась с кодом $ExitCode."
+        throw "'$RenderedCommand' exited with code $ExitCode."
     }
 
-    Write-Host "    Завершено за $(Format-Duration $Stopwatch.Elapsed)."
+    Write-Host "    Completed in $(Format-Duration $Stopwatch.Elapsed)."
 }
 
 function Resolve-RepositoryRoot {
@@ -85,7 +85,7 @@ function Resolve-RepositoryRoot {
         }
     }
 
-    # Скрипты предполагаются в <repo>/scripts/.
+    # Scripts are expected to live under <repo>/scripts/.
     return [System.IO.Path]::GetFullPath(
         (Join-Path $PSScriptRoot "..")
     )
@@ -96,11 +96,11 @@ function Get-RepositoryRelativeFiles {
 
     Require-Command git | Out-Null
 
-    # В отличие от Get-ChildItem -Recurse, эта команда:
-    # - не обходит .git;
-    # - не заходит в ignored build/ и vcpkg_installed/;
-    # - включает tracked и новые untracked файлы;
-    # - работает пропорционально индексу Git, а не размеру build tree.
+    # Unlike Get-ChildItem -Recurse, this command:
+    # - does not traverse .git;
+    # - does not enter ignored build/ and vcpkg_installed/ directories;
+    # - includes tracked files and new untracked files;
+    # - scales with the Git index rather than the build tree size.
     $Files = @(
         & git `
             -C $RepositoryRoot `
@@ -111,7 +111,7 @@ function Get-RepositoryRelativeFiles {
     )
 
     if ($LASTEXITCODE -ne 0) {
-        throw "Не удалось получить список файлов репозитория через git ls-files."
+        throw "Failed to list repository files via git ls-files."
     }
 
     @(
@@ -183,7 +183,7 @@ function Get-CodeIntelState {
     $Reasons = [System.Collections.Generic.List[string]]::new()
 
     if (-not (Test-Path $RootDatabase)) {
-        $Reasons.Add("compile_commands.json отсутствует")
+        $Reasons.Add("compile_commands.json is missing")
 
         return [pscustomobject]@{
             NeedsRefresh  = $true
@@ -195,14 +195,14 @@ function Get-CodeIntelState {
     $DatabaseInfo = Get-Item $RootDatabase
     $DatabaseTime = $DatabaseInfo.LastWriteTimeUtc
 
-    Write-Host "    Получение списка tracked/untracked файлов через Git..."
+    Write-Host "    Getting tracked/untracked files via Git..."
     $RepositoryFiles = @(
         Get-RepositoryRelativeFiles `
             -RepositoryRoot $RepositoryRoot
     )
-    Write-Host "    Файлов в рабочем дереве: $($RepositoryFiles.Count)"
+    Write-Host "    Files in working tree: $($RepositoryFiles.Count)"
 
-    Write-Host "    Проверка CMake/vcpkg-файлов..."
+    Write-Host "    Checking CMake/vcpkg files..."
     foreach ($RelativePath in $RepositoryFiles) {
         if (-not (Test-IsBuildModelFile -RelativePath $RelativePath)) {
             continue
@@ -211,16 +211,16 @@ function Get-CodeIntelState {
         $FullPath = Join-Path $RepositoryRoot $RelativePath
 
         if (-not (Test-Path $FullPath)) {
-            $Reasons.Add("удалён build-model файл: $RelativePath")
+            $Reasons.Add("deleted build-model file: $RelativePath")
             continue
         }
 
         if ((Get-Item $FullPath).LastWriteTimeUtc -gt $DatabaseTime) {
-            $Reasons.Add("новее compilation database: $RelativePath")
+            $Reasons.Add("newer than compilation database: $RelativePath")
         }
     }
 
-    Write-Host "    Чтение compile_commands.json..."
+    Write-Host "    Reading compile_commands.json..."
     try {
         $Database = @(
             Get-Content $RootDatabase -Raw |
@@ -228,7 +228,7 @@ function Get-CodeIntelState {
         )
     }
     catch {
-        $Reasons.Add("compile_commands.json повреждён или не является JSON")
+        $Reasons.Add("compile_commands.json is corrupted or is not JSON")
 
         return [pscustomobject]@{
             NeedsRefresh  = $true
@@ -238,7 +238,7 @@ function Get-CodeIntelState {
     }
 
     if ($Database.Count -eq 0) {
-        $Reasons.Add("compile_commands.json пуст")
+        $Reasons.Add("compile_commands.json is empty")
 
         return [pscustomobject]@{
             NeedsRefresh  = $true
@@ -247,8 +247,8 @@ function Get-CodeIntelState {
         }
     }
 
-    Write-Host "    Translation units в базе: $($Database.Count)"
-    Write-Host "    Построение множества индексированных исходников..."
+    Write-Host "    Translation units in database: $($Database.Count)"
+    Write-Host "    Building indexed source set..."
 
     $DatabaseFileSet =
         [System.Collections.Generic.HashSet[string]]::new(
@@ -268,12 +268,12 @@ function Get-CodeIntelState {
 
     if ($MissingDatabaseFileCount -gt 0) {
         $Reasons.Add(
-            "база содержит удалённые исходники: " +
+            "database contains deleted source files: " +
             $MissingDatabaseFileCount
         )
     }
 
-    Write-Host "    Проверка новых .cpp/.cc/.cxx..."
+    Write-Host "    Checking new .cpp/.cc/.cxx files..."
 
     $NewUnindexedSourceCount = 0
 
@@ -300,7 +300,7 @@ function Get-CodeIntelState {
 
     if ($NewUnindexedSourceCount -gt 0) {
         $Reasons.Add(
-            "обнаружены новые неиндексированные .cpp: " +
+            "new unindexed .cpp files found: " +
             $NewUnindexedSourceCount
         )
     }
@@ -315,18 +315,18 @@ function Get-CodeIntelState {
 function Assert-MsvcEnvironment {
     if (-not (Get-Command cl -ErrorAction Ignore)) {
         throw @"
-MSVC compiler 'cl.exe' не найден.
-Запустите скрипт из Visual Studio Developer PowerShell
-или предварительно импортируйте Launch-VsDevShell.ps1.
+MSVC compiler 'cl.exe' was not found.
+Run this script from Visual Studio Developer PowerShell
+or import Launch-VsDevShell.ps1 before running it.
 "@
     }
 
     if (-not (Get-Command ninja -ErrorAction Ignore)) {
-        throw "Не найден ninja.exe."
+        throw "ninja.exe was not found."
     }
 
     if (-not $env:VCPKG_ROOT) {
-        throw "Не задана переменная VCPKG_ROOT."
+        throw "VCPKG_ROOT is not set."
     }
 
     $Toolchain = Join-Path `
@@ -334,7 +334,7 @@ MSVC compiler 'cl.exe' не найден.
         "scripts\buildsystems\vcpkg.cmake"
 
     if (-not (Test-Path $Toolchain)) {
-        throw "Не найден vcpkg toolchain: $Toolchain"
+        throw "vcpkg toolchain not found: $Toolchain"
     }
 }
 
@@ -348,12 +348,12 @@ function Update-CodeIntel {
     Require-Command cmake | Out-Null
     Assert-MsvcEnvironment
 
-    Write-Step "Обновление CMake-модели и compilation database"
+    Write-Step "Updating CMake model and compilation database"
 
     Invoke-Checked cmake "--preset" $Preset
 
     if (-not (Test-Path $GeneratedDatabase)) {
-        throw "CMake не создал compilation database: $GeneratedDatabase"
+        throw "CMake did not create compilation database: $GeneratedDatabase"
     }
 
     Copy-Item `
@@ -366,7 +366,7 @@ function Update-CodeIntel {
             ConvertFrom-Json
     )
 
-    Write-Host "    compile_commands.json обновлён."
+    Write-Host "    compile_commands.json updated."
     Write-Host "    Translation units: $($Database.Count)"
 }
 
@@ -378,12 +378,12 @@ function Ensure-SerenaProject {
     $ProjectFile = Join-Path $RepositoryRoot ".serena\project.yml"
 
     if (-not (Test-Path $ProjectFile)) {
-        Write-Step "Создание Serena project"
+        Write-Step "Creating Serena project"
         Invoke-Checked serena "project" "create" "--index"
         return
     }
 
-    Write-Step "Обновление индекса Serena"
+    Write-Step "Updating Serena index"
     Invoke-Checked serena "project" "index"
 }
 
@@ -398,12 +398,12 @@ function Update-Graphify {
     $GraphFile = Join-Path $RepositoryRoot "graphify-out\graph.json"
 
     if (-not (Test-Path $GraphFile)) {
-        Write-Step "Первичное построение Graphify-графа"
+        Write-Step "Initial Graphify graph build"
         Invoke-Checked graphify "extract" "." "--code-only"
         return
     }
 
-    Write-Step "Обновление Graphify-графа"
+    Write-Step "Updating Graphify graph"
 
     if ($Force) {
         Invoke-Checked graphify "update" "." "--force"
@@ -419,23 +419,23 @@ function Show-AgentPrompt {
     Write-Host ""
 
     if ($Phase -eq "Before") {
-        Write-Host "Инструкция агенту:"
+        Write-Host "Agent instruction:"
         Write-Host @'
-1. Сначала прочитай только релевантные Serena memories.
-2. Для выбора подсистем и входных точек используй scoped Graphify queries.
-3. Definitions, references, callers и overloads проверяй через Serena/clangd.
-4. Читай тела только конкретных символов.
-5. Используй rg только для строк, макросов, CMake/конфигов и fallback.
-6. Не перечитывай неизменённые файлы без конкретного пробела в информации.
+1. First read only the relevant Serena memories.
+2. Use scoped Graphify queries to choose subsystems and entry points.
+3. Verify definitions, references, callers, and overloads through Serena/clangd.
+4. Read bodies only for specific symbols.
+5. Use rg only for strings, macros, CMake/config files, and fallback searches.
+6. Do not reread unchanged files unless there is a concrete information gap.
 '@
     }
     else {
-        Write-Host "Завершающая инструкция агенту:"
+        Write-Host "Final agent instruction:"
         Write-Host @'
-Обнови Serena memories только если изменились устойчивые сведения:
-архитектурные границы, публичные API, доменные инварианты,
-стандартная сборка или соглашения проекта.
-Не сохраняй текущий diff, историю отладки и временные детали реализации.
+Update Serena memories only when stable knowledge has changed:
+architecture boundaries, public APIs, domain invariants,
+standard build commands, or project conventions.
+Do not save the current diff, debugging history, or temporary implementation details.
 '@
     }
 }
@@ -456,7 +456,7 @@ try {
     Write-Host "Phase: $Phase"
 
     if (-not $SkipSerena) {
-        Write-Step "Проверка актуальности compilation database"
+        Write-Step "Checking compilation database freshness"
 
         $Stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
@@ -465,15 +465,15 @@ try {
             -RootDatabase $RootDatabase
 
         $Stopwatch.Stop()
-        Write-Host "    Проверка завершена за $(Format-Duration $Stopwatch.Elapsed)."
+        Write-Host "    Check completed in $(Format-Duration $Stopwatch.Elapsed)."
 
         if ($ForceCodeIntel -or $State.NeedsRefresh) {
             if ($ForceCodeIntel) {
-                Write-Host "    Причина обновления: принудительно."
+                Write-Host "    Update reason: forced."
             }
 
             foreach ($Reason in $State.Reasons) {
-                Write-Host "    Причина обновления: $Reason"
+                Write-Host "    Update reason: $Reason"
             }
 
             Update-CodeIntel `
@@ -485,8 +485,8 @@ try {
                 -RepositoryRoot $RepositoryRoot
         }
         else {
-            Write-Host "    Code-intel актуален."
-            Write-Host "    CMake и полный Serena index не запускаются."
+            Write-Host "    Code-intel is up to date."
+            Write-Host "    CMake and full Serena index will not run."
             Write-Host "    Translation units: $($State.DatabaseCount)"
         }
     }
@@ -502,7 +502,7 @@ try {
     if ($Phase -eq "Before" -and -not $NoLaunch) {
         Require-Command codex | Out-Null
 
-        Write-Step "Запуск Codex с профилем '$CodexProfile'"
+        Write-Step "Starting Codex with profile '$CodexProfile'"
         & codex "--profile" $CodexProfile
     }
 }

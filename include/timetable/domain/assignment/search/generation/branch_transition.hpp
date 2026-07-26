@@ -63,7 +63,7 @@ namespace timetable::domain::assignment {
         , RepeatedStopOccurrence
     };
 
-    enum class PaperSuccessorFeasibilityRejection : std::uint8_t {
+    enum class SuccessorFeasibilityRejection : std::uint8_t {
           None
         , FirstDepartureDomain
         , BranchFeasibility
@@ -83,19 +83,19 @@ namespace timetable::domain::assignment {
         BranchTransitionDiagnostics       diagnostics{};
     };
 
-    enum class PaperConnectionPrefixKind : std::uint8_t {
+    enum class ConnectionPrefixKind : std::uint8_t {
           UntimedAccessPrefix
         , ConnectionPrefix
     };
 
-    struct PaperConnectionCandidateMetrics final {
-        PaperConnectionNodeKey node{};
+    struct ConnectionPrefixCandidateMetrics final {
+        NodeConnectionSetKey node{};
         SearchPruningMetrics   metrics{};
     };
 
-    struct PaperConnectionPrefixEvaluation final {
-        PaperConnectionPrefixKind kind{ PaperConnectionPrefixKind::UntimedAccessPrefix };
-        std::optional<PaperConnectionCandidateMetrics> connection_candidate{};
+    struct ConnectionPrefixEvaluation final {
+        ConnectionPrefixKind kind{ ConnectionPrefixKind::UntimedAccessPrefix };
+        std::optional<ConnectionPrefixCandidateMetrics> connection_candidate{};
         BranchTransitionRejection rejection{ BranchTransitionRejection::None };
 
         [[nodiscard]] bool accepted() const noexcept {
@@ -103,17 +103,17 @@ namespace timetable::domain::assignment {
         }
     };
 
-    struct PaperSuccessorFeasibilityDecision final {
-        PaperSuccessorFeasibilityRejection rejection{
-            PaperSuccessorFeasibilityRejection::None
+    struct SuccessorFeasibilityDecision final {
+        SuccessorFeasibilityRejection rejection{
+            SuccessorFeasibilityRejection::None
         };
 
         [[nodiscard]] bool accepted() const noexcept {
-            return rejection == PaperSuccessorFeasibilityRejection::None;
+            return rejection == SuccessorFeasibilityRejection::None;
         }
     };
 
-    [[nodiscard]] PaperSuccessorFeasibilityDecision evaluate_paper_search_successor_feasibility(
+    [[nodiscard]] SuccessorFeasibilityDecision evaluate_search_successor_feasibility(
           const SearchBranch&        branch
         , const PreprocessedNetwork& network
         , const SearchSuccessor&     successor
@@ -121,8 +121,8 @@ namespace timetable::domain::assignment {
         , const TransferLimits&      limits
     ) noexcept;
 
-    [[nodiscard]] mathfp::Expected<PaperConnectionPrefixEvaluation>
-    evaluate_paper_connection_prefix_before_branch(
+    [[nodiscard]] mathfp::Expected<ConnectionPrefixEvaluation>
+    evaluate_connection_prefix_before_branch(
           const BranchArena&         branches
         , const SearchBranch&        branch
         , const PreprocessedNetwork& network

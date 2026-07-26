@@ -66,11 +66,11 @@ namespace timetable::domain::assignment {
         }
 
         /**
-         * @brief One paper-level split alternative inside an OD-day path.
+         * @brief One connection-tree-level split alternative inside an OD-day path.
          *
          * DayPathAlternative is the structural, service-day identity retained
          * by search. SplitConnectionAlternative is the interval-admissible
-         * timed connection support c in C(a) used by the paper split model.
+         * timed connection support c in C(a) used by the connection split model.
          */
         struct SplitConnectionAlternative final {
             const DayPathAlternative*       path{};
@@ -99,7 +99,7 @@ namespace timetable::domain::assignment {
             , const PerceivedJourneyTimeWeights& weights
         ) noexcept {
             //tex:
-            // Perceived journey time is user-defined. The paper's typical
+            // Perceived journey time is user-defined. The standard
             // example $$PJT(c)=JT(c)+2TT(c)+2NT(c)$$ is represented here by
             // configurable weights over ride, access/egress, transfer walk,
             // transfer wait and transfer count components.
@@ -228,7 +228,7 @@ namespace timetable::domain::assignment {
             , const SplitParams&                                    params
         ) {
             //tex:
-            // Paper split semantics: each retained timed support is a separate
+            // Connection split semantics: each retained timed support is a separate
             // connection $$c\in C(a)$$. Independence is computed across timed
             // support alternatives, while DayPath remains only their structural
             // grouping identity.
@@ -465,7 +465,7 @@ namespace timetable::domain::assignment {
             return result;
         }
 
-        mathfp::Expected<mathfp::Unit> validate_paper_connection_split_supports(
+        mathfp::Expected<mathfp::Unit> validate_connection_split_supports(
               const DemandSplitResult&            split_result
             , const IntervalLookup&               interval_lookup
             , const AssignmentPeriodConfig&       assignment_period
@@ -594,7 +594,7 @@ namespace timetable::domain::assignment {
             );
         }
 
-        void append_od_day_paper_split_certificate(
+        void append_od_day_split_certificate(
               DemandSplitResult&                 result
             , const SplitDemandUnit&             demand
             , std::size_t                        candidate_support_count
@@ -610,8 +610,8 @@ namespace timetable::domain::assignment {
                 probability.add(result.shares[i].probability);
             }
             const auto assigned_passengers = assigned.value();
-            result.od_day_paper_split.push_back(
-                OdDayPaperSplitCertificate{
+            result.od_day_split_certificates.push_back(
+                OdDaySplitCertificate{
                       .origin                            = demand.origin
                     , .destination                       = demand.destination
                     , .interval                          = demand.interval
@@ -789,16 +789,16 @@ namespace timetable::domain::assignment {
             };
         }
 
-        mathfp::Expected<mathfp::Unit> validate_od_day_paper_split_certificates(
+        mathfp::Expected<mathfp::Unit> validate_od_day_split_certificates(
               const DemandSplitResult& split_result
             , const InputModel&        input
             , std::optional<ZoneId>    origin_filter = std::nullopt
         ) {
-            std::map<detail::grouping::DemandKey, const OdDayPaperSplitCertificate*> certificates;
-            for (const auto& certificate : split_result.od_day_paper_split) {
+            std::map<detail::grouping::DemandKey, const OdDaySplitCertificate*> certificates;
+            for (const auto& certificate : split_result.od_day_split_certificates) {
                 if (origin_filter.has_value() && certificate.origin != *origin_filter) {
                     return mathfp::unexpected(
-                        mathfp::internal_error("OD-day paper split certificate outside requested origin")
+                        mathfp::internal_error("OD-day connection split certificate outside requested origin")
                             .ctx("origin", origin_filter->get())
                             .ctx("certificate_origin", certificate.origin.get())
                     );
@@ -810,7 +810,7 @@ namespace timetable::domain::assignment {
                 };
                 if (!certificates.emplace(key, &certificate).second) {
                     return mathfp::unexpected(
-                        mathfp::internal_error("duplicate OD-day paper split certificate")
+                        mathfp::internal_error("duplicate OD-day connection split certificate")
                             .ctx("origin"     , key.origin.get())
                             .ctx("destination", key.destination.get())
                             .ctx("interval_id", key.interval.get())
@@ -829,7 +829,7 @@ namespace timetable::domain::assignment {
                 const auto it = certificates.find(key);
                 if (it == certificates.end()) {
                     return mathfp::unexpected(
-                        mathfp::internal_error("missing OD-day paper split certificate")
+                        mathfp::internal_error("missing OD-day connection split certificate")
                             .ctx("origin"     , demand.origin.get())
                             .ctx("destination", demand.destination.get())
                             .ctx("interval_id", demand.interval.get())
@@ -839,7 +839,7 @@ namespace timetable::domain::assignment {
                 const auto& certificate = *it->second;
                 if (!same_demand_mass(certificate.demand_passengers, demand.passengers)) {
                     return mathfp::unexpected(
-                        mathfp::internal_error("OD-day paper split certificate demand mass mismatch")
+                        mathfp::internal_error("OD-day connection split certificate demand mass mismatch")
                             .ctx("origin"                , demand.origin.get())
                             .ctx("destination"           , demand.destination.get())
                             .ctx("interval_id"           , demand.interval.get())
@@ -855,7 +855,7 @@ namespace timetable::domain::assignment {
                         || !same_demand_mass(certificate.assigned_passengers, demand.passengers)
                         || !same_demand_mass(certificate.unassigned_passengers, 0.0)) {
                         return mathfp::unexpected(
-                            mathfp::internal_error("OD-day paper split certificate violates nonempty C(a) assignment")
+                            mathfp::internal_error("OD-day connection split certificate violates nonempty C(a) assignment")
                                 .ctx("origin"     , demand.origin.get())
                                 .ctx("destination", demand.destination.get())
                                 .ctx("interval_id", demand.interval.get())
@@ -880,7 +880,7 @@ namespace timetable::domain::assignment {
                     || !same_demand_mass(certificate.assigned_passengers, 0.0)
                     || !same_demand_mass(certificate.unassigned_passengers, demand.passengers)) {
                     return mathfp::unexpected(
-                        mathfp::internal_error("OD-day paper split certificate violates empty C(a) unassignment")
+                        mathfp::internal_error("OD-day connection split certificate violates empty C(a) unassignment")
                             .ctx("origin"     , demand.origin.get())
                             .ctx("destination", demand.destination.get())
                             .ctx("interval_id", demand.interval.get())
@@ -1273,7 +1273,7 @@ namespace timetable::domain::assignment {
                         , demand_unit
                         , UnassignedDemandReason::NoChosenAlternatives
                     );
-                    append_od_day_paper_split_certificate(
+                    append_od_day_split_certificate(
                           result
                         , demand_unit
                         , 0u
@@ -1304,7 +1304,7 @@ namespace timetable::domain::assignment {
                         , demand_unit
                         , UnassignedDemandReason::NoIntervalAdmissibleSupport
                     );
-                    append_od_day_paper_split_certificate(
+                    append_od_day_split_certificate(
                           result
                         , demand_unit
                         , split_connections.candidate_supports
@@ -1344,7 +1344,7 @@ namespace timetable::domain::assignment {
                     )
                 );
                 suppressed_numerical_shares += suppressed;
-                append_od_day_paper_split_certificate(
+                append_od_day_split_certificate(
                       result
                     , demand_unit
                     , split_connections.candidate_supports
@@ -1356,7 +1356,7 @@ namespace timetable::domain::assignment {
             }
         }
 
-        MATHFP_TRY(validate_paper_connection_split_supports(
+        MATHFP_TRY(validate_connection_split_supports(
               result
             , interval_lookup
             , assignment_period
@@ -1371,10 +1371,10 @@ namespace timetable::domain::assignment {
                 , input
             )
         );
-        MATHFP_TRY(validate_od_day_paper_split_certificates(result, input));
+        MATHFP_TRY(validate_od_day_split_certificates(result, input));
         log(
             fmt::format(
-                  "OD-day split result: split_contract=paper_connection_split support_selection=all_interval_admissible day_path_identity=post_layer single_best_support=disabled conservation=assigned_plus_unassigned demand_od = {:>8}  demand_intervals = {:>8}  assigned_intervals = {:>8}  unassigned_intervals = {:>8}  shares = {:>8}  unassigned = {:>8}  demand_passengers = {:.6f}  assigned_passengers = {:.6f}  unassigned_passengers = {:.6f}  skipped_empty_intervals = {:>8}  inadmissible_supports = {:>8}  suppressed_numerical_shares = {:>8}"
+                  "OD-day split result: split_contract=connection_split support_selection=all_interval_admissible day_path_identity=post_layer single_best_support=disabled conservation=assigned_plus_unassigned demand_od = {:>8}  demand_intervals = {:>8}  assigned_intervals = {:>8}  unassigned_intervals = {:>8}  shares = {:>8}  unassigned = {:>8}  demand_passengers = {:.6f}  assigned_passengers = {:.6f}  unassigned_passengers = {:.6f}  skipped_empty_intervals = {:>8}  inadmissible_supports = {:>8}  suppressed_numerical_shares = {:>8}"
                 , demand_intervals.size()
                 , interval_count
                 , conservation.assigned_intervals
@@ -1451,7 +1451,7 @@ namespace timetable::domain::assignment {
                     , demand_unit
                     , UnassignedDemandReason::NoChosenAlternatives
                 );
-                append_od_day_paper_split_certificate(
+                append_od_day_split_certificate(
                       result
                     , demand_unit
                     , 0u
@@ -1487,7 +1487,7 @@ namespace timetable::domain::assignment {
                     , demand_unit
                     , UnassignedDemandReason::NoIntervalAdmissibleSupport
                 );
-                append_od_day_paper_split_certificate(
+                append_od_day_split_certificate(
                       result
                     , demand_unit
                     , split_connections.candidate_supports
@@ -1526,7 +1526,7 @@ namespace timetable::domain::assignment {
                 )
             );
             (void)suppressed;
-            append_od_day_paper_split_certificate(
+            append_od_day_split_certificate(
                   result
                 , demand_unit
                 , split_connections.candidate_supports
@@ -1537,7 +1537,7 @@ namespace timetable::domain::assignment {
             );
         }
 
-        MATHFP_TRY(validate_paper_connection_split_supports(
+        MATHFP_TRY(validate_connection_split_supports(
               result
             , interval_lookup
             , assignment_period
@@ -1549,7 +1549,7 @@ namespace timetable::domain::assignment {
             , input
             , std::optional<ZoneId>{ choice_result.origin }
         ));
-        MATHFP_TRY(validate_od_day_paper_split_certificates(
+        MATHFP_TRY(validate_od_day_split_certificates(
               result
             , input
             , std::optional<ZoneId>{ choice_result.origin }
@@ -1608,7 +1608,7 @@ namespace timetable::domain::assignment {
         );
         log(
             fmt::format(
-                  "OD-day origin load: origin={} split_contract=paper_connection_split support_selection=all_interval_admissible day_path_identity=post_layer single_best_support=disabled conservation=assigned_plus_unassigned demand_intervals={} assigned_intervals={} unassigned_intervals={} shares={} unassigned={} demand_passengers={:.6f} assigned_passengers={:.6f} unassigned_passengers={:.6f} elementary_loads={}"
+                  "OD-day origin load: origin={} split_contract=connection_split support_selection=all_interval_admissible day_path_identity=post_layer single_best_support=disabled conservation=assigned_plus_unassigned demand_intervals={} assigned_intervals={} unassigned_intervals={} shares={} unassigned={} demand_passengers={:.6f} assigned_passengers={:.6f} unassigned_passengers={:.6f} elementary_loads={}"
                 , search_result.origin.get()
                 , conservation.demand_intervals
                 , conservation.assigned_intervals

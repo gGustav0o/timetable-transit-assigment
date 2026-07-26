@@ -4,7 +4,7 @@
 #include <gtest/gtest.h>
 
 #include "timetable/domain/assignment/search/frontier/retention_operations.hpp"
-#include "timetable/domain/assignment/search/relations/paper_connection_relevance.hpp"
+#include "timetable/domain/assignment/search/relations/node_connection_relevance.hpp"
 #include "timetable/domain/assignment/search_pruning.hpp"
 #include "timetable/domain/assignment/search_pruning_plan.hpp"
 #include "timetable/domain/params/make/tolerances.hpp"
@@ -57,7 +57,7 @@ namespace {
 
 }  // namespace
 
-TEST(SearchPruningExactDominance, MatchesPaperRelevanceCoordinates) {
+TEST(SearchPruningExactDominance, MatchesNodeLocalRelevanceCoordinates) {
     const auto existing = metrics(
           20.0  // later departure is better
         , 50.0  // earlier arrival is better
@@ -135,7 +135,7 @@ TEST(SearchPruningMetricSet, InsertRemovesExactDominatedSuffixAndKeepsArrivalOrd
     EXPECT_TRUE(validate_search_pruning_metric_set(set).has_value());
 }
 
-TEST(SearchPruningApproximateRetention, AppliesPaperToleranceInequalitiesAndTransferLimit) {
+TEST(SearchPruningApproximateRetention, AppliesNodeLocalToleranceInequalitiesAndTransferLimit) {
     const auto known = metrics(0.0, 40.0, 40.0, 1, 100.0);
     const auto summary = summarize_pruning_metrics(
         std::span<const SearchPruningMetrics>{ &known, 1u }
@@ -176,50 +176,50 @@ TEST(ConnectionSetCy, RelevanceOnlyConsidersKnownArrivalsNotLaterThanCandidate) 
     execution.approximate_policy = std::nullopt;
 
     ConnectionSetCy set;
-    std::vector<PaperConnectionLabelId> removed_labels;
-    insert_paper_node_connection_metrics(
+    std::vector<RetainedConnectionLabelId> removed_labels;
+    insert_node_connection_metrics(
           execution
         , set
         , metrics(0.0, 40.0, 40.0, 2, 100.0)
-        , PaperConnectionLabelId{ 1 }
+        , RetainedConnectionLabelId{ 1 }
         , removed_labels
     );
-    insert_paper_node_connection_metrics(
+    insert_node_connection_metrics(
           execution
         , set
         , metrics(20.0, 80.0, 60.0, 0, 10.0)
-        , PaperConnectionLabelId{ 2 }
+        , RetainedConnectionLabelId{ 2 }
         , removed_labels
     );
 
     const auto candidate = metrics(10.0, 50.0, 40.0, 1, 50.0);
 
-    EXPECT_TRUE(paper_node_connection_relevant(
+    EXPECT_TRUE(node_connection_relevant(
           set
         , ExactPruningPolicy{}
         , candidate
     ));
 }
 
-TEST(ConnectionSetCy, RelevanceRejectsPaperDominatedCandidate) {
+TEST(ConnectionSetCy, RelevanceRejectsDominatedCandidate) {
     SearchPruningExecutionPlan execution;
     execution.exact_enabled = true;
     execution.approximate_enabled = false;
     execution.approximate_policy = std::nullopt;
 
     ConnectionSetCy set;
-    std::vector<PaperConnectionLabelId> removed_labels;
-    insert_paper_node_connection_metrics(
+    std::vector<RetainedConnectionLabelId> removed_labels;
+    insert_node_connection_metrics(
           execution
         , set
         , metrics(20.0, 40.0, 30.0, 1, 50.0)
-        , PaperConnectionLabelId{ 1 }
+        , RetainedConnectionLabelId{ 1 }
         , removed_labels
     );
 
     const auto candidate = metrics(10.0, 50.0, 40.0, 2, 60.0);
 
-    EXPECT_FALSE(paper_node_connection_relevant(
+    EXPECT_FALSE(node_connection_relevant(
           set
         , ExactPruningPolicy{}
         , candidate
@@ -233,28 +233,28 @@ TEST(ConnectionSetCy, InsertRemovesDominatedSuffixAndReportsLabels) {
     execution.approximate_policy = std::nullopt;
 
     ConnectionSetCy set;
-    std::vector<PaperConnectionLabelId> removed_labels;
+    std::vector<RetainedConnectionLabelId> removed_labels;
 
-    insert_paper_node_connection_metrics(
+    insert_node_connection_metrics(
           execution
         , set
         , metrics(0.0, 30.0, 30.0, 0, 30.0)
-        , PaperConnectionLabelId{ 1 }
+        , RetainedConnectionLabelId{ 1 }
         , removed_labels
     );
-    insert_paper_node_connection_metrics(
+    insert_node_connection_metrics(
           execution
         , set
         , metrics(0.0, 50.0, 50.0, 2, 50.0)
-        , PaperConnectionLabelId{ 2 }
+        , RetainedConnectionLabelId{ 2 }
         , removed_labels
     );
 
-    insert_paper_node_connection_metrics(
+    insert_node_connection_metrics(
           execution
         , set
         , metrics(10.0, 40.0, 30.0, 1, 25.0)
-        , PaperConnectionLabelId{ 3 }
+        , RetainedConnectionLabelId{ 3 }
         , removed_labels
     );
 

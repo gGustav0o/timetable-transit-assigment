@@ -144,15 +144,15 @@ namespace timetable::infra::params_txt::detail {
             );
             const auto required_scale = [](
                   std::optional<double> specific
-                , std::optional<double> legacy
+                , std::optional<double> fallback
                 , std::string_view      key
                 , std::string_view      fallback_key
             ) -> mathfp::Expected<double> {
                 if (specific) {
                     return *specific;
                 }
-                if (legacy) {
-                    return *legacy;
+                if (fallback) {
+                    return *fallback;
                 }
                 return mathfp::unexpected(
                     mathfp::invalid_arg("missing split independence scale")

@@ -66,14 +66,14 @@ namespace timetable::domain::assignment {
         OdDaySupportPrefix   support_prefix{};
     };
 
-    struct PaperConnectionLabelId final {
+    struct RetainedConnectionLabelId final {
         std::size_t value{};
 
-        bool operator==(const PaperConnectionLabelId&) const = default;
+        bool operator==(const RetainedConnectionLabelId&) const = default;
     };
 
-    using PaperConnectionLabelVector = boost::container::small_vector<
-          PaperConnectionLabelId
+    using RetainedConnectionLabelVector = boost::container::small_vector<
+          RetainedConnectionLabelId
         , 1
     >;
 
@@ -86,7 +86,7 @@ namespace timetable::domain::assignment {
         SearchPartialTrace      trace{};
         SearchPartialMetrics    metrics{};
         OdDayProductionCarrier  od_day_carrier{};
-        std::optional<PaperConnectionLabelId> paper_connection_label{};
+        std::optional<RetainedConnectionLabelId> retained_connection_label{};
     };
 
     [[nodiscard]] const char* search_branch_phase_name(

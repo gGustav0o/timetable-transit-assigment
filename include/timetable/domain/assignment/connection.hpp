@@ -142,7 +142,7 @@ namespace timetable::domain::assignment {
      * stored here.
      */
     //tex:
-    // Paper connection characteristics are stored here as trace-derived invariants:
+    // Connection characteristics are stored here as trace-derived invariants:
     // $$DEP(c)=t_{\mathrm{start}}(\mathrm{first\ leg}),\quad ARR(c)=t_{\mathrm{end}}(\mathrm{last\ leg}),\quad JT(c)=ARR(c)-DEP(c).$$
     // Transfer time is represented by the two explicit components
     // $$TT(c)=T_{\mathrm{transfer\ wait}}(c)+T_{\mathrm{transfer\ walk}}(c),$$

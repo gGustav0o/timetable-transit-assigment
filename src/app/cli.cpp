@@ -27,7 +27,7 @@ namespace timetable::app {
         constexpr std::string_view kDefaultPairDataDir = "data/test";
         constexpr std::string_view kDefaultSegmentsPath =
             "7064/connection_segments_7064.csv";
-        constexpr std::string_view kLegacySegmentsPath =
+        constexpr std::string_view kFallbackSegmentsPath =
             "connection_segments_input.csv";
 
         std::string usage() {
@@ -138,11 +138,11 @@ namespace timetable::app {
 
         bool is_pair_data_dir(const std::filesystem::path& path) {
             const auto default_segments = path / kDefaultSegmentsPath;
-            const auto legacy_segments  = path / kLegacySegmentsPath;
+            const auto fallback_segments  = path / kFallbackSegmentsPath;
             return std::filesystem::exists(path)
                 && std::filesystem::is_directory(path)
                 && (std::filesystem::exists(default_segments)
-                    || std::filesystem::exists(legacy_segments));
+                    || std::filesystem::exists(fallback_segments));
         }
 
         mathfp::Expected<std::filesystem::path> find_default_pair_data_dir() {
@@ -161,7 +161,7 @@ namespace timetable::app {
                 mathfp::invalid_arg("default pair data dir not found")
                 .ctx("path"    , std::string(kDefaultPairDataDir))
                 .ctx("preferred", std::string(kDefaultSegmentsPath))
-                .ctx("fallback", std::string(kLegacySegmentsPath)));
+                .ctx("fallback", std::string(kFallbackSegmentsPath)));
         }
 
         mathfp::Expected<CliInput> parse_args(int argc, char** argv) {

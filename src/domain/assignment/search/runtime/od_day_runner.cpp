@@ -66,7 +66,7 @@
 #include "timetable/domain/assignment/search/runtime/result_finalization.hpp"
 #include "timetable/domain/assignment/search/runtime/root_initialization.hpp"
 #include "timetable/domain/assignment/search/tree/level_expansion.hpp"
-#include "timetable/domain/assignment/search/tree/paper_successor_step.hpp"
+#include "timetable/domain/assignment/search/tree/tree_successor_step.hpp"
 #include "timetable/domain/assignment/search/tree/tree_runner.hpp"
 #include "timetable/infra/progress_bus.hpp"
 
@@ -162,14 +162,14 @@ namespace timetable::domain::assignment::runtime {
                 : std::string("unbounded");
         log(
             fmt::format(
-                  "OD-day projection contract: paper=connection_tree partial_retention_scope={} tree_label=network_node_c_y c_y_key=physical_y c_y_carrier=physical_node_only c_y_applies_to=all_connection_segments_before_sink support=connection_segment_witness dominance=dep_arr_imp_nt tolerance=node_local production_carrier=compact_connection_segment_prefix path_identity=compact_prefix supply_graph=preprocessed_connection_segment_index frontier=connection_segment_level_queues frontier_sync=label_registry_with_compaction successor_contract=single_connection_segment_before_visitor temporal_suitability=timed_window_walk_always_available late_guard=assert_only transfer_walk=first_class_segment composite_transfer_walk=disabled_in_production label_representatives=unbounded tree_bounds=c_y_before_day_path_sink suffix_bound=disabled_for_od_day completed_connection_projection=immediate_day_path_sink od_alternative_retention=production_slots_only signature=route_stop_line_pattern day_path_retention_policy={} max_alternatives_per_od={} max_supports_per_path={} computation_contract={}"
+                  "OD-day projection contract: algorithm=connection_tree partial_retention_scope={} tree_label=network_node_c_y c_y_key=physical_y c_y_carrier=physical_node_only c_y_applies_to=all_connection_segments_before_sink support=connection_segment_witness dominance=dep_arr_imp_nt tolerance=node_local production_carrier=compact_connection_segment_prefix path_identity=compact_prefix supply_graph=preprocessed_connection_segment_index frontier=connection_segment_level_queues frontier_sync=label_registry_with_compaction successor_contract=single_connection_segment_before_visitor temporal_suitability=timed_window_walk_always_available late_guard=assert_only transfer_walk=first_class_segment composite_transfer_walk=disabled_in_production label_representatives=unbounded tree_bounds=c_y_before_day_path_sink suffix_bound=disabled_for_od_day completed_connection_projection=immediate_day_path_sink od_alternative_retention=production_slots_only signature=route_stop_line_pattern day_path_retention_policy={} max_alternatives_per_od={} max_supports_per_path={} computation_contract={}"
                 , to_string(execution.config.partial_retention_scope)
                 , day_path_retention_limit_policy_name(
                       day_path_retention_config.limit_policy
                   )
                 , day_path_alternative_limit
                 , day_path_support_limit
-                , to_log_token(OdDaySearchComputationContract::PaperConnectionSegmentTree)
+                , to_log_token(OdDaySearchComputationContract::ConnectionSegmentTree)
             )
             , LogLevel::Info
         );
@@ -203,7 +203,7 @@ namespace timetable::domain::assignment::runtime {
         const auto& batches = batch_plan.batches;
 
         /*
-         * The paper OD-day production contour does not use suffix reachability
+         * The OD-day production contour does not use suffix reachability
          * masks as a branch filter. Keep an empty graph only to satisfy the
          * shared batch-search signature; timed/diagnostic contours still build
          * and use residual reachability in their own entry points.
@@ -239,7 +239,7 @@ namespace timetable::domain::assignment::runtime {
         ));
         log(
             fmt::format(
-                  "OD-day computational profile: contour=paper_branch_and_bound production_carrier=compact_connection_segment_prefix branch_projection_state=none reachability_prefilter=disabled_not_built reachability_masks=disabled supply_graph=preprocessed_connection_segment_index frontier=connection_segment_level_queues frontier_sync=label_registry_with_compaction successor_generation=single_paper_connection_segment_before_visitor temporal_suitability=timed_window_walk_always_available transfer_walk_successor=first_class_connection_segment composite_transfer_walk=disabled_in_production walk_successor_lookup=lazy_phase_specific walk_indices=access_transfer_egress tree_label_scope=network_node_c_y c_y_key=physical_y c_y_carrier=physical_node_only c_y_applies_to=all_connection_segments_before_sink dominance=dep_arr_imp_nt tolerance=node_local path_identity=compact_prefix od_signature=route_stop_line_pattern structural_day_contour=diagnostics_only trees={} destinations={} time_horizon=service_day result=post_layer_day_path_support_sets split_contract=paper_connection_split split_interval_admissibility=all_interval_admissible_timed_supports single_best_support=disabled split_load=lazy_support_envelope primary_load=elementary_segment_loads max_parallel_batches={} max_parallel_memory_mb={} estimated_memory_mb_per_parallel_batch={}"
+                  "OD-day computational profile: contour=connection_tree_branch_and_bound production_carrier=compact_connection_segment_prefix branch_projection_state=none reachability_prefilter=disabled_not_built reachability_masks=disabled supply_graph=preprocessed_connection_segment_index frontier=connection_segment_level_queues frontier_sync=label_registry_with_compaction successor_generation=single_connection_segment_before_visitor temporal_suitability=timed_window_walk_always_available transfer_walk_successor=first_class_connection_segment composite_transfer_walk=disabled_in_production walk_successor_lookup=lazy_phase_specific walk_indices=access_transfer_egress tree_label_scope=network_node_c_y c_y_key=physical_y c_y_carrier=physical_node_only c_y_applies_to=all_connection_segments_before_sink dominance=dep_arr_imp_nt tolerance=node_local path_identity=compact_prefix od_signature=route_stop_line_pattern structural_day_contour=diagnostics_only trees={} destinations={} time_horizon=service_day result=post_layer_day_path_support_sets split_contract=connection_split split_interval_admissibility=all_interval_admissible_timed_supports single_best_support=disabled split_load=lazy_support_envelope primary_load=elementary_segment_loads max_parallel_batches={} max_parallel_memory_mb={} estimated_memory_mb_per_parallel_batch={}"
                 , tree_jobs.size()
                 , execution.config.destination_scope == SearchDestinationScope::DeclaredZones
                     ? execution.declared_zones.size()
@@ -252,7 +252,7 @@ namespace timetable::domain::assignment::runtime {
         );
         log(
             fmt::format(
-                  "OD-day paper connection segment tree: connection_segments={} route_segments={} timed_buckets={} boarding_stop_buckets={} access_walks={} transfer_walks={} egress_walks={}"
+                  "OD-day connection segment tree: connection_segments={} route_segments={} timed_buckets={} boarding_stop_buckets={} access_walks={} transfer_walks={} egress_walks={}"
                 , network.connection_segments.size()
                 , network.route_segments.size()
                 , network.connection_index.timed_buckets.size()
@@ -265,7 +265,7 @@ namespace timetable::domain::assignment::runtime {
         );
         log(
             fmt::format(
-                  "OD-day search diagnostics: paper_clauses=successor_then_c_y_then_sink c_y_scope=node_local destination_in_expansion=no demand_intervals_in_search=no raw_complete_retention=no trees={} expected_trees={} tree_count_delta={} batches={} targets={} projection_slots={} partial_retention_scope={} phase_invariant_validation={} result_sink=origin"
+                  "OD-day search diagnostics: connection_tree_clauses=successor_then_c_y_then_sink c_y_scope=node_local destination_in_expansion=no demand_intervals_in_search=no raw_complete_retention=no trees={} expected_trees={} tree_count_delta={} batches={} targets={} projection_slots={} partial_retention_scope={} phase_invariant_validation={} result_sink=origin"
                 , tree_jobs.size()
                 , expected_tree_count
                 , signed_count_delta(tree_jobs.size(), expected_tree_count)
@@ -279,7 +279,7 @@ namespace timetable::domain::assignment::runtime {
         );
         log(
             fmt::format(
-                  "OD-day paper compliance: paper_reference=connection_segment_tree one_tree_per_origin={} trees={} expected_trees={} service_period=day demand_intervals_in_tree=no destination_in_expansion=no successor_order=lookup_then_feasibility_then_c_y_then_enqueue c_y_scope=node_local c_y_key=physical_y c_y_applies_to=all_connection_segments day_path_layer=post_layer production_result=day_path_support_sets raw_completed_connections_retained=no"
+                  "OD-day connection-tree compliance: algorithm_reference=connection_segment_tree one_tree_per_origin={} trees={} expected_trees={} service_period=day demand_intervals_in_tree=no destination_in_expansion=no successor_order=lookup_then_feasibility_then_c_y_then_enqueue c_y_scope=node_local c_y_key=physical_y c_y_applies_to=all_connection_segments day_path_layer=post_layer production_result=day_path_support_sets raw_completed_connections_retained=no"
                 , tree_jobs.size() == expected_tree_count ? "true" : "false"
                 , tree_jobs.size()
                 , expected_tree_count
@@ -410,7 +410,7 @@ namespace timetable::domain::assignment::runtime {
         MATHFP_TRY(std::move(first_worker_error));
         log(
             fmt::format(
-                  "OD-day by-origin search result: carrier=paper_connection_tree result=day_path_post_layer origins={:>8} pairs={:>8} empty_pairs={:>8} expected_trees={:>8} day_path_alternatives={:>8} raw_complete_connections={:>8}"
+                  "OD-day by-origin search result: carrier=connection_tree result=day_path_post_layer origins={:>8} pairs={:>8} empty_pairs={:>8} expected_trees={:>8} day_path_alternatives={:>8} raw_complete_connections={:>8}"
                 , batches.size()
                 , pair_count.load(std::memory_order_relaxed)
                 , empty_pair_count.load(std::memory_order_relaxed)

@@ -808,14 +808,14 @@ namespace timetable::domain::assignment::detail {
             MATHFP_TRY(validate_od_result_semantics(od_result));
             search_count += searched_alternative_count(od_result);
             chosen_count += chosen_alternative_count(od_result);
-            structural_day_path_count += od_result.paper_split.structural_day_path_count;
-            timed_support_alternative_count += od_result.paper_split.timed_support_alternative_count;
+            structural_day_path_count += od_result.split_summary.structural_day_path_count;
+            timed_support_alternative_count += od_result.split_summary.timed_support_alternative_count;
             interval_admissible_split_alternative_count +=
-                od_result.paper_split.interval_admissible_split_alternative_count;
-            unassigned_demand_count += od_result.paper_split.unassigned_demand_count;
+                od_result.split_summary.interval_admissible_split_alternative_count;
+            unassigned_demand_count += od_result.split_summary.unassigned_demand_count;
             total_demand.add(od_result.total_demand_passengers);
             assigned.add(od_result.assigned_passengers);
-            unassigned.add(od_result.paper_split.unassigned_passengers);
+            unassigned.add(od_result.split_summary.unassigned_passengers);
             for (const auto& interval : od_result.intervals) {
                 share_count += interval.shares.size();
             }

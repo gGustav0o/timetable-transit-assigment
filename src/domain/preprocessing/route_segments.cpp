@@ -563,7 +563,7 @@ namespace timetable::domain::preprocessing {
             , std::int64_t&              next_id
         ) {
             //tex:
-            // Paper route segment for a transit line:
+            // Route segment for a transit line:
             // $$y=(i,j,\ell_{ij},\tau_{ij},\sigma_{\text{line}}).$$
             // For every ordered pair of stop occurrences $$i<j$$ on the route,
             // cumulative route metrics give the transfer-free ride segment between
@@ -788,7 +788,7 @@ namespace timetable::domain::preprocessing {
         using DijkstraResult = mathfp::graph::DijkstraResult<WalkGraph>;
 
         //tex:
-        // Paper walk segment:
+        // Walk segment:
         // $$y=(i,j,\ell_{ij},\tau_{ij},\sigma_{\text{walk}}),$$
         // where $$\sigma_{\text{walk}}$$ is a shortest path over links permitted
         // for transit walks. Running Dijkstra from every walk endpoint produces

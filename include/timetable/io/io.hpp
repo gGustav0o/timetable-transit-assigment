@@ -22,9 +22,9 @@ namespace timetable::io {
     // parameters represented in the domain model.
     // Pair layout directory:
     // - 7064/connection_segments_7064.csv preferred by default, or
-    //   connection_segments_input.csv as a legacy fallback
+    //   connection_segments_input.csv as a fallback fallback
     // - params.txt
-    // - dod_7064_full.xlsx as the default daily OD matrix, or legacy
+    // - dod_7064_full.xlsx as the default daily OD matrix, or fallback
     //   time_intervals.csv + od_demand.csv / generated_demand/od_demand.csv
     struct PairDataDirSpec {
         std::filesystem::path root;

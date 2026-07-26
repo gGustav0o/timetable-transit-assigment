@@ -225,7 +225,7 @@ namespace timetable::domain::assignment {
         std::optional<TimedSupportEnvelope>    support_envelope{};
     };
 
-    struct PaperWalkLookupDiagnostics final {
+    struct WalkSuccessorLookupDiagnostics final {
         std::size_t access{};
         std::size_t transfer{};
         std::size_t egress{};
@@ -233,8 +233,8 @@ namespace timetable::domain::assignment {
         std::size_t skipped_by_transfer_budget{};
     };
 
-    struct PaperSuccessorGenerationDiagnostics final {
-        PaperWalkLookupDiagnostics walk_lookup{};
+    struct SuccessorGenerationDiagnostics final {
+        WalkSuccessorLookupDiagnostics walk_lookup{};
         std::size_t timed_lookup_skipped_phase{};
         std::size_t timed_lookup_skipped_transfer_budget{};
         std::size_t timed_successor_rejected_time_domain{};
@@ -243,7 +243,7 @@ namespace timetable::domain::assignment {
         std::size_t timed_successor_rejected_feasibility{};
     };
 
-    enum class PaperTimedInsertabilityRejection : std::uint8_t {
+    enum class TimedSuccessorInsertabilityRejection : std::uint8_t {
           None
         , FirstDepartureDomain
         , SameTrip
@@ -251,10 +251,10 @@ namespace timetable::domain::assignment {
         , Feasibility
     };
 
-    [[nodiscard]] inline bool paper_timed_lookup_allowed(
+    [[nodiscard]] inline bool timed_successor_lookup_allowed(
           const SearchBranch&              branch
         , const TransferLimits&            limits
-        , PaperSuccessorGenerationDiagnostics* diagnostics
+        , SuccessorGenerationDiagnostics* diagnostics
     ) {
         if (!timed_extension_transition(branch.trace.phase).has_value()) {
             if (diagnostics != nullptr) {
@@ -274,7 +274,7 @@ namespace timetable::domain::assignment {
         return true;
     }
 
-    [[nodiscard]] inline PaperTimedInsertabilityRejection paper_timed_insertability_rejection(
+    [[nodiscard]] inline TimedSuccessorInsertabilityRejection timed_successor_insertability_rejection(
           const PreprocessedNetwork& network
         , const SearchBranch&        branch
         , const TransferLimits&      limits
@@ -290,11 +290,11 @@ namespace timetable::domain::assignment {
             , first_departure_domain
             , limits
         )) {
-            return PaperTimedInsertabilityRejection::FirstDepartureDomain;
+            return TimedSuccessorInsertabilityRejection::FirstDepartureDomain;
         }
         if (branch.trace.last_timed_segment != nullptr
             && transfer_reuses_same_trip(*branch.trace.last_timed_segment, successor)) {
-            return PaperTimedInsertabilityRejection::SameTrip;
+            return TimedSuccessorInsertabilityRejection::SameTrip;
         }
         if (is_same_line_transfer_candidate(branch, successor, route_segment)) {
             const auto allowed_loop_reboarding =
@@ -306,7 +306,7 @@ namespace timetable::domain::assignment {
                     , route_segment
                 );
             if (!allowed_loop_reboarding) {
-                return PaperTimedInsertabilityRejection::SameLine;
+                return TimedSuccessorInsertabilityRejection::SameLine;
             }
         }
         const BranchState state{
@@ -323,21 +323,21 @@ namespace timetable::domain::assignment {
             , route_segment
             , limits
         )) {
-            return PaperTimedInsertabilityRejection::Feasibility;
+            return TimedSuccessorInsertabilityRejection::Feasibility;
         }
-        return PaperTimedInsertabilityRejection::None;
+        return TimedSuccessorInsertabilityRejection::None;
     }
 
-    [[nodiscard]] inline bool paper_timed_successor_insertable_before_visitor(
+    [[nodiscard]] inline bool timed_successor_insertable_before_visitor(
           const PreprocessedNetwork& network
         , const SearchBranch&        branch
         , const TransferLimits&      limits
         , const SearchTimeDomain*    first_departure_domain
         , ConnectionSegmentId        connection_id
         , std::optional<Time>        current_arrival_time
-        , PaperSuccessorGenerationDiagnostics* diagnostics
+        , SuccessorGenerationDiagnostics* diagnostics
     ) {
-        const auto rejection = paper_timed_insertability_rejection(
+        const auto rejection = timed_successor_insertability_rejection(
               network
             , branch
             , limits
@@ -346,28 +346,28 @@ namespace timetable::domain::assignment {
             , current_arrival_time
         );
         switch (rejection) {
-            case PaperTimedInsertabilityRejection::None:
+            case TimedSuccessorInsertabilityRejection::None:
                 return true;
 
-            case PaperTimedInsertabilityRejection::FirstDepartureDomain:
+            case TimedSuccessorInsertabilityRejection::FirstDepartureDomain:
                 if (diagnostics != nullptr) {
                     ++diagnostics->timed_successor_rejected_time_domain;
                 }
                 return false;
 
-            case PaperTimedInsertabilityRejection::SameTrip:
+            case TimedSuccessorInsertabilityRejection::SameTrip:
                 if (diagnostics != nullptr) {
                     ++diagnostics->timed_successor_rejected_same_trip;
                 }
                 return false;
 
-            case PaperTimedInsertabilityRejection::SameLine:
+            case TimedSuccessorInsertabilityRejection::SameLine:
                 if (diagnostics != nullptr) {
                     ++diagnostics->timed_successor_rejected_same_line;
                 }
                 return false;
 
-            case PaperTimedInsertabilityRejection::Feasibility:
+            case TimedSuccessorInsertabilityRejection::Feasibility:
                 if (diagnostics != nullptr) {
                     ++diagnostics->timed_successor_rejected_feasibility;
                 }
@@ -377,7 +377,7 @@ namespace timetable::domain::assignment {
     }
 
     template <typename Visitor>
-    void for_each_paper_walk_successor(
+    void for_each_walk_successor(
           const PreprocessedNetwork&       network
         , ZoneId                           origin
         , const ActiveDestinationMembership& active_destinations
@@ -406,21 +406,21 @@ namespace timetable::domain::assignment {
     }
 
     template <typename Visitor>
-    void for_each_paper_timed_ride_successor(
+    void for_each_timed_ride_successor(
           const PreprocessedNetwork&       network
         , const SearchBranch&              branch
         , const TransferLimits&            limits
         , const SearchTimeDomain*          first_departure_domain
-        , PaperSuccessorGenerationDiagnostics* diagnostics
+        , SuccessorGenerationDiagnostics* diagnostics
         , Visitor&&                        visit
     ) {
-        if (!paper_timed_lookup_allowed(branch, limits, diagnostics)) {
+        if (!timed_successor_lookup_allowed(branch, limits, diagnostics)) {
             return;
         }
 
         auto&& visitor = visit;
         auto visit_timed = [&](ConnectionSegmentId connection_id) {
-            if (!paper_timed_successor_insertable_before_visitor(
+            if (!timed_successor_insertable_before_visitor(
                   network
                 , branch
                 , limits
@@ -452,14 +452,14 @@ namespace timetable::domain::assignment {
     }
 
     template <typename Visitor>
-    void for_each_paper_successor(
+    void for_each_search_successor(
           const PreprocessedNetwork&       network
         , ZoneId                           origin
         , const ActiveDestinationMembership& active_destinations
         , const SearchBranch&              branch
         , const TransferLimits&            limits
         , const SearchTimeDomain*          first_departure_domain
-        , PaperSuccessorGenerationDiagnostics* diagnostics
+        , SuccessorGenerationDiagnostics* diagnostics
         , Visitor&&                        visit
     ) {
         auto&& visitor = visit;
@@ -469,7 +469,7 @@ namespace timetable::domain::assignment {
                 if (diagnostics != nullptr) {
                     ++diagnostics->walk_lookup.access;
                 }
-                for_each_paper_walk_successor(
+                for_each_walk_successor(
                       network
                     , origin
                     , active_destinations
@@ -486,7 +486,7 @@ namespace timetable::domain::assignment {
                 if (diagnostics != nullptr) {
                     ++diagnostics->walk_lookup.egress;
                 }
-                for_each_paper_walk_successor(
+                for_each_walk_successor(
                       network
                     , origin
                     , active_destinations
@@ -501,7 +501,7 @@ namespace timetable::domain::assignment {
                     if (diagnostics != nullptr) {
                         ++diagnostics->walk_lookup.transfer;
                     }
-                    for_each_paper_walk_successor(
+                    for_each_walk_successor(
                           network
                         , origin
                         , active_destinations
@@ -528,7 +528,7 @@ namespace timetable::domain::assignment {
                 break;
         }
 
-        for_each_paper_timed_ride_successor(
+        for_each_timed_ride_successor(
               network
             , branch
             , limits

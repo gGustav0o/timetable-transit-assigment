@@ -355,7 +355,7 @@ namespace timetable::domain::assignment {
         //tex:
         // Choice finalization re-evaluates the tree's retained complete
         // connections. `ExactOnly` keeps exact nondominated alternatives; the
-        // full paper choice stage additionally applies OD-local whole-connection
+        // full whole-connection choice stage additionally applies OD-local whole-connection
         // tolerance bounds before materializing the chosen connection set.
         std::vector<CompleteConnectionAlternative> retained;
         retained.reserve(retention.alternatives.size());

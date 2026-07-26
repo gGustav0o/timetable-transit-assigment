@@ -5,7 +5,7 @@ branch-and-bound search implementation.
 
 ## Boundary
 
-The paper-level search core is a domain module. It may depend on:
+The connection-tree-level search core is a domain module. It may depend on:
 
 - preprocessed connection-segment supply
 - branch transition and successor generation
@@ -38,7 +38,7 @@ search/runtime/*
   -> search/model/*
 
 search/tree/*
-  -> search/frontier/paper_connection_retention
+  -> search/frontier/node_connection_retention
   -> search/generation/*
   -> search/generation/branch_transition
   -> search/projection value types
@@ -49,10 +49,10 @@ runtime orchestration APIs.
 
 ## First Extraction Units
 
-1. `search/frontier/paper_connection_retention`
-   Owns the algebra of retaining a candidate prefix in paper `C_y`.
+1. `search/frontier/node_connection_retention`
+   Owns the algebra of retaining a candidate prefix in node-local `C_y`.
 
-2. `search/tree/paper_successor_step`
+2. `search/tree/tree_successor_step`
    Owns the pure successor acceptance decision before projection/frontier
    insertion.
 
@@ -73,7 +73,7 @@ runtime orchestration APIs.
 6. `search/runtime/cancellation` and `search/runtime/parallel`
    Own effectful runtime orchestration values. `parallel` owns worker count,
    batch claiming, async worker execution, fast-fail cancellation, and
-   completed/cancelled accounting. These modules remain outside the paper-level
+   completed/cancelled accounting. These modules remain outside the connection-tree-level
    tree core.
 
 7. `search/runtime/batch_context`
@@ -97,10 +97,10 @@ runtime orchestration APIs.
    at the projection boundary.
 
 11. `search/runtime/accepted_successor_application`
-   Owns application of a successor already accepted by the paper tree step:
+   Owns application of a successor already accepted by the connection-tree step:
    OD-day carrier projection, phase validation, transfer-limit rejection, and
    composition of the projection/filter/enqueue substeps. It does not generate
-   successors and does not decide paper `C_y` acceptance.
+   successors and does not decide node-local `C_y` acceptance.
 
 12. `search/runtime/projection_application`
     Owns applying a candidate branch to projection sinks: complete target
@@ -118,7 +118,7 @@ runtime orchestration APIs.
     branch is mathematically admissible.
 
 15. `search/runtime/od_day_frontier_synchronization`
-    Owns synchronization of OD-day frontier queues with paper `C_y` label
+    Owns synchronization of OD-day frontier queues with node-local `C_y` label
     liveness: stale branch release and frontier compaction. Runtime logging
     remains in the batch runner.
 
@@ -135,7 +135,7 @@ runtime orchestration APIs.
 18. `search/runtime/batch_tree_execution`
     Owns the batch-specific callback layer around `search/tree/tree_runner`:
     cancellation checkpoints, runtime heartbeats, OD-day frontier synchronization,
-    successor generation dispatch, paper successor acceptance, and accepted
+    successor generation dispatch, tree successor acceptance, and accepted
     successor application. It is runtime glue, not a second tree traversal loop.
 
 19. `search/runtime/batch_planning`
@@ -171,8 +171,8 @@ It must not carry setup-only inputs such as the residual graph or day-level
 supply switch once `search/runtime/batch_state` has derived reachability,
 projection indices, and OD-day supply mode.
 
-The legacy OD-day label-state retention path has been removed from the
-production model. OD-day production retains the paper C_y carrier through
+The fallback OD-day label-state retention path has been removed from the
+production model. OD-day production retains the node-local C_y carrier through
 `ConnectionSetCy` and frontier labels; stale label storage is not representable
 in `TreePartialRetention`.
 

@@ -96,7 +96,7 @@ TEST(SplitImpedance, TemporalUtilityUsesLateArrivalDeviationWhenBasisIsArrival) 
     EXPECT_DOUBLE_EQ(*result, 33.0);
 }
 
-TEST(SplitImpedance, ComputesPaperRawImpedanceFormula) {
+TEST(SplitImpedance, ComputesRawImpedanceFormula) {
     const auto result = compute_split_impedance(
           alternative(8.0, 20.0, 30.0, 2.0)
         , interval(10.0, 15.0)
@@ -185,7 +185,7 @@ TEST(SplitImpedance, BoxCoxZeroParameterUsesLog) {
     EXPECT_NEAR(result->get(), std::log(9.0), 1e-15);
 }
 
-TEST(SplitImpedance, BoxCoxNonZeroParameterUsesPaperFormula) {
+TEST(SplitImpedance, BoxCoxNonZeroParameterUsesBoxCoxFormula) {
     const auto result = apply_impedance_transform(
           SplitRawImpedance{ 9.0 }
         , transform_policy(true, 0.5)

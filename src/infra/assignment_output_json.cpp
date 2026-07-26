@@ -799,26 +799,26 @@ namespace timetable::infra {
             ));
             writer.key("structural_day_path_count");
             writer.integer(static_cast<std::int64_t>(
-                od_result.paper_split.structural_day_path_count
+                od_result.split_summary.structural_day_path_count
             ));
             writer.key("timed_support_alternative_count");
             writer.integer(static_cast<std::int64_t>(
-                od_result.paper_split.timed_support_alternative_count
+                od_result.split_summary.timed_support_alternative_count
             ));
             writer.key("interval_admissible_split_alternative_count");
             writer.integer(static_cast<std::int64_t>(
-                od_result.paper_split.interval_admissible_split_alternative_count
+                od_result.split_summary.interval_admissible_split_alternative_count
             ));
             writer.key("unassigned_demand_count");
             writer.integer(static_cast<std::int64_t>(
-                od_result.paper_split.unassigned_demand_count
+                od_result.split_summary.unassigned_demand_count
             ));
             writer.key("total_demand_passengers");
             writer.number(od_result.total_demand_passengers);
             writer.key("assigned_passengers");
             writer.number(od_result.assigned_passengers);
             writer.key("unassigned_passengers");
-            writer.number(od_result.paper_split.unassigned_passengers);
+            writer.number(od_result.split_summary.unassigned_passengers);
             writer.key("connections");
             writer.begin_array();
             for (const auto& connection : od_result.connections) {

@@ -60,7 +60,7 @@ namespace timetable::domain::preprocessing {
      *  - offsets.size() == buckets.size() + 1, offsets.back() == order.size().
      */
     //tex:
-    // This is the paper's sorted connection-segment array plus node-local access
+    // This is the sorted connection-segment array plus node-local access
     // structures. Timed connections are ordered inside each origin bucket by
     // $$t_{\mathrm{dep}}$$, which makes the operation
     // $$\min\{s: \operatorname{from}(s)=y,\ t_{\mathrm{dep}}(s)\ge t\}$$

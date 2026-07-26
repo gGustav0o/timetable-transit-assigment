@@ -85,10 +85,10 @@ namespace timetable::domain::assignment::detail {
                 , std::make_move_iterator(origin_split.unassigned.begin())
                 , std::make_move_iterator(origin_split.unassigned.end())
             );
-            target.od_day_paper_split.insert(
-                  target.od_day_paper_split.end()
-                , std::make_move_iterator(origin_split.od_day_paper_split.begin())
-                , std::make_move_iterator(origin_split.od_day_paper_split.end())
+            target.od_day_split_certificates.insert(
+                  target.od_day_split_certificates.end()
+                , std::make_move_iterator(origin_split.od_day_split_certificates.begin())
+                , std::make_move_iterator(origin_split.od_day_split_certificates.end())
             );
         }
 
@@ -194,7 +194,7 @@ namespace timetable::domain::assignment::detail {
 
         log(
             fmt::format(
-                  "OD-day load contour: production=elementary_segment_loads source=day_path split_contract=paper_connection_split support_selection=all_interval_admissible single_best_support=disabled demand_shares={:>8} unassigned_demand={:>8} elementary_loads={:>8} secondary_visum_aggregates=route_stop_totals overload_source=elementary_segment_loads"
+                  "OD-day load contour: production=elementary_segment_loads source=day_path split_contract=connection_split support_selection=all_interval_admissible single_best_support=disabled demand_shares={:>8} unassigned_demand={:>8} elementary_loads={:>8} secondary_visum_aggregates=route_stop_totals overload_source=elementary_segment_loads"
                 , accumulation.split.shares.size()
                 , accumulation.split.unassigned.size()
                 , elementary_segment_loads.items.size()

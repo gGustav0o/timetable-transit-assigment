@@ -338,18 +338,18 @@ namespace timetable::infra {
                 , .chosen_connection_count  =
                       timetable::domain::chosen_alternative_count(od_result)
                 , .structural_day_path_count =
-                      od_result.paper_split.structural_day_path_count
+                      od_result.split_summary.structural_day_path_count
                 , .timed_support_alternative_count =
-                      od_result.paper_split.timed_support_alternative_count
+                      od_result.split_summary.timed_support_alternative_count
                 , .interval_admissible_split_alternative_count =
-                      od_result.paper_split.interval_admissible_split_alternative_count
+                      od_result.split_summary.interval_admissible_split_alternative_count
                 , .unassigned_demand_count =
-                      od_result.paper_split.unassigned_demand_count
+                      od_result.split_summary.unassigned_demand_count
                 , .interval_count           = od_result.intervals.size()
                 , .share_count              = share_count
                 , .total_demand_passengers  = od_result.total_demand_passengers
                 , .assigned_passengers      = od_result.assigned_passengers
-                , .unassigned_passengers    = od_result.paper_split.unassigned_passengers
+                , .unassigned_passengers    = od_result.split_summary.unassigned_passengers
                 , .fastest_journey_time     = fastest_journey_time
                 , .lowest_fare              = lowest_fare
                 , .minimum_transfers        = minimum_transfers

@@ -97,7 +97,7 @@ namespace timetable::domain::assignment {
         }
     }
 
-    SearchLevelPlacement paper_successor_level_placement(
+    SearchLevelPlacement successor_level_placement(
           const SearchBranch&      parent
         , const ConnectionSegment& successor
     ) noexcept {

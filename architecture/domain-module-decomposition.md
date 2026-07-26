@@ -67,7 +67,7 @@ one implementation unit.
 
 ## Split Boundary
 
-The split layer implements the paper-level demand distribution:
+The split layer implements the connection-tree-level demand distribution:
 
 ```text
 selected alternatives C(a)
@@ -146,7 +146,7 @@ Owns:
 
 - supported choice-model validation
 - Kirchhoff/logit/transformed-impedance log weights
-- the paper MNL log-weight expression
+- the MNL log-weight expression
 
 Mathematical contract:
 
@@ -226,7 +226,7 @@ It should not compute probabilities.
 
 Owns:
 
-- paper split certificates
+- connection split certificates
 - assigned/unassigned conservation checks
 - interval probability-sum checks
 

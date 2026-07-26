@@ -63,7 +63,7 @@ namespace timetable::domain::assignment::runtime {
     struct SearchBatchMutableState final {
         std::vector<SearchProjectionRetention>& retentions;
         TreePartialRetention& tree_partial_retention;
-        PaperConnectionLabelRegistry& paper_label_registry;
+        RetainedConnectionLabelRegistry& retained_label_registry;
         TaskSearchStats& stats;
         std::vector<TaskSearchStats>& task_stats;
         BranchArena& branches;

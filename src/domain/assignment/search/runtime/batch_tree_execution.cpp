@@ -18,7 +18,7 @@
 #include "timetable/domain/assignment/search/runtime/cancellation.hpp"
 #include "timetable/domain/assignment/search/runtime/od_day_frontier_synchronization.hpp"
 #include "timetable/domain/assignment/search/tree/level_expansion.hpp"
-#include "timetable/domain/assignment/search/tree/paper_successor_step.hpp"
+#include "timetable/domain/assignment/search/tree/tree_successor_step.hpp"
 
 namespace timetable::domain::assignment::runtime {
     namespace {
@@ -31,9 +31,9 @@ namespace timetable::domain::assignment::runtime {
         constexpr auto kOdDayFrontierCompactionMinSize =
             std::size_t{ 4096u };
 
-        void add_paper_successor_generation_diagnostics(
+        void add_successor_generation_diagnostics(
               TaskSearchStats&                          stats
-            , const PaperSuccessorGenerationDiagnostics& diagnostics
+            , const SuccessorGenerationDiagnostics& diagnostics
         ) noexcept {
             stats.walk_lookup.access += diagnostics.walk_lookup.access;
             stats.walk_lookup.transfer += diagnostics.walk_lookup.transfer;
@@ -41,37 +41,37 @@ namespace timetable::domain::assignment::runtime {
             stats.walk_lookup.skipped_by_phase += diagnostics.walk_lookup.skipped_by_phase;
             stats.walk_lookup.skipped_by_transfer_budget +=
                 diagnostics.walk_lookup.skipped_by_transfer_budget;
-            stats.paper_timed_lookup_skipped_phase +=
+            stats.timed_successor_lookup_skipped_phase +=
                 diagnostics.timed_lookup_skipped_phase;
-            stats.paper_timed_lookup_skipped_transfer_budget +=
+            stats.timed_successor_lookup_skipped_transfer_budget +=
                 diagnostics.timed_lookup_skipped_transfer_budget;
-            stats.paper_timed_successor_rejected_time_domain +=
+            stats.timed_successor_rejected_time_domain +=
                 diagnostics.timed_successor_rejected_time_domain;
-            stats.paper_timed_successor_rejected_same_trip +=
+            stats.timed_successor_rejected_same_trip +=
                 diagnostics.timed_successor_rejected_same_trip;
-            stats.paper_timed_successor_rejected_same_line +=
+            stats.timed_successor_rejected_same_line +=
                 diagnostics.timed_successor_rejected_same_line;
-            stats.paper_timed_successor_rejected_feasibility +=
+            stats.timed_successor_rejected_feasibility +=
                 diagnostics.timed_successor_rejected_feasibility;
         }
 
-        void record_paper_successor_feasibility_rejection(
+        void record_successor_feasibility_rejection(
               TaskSearchStats&                   stats
-            , PaperSuccessorFeasibilityRejection rejection
+            , SuccessorFeasibilityRejection rejection
         ) noexcept {
             switch (rejection) {
-                case PaperSuccessorFeasibilityRejection::None:
+                case SuccessorFeasibilityRejection::None:
                     return;
 
-                case PaperSuccessorFeasibilityRejection::FirstDepartureDomain:
+                case SuccessorFeasibilityRejection::FirstDepartureDomain:
                     ++stats.rejected_time_domain;
                     return;
 
-                case PaperSuccessorFeasibilityRejection::BranchFeasibility:
+                case SuccessorFeasibilityRejection::BranchFeasibility:
                     ++stats.rejected_feasibility;
                     return;
 
-                case PaperSuccessorFeasibilityRejection::Reboarding:
+                case SuccessorFeasibilityRejection::Reboarding:
                     ++stats.rejected_reboarding;
                     return;
             }
@@ -107,8 +107,8 @@ namespace timetable::domain::assignment::runtime {
                 return;
             }
 
-            auto diagnostics = PaperSuccessorGenerationDiagnostics{};
-            for_each_paper_successor(
+            auto diagnostics = SuccessorGenerationDiagnostics{};
+            for_each_search_successor(
                   network
                 , origin
                 , active_destinations
@@ -119,7 +119,7 @@ namespace timetable::domain::assignment::runtime {
                 , visitor
             );
             if (stats != nullptr) {
-                add_paper_successor_generation_diagnostics(*stats, diagnostics);
+                add_successor_generation_diagnostics(*stats, diagnostics);
             }
             (void)walk_rejection_visitor;
         }
@@ -157,7 +157,7 @@ namespace timetable::domain::assignment::runtime {
             const auto compaction = compact_od_day_frontiers(
                   state.level_expansion
                 , state.branches
-                , state.paper_label_registry
+                , state.retained_label_registry
                 , state.released_branches
             );
             const auto removed = compaction.removed();
@@ -173,7 +173,7 @@ namespace timetable::domain::assignment::runtime {
             diagnostics.emit_frontier_compacted(reason, compaction);
         };
 
-        const auto paper_connection_tree_targets =
+        const auto connection_tree_targets =
             fixed.od_day_slots
                 ? ActiveIndexSet::full(fixed.batch.completion_targets.size())
                 : ActiveIndexSet{};
@@ -215,7 +215,7 @@ namespace timetable::domain::assignment::runtime {
                       && !synchronize_od_day_frontier_branch(
                             state.branches
                           , branch_index
-                          , state.paper_label_registry
+                          , state.retained_label_registry
                           , state.released_branches
                       )) {
                       ++stats.stale_frontier_skipped;
@@ -229,8 +229,8 @@ namespace timetable::domain::assignment::runtime {
                   const ActiveIndexSet* active_tasks_ptr{};
                   const ActiveIndexSet* active_targets_ptr{};
                   if (fixed.od_day_slots) {
-                      active_tasks_ptr = &paper_connection_tree_targets;
-                      active_targets_ptr = &paper_connection_tree_targets;
+                      active_tasks_ptr = &connection_tree_targets;
+                      active_targets_ptr = &connection_tree_targets;
                   } else if (fixed.target_projection_slots) {
                       completion_active =
                           state.completion_projection_states[branch_index]
@@ -323,7 +323,7 @@ namespace timetable::domain::assignment::runtime {
                                   fixed.network
                                 , successor_ref.connection
                             );
-                            auto step_decision = evaluate_paper_successor_step(
+                            auto step_decision = evaluate_tree_successor_step(
                                   state.branches
                                 , branch_index
                                 , branch
@@ -333,17 +333,17 @@ namespace timetable::domain::assignment::runtime {
                                 , fixed.first_departure_domain
                                 , fixed.params.transfers
                                 , fixed.search_cost
-                                , PaperSuccessorStepConfig{
+                                , TreeSuccessorStepConfig{
                                       .late_feasibility_prechecked =
                                           fixed.od_day_slots
                                           && successor_ref.support_envelope.has_value()
-                                    , .retain_in_paper_c_y =
+                                    , .retain_in_node_connection_sets =
                                           fixed.od_day_slots
                                           && fixed.partial_retention_scope
                                               == SearchPartialRetentionScope::TreeGlobal
                                   }
-                                , state.paper_label_registry
-                                , state.tree_partial_retention.paper_connections
+                                , state.retained_label_registry
+                                , state.tree_partial_retention.node_connection_sets
                                 , fixed.pruning_execution
                                 , stats.pruning
                             );
@@ -358,8 +358,8 @@ namespace timetable::domain::assignment::runtime {
                                 const auto& retention = *step_decision->retention;
                                 for (const auto removed_label :
                                      retention.removed_labels) {
-                                    deactivate_paper_connection_label(
-                                          state.paper_label_registry
+                                    deactivate_retained_connection_label(
+                                          state.retained_label_registry
                                         , removed_label
                                     );
                                 }
@@ -383,17 +383,17 @@ namespace timetable::domain::assignment::runtime {
                             }
                             if (!step_decision->accepted()) {
                                 switch (step_decision->rejection) {
-                                    case PaperSuccessorStepRejection::None:
+                                    case TreeSuccessorStepRejection::None:
                                         return;
 
-                                    case PaperSuccessorStepRejection::LateFeasibility:
-                                        record_paper_successor_feasibility_rejection(
+                                    case TreeSuccessorStepRejection::LateFeasibility:
+                                        record_successor_feasibility_rejection(
                                               stats
                                             , step_decision->feasibility_rejection
                                         );
                                         if (fixed.od_day_slots) {
                                             successor_error = mathfp::unexpected(
-                                                mathfp::internal_error("OD-day paper successor failed late insertability invariant")
+                                                mathfp::internal_error("OD-day tree successor failed late insertability invariant")
                                                     .ctx("origin", fixed.batch.key.origin.get())
                                                     .ctx("branch", static_cast<std::int64_t>(branch_index))
                                                     .ctx("connection", static_cast<std::int64_t>(successor_ref.connection.get()))
@@ -402,20 +402,20 @@ namespace timetable::domain::assignment::runtime {
                                         }
                                         return;
 
-                                    case PaperSuccessorStepRejection::PrefixCycle:
-                                    case PaperSuccessorStepRejection::BranchCycle:
+                                    case TreeSuccessorStepRejection::PrefixCycle:
+                                    case TreeSuccessorStepRejection::BranchCycle:
                                         ++stats.rejected_cycles;
                                         return;
 
-                                    case PaperSuccessorStepRejection::PrefixRejected:
+                                    case TreeSuccessorStepRejection::PrefixRejected:
                                         return;
 
-                                    case PaperSuccessorStepRejection::PrefixTransferLimit:
-                                    case PaperSuccessorStepRejection::BranchTransferLimit:
+                                    case TreeSuccessorStepRejection::PrefixTransferLimit:
+                                    case TreeSuccessorStepRejection::BranchTransferLimit:
                                         ++stats.rejected_transfer_limit;
                                         return;
 
-                                    case PaperSuccessorStepRejection::PrefixRetention:
+                                    case TreeSuccessorStepRejection::PrefixRetention:
                                         ++stats.rejected_dominance_or_tolerance;
                                         return;
                                 }
@@ -423,8 +423,8 @@ namespace timetable::domain::assignment::runtime {
 
                             auto candidate = std::move(*step_decision->branch);
                             if (fixed.od_day_slots) {
-                                candidate.paper_connection_label =
-                                    step_decision->accepted_paper_label;
+                                candidate.retained_connection_label =
+                                    step_decision->accepted_retained_label;
                             }
                             auto application_result = apply_accepted_successor(
                                   context

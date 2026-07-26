@@ -22,14 +22,14 @@ namespace timetable::domain::assignment {
     using SearchNodeKey = SearchPruningStateKey;
     using NodeMetricSet = SearchPruningMetricSet;
 
-    struct PaperConnectionNodeKey final {
+    struct NodeConnectionSetKey final {
         EndpointKey physical{};
 
-        bool operator==(const PaperConnectionNodeKey&) const = default;
+        bool operator==(const NodeConnectionSetKey&) const = default;
     };
 
-    struct PaperConnectionNodeKeyHash final {
-        std::size_t operator()(const PaperConnectionNodeKey& key) const noexcept {
+    struct NodeConnectionSetKeyHash final {
+        std::size_t operator()(const NodeConnectionSetKey& key) const noexcept {
             std::size_t seed = 23u;
             boost::hash_combine(seed, static_cast<std::uint8_t>(key.physical.kind));
             boost::hash_combine(seed, key.physical.id);
@@ -66,29 +66,29 @@ namespace timetable::domain::assignment {
         , SearchNodeKeyHash
     >;
 
-    struct PaperConnectionLabelRegistry final {
+    struct RetainedConnectionLabelRegistry final {
         std::vector<bool> active{};
-        std::vector<std::optional<PaperConnectionLabelId>> parent{};
+        std::vector<std::optional<RetainedConnectionLabelId>> parent{};
     };
 
-    [[nodiscard]] PaperConnectionLabelId allocate_paper_connection_label(
-          PaperConnectionLabelRegistry&         registry
-        , std::optional<PaperConnectionLabelId> parent
+    [[nodiscard]] RetainedConnectionLabelId allocate_retained_connection_label(
+          RetainedConnectionLabelRegistry&         registry
+        , std::optional<RetainedConnectionLabelId> parent
     );
 
-    void deactivate_paper_connection_label(
-          PaperConnectionLabelRegistry& registry
-        , PaperConnectionLabelId        label
+    void deactivate_retained_connection_label(
+          RetainedConnectionLabelRegistry& registry
+        , RetainedConnectionLabelId        label
     ) noexcept;
 
-    [[nodiscard]] bool paper_connection_label_active(
-          const PaperConnectionLabelRegistry& registry
-        , std::optional<PaperConnectionLabelId> label
+    [[nodiscard]] bool retained_connection_label_active(
+          const RetainedConnectionLabelRegistry& registry
+        , std::optional<RetainedConnectionLabelId> label
     ) noexcept;
 
     struct ConnectionSetCyEntry final {
         SearchPruningMetrics    metrics{};
-        PaperConnectionLabelId  label{};
+        RetainedConnectionLabelId  label{};
     };
 
     using ConnectionSetCyEntryVector = boost::container::small_vector<
@@ -97,11 +97,11 @@ namespace timetable::domain::assignment {
     >;
 
     /**
-     * @brief Paper-level algebraic carrier C_y for one physical network node y.
+     * @brief Connection-tree-level algebraic carrier C_y for one physical network node y.
      *
      * Invariants:
      * - entries are ordered by arrival time
-     * - entries are exact-nondominated under the paper relevance relation
+     * - entries are exact-nondominated under the node-local relevance relation
      * - summary is the minimum summary over entries
      * - every retained metric has exactly one frontier label
      *
@@ -131,28 +131,28 @@ namespace timetable::domain::assignment {
         ConnectionSetCyEntryVector entries_{};
         SearchPruningSummary       summary_{};
 
-        friend std::size_t remove_inactive_paper_node_connection_metrics(
+        friend std::size_t remove_inactive_node_connection_metrics(
               ConnectionSetCy&                    set
-            , const PaperConnectionLabelRegistry& registry
+            , const RetainedConnectionLabelRegistry& registry
         );
-        friend void insert_paper_node_connection_metrics(
+        friend void insert_node_connection_metrics(
               const SearchPruningExecutionPlan&      pruning_execution
             , ConnectionSetCy&                       set
             , SearchPruningMetrics                   metrics
-            , PaperConnectionLabelId                 label
-            , std::vector<PaperConnectionLabelId>&   removed_labels
+            , RetainedConnectionLabelId                 label
+            , std::vector<RetainedConnectionLabelId>&   removed_labels
         );
-        friend bool paper_node_connection_relevant(
+        friend bool node_connection_relevant(
               const ConnectionSetCy&       set
             , const ExactPruningPolicy&    policy
             , const SearchPruningMetrics&  candidate
         ) noexcept;
     };
 
-    using PaperConnectionNodeMetricMap = boost::unordered_flat_map<
-          PaperConnectionNodeKey
+    using NodeConnectionSetMap = boost::unordered_flat_map<
+          NodeConnectionSetKey
         , ConnectionSetCy
-        , PaperConnectionNodeKeyHash
+        , NodeConnectionSetKeyHash
     >;
 
 }  // namespace timetable::domain::assignment

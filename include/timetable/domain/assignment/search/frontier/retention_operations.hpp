@@ -18,33 +18,33 @@
 
 namespace timetable::domain::assignment {
 
-    [[nodiscard]] std::size_t remove_inactive_paper_node_connection_metrics(
+    [[nodiscard]] std::size_t remove_inactive_node_connection_metrics(
           ConnectionSetCy&                    set
-        , const PaperConnectionLabelRegistry& registry
+        , const RetainedConnectionLabelRegistry& registry
     );
 
-    [[nodiscard]] std::size_t remove_inactive_paper_connection_metrics(
-          PaperConnectionNodeMetricMap&       retention
-        , const PaperConnectionLabelRegistry& registry
+    [[nodiscard]] std::size_t remove_inactive_node_connection_sets(
+          NodeConnectionSetMap&       retention
+        , const RetainedConnectionLabelRegistry& registry
     );
 
-    [[nodiscard]] mathfp::Expected<mathfp::Unit> validate_paper_connection_label_sync(
-          const PaperConnectionNodeMetricMap& retention
-        , const PaperConnectionLabelRegistry& registry
+    [[nodiscard]] mathfp::Expected<mathfp::Unit> validate_retained_connection_label_sync(
+          const NodeConnectionSetMap& retention
+        , const RetainedConnectionLabelRegistry& registry
         , ZoneId                              origin
     );
 
-    void update_paper_node_summary_with_metrics(
+    void update_node_connection_summary_with_metrics(
           SearchPruningSummary&       summary
         , const SearchPruningMetrics& metrics
     ) noexcept;
 
-    void insert_paper_node_connection_metrics(
+    void insert_node_connection_metrics(
           const SearchPruningExecutionPlan& pruning_execution
         , ConnectionSetCy&                  set
         , SearchPruningMetrics              metrics
-        , PaperConnectionLabelId            label
-        , std::vector<PaperConnectionLabelId>& removed_labels
+        , RetainedConnectionLabelId            label
+        , std::vector<RetainedConnectionLabelId>& removed_labels
     );
 
     [[nodiscard]] mathfp::Expected<SearchPruningDecision> retain_branch(

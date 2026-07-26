@@ -271,7 +271,7 @@ namespace timetable::domain::assignment {
                 , std::make_move_iterator(walk_segments.end())
             );
             //tex:
-            // Preprocessing follows the paper's two-stage carrier:
+            // Preprocessing follows the two-stage carrier:
             // first build the route-segment array $$Y$$ from line-route subpaths
             // and transit-walk shortest paths, then sort $$Y$$ in the canonical
             // order used by connection-segment construction.

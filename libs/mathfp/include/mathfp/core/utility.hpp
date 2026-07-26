@@ -218,7 +218,7 @@ namespace mathfp {
             .ctx(b_name, b));
     }
 
-    // Частые "математические" проверки: ноль, положительность и т.п.
+    // Common mathematical checks: zero, positivity, and related scalar constraints.
     template <class T>
     MATHFP_NODISCARD inline Expected<Unit> ensure_nonzero(
           const T& x

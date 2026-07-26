@@ -28,7 +28,7 @@ namespace timetable::domain::assignment {
         , const SearchPruningExecutionPlan& pruning_execution
     ) noexcept;
 
-    [[nodiscard]] PaperConnectionNodeKey paper_connection_node_key(
+    [[nodiscard]] NodeConnectionSetKey node_connection_set_key(
         const SearchBranch& branch
     ) noexcept;
 

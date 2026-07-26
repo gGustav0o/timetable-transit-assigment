@@ -17,7 +17,7 @@ namespace timetable::domain::assignment {
      *
      * ExactAndApproximate:
      * - apply exact nondominance first, then the stricter whole-connection
-     *   tolerance filtering from the connection-choice stage of the paper.
+     *   tolerance filtering from the connection-choice stage of the connection-tree formulation.
      */
     //tex:
     // Connection choice is a post-search step. The connection tree first stores

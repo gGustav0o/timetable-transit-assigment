@@ -92,7 +92,7 @@ namespace timetable::domain::assignment::detail {
 
             case AssignmentCalculationFormulation::DemandTaskAssignment:
                 return mathfp::unexpected(
-                    mathfp::invalid_arg("legacy demand-task timed assignment is disabled; use od_day_assignment for production or timed_connection_diagnostics for search-only diagnostics")
+                    mathfp::invalid_arg("fallback demand-task timed assignment is disabled; use od_day_assignment for production or timed_connection_diagnostics for search-only diagnostics")
                         .ctx("diagnostic_mode", config.diagnostic_mode ? "true" : "false")
                         .ctx("mode", std::string(to_string(config.mode)))
                         .ctx("result_projection", std::string(to_string(config.result_projection)))

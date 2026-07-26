@@ -55,7 +55,7 @@ namespace timetable::infra {
         inline const std::filesystem::path kDefaultSegmentsPath{
             "7064/connection_segments_7064.csv"
         };
-        inline const std::filesystem::path kLegacySegmentsPath{
+        inline const std::filesystem::path kFallbackSegmentsPath{
             "connection_segments_input.csv"
         };
         inline const std::filesystem::path kDefaultDailyDemandMatrixPath{
@@ -361,13 +361,13 @@ namespace timetable::infra {
         ) {
             auto segments_path = root / kDefaultSegmentsPath;
             if (!std::filesystem::exists(segments_path)) {
-                segments_path = root / kLegacySegmentsPath;
+                segments_path = root / kFallbackSegmentsPath;
             }
             if (!std::filesystem::exists(segments_path)) {
                 return mathfp::unexpected(
                     mathfp::invalid_arg("missing required connection segments file")
                         .ctx("preferred", (root / kDefaultSegmentsPath).string())
-                        .ctx("fallback", (root / kLegacySegmentsPath).string())
+                        .ctx("fallback", (root / kFallbackSegmentsPath).string())
                 );
             }
             if (!std::filesystem::is_regular_file(segments_path)) {
@@ -758,7 +758,7 @@ namespace timetable::infra {
             } else {
                 if (!paths.intervals.has_value()) {
                     return mathfp::unexpected(
-                        mathfp::internal_error("legacy OD demand csv requires a time intervals path")
+                        mathfp::internal_error("fallback OD demand csv requires a time intervals path")
                     );
                 }
                 MATHFP_TRY_LET(

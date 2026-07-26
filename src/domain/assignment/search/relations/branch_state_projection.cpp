@@ -52,10 +52,10 @@ namespace timetable::domain::assignment {
         );
     }
 
-    PaperConnectionNodeKey paper_connection_node_key(
+    NodeConnectionSetKey node_connection_set_key(
         const SearchBranch& branch
     ) noexcept {
-        return PaperConnectionNodeKey{
+        return NodeConnectionSetKey{
             .physical = branch.trace.current_physical
         };
     }

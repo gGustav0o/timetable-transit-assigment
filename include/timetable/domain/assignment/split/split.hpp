@@ -73,7 +73,7 @@ namespace timetable::domain::assignment {
         UnassignedDemandReason reason{ UnassignedDemandReason::NoChosenAlternatives };
     };
 
-    struct OdDayPaperSplitCertificate final {
+    struct OdDaySplitCertificate final {
         ZoneId     origin;
         ZoneId     destination;
         IntervalId interval;
@@ -89,7 +89,7 @@ namespace timetable::domain::assignment {
     };
 
     //tex:
-    // A paper split certificate is the compact runtime witness for one demand
+    // A connection split certificate is the compact runtime witness for one demand
     // interval $$a$$. It records $$|C(a)|$$ while timed supports are still
     // present in the split layer, then output can verify conservation without
     // reconstructing $$C(a)$$ after production memory compaction.
@@ -97,7 +97,7 @@ namespace timetable::domain::assignment {
     struct DemandSplitResult final {
         std::vector<ConnectionDemandShare> shares{};
         std::vector<UnassignedDemand>      unassigned{};
-        std::vector<OdDayPaperSplitCertificate> od_day_paper_split{};
+        std::vector<OdDaySplitCertificate> od_day_split_certificates{};
     };
 
     struct OdDemandInterval final {
@@ -154,7 +154,7 @@ namespace timetable::domain::assignment {
      * This is the required formulation boundary: path alternatives are keyed by
      * OD for the whole service day, while demand rows remain interval-specific
      * and are applied only at split/load time. The production split follows the
-     * paper-level connection split: for each demand interval it distributes
+     * connection-tree-level connection split: for each demand interval it distributes
      * demand over all interval-admissible timed supports retained under the
      * OD-day path identities.
      */

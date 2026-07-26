@@ -20,14 +20,14 @@ namespace timetable::domain::assignment::runtime {
     [[nodiscard]] bool synchronize_od_day_frontier_branch(
           BranchArena&                              branches
         , std::size_t                               branch_index
-        , const PaperConnectionLabelRegistry&       label_registry
+        , const RetainedConnectionLabelRegistry&       label_registry
         , std::size_t&                              released_branches
     );
 
     [[nodiscard]] OdDayFrontierCompactionResult compact_od_day_frontiers(
           SearchLevelExpansion&                    expansion
         , BranchArena&                             branches
-        , const PaperConnectionLabelRegistry&      label_registry
+        , const RetainedConnectionLabelRegistry&      label_registry
         , std::size_t&                             released_branches
     );
 

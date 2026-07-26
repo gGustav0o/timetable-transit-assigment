@@ -48,7 +48,7 @@ namespace timetable::domain::assignment {
     };
 
     /**
-     * @brief Paper-level successor contract for production OD-day search.
+     * @brief Connection-tree-level successor contract for production OD-day search.
      *
      * A successor generator may emit only connection segments that can be
      * inserted into the connection tree with respect to branch phase, temporal
@@ -76,7 +76,7 @@ namespace timetable::domain::assignment {
     };
 
     enum class OdDayPathBoundLayerPolicy : std::uint8_t {
-        PaperNodeLocalConnectionSets
+        NodeLocalConnectionSets
     };
 
     enum class OdDayPathResultProjectionPolicy : std::uint8_t {
@@ -94,7 +94,7 @@ namespace timetable::domain::assignment {
     /**
      * @brief Day-level path feasibility semantics.
      *
-     * Production search follows the paper's connection-tree semantics:
+     * Production search follows the connection-tree semantics:
      * connection segments are concatenated only when temporal suitability,
      * node-local relevance and node-local tolerances hold. DayPath is a result
      * projection over completed relevant connections, not the tree carrier.
@@ -131,7 +131,7 @@ namespace timetable::domain::assignment {
             OdDayPathTreeLabelPolicy::NodeLocalKnownConnections
         };
         OdDayPathBoundLayerPolicy bound_layer_policy{
-            OdDayPathBoundLayerPolicy::PaperNodeLocalConnectionSets
+            OdDayPathBoundLayerPolicy::NodeLocalConnectionSets
         };
         OdDayPathResultProjectionPolicy result_projection_policy{
             OdDayPathResultProjectionPolicy::DayPathPostLayer
@@ -169,7 +169,7 @@ namespace timetable::domain::assignment {
             , .tree_label_policy =
                 OdDayPathTreeLabelPolicy::NodeLocalKnownConnections
             , .bound_layer_policy =
-                OdDayPathBoundLayerPolicy::PaperNodeLocalConnectionSets
+                OdDayPathBoundLayerPolicy::NodeLocalConnectionSets
             , .result_projection_policy =
                 OdDayPathResultProjectionPolicy::DayPathPostLayer
             , .alternative_retention_policy =
@@ -202,7 +202,7 @@ namespace timetable::domain::assignment {
             && contract.tree_label_policy
                 == OdDayPathTreeLabelPolicy::NodeLocalKnownConnections
             && contract.bound_layer_policy
-                == OdDayPathBoundLayerPolicy::PaperNodeLocalConnectionSets
+                == OdDayPathBoundLayerPolicy::NodeLocalConnectionSets
             && contract.result_projection_policy
                 == OdDayPathResultProjectionPolicy::DayPathPostLayer
             && contract.alternative_retention_policy

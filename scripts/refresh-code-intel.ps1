@@ -22,7 +22,7 @@ function Require-Command {
     param([Parameter(Mandatory)][string] $Name)
 
     if (-not (Get-Command $Name -ErrorAction Ignore)) {
-        throw "Не найдена команда: $Name"
+        throw "Required command not found: $Name"
     }
 }
 
@@ -33,7 +33,7 @@ Require-Command link
 Require-Command vcpkg
 
 if (-not $env:VCPKG_ROOT) {
-    throw "Переменная VCPKG_ROOT не задана."
+    throw "VCPKG_ROOT is not set."
 }
 
 $VcpkgToolchain = Join-Path `
@@ -41,7 +41,7 @@ $VcpkgToolchain = Join-Path `
     "scripts\buildsystems\vcpkg.cmake"
 
 if (-not (Test-Path $VcpkgToolchain)) {
-    throw "Не найден vcpkg toolchain: $VcpkgToolchain"
+    throw "vcpkg toolchain not found: $VcpkgToolchain"
 }
 
 Push-Location $RepositoryRoot
@@ -81,7 +81,7 @@ try {
     }
 
     if (-not (Test-Path $GeneratedDatabase)) {
-        throw "Не создана compilation database: $GeneratedDatabase"
+        throw "Compilation database was not created: $GeneratedDatabase"
     }
 
     Copy-Item `
@@ -95,10 +95,10 @@ try {
         ConvertFrom-Json
 
     if ($Database.Count -eq 0) {
-        throw "Compilation database пуста."
+        throw "Compilation database is empty."
     }
 
-    Write-Host "Compilation database обновлена:"
+    Write-Host "Compilation database updated:"
     Write-Host "  $RootDatabase"
     Write-Host "Translation units: $($Database.Count)"
 

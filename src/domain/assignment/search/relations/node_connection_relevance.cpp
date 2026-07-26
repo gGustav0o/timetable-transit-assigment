@@ -1,11 +1,11 @@
-#include "timetable/domain/assignment/search/relations/paper_connection_relevance.hpp"
+#include "timetable/domain/assignment/search/relations/node_connection_relevance.hpp"
 
 #include <algorithm>
 #include <iterator>
 
 namespace timetable::domain::assignment {
 
-    bool paper_node_connection_relevant(
+    bool node_connection_relevant(
           const ConnectionSetCy&        set
         , const ExactPruningPolicy&     policy
         , const SearchPruningMetrics&   candidate
@@ -31,14 +31,14 @@ namespace timetable::domain::assignment {
         return true;
     }
 
-    SearchPruningDecision evaluate_paper_node_connection_set(
+    SearchPruningDecision evaluate_node_connection_set(
           const SearchPruningExecutionPlan& execution
         , const SearchPruningMetrics&       candidate
         , const ConnectionSetCy&            set
         , const TransferLimits&             limits
     ) noexcept {
         if (execution.exact_enabled
-            && !paper_node_connection_relevant(
+            && !node_connection_relevant(
                   set
                 , execution.exact_policy
                 , candidate

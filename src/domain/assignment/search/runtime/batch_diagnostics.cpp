@@ -248,7 +248,7 @@ namespace timetable::domain::assignment::runtime {
                   " pruning(exact/approx/inserted/skipped)={}/{}/{}/{}"
                   " frontier={}/{}"
                   " frontier_sync(stale_skipped={} c_y_removed_dominated={} c_y_removed_stale={} compact_runs={} compact_removed={})"
-                  " paper_lookup_pruned(phase/budget/time_domain/same_trip/same_line/feasibility)={}/{}/{}/{}/{}/{}"
+                  " successor_lookup_pruned(phase/budget/time_domain/same_trip/same_line/feasibility)={}/{}/{}/{}/{}/{}"
                   " late_guard(time_domain/feasibility/reboarding)={}/{}/{}"
                   " frontier_phase(current={}, next={})"
                   " walk_lookup({}) walk_generated({}) walk_accepted({}) rejected_consecutive_walk={}"
@@ -282,12 +282,12 @@ namespace timetable::domain::assignment::runtime {
                 , state.stats.c_y_removed_stale
                 , state.stats.frontier_compaction_runs
                 , state.stats.frontier_compaction_removed
-                , state.stats.paper_timed_lookup_skipped_phase
-                , state.stats.paper_timed_lookup_skipped_transfer_budget
-                , state.stats.paper_timed_successor_rejected_time_domain
-                , state.stats.paper_timed_successor_rejected_same_trip
-                , state.stats.paper_timed_successor_rejected_same_line
-                , state.stats.paper_timed_successor_rejected_feasibility
+                , state.stats.timed_successor_lookup_skipped_phase
+                , state.stats.timed_successor_lookup_skipped_transfer_budget
+                , state.stats.timed_successor_rejected_time_domain
+                , state.stats.timed_successor_rejected_same_trip
+                , state.stats.timed_successor_rejected_same_line
+                , state.stats.timed_successor_rejected_feasibility
                 , state.stats.rejected_time_domain
                 , state.stats.rejected_feasibility
                 , state.stats.rejected_reboarding
@@ -437,7 +437,7 @@ namespace timetable::domain::assignment::runtime {
                   " lower_bound_pruned={} lower_bound_detail(exact/imp/jt/nt)={}/{}/{}/{}"
                   " frontier_sync(stale_skipped={} c_y_removed_dominated={} c_y_removed_stale={} compact_runs={} compact_removed={} compact_current={} compact_next={})"
                   " post_layer(candidates/inserted/replaced/max_supports)={}/{}/{}/{}"
-                  " paper_lookup_pruned(phase/budget/time_domain/same_trip/same_line/feasibility)={}/{}/{}/{}/{}/{}"
+                  " successor_lookup_pruned(phase/budget/time_domain/same_trip/same_line/feasibility)={}/{}/{}/{}/{}/{}"
                   " late_guard(time_domain/feasibility/reboarding)={}/{}/{}"
                   " walk_lookup({}) walk_generated({}) walk_accepted({}) rejected_consecutive_walk={}"
                   " accepted_phase({})"
@@ -484,12 +484,12 @@ namespace timetable::domain::assignment::runtime {
                 , state.stats.post_layer_day_path_inserted
                 , state.stats.post_layer_day_path_representative_replaced
                 , state.stats.post_layer_day_path_supports
-                , state.stats.paper_timed_lookup_skipped_phase
-                , state.stats.paper_timed_lookup_skipped_transfer_budget
-                , state.stats.paper_timed_successor_rejected_time_domain
-                , state.stats.paper_timed_successor_rejected_same_trip
-                , state.stats.paper_timed_successor_rejected_same_line
-                , state.stats.paper_timed_successor_rejected_feasibility
+                , state.stats.timed_successor_lookup_skipped_phase
+                , state.stats.timed_successor_lookup_skipped_transfer_budget
+                , state.stats.timed_successor_rejected_time_domain
+                , state.stats.timed_successor_rejected_same_trip
+                , state.stats.timed_successor_rejected_same_line
+                , state.stats.timed_successor_rejected_feasibility
                 , state.stats.rejected_time_domain
                 , state.stats.rejected_feasibility
                 , state.stats.rejected_reboarding

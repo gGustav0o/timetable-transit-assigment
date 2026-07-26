@@ -118,7 +118,7 @@ namespace timetable::domain {
         AssignmentOdChoiceDiagnostics choice{};
     };
 
-    struct AssignmentOdPaperSplitSummary final {
+    struct AssignmentOdSplitSummary final {
         std::size_t structural_day_path_count{};
         std::size_t timed_support_alternative_count{};
         std::size_t interval_admissible_split_alternative_count{};
@@ -133,7 +133,7 @@ namespace timetable::domain {
      * intervals contains the demand/split view from step 3.4.
      * diagnostics contains search/choice counters. In OD-day assignment
      * alternatives are day-level paths, not raw timed timetable connections.
-     * Legacy "connection count" fields belong to output projections, not this
+     * Former "connection count" fields belong to output projections, not this
      * canonical domain result.
      *
      * Ordering contract:
@@ -149,7 +149,7 @@ namespace timetable::domain {
         std::vector<AssignmentConnection>     connections{};
         std::vector<AssignmentDemandInterval> intervals{};
         AssignmentOdDiagnostics               diagnostics{};
-        AssignmentOdPaperSplitSummary         paper_split{};
+        AssignmentOdSplitSummary         split_summary{};
     };
 
     /**
@@ -186,7 +186,7 @@ namespace timetable::domain {
      * This projection intentionally has no demand interval key. It sums the
      * route passenger-segment volume over the full assignment day. In OD-day
      * assignment it is derived from day-path split shares and the concrete
-     * interval-admissible timed supports selected by the paper-level split;
+     * interval-admissible timed supports selected by the connection-tree-level split;
      * elementary segment loads remain the primary overload/load profile.
      */
     struct AssignmentRouteTotalLoad final {

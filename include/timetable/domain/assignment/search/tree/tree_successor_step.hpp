@@ -6,7 +6,7 @@
 #include <mathfp/core/expected.hpp>
 
 #include "timetable/domain/assignment/search/frontier/branch_arena.hpp"
-#include "timetable/domain/assignment/search/frontier/paper_connection_retention.hpp"
+#include "timetable/domain/assignment/search/frontier/node_connection_retention.hpp"
 #include "timetable/domain/assignment/search/generation/branch_transition.hpp"
 #include "timetable/domain/assignment/search/generation/successor.hpp"
 #include "timetable/domain/assignment/search/preprocessed_network.hpp"
@@ -17,7 +17,7 @@
 
 namespace timetable::domain::assignment {
 
-    enum class PaperSuccessorStepRejection {
+    enum class TreeSuccessorStepRejection {
           None
         , LateFeasibility
         , PrefixCycle
@@ -28,17 +28,17 @@ namespace timetable::domain::assignment {
         , BranchTransferLimit
     };
 
-    struct PaperSuccessorStepConfig final {
+    struct TreeSuccessorStepConfig final {
         bool late_feasibility_prechecked{};
-        bool retain_in_paper_c_y{};
+        bool retain_in_node_connection_sets{};
     };
 
-    struct PaperSuccessorStepDecision final {
+    struct TreeSuccessorStepDecision final {
         std::optional<SearchBranch> branch{};
-        std::optional<PaperConnectionLabelId> accepted_paper_label{};
-        PaperSuccessorStepRejection rejection{ PaperSuccessorStepRejection::None };
-        PaperSuccessorFeasibilityRejection feasibility_rejection{
-            PaperSuccessorFeasibilityRejection::None
+        std::optional<RetainedConnectionLabelId> accepted_retained_label{};
+        TreeSuccessorStepRejection rejection{ TreeSuccessorStepRejection::None };
+        SuccessorFeasibilityRejection feasibility_rejection{
+            SuccessorFeasibilityRejection::None
         };
         BranchTransitionRejection prefix_rejection{
             BranchTransitionRejection::None
@@ -46,10 +46,10 @@ namespace timetable::domain::assignment {
         BranchTransitionRejection branch_rejection{
             BranchTransitionRejection::None
         };
-        std::optional<PaperConnectionRetentionDecision> retention{};
+        std::optional<NodeConnectionRetentionDecision> retention{};
 
         [[nodiscard]] bool accepted() const noexcept {
-            return rejection == PaperSuccessorStepRejection::None
+            return rejection == TreeSuccessorStepRejection::None
                 && branch.has_value();
         }
     };
@@ -58,12 +58,12 @@ namespace timetable::domain::assignment {
      * @brief Pure branch-and-bound successor acceptance step.
      *
      * The step decides whether one generated successor becomes the next search
-     * branch. It owns late feasibility checks, optional paper C_y retention and
+     * branch. It owns late feasibility checks, optional node-local C_y retention and
      * structural branch transition. It intentionally does not project complete
      * connections, mutate frontier queues, log, cancel, or inspect batch shape.
      */
-    [[nodiscard]] mathfp::Expected<PaperSuccessorStepDecision>
-    evaluate_paper_successor_step(
+    [[nodiscard]] mathfp::Expected<TreeSuccessorStepDecision>
+    evaluate_tree_successor_step(
           const BranchArena&              branches
         , std::size_t                     branch_index
         , const SearchBranch&             branch
@@ -73,9 +73,9 @@ namespace timetable::domain::assignment {
         , const SearchTimeDomain*         first_departure_domain
         , const TransferLimits&           limits
         , const SearchCostContext&        search_cost
-        , PaperSuccessorStepConfig        config
-        , PaperConnectionLabelRegistry&   label_registry
-        , PaperConnectionNodeMetricMap&   paper_connections
+        , TreeSuccessorStepConfig        config
+        , RetainedConnectionLabelRegistry&   label_registry
+        , NodeConnectionSetMap&   node_connection_sets
         , const SearchPruningExecutionPlan& pruning_execution
         , SearchPruningRuntimeStats&      pruning_stats
     );

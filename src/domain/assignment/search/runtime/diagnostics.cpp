@@ -188,11 +188,11 @@ namespace timetable::domain::assignment::runtime {
         , std::span<const SearchProjectionRetention> retentions
         , const SearchPruningRuntimeStats&           pruning_stats
     ) noexcept {
-        const auto pruning_nodes = tree_retention.paper_connections.size();
-        const auto pruning_buckets = tree_retention.paper_connections.bucket_count();
+        const auto pruning_nodes = tree_retention.node_connection_sets.size();
+        const auto pruning_buckets = tree_retention.node_connection_sets.bucket_count();
         std::size_t pruning_metrics = 0u;
         std::size_t pruning_labels = 0u;
-        for (const auto& [node, metric_set] : tree_retention.paper_connections) {
+        for (const auto& [node, metric_set] : tree_retention.node_connection_sets) {
             (void)node;
             pruning_metrics += metric_set.size();
             pruning_labels += metric_set.size();
@@ -212,10 +212,10 @@ namespace timetable::domain::assignment::runtime {
                 + sizeof(OdDaySupportPrefixNode)
               )
             + projection_state_count * projection_state_size
-            + pruning_nodes * sizeof(PaperConnectionNodeMetricMap::value_type)
+            + pruning_nodes * sizeof(NodeConnectionSetMap::value_type)
             + pruning_buckets * sizeof(void*)
             + pruning_metrics * sizeof(SearchPruningMetrics)
-            + pruning_labels * sizeof(PaperConnectionLabelId)
+            + pruning_labels * sizeof(RetainedConnectionLabelId)
             + compact_complete_metrics * sizeof(CompleteConnectionMetrics)
             + day_path_alternatives * sizeof(DayPathAlternative);
         return SearchStorageDiagnostics{
@@ -225,7 +225,7 @@ namespace timetable::domain::assignment::runtime {
             , .projection_states = projection_state_count
             , .tree_pruning_nodes = pruning_nodes
             , .tree_pruning_buckets = pruning_buckets
-            , .tree_pruning_load_factor = tree_retention.paper_connections.load_factor()
+            , .tree_pruning_load_factor = tree_retention.node_connection_sets.load_factor()
             , .tree_pruning_metrics = pruning_metrics
             , .tree_pruning_labels = pruning_labels
             , .tree_pruning_insertions = pruning_stats.inserted_metrics
@@ -264,7 +264,7 @@ namespace timetable::domain::assignment::runtime {
         , std::size_t                     next_frontier
     ) {
         return fmt::format(
-              "OD-day theory diagnostics: paper=connection_segment_tree carrier=compact_connection_segment_prefix branch_projection_state=none reachability_prefilter=disabled_not_built reachability_masks=disabled c_y=network_node_known_connections c_y_key=physical_y c_y_carrier=physical_node_only c_y_applies_to=all_connection_segments_before_sink dominance=dep_arr_imp_nt tolerance=node_local tree_bounds=c_y_before_day_path_sink frontier=connection_segment_level_queues frontier_sync=label_registry_with_compaction successor_contract=single_connection_segment_before_visitor temporal_suitability=timed_window_walk_always_available transfer_walk=first_class_segment composite_transfer_walk=disabled_in_production late_guard=assert_only day_path_retention=immediate_day_path_projection suffix_bound=disabled_for_od_day walk_lookup=lazy_phase_specific live_branches={} frontier={} projection_states={} c_y_nodes={} c_y_metrics={} c_y_labels={} c_y_removed(dominated/stale)={}/{} frontier_compaction(runs/removed/current/next)={}/{}/{}/{} stale_frontier_skipped={} post_layer_day_paths={} post_layer(candidates/inserted/replaced/max_supports)={}/{}/{}/{} enqueued_after_c_y={} suffix_bound_pruned_legacy={} c_y_pruned={} paper_lookup_pruned(phase/budget/time_domain/same_trip/same_line/feasibility)={}/{}/{}/{}/{}/{} late_guard(time_domain/feasibility/reboarding)={}/{}/{} walk_lookup_counts({})"
+              "OD-day theory diagnostics: algorithm=connection_segment_tree carrier=compact_connection_segment_prefix branch_projection_state=none reachability_prefilter=disabled_not_built reachability_masks=disabled c_y=network_node_known_connections c_y_key=physical_y c_y_carrier=physical_node_only c_y_applies_to=all_connection_segments_before_sink dominance=dep_arr_imp_nt tolerance=node_local tree_bounds=c_y_before_day_path_sink frontier=connection_segment_level_queues frontier_sync=label_registry_with_compaction successor_contract=single_connection_segment_before_visitor temporal_suitability=timed_window_walk_always_available transfer_walk=first_class_segment composite_transfer_walk=disabled_in_production late_guard=assert_only day_path_retention=immediate_day_path_projection suffix_bound=disabled_for_od_day walk_lookup=lazy_phase_specific live_branches={} frontier={} projection_states={} c_y_nodes={} c_y_metrics={} c_y_labels={} c_y_removed(dominated/stale)={}/{} frontier_compaction(runs/removed/current/next)={}/{}/{}/{} stale_frontier_skipped={} post_layer_day_paths={} post_layer(candidates/inserted/replaced/max_supports)={}/{}/{}/{} enqueued_after_c_y={} suffix_bound_pruned_inactive={} c_y_pruned={} successor_lookup_pruned(phase/budget/time_domain/same_trip/same_line/feasibility)={}/{}/{}/{}/{}/{} late_guard(time_domain/feasibility/reboarding)={}/{}/{} walk_lookup_counts({})"
             , diagnostics.live_branches
             , current_frontier + next_frontier
             , diagnostics.projection_states
@@ -286,12 +286,12 @@ namespace timetable::domain::assignment::runtime {
             , stats.accepted_branches
             , stats.rejected_suffix_lower_bound
             , stats.rejected_dominance_or_tolerance
-            , stats.paper_timed_lookup_skipped_phase
-            , stats.paper_timed_lookup_skipped_transfer_budget
-            , stats.paper_timed_successor_rejected_time_domain
-            , stats.paper_timed_successor_rejected_same_trip
-            , stats.paper_timed_successor_rejected_same_line
-            , stats.paper_timed_successor_rejected_feasibility
+            , stats.timed_successor_lookup_skipped_phase
+            , stats.timed_successor_lookup_skipped_transfer_budget
+            , stats.timed_successor_rejected_time_domain
+            , stats.timed_successor_rejected_same_trip
+            , stats.timed_successor_rejected_same_line
+            , stats.timed_successor_rejected_feasibility
             , stats.rejected_time_domain
             , stats.rejected_feasibility
             , stats.rejected_reboarding
@@ -381,7 +381,7 @@ namespace timetable::domain::assignment::runtime {
             || stats.rejected_feasibility != 0u
             || stats.rejected_reboarding != 0u) {
             return mathfp::unexpected(
-                mathfp::internal_error("OD-day production successor generator emitted non-insertable paper successor")
+                mathfp::internal_error("OD-day production successor generator emitted non-insertable tree successor")
                     .ctx("origin", batch.key.origin.get())
                     .ctx("late_time_domain", static_cast<std::int64_t>(stats.rejected_time_domain))
                     .ctx("late_feasibility", static_cast<std::int64_t>(stats.rejected_feasibility))

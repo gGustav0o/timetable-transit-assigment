@@ -24,7 +24,7 @@ namespace timetable::domain::assignment::runtime::detail {
     enum class OdDaySearchComputationContract : std::uint8_t {
           IncrementalDayPathRetention
         , StructuralEdgeExpansion
-        , PaperConnectionSegmentTree
+        , ConnectionSegmentTree
     };
 
     inline constexpr std::size_t kTaskProgressStep = 10;
@@ -37,8 +37,8 @@ namespace timetable::domain::assignment::runtime::detail {
                 return "incremental_day_path_retention";
             case OdDaySearchComputationContract::StructuralEdgeExpansion:
                 return "structural_edge_expansion";
-            case OdDaySearchComputationContract::PaperConnectionSegmentTree:
-                return "paper_connection_segment_tree";
+            case OdDaySearchComputationContract::ConnectionSegmentTree:
+                return "connection_segment_tree";
         }
         return "unknown";
     }

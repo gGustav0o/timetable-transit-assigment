@@ -273,7 +273,7 @@ namespace timetable::domain::preprocessing {
             // The connection-segment array is represented by two sorted carriers:
             // timed segments are sorted by origin occurrence and departure time,
             // while walk segments are sorted by physical origin endpoint. This
-            // preserves the paper distinction between scheduled rides and
+            // preserves the model distinction between scheduled rides and
             // time-independent walk legs.
             std::sort(out.timed.begin(), out.timed.end(), timed_ref_less);
             std::sort(out.walk.begin(), out.walk.end(), walk_ref_less);
@@ -692,7 +692,7 @@ namespace timetable::domain::preprocessing {
     ) {
         //tex:
         // In a timed bucket for node $$y$$, departures are sorted increasingly.
-        // Therefore the paper operation "find the next connection segment from
+        // Therefore the connection-index operation "find the next connection segment from
         // $$y$$ at time $$t$$" is implemented as
         // $$\operatorname{lower\_bound}(\{t_{\mathrm{dep}}(s):\operatorname{from}(s)=y\},t).$$
         const auto bucket = find_bucket(connection_index.timed_buckets, from);

@@ -138,7 +138,7 @@ set(TIMETABLE_CORE_SOURCES
   src/domain/assignment/projection/csv.cpp
   src/domain/assignment/projection/summary.cpp
   src/domain/assignment/projection/text_summary.cpp
-  src/domain/assignment/search/frontier/paper_connection_retention.cpp
+  src/domain/assignment/search/frontier/node_connection_retention.cpp
   src/domain/assignment/search/frontier/retention_operations.cpp
   src/domain/assignment/search/generation/successor.cpp
   src/domain/assignment/search/execution.cpp
@@ -168,9 +168,9 @@ set(TIMETABLE_CORE_SOURCES
   src/domain/assignment/search/generation/branch_transition.cpp
   src/domain/assignment/search/relations/branch_metrics.cpp
   src/domain/assignment/search/relations/branch_state_projection.cpp
-  src/domain/assignment/search/relations/paper_connection_relevance.cpp
+  src/domain/assignment/search/relations/node_connection_relevance.cpp
   src/domain/assignment/search/tree/level_expansion.cpp
-  src/domain/assignment/search/tree/paper_successor_step.cpp
+  src/domain/assignment/search/tree/tree_successor_step.cpp
   src/domain/assignment/search/runtime/accepted_successor_application.cpp
   src/domain/assignment/search/runtime/all_zone_runner.cpp
   src/domain/assignment/search/runtime/batch_diagnostics.cpp

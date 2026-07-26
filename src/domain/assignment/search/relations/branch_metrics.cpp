@@ -37,7 +37,7 @@ namespace timetable::domain::assignment {
         , const SearchCostContext&    search_cost
     ) {
         //tex:
-        // Projection from incremental branch state to the paper comparison
+        // Projection from incremental branch state to the connection-tree comparison
         // vector. For the current prefix $$c_y$$:
         // $$JT(c_y)=ARR(c_y)-DEP(c_y),\qquad TT(c_y)=TWait(c_y)+TWalk(c_y).$$
         // The last coordinate is evaluated by SearchCostContext as $$IMP(c_y)$$.

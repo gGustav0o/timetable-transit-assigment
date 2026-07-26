@@ -201,7 +201,7 @@ namespace timetable::domain::assignment {
         );
     }
 
-    PaperSuccessorFeasibilityDecision evaluate_paper_search_successor_feasibility(
+    SuccessorFeasibilityDecision evaluate_search_successor_feasibility(
           const SearchBranch&        branch
         , const PreprocessedNetwork& network
         , const SearchSuccessor&     successor_ref
@@ -213,7 +213,7 @@ namespace timetable::domain::assignment {
 
         if (is_walk_connection(successor)) {
             /*
-             * Walk connection segments are always available in the paper
+             * Walk connection segments are always available in the connection-tree formulation
              * preprocessing model. They do not have departure times; the
              * extension only advances the current prefix time by walk
              * duration in extend_metrics_with_walk.
@@ -224,11 +224,11 @@ namespace timetable::domain::assignment {
                 , route_segment
                 , limits
             )) {
-                return PaperSuccessorFeasibilityDecision{
-                    .rejection = PaperSuccessorFeasibilityRejection::BranchFeasibility
+                return SuccessorFeasibilityDecision{
+                    .rejection = SuccessorFeasibilityRejection::BranchFeasibility
                 };
             }
-            return PaperSuccessorFeasibilityDecision{};
+            return SuccessorFeasibilityDecision{};
         }
 
         if (!first_timed_departure_allowed(
@@ -237,8 +237,8 @@ namespace timetable::domain::assignment {
             , first_departure_domain
             , limits
         )) {
-            return PaperSuccessorFeasibilityDecision{
-                .rejection = PaperSuccessorFeasibilityRejection::FirstDepartureDomain
+            return SuccessorFeasibilityDecision{
+                .rejection = SuccessorFeasibilityRejection::FirstDepartureDomain
             };
         }
         if (!is_branch_extension_feasible(
@@ -247,8 +247,8 @@ namespace timetable::domain::assignment {
             , route_segment
             , limits
         )) {
-            return PaperSuccessorFeasibilityDecision{
-                .rejection = PaperSuccessorFeasibilityRejection::BranchFeasibility
+            return SuccessorFeasibilityDecision{
+                .rejection = SuccessorFeasibilityRejection::BranchFeasibility
             };
         }
         if (!improves_repeated_stop_reboarding(
@@ -257,11 +257,11 @@ namespace timetable::domain::assignment {
             , successor
             , route_segment
         )) {
-            return PaperSuccessorFeasibilityDecision{
-                .rejection = PaperSuccessorFeasibilityRejection::Reboarding
+            return SuccessorFeasibilityDecision{
+                .rejection = SuccessorFeasibilityRejection::Reboarding
             };
         }
-        return PaperSuccessorFeasibilityDecision{};
+        return SuccessorFeasibilityDecision{};
     }
 
     SearchPartialMetrics extend_metrics_with_walk(
@@ -304,8 +304,8 @@ namespace timetable::domain::assignment {
         return metrics;
     }
 
-    mathfp::Expected<PaperConnectionPrefixEvaluation>
-    evaluate_paper_connection_prefix_before_branch(
+    mathfp::Expected<ConnectionPrefixEvaluation>
+    evaluate_connection_prefix_before_branch(
           const BranchArena&         branches
         , const SearchBranch&        branch
         , const PreprocessedNetwork& network
@@ -321,12 +321,12 @@ namespace timetable::domain::assignment {
 
         if (is_walk_connection(successor)) {
             if (!successor_ref.walk_transition.has_value()) {
-                return PaperConnectionPrefixEvaluation{
+                return ConnectionPrefixEvaluation{
                     .rejection = BranchTransitionRejection::MissingWalkTransition
                 };
             }
             if (branch_revisits_physical(branches, branch, network, next_physical)) {
-                return PaperConnectionPrefixEvaluation{
+                return ConnectionPrefixEvaluation{
                     .rejection = BranchTransitionRejection::RepeatedPhysicalNode
                 };
             }
@@ -337,7 +337,7 @@ namespace timetable::domain::assignment {
             );
         } else {
             if (!timed_extension_transition(branch.trace.phase).has_value()) {
-                return PaperConnectionPrefixEvaluation{
+                return ConnectionPrefixEvaluation{
                     .rejection = BranchTransitionRejection::InvalidTimedPhase
                 };
             }
@@ -345,7 +345,7 @@ namespace timetable::domain::assignment {
                 line_topology_of(route_segment)->to
             );
             if (branch_revisits_occurrence(branches, branch, network, next_occurrence)) {
-                return PaperConnectionPrefixEvaluation{
+                return ConnectionPrefixEvaluation{
                     .rejection = BranchTransitionRejection::RepeatedStopOccurrence
                 };
             }
@@ -373,10 +373,10 @@ namespace timetable::domain::assignment {
             , pruning_metrics
             , make_day_path_pruning_metrics(metrics, search_cost)
         );
-        return PaperConnectionPrefixEvaluation{
-              .kind = PaperConnectionPrefixKind::ConnectionPrefix
-            , .connection_candidate = PaperConnectionCandidateMetrics{
-                  .node = PaperConnectionNodeKey{ .physical = next_physical }
+        return ConnectionPrefixEvaluation{
+              .kind = ConnectionPrefixKind::ConnectionPrefix
+            , .connection_candidate = ConnectionPrefixCandidateMetrics{
+                  .node = NodeConnectionSetKey{ .physical = next_physical }
                 , .metrics = std::move(pruning_metrics)
             }
         };
@@ -461,7 +461,7 @@ namespace timetable::domain::assignment {
                           , successor_ref.walk_transition->kind
                       )
                     , .od_day_carrier = branch.od_day_carrier
-                    , .paper_connection_label = branch.paper_connection_label
+                    , .retained_connection_label = branch.retained_connection_label
                 }
             };
         }
@@ -513,7 +513,7 @@ namespace timetable::domain::assignment {
                   )
                 , .metrics = extended_metrics
                 , .od_day_carrier = branch.od_day_carrier
-                , .paper_connection_label = branch.paper_connection_label
+                , .retained_connection_label = branch.retained_connection_label
             }
         };
     }

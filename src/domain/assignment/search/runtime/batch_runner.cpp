@@ -98,7 +98,7 @@ namespace timetable::domain::assignment::runtime::detail {
 
         auto& retentions = batch_state.retentions;
         auto& tree_partial_retention = batch_state.tree_partial_retention;
-        auto& paper_label_registry = batch_state.paper_label_registry;
+        auto& retained_label_registry = batch_state.retained_label_registry;
         auto& stats = batch_state.stats;
         auto& task_stats = batch_state.task_stats;
         const auto target_projection_slots =
@@ -124,13 +124,13 @@ namespace timetable::domain::assignment::runtime::detail {
         }
 
         if (od_day_slots) {
-            stats.c_y_removed_stale += remove_inactive_paper_connection_metrics(
-                  tree_partial_retention.paper_connections
-                , paper_label_registry
+            stats.c_y_removed_stale += remove_inactive_node_connection_sets(
+                  tree_partial_retention.node_connection_sets
+                , retained_label_registry
             );
-            MATHFP_TRY(validate_paper_connection_label_sync(
-                  tree_partial_retention.paper_connections
-                , paper_label_registry
+            MATHFP_TRY(validate_retained_connection_label_sync(
+                  tree_partial_retention.node_connection_sets
+                , retained_label_registry
                 , batch.key.origin
             ));
         }

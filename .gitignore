@@ -41,3 +41,5 @@ AGENTS.md
 graphify-out/
 .codex/tmp/
 .serena/compile_commands.json
+# Added by code-review-graph
+.code-review-graph/

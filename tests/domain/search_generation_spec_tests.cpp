@@ -114,7 +114,7 @@ TEST(SearchSuccessorSpec, TimedEnumerationReturnsDiagnosticsWithSuccessorSet) {
     EXPECT_EQ(result.diagnostics.emitted_successors, 1u);
 }
 
-TEST(SearchSuccessorSpec, PaperGenerationReturnsDiagnosticsWithoutRuntimeStats) {
+TEST(SearchSuccessorSpec, SuccessorGenerationReturnsDiagnosticsWithoutRuntimeStats) {
     const auto network = timed_network();
     const auto branch = preboarding_branch();
     const auto first_departure_domain = SearchTimeDomain{
@@ -125,10 +125,10 @@ TEST(SearchSuccessorSpec, PaperGenerationReturnsDiagnosticsWithoutRuntimeStats) 
             }
         }
     };
-    auto diagnostics = PaperSuccessorGenerationDiagnostics{};
+    auto diagnostics = SuccessorGenerationDiagnostics{};
     std::vector<SearchSuccessor> successors;
 
-    for_each_paper_successor(
+    for_each_search_successor(
           network
         , ZoneId{ 1 }
         , ActiveDestinationMembership{}
@@ -170,13 +170,13 @@ TEST(SearchBranchTransitionSpec, RejectsTimedTransitionFromAtOriginAsValue) {
     EXPECT_EQ(result->diagnostics.rejection, BranchTransitionRejection::InvalidTimedPhase);
 }
 
-TEST(SearchBranchTransitionSpec, PaperPrefixEvaluationBuildsNodeLocalCandidateMetrics) {
+TEST(SearchBranchTransitionSpec, ConnectionPrefixEvaluationBuildsNodeLocalCandidateMetrics) {
     const auto network = timed_network();
     const auto branch = preboarding_branch();
     BranchArena branches;
     append_branch(branches, branch);
 
-    const auto result = evaluate_paper_connection_prefix_before_branch(
+    const auto result = evaluate_connection_prefix_before_branch(
           branches
         , branch
         , network
@@ -195,7 +195,7 @@ TEST(SearchBranchTransitionSpec, PaperPrefixEvaluationBuildsNodeLocalCandidateMe
     EXPECT_EQ(result->connection_candidate->metrics.transfers, TransferCount{ 0 });
 }
 
-TEST(SearchBranchTransitionSpec, PaperSuccessorFeasibilityReportsTimeDomainRejectionAsValue) {
+TEST(SearchBranchTransitionSpec, SuccessorFeasibilityReportsTimeDomainRejectionAsValue) {
     const auto network = timed_network();
     const auto branch = preboarding_branch();
     const auto first_departure_domain = SearchTimeDomain{
@@ -207,7 +207,7 @@ TEST(SearchBranchTransitionSpec, PaperSuccessorFeasibilityReportsTimeDomainRejec
         }
     };
 
-    const auto decision = evaluate_paper_search_successor_feasibility(
+    const auto decision = evaluate_search_successor_feasibility(
           branch
         , network
         , SearchSuccessor{ .connection = ConnectionSegmentId{ 0 } }
@@ -218,7 +218,7 @@ TEST(SearchBranchTransitionSpec, PaperSuccessorFeasibilityReportsTimeDomainRejec
     EXPECT_FALSE(decision.accepted());
     EXPECT_EQ(
           decision.rejection
-        , PaperSuccessorFeasibilityRejection::FirstDepartureDomain
+        , SuccessorFeasibilityRejection::FirstDepartureDomain
     );
 }
 

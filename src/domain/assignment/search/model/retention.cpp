@@ -2,28 +2,28 @@
 
 namespace timetable::domain::assignment {
 
-    PaperConnectionLabelId allocate_paper_connection_label(
-          PaperConnectionLabelRegistry&         registry
-        , std::optional<PaperConnectionLabelId> parent
+    RetainedConnectionLabelId allocate_retained_connection_label(
+          RetainedConnectionLabelRegistry&         registry
+        , std::optional<RetainedConnectionLabelId> parent
     ) {
-        const auto id = PaperConnectionLabelId{ .value = registry.active.size() };
+        const auto id = RetainedConnectionLabelId{ .value = registry.active.size() };
         registry.active.push_back(true);
         registry.parent.push_back(parent);
         return id;
     }
 
-    void deactivate_paper_connection_label(
-          PaperConnectionLabelRegistry& registry
-        , PaperConnectionLabelId        label
+    void deactivate_retained_connection_label(
+          RetainedConnectionLabelRegistry& registry
+        , RetainedConnectionLabelId        label
     ) noexcept {
         if (label.value < registry.active.size()) {
             registry.active[label.value] = false;
         }
     }
 
-    bool paper_connection_label_active(
-          const PaperConnectionLabelRegistry& registry
-        , std::optional<PaperConnectionLabelId> label
+    bool retained_connection_label_active(
+          const RetainedConnectionLabelRegistry& registry
+        , std::optional<RetainedConnectionLabelId> label
     ) noexcept {
         if (!label.has_value()) {
             return true;

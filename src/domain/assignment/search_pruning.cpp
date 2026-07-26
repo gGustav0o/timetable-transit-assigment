@@ -250,7 +250,7 @@ namespace timetable::domain::assignment {
         }
 
         //tex:
-        // Paper node-local tolerance constraints for $$C_y$$:
+        // Node-local tolerance constraints for $$C_y$$:
         // $$IMP(c^*_y)\le b_1\min_{c\in C_y}IMP(c)+b_2.$$
         // $$JT(c^*_y)\le d_1\min_{c\in C_y}JT(c)+d_2.$$
         // $$NT(c^*_y)\le e_1\min_{c\in C_y}NT(c)+e_2.$$

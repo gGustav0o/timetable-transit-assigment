@@ -70,7 +70,7 @@ namespace timetable::domain::assignment {
         }
         if (has_day_level_supply) {
             return mathfp::unexpected(
-                mathfp::internal_error("OD-day production search must use paper connection-segment carrier, not structural day-level graph")
+                mathfp::internal_error("OD-day production search must use connection-segment carrier, not structural day-level graph")
                     .ctx("origin", batch.key.origin.get())
             );
         }
@@ -90,7 +90,7 @@ namespace timetable::domain::assignment {
         }
         if (partial_retention_scope != SearchPartialRetentionScope::TreeGlobal) {
             return mathfp::unexpected(
-                mathfp::internal_error("OD-day production search requires tree-global paper C_y retention")
+                mathfp::internal_error("OD-day production search requires tree-global node-local C_y retention")
                     .ctx("origin", batch.key.origin.get())
                     .ctx("partial_retention_scope", std::string(to_string(partial_retention_scope)))
             );
@@ -99,7 +99,7 @@ namespace timetable::domain::assignment {
             || !pruning_execution.approximate_enabled
             || !pruning_execution.approximate_policy.has_value()) {
             return mathfp::unexpected(
-                mathfp::internal_error("OD-day production search requires paper-level node-local C_y relevance and tolerance retention")
+                mathfp::internal_error("OD-day production search requires connection-tree-level node-local C_y relevance and tolerance retention")
                     .ctx("origin", batch.key.origin.get())
                     .ctx("exact_enabled", pruning_execution.exact_enabled ? "true" : "false")
                     .ctx("approximate_enabled", pruning_execution.approximate_enabled ? "true" : "false")
@@ -350,7 +350,7 @@ namespace timetable::domain::assignment {
 
             case AssignmentCalculationFormulation::DemandTaskAssignment:
                 return mathfp::unexpected(
-                    mathfp::invalid_arg("legacy demand-task timed assignment is disabled; use od_day_assignment for production or timed_connection_diagnostics for search-only diagnostics")
+                    mathfp::invalid_arg("fallback demand-task timed assignment is disabled; use od_day_assignment for production or timed_connection_diagnostics for search-only diagnostics")
                         .ctx("diagnostic_mode", config.diagnostic_mode ? "true" : "false")
                         .ctx("mode", std::string(to_string(config.mode)))
                         .ctx("origin_scope", std::string(to_string(config.origin_scope)))

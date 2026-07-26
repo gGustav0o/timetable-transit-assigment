@@ -14,7 +14,7 @@
 
 namespace timetable::domain::assignment {
 
-    void update_paper_node_summary_with_metrics(
+    void update_node_connection_summary_with_metrics(
           SearchPruningSummary&       summary
         , const SearchPruningMetrics& metrics
     ) noexcept {
@@ -48,20 +48,20 @@ namespace timetable::domain::assignment {
     ) noexcept {
         SearchPruningSummary summary{};
         for (const auto& entry : entries) {
-            update_paper_node_summary_with_metrics(summary, entry.metrics);
+            update_node_connection_summary_with_metrics(summary, entry.metrics);
         }
         return summary;
     }
 
-    std::size_t remove_inactive_paper_node_connection_metrics(
+    std::size_t remove_inactive_node_connection_metrics(
           ConnectionSetCy&                    set
-        , const PaperConnectionLabelRegistry& registry
+        , const RetainedConnectionLabelRegistry& registry
     ) {
         auto write = std::size_t{ 0u };
         for (std::size_t read = 0u; read < set.entries_.size(); ++read) {
-            if (!paper_connection_label_active(
+            if (!retained_connection_label_active(
                   registry
-                , std::optional<PaperConnectionLabelId>{ set.entries_[read].label }
+                , std::optional<RetainedConnectionLabelId>{ set.entries_[read].label }
             )) {
                 continue;
             }
@@ -78,13 +78,13 @@ namespace timetable::domain::assignment {
         return removed;
     }
 
-    std::size_t remove_inactive_paper_connection_metrics(
-          PaperConnectionNodeMetricMap&       retention
-        , const PaperConnectionLabelRegistry& registry
+    std::size_t remove_inactive_node_connection_sets(
+          NodeConnectionSetMap&       retention
+        , const RetainedConnectionLabelRegistry& registry
     ) {
         auto removed = std::size_t{ 0u };
         for (auto it = retention.begin(); it != retention.end();) {
-            removed += remove_inactive_paper_node_connection_metrics(
+            removed += remove_inactive_node_connection_metrics(
                   it->second
                 , registry
             );
@@ -97,19 +97,19 @@ namespace timetable::domain::assignment {
         return removed;
     }
 
-    mathfp::Expected<mathfp::Unit> validate_paper_connection_label_sync(
-          const PaperConnectionNodeMetricMap& retention
-        , const PaperConnectionLabelRegistry& registry
+    mathfp::Expected<mathfp::Unit> validate_retained_connection_label_sync(
+          const NodeConnectionSetMap& retention
+        , const RetainedConnectionLabelRegistry& registry
         , ZoneId                              origin
     ) {
         for (const auto& [node, set] : retention) {
             for (const auto& entry : set.entries()) {
-                if (!paper_connection_label_active(
+                if (!retained_connection_label_active(
                       registry
-                    , std::optional<PaperConnectionLabelId>{ entry.label }
+                    , std::optional<RetainedConnectionLabelId>{ entry.label }
                 )) {
                     return mathfp::unexpected(
-                        mathfp::internal_error("paper C_y retained inactive frontier label")
+                        mathfp::internal_error("node-local C_y retained inactive frontier label")
                             .ctx("origin", origin.get())
                             .ctx("node_kind", static_cast<std::int64_t>(node.physical.kind))
                             .ctx("node_id", node.physical.id)
@@ -121,12 +121,12 @@ namespace timetable::domain::assignment {
         return mathfp::kUnit;
     }
 
-    void insert_paper_node_connection_metrics(
+    void insert_node_connection_metrics(
           const SearchPruningExecutionPlan& pruning_execution
         , ConnectionSetCy&                  set
         , SearchPruningMetrics              metrics
-        , PaperConnectionLabelId            label
-        , std::vector<PaperConnectionLabelId>& removed_labels
+        , RetainedConnectionLabelId            label
+        , std::vector<RetainedConnectionLabelId>& removed_labels
     ) {
         if (!stores_search_pruning_metrics(pruning_execution)) {
             return;
@@ -180,7 +180,7 @@ namespace timetable::domain::assignment {
         if (removed_any) {
             set.summary_ = summarize_connection_set_c_y(set.entries_);
         } else {
-            update_paper_node_summary_with_metrics(set.summary_, inserted_metrics);
+            update_node_connection_summary_with_metrics(set.summary_, inserted_metrics);
         }
     }
 
